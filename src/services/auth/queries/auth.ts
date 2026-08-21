@@ -1,297 +1,471 @@
 /**
- * Drizzle queries used by authentication workflows. Every exported function is
- * intentionally small so controllers express policy without embedding SQL.
+ * Drizzle queries used by authentication workflows. SQL details and D1 batch
+ * boundaries stay here so controllers can express policy without weakening
+ * the race guarantees of signup or session ownership checks.
  */
-import { and, eq, exists, gt, lte, ne, sql } from 'drizzle-orm'
+import { and, eq, exists, gt, isNull, lte, ne, sql, type SQL } from 'drizzle-orm'
 import type { Database } from '../../../db'
-import { applicant, applicantSession, applicantSignupPair } from '../../../db/schema'
+import {
+  coreAuditEvent,
+  coreSession,
+  coreSignupChallenge,
+  coreUser,
+} from '../../../db/schema'
 
-export type ApplicantRecord = typeof applicant.$inferSelect
-export type SessionRecord = typeof applicantSession.$inferSelect
-export type PublicApplicantRecord = Omit<ApplicantRecord, 'passwordHash'>
+export type UserRecord = typeof coreUser.$inferSelect
+export type SessionRecord = typeof coreSession.$inferSelect
+export type SignupChallengeRecord = typeof coreSignupChallenge.$inferSelect
+export type AuditEventRecord = typeof coreAuditEvent.$inferInsert
+export type PublicUserRecord = Pick<
+  UserRecord,
+  'id' | 'email' | 'emailVerifiedAt' | 'role' | 'createdAt' | 'updatedAt'
+>
 export type PublicSessionRecord = Omit<SessionRecord, 'tokenDigest'>
-
-export type SignupPairRecord = {
-  id: string
-  email: string
-  challengeDigest: string
-  otpDigest: string
-  expiresAt: number
-  attemptsRemaining: number
-}
 
 const changes = (result: D1Result): number => result.meta.changes ?? 0
 
-/** Finds the credential-bearing applicant row through its unique email index. */
-export const findApplicantByEmail = async (
+/** Builds a guarded audit INSERT used inside the same D1 transaction as a mutation. */
+const insertAuditEventWhere = (
+  db: Database,
+  value: AuditEventRecord,
+  predicate: SQL,
+) =>
+  db.insert(coreAuditEvent).select(sql`
+    SELECT
+      ${value.id},
+      ${value.actorUserId ?? null},
+      ${value.action},
+      ${value.entityType},
+      ${value.entityId ?? null},
+      ${value.outcome},
+      ${value.requestId ?? null},
+      ${value.ipAddress ?? null},
+      ${value.userAgent ?? null},
+      ${value.changesJson ?? null},
+      ${value.metadataJson ?? null},
+      ${(value.createdAt as Date).getTime()}
+    WHERE ${predicate}
+  `)
+
+export const createAuditEvent = async (
+  db: Database,
+  value: AuditEventRecord,
+): Promise<void> => {
+  await db.insert(coreAuditEvent).values(value)
+}
+
+/** Includes soft-deleted users so their email addresses can never be reclaimed. */
+export const findUserByEmail = async (
   db: Database,
   email: string,
-): Promise<ApplicantRecord | null> => {
-  const [record] = await db.select().from(applicant).where(eq(applicant.email, email)).limit(1)
+): Promise<UserRecord | null> => {
+  const [record] = await db.select().from(coreUser).where(eq(coreUser.email, email)).limit(1)
   return record ?? null
 }
 
-/** Atomically creates a pair only while the normalized email is unregistered. */
-export const createSignupPair = async (
-  db: Database,
-  pair: SignupPairRecord & { createdAt: number },
-): Promise<boolean> => {
-  // The INSERT itself checks for an applicant, closing the race between an
-  // initial existence check and writing a new signup pair.
-  const inserted = await db
-    .insert(applicantSignupPair)
-    .select(sql`
-      SELECT
-        ${pair.id},
-        ${pair.email},
-        ${pair.challengeDigest},
-        ${pair.otpDigest},
-        ${pair.expiresAt},
-        ${pair.attemptsRemaining},
-        ${pair.createdAt},
-        ${pair.createdAt}
-      WHERE NOT EXISTS (
-        SELECT 1 FROM ${applicant} WHERE ${applicant.email} = ${pair.email}
-      )
-    `)
-    .returning({ id: applicantSignupPair.id })
-  return inserted.length === 1
-}
-
-/**
- * Performs the final race-safe signup claim. D1 batches are transactional: the
- * applicant insert and deletion of every sibling challenge commit or roll back
- * together. A stale controller read cannot authorize this guarded INSERT.
- */
-export const createApplicantFromSignupPair = async (
-  db: Database,
-  input: {
-    applicant: ApplicantRecord
-    pair: SignupPairRecord
-    submittedOtpDigest: string
-    now: number
-  },
-): Promise<boolean> => {
-  const { applicant: value, pair, submittedOtpDigest, now } = input
-  // This transaction is the authoritative OTP claim. It rechecks the pair at
-  // write time, inserts at most one applicant, and removes every sibling pair.
-  // Concurrent wrong attempts and redemptions are serialized by D1.
-  const insertApplicant = db
-    .insert(applicant)
-    .select(sql`
-      SELECT
-        ${value.id},
-        ${applicantSignupPair.email},
-        ${value.passwordHash},
-        ${value.emailVerified ? 1 : 0},
-        ${value.role},
-        ${value.createdAt.getTime()},
-        ${value.updatedAt.getTime()}
-      FROM ${applicantSignupPair}
-      WHERE ${applicantSignupPair.id} = ${pair.id}
-        AND ${applicantSignupPair.challengeDigest} = ${pair.challengeDigest}
-        AND ${applicantSignupPair.otpDigest} = ${submittedOtpDigest}
-        AND ${applicantSignupPair.expiresAt} > ${now}
-    `)
-    .onConflictDoNothing({ target: applicant.email })
-    .returning({ id: applicant.id })
-
-  // The applicant-id condition makes this a no-op when the guarded insert did
-  // not run. A cleanup failure rolls the insert back with the entire batch.
-  const deleteSiblingPairs = db.delete(applicantSignupPair).where(
-    and(
-      eq(applicantSignupPair.email, pair.email),
-      exists(db.select({ id: applicant.id }).from(applicant).where(eq(applicant.id, value.id))),
-    ),
-  )
-
-  const [inserted] = await db.batch([insertApplicant, deleteSiblingPairs])
-  return inserted.length === 1
-}
-
-export const deleteSignupPair = async (db: Database, id: string): Promise<void> => {
-  await db.delete(applicantSignupPair).where(eq(applicantSignupPair.id, id))
-}
-
-export const deleteSignupPairsForEmail = async (
+/** Credential authentication only considers users that have not been deleted. */
+export const findActiveUserByEmail = async (
   db: Database,
   email: string,
-): Promise<void> => {
-  await db.delete(applicantSignupPair).where(eq(applicantSignupPair.email, email))
-}
-
-export const findSignupPair = async (
-  db: Database,
-  challengeDigest: string,
-): Promise<SignupPairRecord | null> => {
+): Promise<UserRecord | null> => {
   const [record] = await db
-    .select({
-      id: applicantSignupPair.id,
-      email: applicantSignupPair.email,
-      challengeDigest: applicantSignupPair.challengeDigest,
-      otpDigest: applicantSignupPair.otpDigest,
-      expiresAt: applicantSignupPair.expiresAt,
-      attemptsRemaining: applicantSignupPair.attemptsRemaining,
-    })
-    .from(applicantSignupPair)
-    .where(eq(applicantSignupPair.challengeDigest, challengeDigest))
+    .select()
+    .from(coreUser)
+    .where(and(eq(coreUser.email, email), isNull(coreUser.deletedAt)))
     .limit(1)
   return record ?? null
 }
 
+/** Atomically creates one challenge only while the normalized email is unused. */
+export const createSignupChallenge = async (
+  db: Database,
+  challenge: SignupChallengeRecord,
+  auditEvent: AuditEventRecord,
+): Promise<boolean> => {
+  const insertChallenge = db
+    .insert(coreSignupChallenge)
+    .select(sql`
+      SELECT
+        ${challenge.id},
+        ${challenge.email},
+        ${challenge.challengeDigest},
+        ${challenge.otpDigest},
+        ${challenge.attemptsRemaining},
+        ${challenge.expiresAt.getTime()},
+        ${challenge.status},
+        NULL,
+        NULL,
+        NULL,
+        ${challenge.createdAt.getTime()},
+        ${challenge.updatedAt.getTime()}
+      WHERE NOT EXISTS (
+        SELECT 1 FROM ${coreUser} WHERE ${coreUser.email} = ${challenge.email}
+      )
+    `)
+    .returning({ id: coreSignupChallenge.id })
+
+  const insertAudit = insertAuditEventWhere(
+    db,
+    auditEvent,
+    exists(
+      db
+        .select({ id: coreSignupChallenge.id })
+        .from(coreSignupChallenge)
+        .where(eq(coreSignupChallenge.id, challenge.id)),
+    ),
+  )
+
+  const [inserted] = await db.batch([insertChallenge, insertAudit])
+  return inserted.length === 1
+}
+
+/** Marks an undeliverable challenge unusable without erasing its history. */
+export const markSignupChallengeDeliveryFailed = async (
+  db: Database,
+  challengeId: string,
+  now: Date,
+  auditEvent: AuditEventRecord,
+): Promise<void> => {
+  const markFailed = db
+    .update(coreSignupChallenge)
+    .set({
+      status: 'DELIVERY_FAILED',
+      invalidatedAt: now,
+      invalidationReason: 'NOTIFICATION_DELIVERY_FAILED',
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(coreSignupChallenge.id, challengeId),
+        eq(coreSignupChallenge.status, 'PENDING'),
+      ),
+    )
+
+  const insertAudit = insertAuditEventWhere(
+    db,
+    auditEvent,
+    exists(
+      db
+        .select({ id: coreSignupChallenge.id })
+        .from(coreSignupChallenge)
+        .where(
+          and(
+            eq(coreSignupChallenge.id, challengeId),
+            eq(coreSignupChallenge.status, 'DELIVERY_FAILED'),
+          ),
+        ),
+    ),
+  )
+
+  await db.batch([markFailed, insertAudit])
+}
+
 /**
- * Consumes exactly one attempt at D1's write ordering point. On the final
- * attempt the row is deleted rather than decremented to an invalid zero value.
+ * Performs the authoritative, race-safe signup claim. Every mutation is gated
+ * by the newly generated user ID, so a losing concurrent redemption cannot
+ * consume challenges or emit a successful user-creation audit event.
  */
+export const createUserFromSignupChallenge = async (
+  db: Database,
+  input: {
+    user: UserRecord
+    challenge: SignupChallengeRecord
+    submittedOtpDigest: string
+    now: Date
+    auditEvent: AuditEventRecord
+  },
+): Promise<boolean> => {
+  const { user, challenge, submittedOtpDigest, now, auditEvent } = input
+  const userExists = exists(
+    db.select({ id: coreUser.id }).from(coreUser).where(eq(coreUser.id, user.id)),
+  )
+
+  const insertUser = db
+    .insert(coreUser)
+    .select(sql`
+      SELECT
+        ${user.id},
+        ${coreSignupChallenge.email},
+        ${user.passwordHash},
+        ${user.emailVerifiedAt?.getTime() ?? null},
+        ${user.role},
+        ${user.rowVersion},
+        ${user.createdAt.getTime()},
+        ${user.updatedAt.getTime()},
+        NULL,
+        NULL,
+        NULL
+      FROM ${coreSignupChallenge}
+      WHERE ${coreSignupChallenge.id} = ${challenge.id}
+        AND ${coreSignupChallenge.challengeDigest} = ${challenge.challengeDigest}
+        AND ${coreSignupChallenge.otpDigest} = ${submittedOtpDigest}
+        AND ${coreSignupChallenge.status} = 'PENDING'
+        AND ${coreSignupChallenge.attemptsRemaining} > 0
+        AND ${coreSignupChallenge.expiresAt} > ${now.getTime()}
+    `)
+    .onConflictDoNothing({ target: coreUser.email })
+    .returning({ id: coreUser.id })
+
+  const consumeWinner = db
+    .update(coreSignupChallenge)
+    .set({
+      status: 'CONSUMED',
+      consumedByUserId: user.id,
+      invalidatedAt: now,
+      invalidationReason: 'SIGNUP_COMPLETED',
+      updatedAt: now,
+    })
+    .where(and(eq(coreSignupChallenge.id, challenge.id), userExists))
+
+  const cancelSiblings = db
+    .update(coreSignupChallenge)
+    .set({
+      status: 'CANCELLED',
+      invalidatedAt: now,
+      invalidationReason: 'SIBLING_CHALLENGE_CONSUMED',
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(coreSignupChallenge.email, challenge.email),
+        ne(coreSignupChallenge.id, challenge.id),
+        eq(coreSignupChallenge.status, 'PENDING'),
+        userExists,
+      ),
+    )
+
+  const insertAudit = insertAuditEventWhere(db, auditEvent, userExists)
+  const [inserted] = await db.batch([
+    insertUser,
+    consumeWinner,
+    cancelSiblings,
+    insertAudit,
+  ])
+  return inserted.length === 1
+}
+
+/** Cancels remaining challenges when another request already claimed the email. */
+export const cancelSignupChallengesForEmail = async (
+  db: Database,
+  email: string,
+  now: Date,
+): Promise<void> => {
+  await db
+    .update(coreSignupChallenge)
+    .set({
+      status: 'CANCELLED',
+      invalidatedAt: now,
+      invalidationReason: 'EMAIL_ALREADY_REGISTERED',
+      updatedAt: now,
+    })
+    .where(
+      and(eq(coreSignupChallenge.email, email), eq(coreSignupChallenge.status, 'PENDING')),
+    )
+}
+
+export const findSignupChallenge = async (
+  db: Database,
+  challengeDigest: string,
+): Promise<SignupChallengeRecord | null> => {
+  const [record] = await db
+    .select()
+    .from(coreSignupChallenge)
+    .where(eq(coreSignupChallenge.challengeDigest, challengeDigest))
+    .limit(1)
+  return record ?? null
+}
+
+/** Atomically decrements a pending challenge or exhausts its final attempt. */
 export const consumeWrongOtpAttempt = async (
   db: Database,
-  pairId: string,
-  now: number,
+  challengeId: string,
+  now: Date,
+  auditEvent: AuditEventRecord,
 ): Promise<void> => {
-  // Delete first when this is the last attempt, then decrement all other
-  // matching rows. D1 batches make the pair-specific transition atomic.
-  await db.batch([
-    db.delete(applicantSignupPair).where(
+  const exhaust = db
+    .update(coreSignupChallenge)
+    .set({
+      attemptsRemaining: 0,
+      status: 'EXHAUSTED',
+      invalidatedAt: now,
+      invalidationReason: 'OTP_ATTEMPTS_EXHAUSTED',
+      updatedAt: now,
+    })
+    .where(
       and(
-        eq(applicantSignupPair.id, pairId),
-        gt(applicantSignupPair.expiresAt, now),
-        lte(applicantSignupPair.attemptsRemaining, 1),
+        eq(coreSignupChallenge.id, challengeId),
+        eq(coreSignupChallenge.status, 'PENDING'),
+        gt(coreSignupChallenge.expiresAt, now),
+        gt(coreSignupChallenge.attemptsRemaining, 0),
+        lte(coreSignupChallenge.attemptsRemaining, 1),
       ),
-    ),
+    )
+
+  const decrement = db
+    .update(coreSignupChallenge)
+    .set({
+      attemptsRemaining: sql`${coreSignupChallenge.attemptsRemaining} - 1`,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(coreSignupChallenge.id, challengeId),
+        eq(coreSignupChallenge.status, 'PENDING'),
+        gt(coreSignupChallenge.expiresAt, now),
+        gt(coreSignupChallenge.attemptsRemaining, 1),
+      ),
+    )
+
+  await db.batch([exhaust, decrement, db.insert(coreAuditEvent).values(auditEvent)])
+}
+
+export const createUserSession = async (
+  db: Database,
+  value: SessionRecord,
+  auditEvent: AuditEventRecord,
+): Promise<void> => {
+  await db.batch([
+    db.insert(coreSession).values(value),
+    db.insert(coreAuditEvent).values(auditEvent),
+  ])
+}
+
+/** Resolves one live token digest and its non-deleted owning user in one query. */
+export const findUserSessionByDigest = async (
+  db: Database,
+  tokenDigest: string,
+  now: Date,
+): Promise<{ user: PublicUserRecord; session: PublicSessionRecord } | null> => {
+  const [record] = await db
+    .select({
+      user: {
+        id: coreUser.id,
+        email: coreUser.email,
+        emailVerifiedAt: coreUser.emailVerifiedAt,
+        role: coreUser.role,
+        createdAt: coreUser.createdAt,
+        updatedAt: coreUser.updatedAt,
+      },
+      session: {
+        id: coreSession.id,
+        userId: coreSession.userId,
+        expiresAt: coreSession.expiresAt,
+        createdAt: coreSession.createdAt,
+        updatedAt: coreSession.updatedAt,
+        ipAddress: coreSession.ipAddress,
+        userAgent: coreSession.userAgent,
+      },
+    })
+    .from(coreSession)
+    .innerJoin(coreUser, eq(coreUser.id, coreSession.userId))
+    .where(
+      and(
+        eq(coreSession.tokenDigest, tokenDigest),
+        gt(coreSession.expiresAt, now),
+        isNull(coreUser.deletedAt),
+      ),
+    )
+    .limit(1)
+  return record ?? null
+}
+
+/** Marks expired challenges but physically removes expired transient sessions. */
+export const cleanupExpiredAuthenticationState = async (
+  db: Database,
+  now: Date,
+): Promise<void> => {
+  await db.batch([
     db
-      .update(applicantSignupPair)
+      .update(coreSignupChallenge)
       .set({
-        attemptsRemaining: sql`${applicantSignupPair.attemptsRemaining} - 1`,
+        status: 'EXPIRED',
+        invalidatedAt: now,
+        invalidationReason: 'CHALLENGE_EXPIRED',
         updatedAt: now,
       })
       .where(
         and(
-          eq(applicantSignupPair.id, pairId),
-          gt(applicantSignupPair.expiresAt, now),
-          gt(applicantSignupPair.attemptsRemaining, 1),
+          eq(coreSignupChallenge.status, 'PENDING'),
+          lte(coreSignupChallenge.expiresAt, now),
         ),
       ),
-  ])
-}
-
-export const createApplicantSession = async (
-  db: Database,
-  value: typeof applicantSession.$inferInsert,
-): Promise<void> => {
-  await db.insert(applicantSession).values(value)
-}
-
-/** Resolves one live bearer-token digest and its owning applicant in one query. */
-export const findApplicantSessionByDigest = async (
-  db: Database,
-  tokenDigest: string,
-  now: Date,
-): Promise<{ applicant: PublicApplicantRecord; session: PublicSessionRecord } | null> => {
-  const [record] = await db
-    .select({
-      applicant: {
-        id: applicant.id,
-        email: applicant.email,
-        emailVerified: applicant.emailVerified,
-        role: applicant.role,
-        createdAt: applicant.createdAt,
-        updatedAt: applicant.updatedAt,
-      },
-      session: {
-        id: applicantSession.id,
-        applicantId: applicantSession.applicantId,
-        expiresAt: applicantSession.expiresAt,
-        createdAt: applicantSession.createdAt,
-        updatedAt: applicantSession.updatedAt,
-        ipAddress: applicantSession.ipAddress,
-        userAgent: applicantSession.userAgent,
-      },
-    })
-    .from(applicantSession)
-    .innerJoin(applicant, eq(applicant.id, applicantSession.applicantId))
-    .where(
-      and(
-        eq(applicantSession.tokenDigest, tokenDigest),
-        gt(applicantSession.expiresAt, now),
-      ),
-    )
-    .limit(1)
-  return record ?? null
-}
-
-/** Bulk maintenance called by Cron; expiry indexes keep both deletes bounded. */
-export const deleteExpiredAuthenticationState = async (
-  db: Database,
-  now: Date,
-): Promise<void> => {
-  await db.batch([
-    db.delete(applicantSignupPair).where(lte(applicantSignupPair.expiresAt, now.getTime())),
-    db.delete(applicantSession).where(lte(applicantSession.expiresAt, now)),
+    db.delete(coreSession).where(lte(coreSession.expiresAt, now)),
   ])
 }
 
 /** Selects only browser-safe session columns; token digests never leave this layer. */
-export const listApplicantSessions = async (
+export const listUserSessions = async (
   db: Database,
-  applicantId: string,
+  userId: string,
   now: Date,
-): Promise<PublicSessionRecord[]> => {
-  return db
+): Promise<PublicSessionRecord[]> =>
+  db
     .select({
-      id: applicantSession.id,
-      applicantId: applicantSession.applicantId,
-      expiresAt: applicantSession.expiresAt,
-      createdAt: applicantSession.createdAt,
-      updatedAt: applicantSession.updatedAt,
-      ipAddress: applicantSession.ipAddress,
-      userAgent: applicantSession.userAgent,
+      id: coreSession.id,
+      userId: coreSession.userId,
+      expiresAt: coreSession.expiresAt,
+      createdAt: coreSession.createdAt,
+      updatedAt: coreSession.updatedAt,
+      ipAddress: coreSession.ipAddress,
+      userAgent: coreSession.userAgent,
     })
-    .from(applicantSession)
-    .where(
-      and(eq(applicantSession.applicantId, applicantId), gt(applicantSession.expiresAt, now)),
-    )
-    .orderBy(applicantSession.createdAt)
-}
+    .from(coreSession)
+    .where(and(eq(coreSession.userId, userId), gt(coreSession.expiresAt, now)))
+    .orderBy(coreSession.createdAt)
 
-/** Deletes by both public session ID and owner, preventing cross-account revocation. */
-export const deleteApplicantSession = async (
+/** Deletes only an owned public session ID and atomically audits a successful match. */
+export const deleteUserSession = async (
   db: Database,
   sessionId: string,
-  applicantId: string,
+  userId: string,
+  auditEvent: AuditEventRecord,
 ): Promise<boolean> => {
-  const result = await db
-    .delete(applicantSession)
-    .where(
-      and(eq(applicantSession.id, sessionId), eq(applicantSession.applicantId, applicantId)),
-    )
-  return changes(result) === 1
+  const ownedSessionExists = exists(
+    db
+      .select({ id: coreSession.id })
+      .from(coreSession)
+      .where(and(eq(coreSession.id, sessionId), eq(coreSession.userId, userId))),
+  )
+  const insertAudit = insertAuditEventWhere(db, auditEvent, ownedSessionExists)
+  const deleteSession = db
+    .delete(coreSession)
+    .where(and(eq(coreSession.id, sessionId), eq(coreSession.userId, userId)))
+  const [, deleted] = await db.batch([insertAudit, deleteSession])
+  return changes(deleted) === 1
 }
 
-export const deleteApplicantSessionByDigest = async (
+export const deleteUserSessionByDigest = async (
   db: Database,
   tokenDigest: string,
+  auditEvent: AuditEventRecord,
 ): Promise<void> => {
-  await db.delete(applicantSession).where(eq(applicantSession.tokenDigest, tokenDigest))
+  await db.batch([
+    db.insert(coreAuditEvent).values(auditEvent),
+    db.delete(coreSession).where(eq(coreSession.tokenDigest, tokenDigest)),
+  ])
 }
 
-export const deleteOtherApplicantSessions = async (
+export const deleteOtherUserSessions = async (
   db: Database,
-  applicantId: string,
+  userId: string,
   currentSessionId: string,
+  auditEvent: AuditEventRecord,
 ): Promise<void> => {
-  await db
-    .delete(applicantSession)
-    .where(
-      and(
-        eq(applicantSession.applicantId, applicantId),
-        ne(applicantSession.id, currentSessionId),
-      ),
-    )
+  await db.batch([
+    db.insert(coreAuditEvent).values(auditEvent),
+    db
+      .delete(coreSession)
+      .where(and(eq(coreSession.userId, userId), ne(coreSession.id, currentSessionId))),
+  ])
 }
 
-export const deleteAllApplicantSessions = async (
+export const deleteAllUserSessions = async (
   db: Database,
-  applicantId: string,
+  userId: string,
+  auditEvent: AuditEventRecord,
 ): Promise<void> => {
-  await db.delete(applicantSession).where(eq(applicantSession.applicantId, applicantId))
+  await db.batch([
+    db.insert(coreAuditEvent).values(auditEvent),
+    db.delete(coreSession).where(eq(coreSession.userId, userId)),
+  ])
 }

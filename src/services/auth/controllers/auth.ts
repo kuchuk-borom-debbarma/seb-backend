@@ -3,6 +3,7 @@
  * cryptographic primitives and SQL details remain in their focused modules.
  */
 import { z } from 'zod'
+import { auditActions } from '../../../db/schema'
 import { sendEmail } from '../../external-notification'
 import { clearSessionCookie, readSessionToken, setSessionCookie } from '../cookies'
 import {
@@ -14,26 +15,29 @@ import {
   verifyPassword,
 } from '../crypto'
 import {
-  createApplicantFromSignupPair,
-  createApplicantSession,
-  createSignupPair,
-  deleteAllApplicantSessions,
-  deleteApplicantSession,
-  deleteApplicantSessionByDigest,
-  deleteExpiredAuthenticationState,
-  deleteOtherApplicantSessions,
-  deleteSignupPair,
-  deleteSignupPairsForEmail,
-  findApplicantByEmail,
-  findApplicantSessionByDigest,
-  findSignupPair,
-  listApplicantSessions,
+  cancelSignupChallengesForEmail,
+  cleanupExpiredAuthenticationState,
   consumeWrongOtpAttempt,
-  type ApplicantRecord,
-  type PublicApplicantRecord,
+  createAuditEvent,
+  createSignupChallenge,
+  createUserFromSignupChallenge,
+  createUserSession,
+  deleteAllUserSessions,
+  deleteOtherUserSessions,
+  deleteUserSession,
+  deleteUserSessionByDigest,
+  findActiveUserByEmail,
+  findSignupChallenge,
+  findUserByEmail,
+  findUserSessionByDigest,
+  listUserSessions,
+  markSignupChallengeDeliveryFailed,
+  type AuditEventRecord,
+  type PublicUserRecord,
   type PublicSessionRecord,
   type SessionRecord,
-  type SignupPairRecord,
+  type SignupChallengeRecord,
+  type UserRecord,
 } from '../queries/auth'
 import type {
   Applicant,
@@ -93,10 +97,10 @@ const attemptsFromEnvironment = (context: AuthOperationContext): number => {
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase()
 
-const toApplicant = (value: PublicApplicantRecord): Applicant => ({
+const toApplicant = (value: PublicUserRecord): Applicant => ({
   id: value.id,
   email: value.email,
-  emailVerified: value.emailVerified,
+  emailVerified: value.emailVerifiedAt !== null,
   role: APPLICANT_ROLE,
   createdAt: value.createdAt,
 })
@@ -121,11 +125,42 @@ const getCurrentSession = async (context: AuthOperationContext) => {
   const tokenDigest = await createDigest(requireSecret(context), 'applicant-session', token)
   const now = new Date()
   // One joined query verifies expiry and returns public applicant/session data.
-  const current = await findApplicantSessionByDigest(context.db, tokenDigest, now)
+  const current = await findUserSessionByDigest(context.db, tokenDigest, now)
   // A stale or forged cookie is actively expired in the browser.
   if (!current) clearSessionCookie(context)
   return current
 }
+
+/**
+ * Builds one allow-listed audit record from request metadata. Callers provide
+ * only public IDs and small, explicitly safe metadata objects.
+ */
+const auditEvent = (
+  context: AuthOperationContext,
+  input: {
+    action: (typeof auditActions)[keyof typeof auditActions]
+    entityType: 'CORE_USER' | 'CORE_SESSION' | 'CORE_SIGNUP_CHALLENGE'
+    entityId?: string | null
+    actorUserId?: string | null
+    outcome?: 'SUCCESS' | 'FAILURE'
+    metadata?: Record<string, string | number | boolean | null>
+    createdAt?: Date
+  },
+): AuditEventRecord => ({
+  id: crypto.randomUUID(),
+  actorUserId: input.actorUserId ?? null,
+  action: input.action,
+  entityType: input.entityType,
+  entityId: input.entityId ?? null,
+  outcome: input.outcome ?? 'SUCCESS',
+  requestId:
+    context.requestHeaders.get('CF-Ray') ?? context.requestHeaders.get('X-Request-ID'),
+  ipAddress: context.requestHeaders.get('CF-Connecting-IP'),
+  userAgent: context.requestHeaders.get('User-Agent'),
+  changesJson: null,
+  metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
+  createdAt: input.createdAt ?? new Date(),
+})
 
 /** Creates one independent challenge without revealing existing accounts. */
 export const startApplicantSignup = async (
@@ -136,24 +171,39 @@ export const startApplicantSignup = async (
   if (!emailSchema.safeParse(email).success) return failure('Enter a valid email address.')
 
   const secret = requireSecret(context)
-  const now = Date.now()
-  const expiresAt = now + CHALLENGE_TTL_MS
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + CHALLENGE_TTL_MS)
   const challengeToken = createChallengeToken()
-  const response = { challengeToken, expiresAt: new Date(expiresAt) }
+  const response = { challengeToken, expiresAt }
 
   const id = crypto.randomUUID()
   const otp = createOtp()
-  const pairCreated = await createSignupPair(context.db, {
+  const challenge: SignupChallengeRecord = {
     id,
     email,
     challengeDigest: await createDigest(secret, 'applicant-signup-challenge', challengeToken),
     otpDigest: await createDigest(secret, `applicant-signup-otp:${id}`, otp),
     expiresAt,
     attemptsRemaining: attemptsFromEnvironment(context),
+    status: 'PENDING',
+    consumedByUserId: null,
+    invalidatedAt: null,
+    invalidationReason: null,
     createdAt: now,
-  })
+    updatedAt: now,
+  }
+  const challengeCreated = await createSignupChallenge(
+    context.db,
+    challenge,
+    auditEvent(context, {
+      action: auditActions.signupChallengeCreated,
+      entityType: 'CORE_SIGNUP_CHALLENGE',
+      entityId: id,
+      createdAt: now,
+    }),
+  )
   // Existing applicants receive an unstored decoy challenge with the same shape.
-  if (!pairCreated) return success(response, START_SIGNUP_MESSAGE)
+  if (!challengeCreated) return success(response, START_SIGNUP_MESSAGE)
 
   try {
     await sendEmail({
@@ -162,9 +212,20 @@ export const startApplicantSignup = async (
       text: `Your applicant signup code is ${otp}. It expires in 10 minutes.`,
     })
   } catch (error) {
-    // Delivery and storage behave as one logical operation: an undelivered OTP
-    // must not leave a valid challenge behind.
-    await deleteSignupPair(context.db, id)
+    // An undelivered OTP remains auditable but is immediately made unusable.
+    const failedAt = new Date()
+    await markSignupChallengeDeliveryFailed(
+      context.db,
+      id,
+      failedAt,
+      auditEvent(context, {
+        action: auditActions.signupNotificationFailed,
+        entityType: 'CORE_SIGNUP_CHALLENGE',
+        entityId: id,
+        outcome: 'FAILURE',
+        createdAt: failedAt,
+      }),
+    )
     console.error('Applicant signup notification failed', error)
     return failure('The verification code could not be sent. Please try again.')
   }
@@ -172,32 +233,37 @@ export const startApplicantSignup = async (
   return success(response, START_SIGNUP_MESSAGE)
 }
 
-const findActiveSignupPair = async (
+const findActiveSignupChallenge = async (
   challengeToken: string,
   context: AuthOperationContext,
   secret: string,
-  now: number,
-): Promise<SignupPairRecord | null> => {
+  now: Date,
+): Promise<SignupChallengeRecord | null> => {
   const challengeDigest = await createDigest(
     secret,
     'applicant-signup-challenge',
     challengeToken,
   )
-  const pair = await findSignupPair(context.db, challengeDigest)
-  return pair && pair.expiresAt > now ? pair : null
+  const challenge = await findSignupChallenge(context.db, challengeDigest)
+  return challenge &&
+    challenge.status === 'PENDING' &&
+    challenge.attemptsRemaining > 0 &&
+    challenge.expiresAt.getTime() > now.getTime()
+    ? challenge
+    : null
 }
 
 const signupOtpDigest = (
-  pair: SignupPairRecord,
+  challenge: SignupChallengeRecord,
   otp: string,
   secret: string,
-): Promise<string> => createDigest(secret, `applicant-signup-otp:${pair.id}`, otp)
+): Promise<string> => createDigest(secret, `applicant-signup-otp:${challenge.id}`, otp)
 
 const unavailableSignup = async (
   context: AuthOperationContext,
   email: string,
 ): Promise<AuthResult<Applicant>> => {
-  await deleteSignupPairsForEmail(context.db, email)
+  await cancelSignupChallengesForEmail(context.db, email, new Date())
   return failure('This signup can no longer be completed.')
 }
 
@@ -218,41 +284,64 @@ export const verifyApplicantSignup = async (
   }
 
   const secret = requireSecret(context)
-  const now = Date.now()
-  const pair = await findActiveSignupPair(input.challengeToken, context, secret, now)
-  if (!pair) return failure(INVALID_CHALLENGE_MESSAGE)
+  const now = new Date()
+  const challenge = await findActiveSignupChallenge(input.challengeToken, context, secret, now)
+  if (!challenge) return failure(INVALID_CHALLENGE_MESSAGE)
 
-  const submittedOtpDigest = await signupOtpDigest(pair, input.otp, secret)
-  if (submittedOtpDigest !== pair.otpDigest) {
-    await consumeWrongOtpAttempt(context.db, pair.id, now)
+  const submittedOtpDigest = await signupOtpDigest(challenge, input.otp, secret)
+  if (submittedOtpDigest !== challenge.otpDigest) {
+    await consumeWrongOtpAttempt(
+      context.db,
+      challenge.id,
+      now,
+      auditEvent(context, {
+        action: auditActions.otpFailed,
+        entityType: 'CORE_SIGNUP_CHALLENGE',
+        entityId: challenge.id,
+        outcome: 'FAILURE',
+        createdAt: now,
+      }),
+    )
     return failure(INVALID_CHALLENGE_MESSAGE)
   }
 
   const createdAt = new Date()
   // Hash before the authoritative D1 write. If concurrent wrong attempts exhaust
   // the pair during scrypt, the guarded INSERT below sees that and creates nothing.
-  const newApplicant: ApplicantRecord = {
+  const newUser: UserRecord = {
     id: crypto.randomUUID(),
-    email: pair.email,
+    email: challenge.email,
     passwordHash: await hashPassword(input.password),
-    emailVerified: true,
+    emailVerifiedAt: createdAt,
     role: APPLICANT_ROLE,
+    rowVersion: 1,
     createdAt,
     updatedAt: createdAt,
+    deletedAt: null,
+    deletedByUserId: null,
+    deleteReason: null,
   }
 
-  const created = await createApplicantFromSignupPair(
-    context.db,
-    { applicant: newApplicant, pair, submittedOtpDigest, now },
-  )
+  const created = await createUserFromSignupChallenge(context.db, {
+    user: newUser,
+    challenge,
+    submittedOtpDigest,
+    now,
+    auditEvent: auditEvent(context, {
+      action: auditActions.userCreated,
+      entityType: 'CORE_USER',
+      entityId: newUser.id,
+      createdAt,
+    }),
+  })
   if (!created) {
-    if (await findApplicantByEmail(context.db, pair.email)) {
-      return unavailableSignup(context, pair.email)
+    if (await findUserByEmail(context.db, challenge.email)) {
+      return unavailableSignup(context, challenge.email)
     }
     return failure(INVALID_CHALLENGE_MESSAGE)
   }
 
-  return success(toApplicant(newApplicant))
+  return success(toApplicant(newUser))
 }
 
 /** Verifies a password and creates a seven-day opaque D1 session. */
@@ -262,17 +351,38 @@ export const signInApplicant = async (
 ): Promise<AuthResult<ApplicantAuthResponse>> => {
   const email = normalizeEmail(input.email)
   if (!emailSchema.safeParse(email).success || !passwordSchema.safeParse(input.password).success) {
+    // Validation failures are still authentication failures worth auditing. No
+    // user is authenticated at this point, and credentials never enter the log.
+    await createAuditEvent(
+      context.db,
+      auditEvent(context, {
+        action: auditActions.signInFailed,
+        entityType: 'CORE_USER',
+        outcome: 'FAILURE',
+      }),
+    )
     return failure('Invalid email or password.')
   }
 
-  const applicant = await findApplicantByEmail(context.db, email)
+  const user = await findActiveUserByEmail(context.db, email)
   // Unknown emails use the same scrypt work factor to reduce timing-based account
   // discovery. The final message is generic for every credential failure.
   const passwordMatches = await verifyPassword(
-    applicant?.passwordHash ?? DUMMY_PASSWORD_HASH,
+    user?.passwordHash ?? DUMMY_PASSWORD_HASH,
     input.password,
   )
-  if (!applicant || !passwordMatches || !applicant.emailVerified) {
+  if (!user || !passwordMatches || user.emailVerifiedAt === null) {
+    await createAuditEvent(
+      context.db,
+      auditEvent(context, {
+        action: auditActions.signInFailed,
+        entityType: 'CORE_USER',
+        entityId: user?.id,
+        // Supplying a user's email does not authenticate the caller as that
+        // user. The target may be recorded as the entity, but actor stays null.
+        outcome: 'FAILURE',
+      }),
+    )
     return failure('Invalid email or password.')
   }
 
@@ -280,7 +390,7 @@ export const signInApplicant = async (
   const now = new Date()
   const session: SessionRecord = {
     id: crypto.randomUUID(),
-    applicantId: applicant.id,
+    userId: user.id,
     tokenDigest: await createDigest(requireSecret(context), 'applicant-session', token),
     expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
     createdAt: now,
@@ -288,11 +398,21 @@ export const signInApplicant = async (
     ipAddress: context.requestHeaders.get('CF-Connecting-IP'),
     userAgent: context.requestHeaders.get('User-Agent'),
   }
-  await createApplicantSession(context.db, session)
+  await createUserSession(
+    context.db,
+    session,
+    auditEvent(context, {
+      action: auditActions.signInSucceeded,
+      entityType: 'CORE_SESSION',
+      entityId: session.id,
+      actorUserId: user.id,
+      createdAt: now,
+    }),
+  )
   setSessionCookie(context, token)
 
   return success({
-    applicant: toApplicant(applicant),
+    applicant: toApplicant(user),
     session: toApplicantSession(session, session.id),
   })
 }
@@ -305,7 +425,7 @@ export const currentApplicantSession = async (
   if (!current) return { success: true, message: null, response: null }
 
   return success({
-    applicant: toApplicant(current.applicant),
+    applicant: toApplicant(current.user),
     session: toApplicantSession(current.session, current.session.id),
   })
 }
@@ -317,7 +437,7 @@ export const applicantSessions = async (
   const current = await getCurrentSession(context)
   if (!current) return failure(AUTH_REQUIRED_MESSAGE)
 
-  const sessions = await listApplicantSessions(context.db, current.applicant.id, new Date())
+  const sessions = await listUserSessions(context.db, current.user.id, new Date())
   return success({
     sessions: sessions.map((session) => toApplicantSession(session, current.session.id)),
   })
@@ -330,7 +450,19 @@ export const signOutApplicant = async (
   const token = readSessionToken(context.requestHeaders)
   if (token) {
     const digest = await createDigest(requireSecret(context), 'applicant-session', token)
-    await deleteApplicantSessionByDigest(context.db, digest)
+    const current = await findUserSessionByDigest(context.db, digest, new Date())
+    if (current) {
+      await deleteUserSessionByDigest(
+        context.db,
+        digest,
+        auditEvent(context, {
+          action: auditActions.signedOut,
+          entityType: 'CORE_SESSION',
+          entityId: current.session.id,
+          actorUserId: current.user.id,
+        }),
+      )
+    }
   }
   clearSessionCookie(context)
   return success({ value: true })
@@ -345,7 +477,17 @@ export const revokeApplicantSession = async (
 
   // Ownership is part of the DELETE predicate, so another applicant's public
   // session ID can never be revoked through this operation.
-  const deleted = await deleteApplicantSession(context.db, sessionId, current.applicant.id)
+  const deleted = await deleteUserSession(
+    context.db,
+    sessionId,
+    current.user.id,
+    auditEvent(context, {
+      action: auditActions.sessionRevoked,
+      entityType: 'CORE_SESSION',
+      entityId: sessionId,
+      actorUserId: current.user.id,
+    }),
+  )
   if (!deleted) return failure('The session was not found.')
   if (sessionId === current.session.id) clearSessionCookie(context)
   return success({ value: true })
@@ -357,7 +499,18 @@ export const revokeOtherApplicantSessions = async (
   const current = await getCurrentSession(context)
   if (!current) return failure(AUTH_REQUIRED_MESSAGE)
 
-  await deleteOtherApplicantSessions(context.db, current.applicant.id, current.session.id)
+  await deleteOtherUserSessions(
+    context.db,
+    current.user.id,
+    current.session.id,
+    auditEvent(context, {
+      action: auditActions.sessionsRevoked,
+      entityType: 'CORE_USER',
+      entityId: current.user.id,
+      actorUserId: current.user.id,
+      metadata: { scope: 'OTHER' },
+    }),
+  )
   return success({ value: true })
 }
 
@@ -367,7 +520,17 @@ export const revokeAllApplicantSessions = async (
   const current = await getCurrentSession(context)
   if (!current) return failure(AUTH_REQUIRED_MESSAGE)
 
-  await deleteAllApplicantSessions(context.db, current.applicant.id)
+  await deleteAllUserSessions(
+    context.db,
+    current.user.id,
+    auditEvent(context, {
+      action: auditActions.sessionsRevoked,
+      entityType: 'CORE_USER',
+      entityId: current.user.id,
+      actorUserId: current.user.id,
+      metadata: { scope: 'ALL' },
+    }),
+  )
   clearSessionCookie(context)
   return success({ value: true })
 }
@@ -376,4 +539,4 @@ export const revokeAllApplicantSessions = async (
 export const cleanupExpiredAuthentication = (
   db: AuthOperationContext['db'],
   now = new Date(),
-): Promise<void> => deleteExpiredAuthenticationState(db, now)
+): Promise<void> => cleanupExpiredAuthenticationState(db, now)

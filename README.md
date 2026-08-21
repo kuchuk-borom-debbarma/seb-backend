@@ -8,7 +8,7 @@ The checked-in `.env.example` is intentionally empty, and `.env` stays empty and
 
 ```sh
 npm install
-npm run db:migrate:local
+npm run db:setup:local
 npx wrangler dev \
   --var AUTH_SECRET:replace-with-a-long-random-secret \
   --var FRONTEND_ORIGINS:http://localhost:3000
@@ -41,14 +41,27 @@ npx wrangler secret put AUTH_COOKIE_SAME_SITE
 - `APPLICANT_SIGNUP_TOKEN_ATTEMPT_COUNT` is optional, defaults to `5`, and must be an integer from `1` through `20`.
 - `AUTH_COOKIE_SAME_SITE` is optional and defaults to `lax`. `none` is accepted only for HTTPS requests and produces Secure cookies.
 
-Apply D1 migrations before deploying a Worker version that uses them:
+Initialize a new remote D1 database from the base schema before deploying:
 
 ```sh
-npx wrangler d1 migrations apply DB --remote
+npx wrangler d1 execute DB --remote --file=database/schema.sql
 npm run deploy
 ```
 
-The D1, R2, and Queue bindings in `wrangler.jsonc` use Cloudflare automatic provisioning. An hourly cron removes expired signup challenges and sessions outside public request paths. `wrangler.test.jsonc` contains local-only placeholder resource metadata for the Cloudflare Vitest runtime.
+The D1, R2, and Queue bindings in `wrangler.jsonc` use Cloudflare automatic provisioning. An hourly cron marks pending signup challenges as expired and hard-deletes expired sessions outside public request paths. `wrangler.test.jsonc` contains local-only placeholder resource metadata for the Cloudflare Vitest runtime.
+
+## Database domains
+
+Drizzle tables are grouped by responsibility under `src/db/schema`:
+
+- `core` owns reusable users, transient sessions, signup challenges, and the shared audit trail.
+- `seb` owns enterprises, programme cycles, long-lived funding cases, versioned applications, submissions, documents, workflow history, awards, disbursements, and assessments.
+
+Physical SQLite table names use the same `core_` and `seb_` prefixes. Business records and signup challenges are retained through lifecycle or soft-deletion fields; sessions are deliberately hard-deleted on sign-out, revocation, and expiry. Version rows, submissions, audit/workflow events, disbursements, and assessments are append-only service contracts.
+
+The checked-in `database/schema.sql` file is the canonical baseline for an empty database. It is intentionally not an incremental migration or an upgrade path for an existing deployment.
+
+Read the [schema and application lifecycle guide](src/db/schema/README.md) for the complete user → enterprise → funding case → application → award model, its policy assumptions, and the base-schema workflow.
 
 ## Applicant authentication
 
@@ -70,5 +83,10 @@ mutation StartSignup {
 ```
 
 The console external-notification service prints the six-digit OTP during development. Only HMAC digests of OTPs and challenge tokens are stored. Signup does not create a session; password sign-in creates an HttpOnly browser-session cookie while the D1 session expires after seven days.
+
+Focused implementation guides:
+
+- [Applicant authentication service](src/services/auth/README.md)
+- [External notification service](src/services/external-notification/README.md)
 
 Do not expose this version publicly until request and notification rate limiting is implemented.

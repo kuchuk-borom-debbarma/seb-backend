@@ -8,9 +8,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "fallow": "fallow --type-aware",
-    "check": "npm run typecheck && npm run fallow && npm test",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply DB --local"
+    "check": "npm run typecheck && npm run fallow && npm run db:schema:check && npm test",
+    "db:schema:print": "drizzle-kit export --config drizzle.config.ts",
+    "db:schema:generate": "node scripts/check-schema.mjs --write",
+    "db:schema:check": "node scripts/check-schema.mjs",
+    "db:setup:local": "wrangler d1 execute DB --local --file=database/schema.sql"
   },
   "dependencies": {
     "@noble/hashes": "^2.3.0",

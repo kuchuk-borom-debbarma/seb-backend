@@ -1,6 +1,6 @@
-import { applyD1Migrations, env } from 'cloudflare:test'
+import { env } from 'cloudflare:test'
 import { beforeAll } from 'vitest'
-import initialMigrationSql from '../migrations/0001_applicant_auth.sql?raw'
+import baseSchemaSql from '../database/schema.sql?raw'
 
 declare module 'cloudflare:test' {
   interface ProvidedEnv extends CloudflareBindings {
@@ -11,17 +11,15 @@ declare module 'cloudflare:test' {
   }
 }
 
-const migration = (name: string, source: string) => ({
-  name,
-  queries: source
-    .replace(/^--.*$/gmu, '')
-    .split(';')
-    .map((query) => query.trim())
-    .filter(Boolean),
-})
+const schemaStatements = baseSchemaSql
+  .replace(/^--.*$/gmu, '')
+  .split(';')
+  .map((query) => query.trim())
+  .filter(Boolean)
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, [
-    migration('0001_applicant_auth.sql', initialMigrationSql),
-  ])
+  const prepared = schemaStatements.map((statement) => env.DB.prepare(statement))
+  const [first, ...rest] = prepared
+  if (!first) throw new Error('database/schema.sql did not contain any SQL statements.')
+  await env.DB.batch([first, ...rest])
 })

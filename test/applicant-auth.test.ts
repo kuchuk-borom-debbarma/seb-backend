@@ -7,18 +7,40 @@ import {
 } from 'cloudflare:test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDatabase } from '../src/db'
+import { auditActions } from '../src/db/schema'
 import worker from '../src/index'
 import { createDigest, hashPassword } from '../src/services/auth/crypto'
 import {
   consumeWrongOtpAttempt,
-  createApplicantFromSignupPair,
-  findSignupPair,
+  createUserFromSignupChallenge,
+  findSignupChallenge,
+  type AuditEventRecord,
 } from '../src/services/auth/queries/auth'
 
 type GraphQLResponse<T> = {
   data?: T
   errors?: Array<{ message: string }>
 }
+
+const testAuditEvent = (
+  action: (typeof auditActions)[keyof typeof auditActions],
+  entityType: 'CORE_USER' | 'CORE_SIGNUP_CHALLENGE',
+  entityId: string,
+  outcome: 'SUCCESS' | 'FAILURE',
+): AuditEventRecord => ({
+  id: crypto.randomUUID(),
+  actorUserId: null,
+  action,
+  entityType,
+  entityId,
+  outcome,
+  requestId: null,
+  ipAddress: null,
+  userAgent: null,
+  changesJson: null,
+  metadataJson: null,
+  createdAt: new Date(),
+})
 
 const graphql = async <T>(
   query: string,
@@ -183,18 +205,20 @@ describe('applicant authentication', () => {
 
     const otp = extractOtp(notificationLog)
     const stored = await env.DB.prepare(
-      `SELECT email, challenge_digest, otp_digest, attempts_remaining
-       FROM applicant_signup_pair`,
+      `SELECT email, challenge_digest, otp_digest, attempts_remaining, status
+       FROM core_signup_challenge`,
     ).first<{
       email: string
       challenge_digest: string
       otp_digest: string
       attempts_remaining: number
+      status: string
     }>()
     expect(stored?.email).toBe('applicant@example.com')
     expect(stored?.challenge_digest).not.toBe(started?.response?.challengeToken)
     expect(stored?.otp_digest).not.toBe(otp)
     expect(stored?.attempts_remaining).toBe(5)
+    expect(stored?.status).toBe('PENDING')
 
     const wrong = await graphql<{
       auth: { verifyApplicantSignup: { success: boolean; message: string; response: null } }
@@ -215,7 +239,7 @@ describe('applicant authentication', () => {
       response: null,
     })
     const remaining = await env.DB.prepare(
-      'SELECT attempts_remaining FROM applicant_signup_pair',
+      'SELECT attempts_remaining FROM core_signup_challenge',
     ).first<{ attempts_remaining: number }>()
     expect(remaining?.attempts_remaining).toBe(4)
 
@@ -253,15 +277,38 @@ describe('applicant authentication', () => {
       },
     })
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_session').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
         count: number
       }>(),
     ).toEqual({ count: 0 })
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_signup_pair').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_signup_challenge').first<{
         count: number
       }>(),
-    ).toEqual({ count: 0 })
+    ).toEqual({ count: 1 })
+    expect(
+      await env.DB.prepare(
+        'SELECT status, consumed_by_user_id FROM core_signup_challenge',
+      ).first<{ status: string; consumed_by_user_id: string | null }>(),
+    ).toMatchObject({ status: 'CONSUMED' })
+
+    const auditRows = await env.DB.prepare(
+      'SELECT action, actor_user_id, entity_id, metadata_json FROM core_audit_event ORDER BY created_at',
+    ).all<{
+      action: string
+      actor_user_id: string | null
+      entity_id: string | null
+      metadata_json: string | null
+    }>()
+    expect(auditRows.results.map((row) => row.action)).toEqual(
+      expect.arrayContaining([
+        auditActions.signupChallengeCreated,
+        auditActions.otpFailed,
+        auditActions.userCreated,
+      ]),
+    )
+    expect(JSON.stringify(auditRows.results)).not.toContain(otp)
+    expect(JSON.stringify(auditRows.results)).not.toContain('correct horse battery staple')
 
     notificationLog.mockClear()
     const decoy = await graphql<{
@@ -316,7 +363,7 @@ describe('applicant authentication', () => {
     const publicSessionId = signedIn.body.data?.auth.signInApplicant.response.session.id
     expect(JSON.stringify(signedIn.body)).not.toContain('tokenDigest')
     const storedSession = await env.DB.prepare(
-      'SELECT id, token_digest, expires_at FROM applicant_session WHERE id = ?',
+      'SELECT id, token_digest, expires_at FROM core_session WHERE id = ?',
     )
       .bind(publicSessionId)
       .first<{ id: string; token_digest: string; expires_at: number }>()
@@ -374,10 +421,15 @@ describe('applicant authentication', () => {
       expect(result?.success).toBe(false)
     }
 
-    const pairs = await env.DB.prepare(
-      'SELECT count(*) AS count FROM applicant_signup_pair',
-    ).first<{ count: number }>()
-    expect(pairs).toEqual({ count: 1 })
+    const challenges = await env.DB.prepare(
+      'SELECT status, attempts_remaining FROM core_signup_challenge ORDER BY created_at',
+    ).all<{ status: string; attempts_remaining: number }>()
+    expect(challenges.results).toEqual(
+      expect.arrayContaining([
+        { status: 'EXHAUSTED', attempts_remaining: 0 },
+        { status: 'PENDING', attempts_remaining: 5 },
+      ]),
+    )
     expect((await verifySignup(second.challengeToken, second.otp))?.success).toBe(true)
   })
 
@@ -392,7 +444,7 @@ describe('applicant authentication', () => {
     ])
     expect(results.filter((result) => result?.success)).toHaveLength(1)
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant').first<{ count: number }>(),
+      await env.DB.prepare('SELECT count(*) AS count FROM core_user').first<{ count: number }>(),
     ).toEqual({ count: 1 })
   })
 
@@ -405,58 +457,78 @@ describe('applicant authentication', () => {
       'applicant-signup-challenge',
       signup.challengeToken,
     )
-    const pair = await findSignupPair(db, challengeDigest)
-    if (!pair) throw new Error('Expected the signup pair to exist.')
+    const challenge = await findSignupChallenge(db, challengeDigest)
+    if (!challenge) throw new Error('Expected the signup challenge to exist.')
 
     // Model the exact race: the valid request has read the pair and starts its
     // expensive hash while concurrent wrong writes consume the attempt budget.
     const passwordHash = hashPassword('correct horse battery staple')
     await Promise.all(
-      Array.from({ length: 5 }, () => consumeWrongOtpAttempt(db, pair.id, Date.now())),
+      Array.from({ length: 5 }, () =>
+        consumeWrongOtpAttempt(
+          db,
+          challenge.id,
+          new Date(),
+          testAuditEvent(
+            auditActions.otpFailed,
+            'CORE_SIGNUP_CHALLENGE',
+            challenge.id,
+            'FAILURE',
+          ),
+        ),
+      ),
     )
     const createdAt = new Date()
-    const created = await createApplicantFromSignupPair(
-      db,
-      {
-        applicant: {
-          id: crypto.randomUUID(),
-          email: pair.email,
-          passwordHash: await passwordHash,
-          emailVerified: true,
-          role: 'APPLICANT',
-          createdAt,
-          updatedAt: createdAt,
-        },
-        pair,
-        submittedOtpDigest: await createDigest(
-          env.AUTH_SECRET,
-          `applicant-signup-otp:${pair.id}`,
-          signup.otp,
-        ),
-        now: Date.now(),
+    const userId = crypto.randomUUID()
+    const created = await createUserFromSignupChallenge(db, {
+      user: {
+        id: userId,
+        email: challenge.email,
+        passwordHash: await passwordHash,
+        emailVerifiedAt: createdAt,
+        role: 'APPLICANT',
+        rowVersion: 1,
+        createdAt,
+        updatedAt: createdAt,
+        deletedAt: null,
+        deletedByUserId: null,
+        deleteReason: null,
       },
-    )
+      challenge,
+      submittedOtpDigest: await createDigest(
+        env.AUTH_SECRET,
+        `applicant-signup-otp:${challenge.id}`,
+        signup.otp,
+      ),
+      now: new Date(),
+      auditEvent: testAuditEvent(auditActions.userCreated, 'CORE_USER', userId, 'SUCCESS'),
+    })
 
     expect(created).toBe(false)
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_user').first<{
         count: number
       }>(),
     ).toEqual({ count: 0 })
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_signup_pair').first<{
-        count: number
+      await env.DB.prepare(
+        'SELECT status, attempts_remaining FROM core_signup_challenge',
+      ).first<{
+        status: string
+        attempts_remaining: number
       }>(),
-    ).toEqual({ count: 0 })
+    ).toEqual({ status: 'EXHAUSTED', attempts_remaining: 0 })
   })
 
   it('rolls applicant creation back when sibling challenge cleanup fails', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const signup = await startSignup('applicant@example.com', notificationLog)
+    await startSignup('applicant@example.com', notificationLog)
     await env.DB.prepare(`
       CREATE TRIGGER reject_signup_cleanup
-      BEFORE DELETE ON applicant_signup_pair
+      BEFORE UPDATE ON core_signup_challenge
+      WHEN NEW.status = 'CANCELLED'
       BEGIN
         SELECT RAISE(ABORT, 'forced cleanup failure');
       END;
@@ -464,15 +536,15 @@ describe('applicant authentication', () => {
 
     expect(await verifySignup(signup.challengeToken, signup.otp)).toBeUndefined()
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_user').first<{
         count: number
       }>(),
     ).toEqual({ count: 0 })
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_signup_pair').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_signup_challenge').first<{
         count: number
       }>(),
-    ).toEqual({ count: 1 })
+    ).toEqual({ count: 2 })
 
     await env.DB.prepare('DROP TRIGGER reject_signup_cleanup').run()
   })
@@ -496,25 +568,28 @@ describe('applicant authentication', () => {
     `)
     expect(shortPassword.body.data?.auth.verifyApplicantSignup.success).toBe(false)
     expect(
-      await env.DB.prepare('SELECT attempts_remaining FROM applicant_signup_pair').first<{
+      await env.DB.prepare('SELECT attempts_remaining FROM core_signup_challenge').first<{
         attempts_remaining: number
       }>(),
     ).toEqual({ attempts_remaining: 5 })
 
-    await env.DB.prepare('UPDATE applicant_signup_pair SET expires_at = 0').run()
+    await env.DB.prepare('UPDATE core_signup_challenge SET expires_at = 0').run()
     expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(false)
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_signup_pair').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_signup_challenge').first<{
         count: number
       }>(),
     ).toEqual({ count: 1 })
 
     await runScheduledCleanup()
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_signup_pair').first<{
+      await env.DB.prepare(
+        'SELECT count(*) AS count, status FROM core_signup_challenge',
+      ).first<{
         count: number
+        status: string
       }>(),
-    ).toEqual({ count: 0 })
+    ).toEqual({ count: 1, status: 'EXPIRED' })
   })
 
   it('rejects passwords outside the signup policy before sign-in hashing', async () => {
@@ -522,13 +597,115 @@ describe('applicant authentication', () => {
     expect(body.errors).toBeUndefined()
     expect(body.data?.auth.signInApplicant).toMatchObject({ success: false, response: null })
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_session').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
         count: number
       }>(),
     ).toEqual({ count: 0 })
+
+    expect(
+      await env.DB.prepare(
+        `SELECT action, actor_user_id, entity_id
+         FROM core_audit_event WHERE action = ?`,
+      )
+        .bind(auditActions.signInFailed)
+        .first<{ action: string; actor_user_id: string | null; entity_id: string | null }>(),
+    ).toEqual({
+      action: auditActions.signInFailed,
+      actor_user_id: null,
+      entity_id: null,
+    })
   })
 
-  it('removes only the new pair when notification delivery fails', async () => {
+  it('reserves soft-deleted user emails and excludes them from authentication', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+
+    await env.DB.prepare(
+      `UPDATE core_user SET deleted_at = ?, updated_at = ?, delete_reason = 'TEST'
+       WHERE email = 'applicant@example.com'`,
+    )
+      .bind(Date.now(), Date.now())
+      .run()
+
+    expect((await signIn()).body.data?.auth.signInApplicant).toMatchObject({
+      success: false,
+      response: null,
+    })
+
+    notificationLog.mockClear()
+    const decoy = await graphql<{
+      auth: { startApplicantSignup: { success: boolean; response: { challengeToken: string } } }
+    }>(/* GraphQL */ `
+      mutation {
+        auth {
+          startApplicantSignup(input: { email: "applicant@example.com" }) {
+            success
+            response { challengeToken }
+          }
+        }
+      }
+    `)
+    expect(decoy.body.data?.auth.startApplicantSignup.success).toBe(true)
+    expect(notificationLog).not.toHaveBeenCalled()
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_signup_challenge').first<{
+        count: number
+      }>(),
+    ).toEqual({ count: 1 })
+  })
+
+  it('hard-deletes sign-out sessions and audits outcomes without retaining credentials', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+
+    const failed = await signInWithPassword('incorrect password')
+    expect(failed.body.data?.auth.signInApplicant.success).toBe(false)
+    const failedAudit = await env.DB.prepare(
+      `SELECT actor_user_id, entity_id FROM core_audit_event WHERE action = ?`,
+    )
+      .bind(auditActions.signInFailed)
+      .first<{ actor_user_id: string | null; entity_id: string | null }>()
+    expect(failedAudit?.actor_user_id).toBeNull()
+    expect(failedAudit?.entity_id).toEqual(expect.any(String))
+
+    const signedIn = await signIn()
+    const cookie = cookieHeaderFrom(signedIn.response)
+    const rawToken = cookie.split('=', 2)[1]
+    const signedOut = await graphql<{ auth: { signOutApplicant: { success: boolean } } }>(
+      /* GraphQL */ `
+        mutation {
+          auth { signOutApplicant { success } }
+        }
+      `,
+      cookie,
+    )
+    expect(signedOut.body.data?.auth.signOutApplicant.success).toBe(true)
+    expect(signedOut.response.headers.get('set-cookie')).toMatch(/Max-Age=0/iu)
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
+        count: number
+      }>(),
+    ).toEqual({ count: 0 })
+
+    const audit = await env.DB.prepare(
+      'SELECT action, changes_json, metadata_json FROM core_audit_event ORDER BY created_at',
+    ).all<{ action: string; changes_json: string | null; metadata_json: string | null }>()
+    expect(audit.results.map(({ action }) => action)).toEqual(
+      expect.arrayContaining([
+        auditActions.signInFailed,
+        auditActions.signInSucceeded,
+        auditActions.signedOut,
+      ]),
+    )
+    const serializedAudit = JSON.stringify(audit.results)
+    expect(serializedAudit).not.toContain(rawToken)
+    expect(serializedAudit).not.toContain('incorrect password')
+    expect(serializedAudit).not.toContain('correct horse battery staple')
+  })
+
+  it('invalidates only the new challenge when notification delivery fails', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     vi.spyOn(console, 'log').mockImplementationOnce(() => {
       throw new Error('notification unavailable')
@@ -550,10 +727,19 @@ describe('applicant authentication', () => {
     expect(body.errors).toBeUndefined()
     expect(body.data?.auth.startApplicantSignup).toMatchObject({ success: false, response: null })
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_signup_pair').first<{
+      await env.DB.prepare(
+        'SELECT count(*) AS count, status FROM core_signup_challenge',
+      ).first<{
         count: number
+        status: string
       }>(),
-    ).toEqual({ count: 0 })
+    ).toEqual({ count: 1, status: 'DELIVERY_FAILED' })
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_audit_event
+         WHERE action = 'AUTH.SIGNUP_NOTIFICATION_FAILED'`,
+      ).first<{ count: number }>(),
+    ).toEqual({ count: 1 })
   })
 
   it('lists and hard-revokes owned sessions while preserving or clearing cookies correctly', async () => {
@@ -607,7 +793,7 @@ describe('applicant authentication', () => {
     expect(revokedOther.body.data?.auth.revokeOtherApplicantSessions.success).toBe(true)
     expect(revokedOther.response.headers.get('set-cookie')).toBeNull()
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_session').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
         count: number
       }>(),
     ).toEqual({ count: 1 })
@@ -627,7 +813,7 @@ describe('applicant authentication', () => {
     expect(revokedCurrent.body.data?.auth.revokeApplicantSession.success).toBe(true)
     expect(revokedCurrent.response.headers.get('set-cookie')).toMatch(/Max-Age=0/iu)
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_session').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
         count: number
       }>(),
     ).toEqual({ count: 1 })
@@ -645,10 +831,20 @@ describe('applicant authentication', () => {
     expect(revokedAll.body.data?.auth.revokeAllApplicantSessions.success).toBe(true)
     expect(revokedAll.response.headers.get('set-cookie')).toMatch(/Max-Age=0/iu)
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_session').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
         count: number
       }>(),
     ).toEqual({ count: 0 })
+    const revocationAudit = await env.DB.prepare(
+      `SELECT action FROM core_audit_event
+       WHERE action IN ('AUTH.SESSION_REVOKED', 'AUTH.SESSIONS_REVOKED')`,
+    ).all<{ action: string }>()
+    expect(revocationAudit.results.map(({ action }) => action)).toEqual(
+      expect.arrayContaining([
+        auditActions.sessionRevoked,
+        auditActions.sessionsRevoked,
+      ]),
+    )
   })
 
   it('keeps expired-session cleanup out of public requests and runs it by cron', async () => {
@@ -658,7 +854,7 @@ describe('applicant authentication', () => {
 
     const signedIn = await signIn()
     const cookie = cookieHeaderFrom(signedIn.response)
-    await env.DB.prepare('UPDATE applicant_session SET expires_at = 0').run()
+    await env.DB.prepare('UPDATE core_session SET expires_at = 0').run()
 
     const current = await graphql<{
       auth: { currentApplicantSession: { success: boolean; response: null } }
@@ -675,14 +871,14 @@ describe('applicant authentication', () => {
       response: null,
     })
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_session').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
         count: number
       }>(),
     ).toEqual({ count: 1 })
 
     await runScheduledCleanup()
     expect(
-      await env.DB.prepare('SELECT count(*) AS count FROM applicant_session').first<{
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
         count: number
       }>(),
     ).toEqual({ count: 0 })
