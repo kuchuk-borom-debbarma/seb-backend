@@ -1,0 +1,31 @@
+extend type Mutation {
+  auth: AuthMutation!
+}
+
+# Starting signup sends an OTP but returns a separate high-entropy challenge.
+input StartApplicantSignupInput {
+  email: String!
+}
+
+input VerifyApplicantSignupInput {
+  challengeToken: String!
+  otp: String!
+  password: String!
+}
+
+input SignInApplicantInput {
+  email: String!
+  password: String!
+}
+
+type AuthMutation {
+  # Creates an independent ten-minute challenge without revealing account existence.
+  startApplicantSignup(input: StartApplicantSignupInput!): StartApplicantSignupResult!
+  # Creates a verified applicant only; the caller signs in separately for a session.
+  verifyApplicantSignup(input: VerifyApplicantSignupInput!): ApplicantResult!
+  signInApplicant(input: SignInApplicantInput!): ApplicantAuthResult!
+  signOutApplicant: BooleanResult!
+  revokeApplicantSession(sessionId: ID!): BooleanResult!
+  revokeOtherApplicantSessions: BooleanResult!
+  revokeAllApplicantSessions: BooleanResult!
+}

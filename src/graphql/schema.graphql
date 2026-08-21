@@ -1,0 +1,88 @@
+scalar DateTime
+
+# Every operation-specific result implements the same safe client envelope.
+interface BaseResponse {
+  success: Boolean!
+  message: String
+}
+
+type StartApplicantSignupResponse {
+  challengeToken: String!
+  expiresAt: DateTime!
+}
+
+type Applicant {
+  id: ID!
+  email: String!
+  emailVerified: Boolean!
+  role: String!
+  createdAt: DateTime!
+}
+
+# Public browser-safe session data. Raw tokens and token digests are absent.
+type ApplicantSession {
+  id: ID!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  expiresAt: DateTime!
+  ipAddress: String
+  userAgent: String
+  current: Boolean!
+}
+
+type ApplicantAuthResponse {
+  applicant: Applicant!
+  session: ApplicantSession!
+}
+
+type ApplicantSessionsResponse {
+  sessions: [ApplicantSession!]!
+}
+
+type BooleanResponse {
+  value: Boolean!
+}
+
+type StartApplicantSignupResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: StartApplicantSignupResponse
+}
+
+type ApplicantResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: Applicant
+}
+
+type ApplicantAuthResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: ApplicantAuthResponse
+}
+
+type ApplicantSessionsResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: ApplicantSessionsResponse
+}
+
+type BooleanResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: BooleanResponse
+}
+
+type Health {
+  name: String!
+  status: String!
+  bindings: [String!]!
+}
+
+type Query {
+  health: Health!
+}
+
+type Mutation {
+  _empty: Boolean
+}

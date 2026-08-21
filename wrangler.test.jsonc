@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "seb-backend-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-21",
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.graphql"],
+      "fallthrough": true
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "seb-backend-test",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ]
+}

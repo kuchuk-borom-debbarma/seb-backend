@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "seb-backend",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-21",
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.graphql"],
+      "fallthrough": true
+    }
+  ],
+  "triggers": {
+    "crons": ["0 * * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "STORAGE"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "QUEUE",
+        "queue": "seb-backend-queue"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "seb-backend-queue",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5
+      }
+    ]
+  }
+}

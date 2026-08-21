@@ -1,0 +1,32 @@
+{
+  "name": "seb-backend",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "fallow": "fallow --type-aware",
+    "check": "npm run typecheck && npm run fallow && npm test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.3.0",
+    "drizzle-orm": "^0.45.2",
+    "graphql": "^17.0.2",
+    "graphql-yoga": "^5.22.0",
+    "hono": "^4.13.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.71",
+    "@types/node": "^26.2.0",
+    "drizzle-kit": "^0.31.10",
+    "fallow": "^3.17.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7",
+    "wrangler": "^4.110.0"
+  }
+}

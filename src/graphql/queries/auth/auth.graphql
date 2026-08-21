@@ -1,0 +1,8 @@
+extend type Query {
+  auth: AuthQuery!
+}
+
+type AuthQuery {
+  currentApplicantSession: ApplicantAuthResult!
+  applicantSessions: ApplicantSessionsResult!
+}

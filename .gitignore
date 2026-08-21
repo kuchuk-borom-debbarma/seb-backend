@@ -1,0 +1,39 @@
+# Installed dependencies and build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Alternative package-manager caches
+.pnpm-store/
+.pnp.*
+.yarn/*
+!.yarn/plugins
+!.yarn/releases
+
+# Cloudflare, Wrangler, and local database state
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# Local environment values. The empty example remains checked in.
+.env
+.env.*
+!.env.example
+
+# Local analysis caches
+.fallow/
+
+# Editor and operating-system metadata
+.vscode/
+.idea/
+.DS_Store
+
+# Package-manager and application logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
