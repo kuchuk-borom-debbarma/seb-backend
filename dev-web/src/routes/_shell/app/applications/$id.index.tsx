@@ -1,38 +1,23 @@
-import { queryOptions, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
 import { StatusRail } from '#/features/application/StatusRail'
 import { statusGuideQuery } from '#/features/application/queries'
 import {
-  ApplicationByIdDocument,
-  ApplicationTimelineDocument,
-} from '#/graphql/generated/operations'
+  applicationQuery,
+  timelineQuery,
+} from '#/features/application/applicationQueries'
 import { formatDate, formatDateTime, humanize } from '#/lib/format'
-import { gql } from '#/lib/graphql'
-import { unwrap } from '#/lib/result'
 
-const applicationQuery = (id: string) =>
-  queryOptions({
-    queryKey: ['application', id],
-    queryFn: async () => {
-      const data = await gql(ApplicationByIdDocument, { id })
-      return unwrap(data.seb.application.byId)
-    },
-    // An open draft is never served stale: what is editable can change the
-    // moment a reviewer issues or cancels a revision request.
-    staleTime: 0,
-  })
-
-const timelineQuery = (id: string) =>
-  queryOptions({
-    queryKey: ['application-timeline', id],
-    queryFn: async () => {
-      const data = await gql(ApplicationTimelineDocument, { applicationId: id, first: 50 })
-      return unwrap(data.seb.application.timeline).nodes
-    },
-  })
-
-export const Route = createFileRoute('/_shell/app/applications/$id')({
+/*
+ * The overview is the index route beneath `$id`, not `$id` itself.
+ *
+ * In flat file routing a `$id.tsx` alongside `$id.form.tsx` becomes a layout
+ * wrapping the form, so the overview would have had to render an outlet and
+ * would have shown above every child screen. Naming it `.index` makes it a
+ * sibling instead, which is what it actually is.
+ */
+export const Route = createFileRoute('/_shell/app/applications/$id/')({
   // All three start together: one round of requests, no waterfall.
   loader: async ({ context, params }) => {
     await Promise.all([
@@ -64,6 +49,26 @@ function ApplicationPage() {
           application.applicationType === 'EXPANSION'
             ? `Expansion application, phase ${application.phaseNumber}`
             : 'Initial application'
+        }
+        actions={
+          // Offered only while something can actually be changed or sent.
+          application.editableSections.length > 0 ? (
+            <>
+              <Link
+                to="/app/applications/$id/form"
+                params={{ id }}
+                className="button"
+                data-variant="primary"
+              >
+                {application.status === 'REVISION_REQUIRED'
+                  ? 'Make the corrections'
+                  : 'Fill in the form'}
+              </Link>
+              <Link to="/app/applications/$id/review" params={{ id }} className="button">
+                Check and submit
+              </Link>
+            </>
+          ) : null
         }
       />
 

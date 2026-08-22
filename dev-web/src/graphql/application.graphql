@@ -156,6 +156,36 @@ query ApplicationById($id: ID!) {
           updatedAt
           deletedAt
           editableSections
+          snapshot {
+            version
+            declarationAcceptedAt
+            enterprise {
+              businessName establishmentDate registrationType registrationNumber
+              gstin businessSector otherBusinessSector applicationCategory
+              majorityOwnershipConfirmed
+            }
+            applicantProfile {
+              primaryApplicantName designation dateOfBirth gender
+              businessBlockOrVillage businessDistrict businessPinCode
+              contactNumber contactEmail
+            }
+            financial {
+              totalProjectCostPaise seedFundRequestedPaise bankLoanProposedPaise
+              promoterContributionPaise
+            }
+            priorFunding {
+              receivedGovernmentFunding governmentSchemeName
+              governmentFundingAmountPaise governmentFundingSanctionYear
+              hasExistingBankCredit existingBankName existingCreditAmountPaise
+              existingCreditStatus
+            }
+            documents { nocRequired }
+            declaration {
+              relationshipType relatedPersonName declarationAccepted declarationPlace
+            }
+            priorSanctionOrderNumber priorSanctionDate
+            priorNetDisbursedAmountPaise continuousOperationMonths
+          }
           revisionRequests {
             id
             section
@@ -190,6 +220,69 @@ query ApplicationTimeline($applicationId: ID!, $first: Int) {
           nodes { id eventType fromStatus toStatus section message createdAt }
           pageInfo { endCursor hasNextPage }
         }
+      }
+    }
+  }
+}
+
+mutation SaveApplicationDraft($input: SaveApplicationDraftInput!) {
+  seb {
+    application {
+      saveDraft(input: $input) {
+        success
+        message
+        response { id currentVersion statusVersion updatedAt }
+      }
+    }
+  }
+}
+
+query ValidateApplication($applicationId: ID!) {
+  seb {
+    application {
+      validate(applicationId: $applicationId) {
+        success
+        message
+        response {
+          valid
+          issues { section field code message }
+        }
+      }
+    }
+  }
+}
+
+query DraftChanges($applicationId: ID!) {
+  seb {
+    application {
+      draftChanges(applicationId: $applicationId) {
+        success
+        message
+        response { sections comparedToSubmissionNumber }
+      }
+    }
+  }
+}
+
+mutation SubmitApplication($input: ApplicationVersionInput!) {
+  seb {
+    application {
+      submit(input: $input) {
+        success
+        message
+        response { id referenceNumber status statusVersion currentVersion }
+      }
+    }
+  }
+}
+
+mutation ResubmitApplication($input: ApplicationVersionInput!) {
+  seb {
+    application {
+      resubmit(input: $input) {
+        success
+        message
+        response { id referenceNumber status statusVersion currentVersion }
       }
     }
   }
