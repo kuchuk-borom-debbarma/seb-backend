@@ -8,6 +8,8 @@ export type AppBindings = CloudflareBindings & {
   FRONTEND_ORIGINS?: string
   AUTH_COOKIE_SAME_SITE?: string
   APPLICANT_SIGNUP_TOKEN_ATTEMPT_COUNT?: string
+  FIRST_SUPER_ADMIN_EMAIL?: string
+  FIRST_SUPER_ADMIN_SECRET?: string
   R2_ACCOUNT_ID?: string
   R2_BUCKET_NAME?: string
   R2_ACCESS_KEY_ID?: string

@@ -1,8 +1,13 @@
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import type { AppBindings } from './bindings'
 import { createDatabase } from './db'
 import { handleGraphQLRequest } from './graphql'
-import { cleanupExpiredAuthentication } from './services/auth'
+import {
+  bootstrapFirstSuperAdmin,
+  cleanupExpiredAuthentication,
+  isValidBootstrapSecret,
+} from './services/auth'
 import { cleanupExpiredDocumentUploads } from './services/application'
 
 const app = new Hono<{ Bindings: AppBindings }>()
@@ -47,6 +52,98 @@ app.get('/', (c) => {
     bindings: ['DB', 'STORAGE', 'QUEUE'],
   })
 })
+
+const BOOTSTRAP_FAILURE_MESSAGE =
+  'First administrator bootstrap is unavailable or the supplied credentials are invalid.'
+const BOOTSTRAP_BODY_LIMIT_BYTES = 1_024
+
+/**
+ * One deliberately non-GraphQL bootstrap route for trusted command-line use.
+ *
+ * Browsers are denied by the Origin check and receive no CORS opt-in. The route
+ * still relies on credentials—not User-Agent—for security because clients can
+ * spoof a curl header. Once any SUPER_ADMIN grant has ever existed, the service
+ * permanently refuses this transition even if the environment secret remains.
+ */
+app.post(
+  '/internal/bootstrap/first-super-admin',
+  bodyLimit({
+    // The only request field is a password capped at 128 characters. A small
+    // streaming limit prevents unauthenticated callers from making the Worker
+    // buffer a platform-sized request before credential validation.
+    maxSize: BOOTSTRAP_BODY_LIMIT_BYTES,
+    onError: (c) => c.json(
+      { success: false, message: BOOTSTRAP_FAILURE_MESSAGE, response: null },
+      413,
+    ),
+  }),
+  async (c) => {
+    if (c.req.header('Origin')) {
+      return c.json(
+        { success: false, message: BOOTSTRAP_FAILURE_MESSAGE, response: null },
+        403,
+      )
+    }
+
+    // Reject an absent or structurally invalid bearer token before touching the
+    // body. The service performs the constant-time credential comparison later.
+    const authorization = c.req.header('Authorization') ?? ''
+    const bootstrapSecret = authorization.startsWith('Bearer ')
+      ? authorization.slice('Bearer '.length)
+      : ''
+    if (!isValidBootstrapSecret(bootstrapSecret)) {
+      return c.json(
+        { success: false, message: BOOTSTRAP_FAILURE_MESSAGE, response: null },
+        403,
+      )
+    }
+
+    const contentType = c.req.header('Content-Type')?.toLowerCase() ?? ''
+    if (!contentType.startsWith('application/json')) {
+      return c.json(
+        { success: false, message: BOOTSTRAP_FAILURE_MESSAGE, response: null },
+        400,
+      )
+    }
+
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json(
+        { success: false, message: BOOTSTRAP_FAILURE_MESSAGE, response: null },
+        400,
+      )
+    }
+    if (
+      typeof body !== 'object' ||
+      body === null ||
+      Array.isArray(body) ||
+      Object.keys(body).length !== 1 ||
+      typeof (body as { currentPassword?: unknown }).currentPassword !== 'string'
+    ) {
+      return c.json(
+        { success: false, message: BOOTSTRAP_FAILURE_MESSAGE, response: null },
+        400,
+      )
+    }
+
+    const result = await bootstrapFirstSuperAdmin(
+      {
+        currentPassword: (body as { currentPassword: string }).currentPassword,
+        bootstrapSecret,
+      },
+      {
+        env: c.env,
+        db: createDatabase(c.env.DB),
+        requestHeaders: c.req.raw.headers,
+        requestUrl: c.req.url,
+        responseHeaders: new Headers(),
+      },
+    )
+    return result.success ? c.json(result) : c.json(result, 403)
+  },
+)
 
 app.use('/graphql', async (c, next) => {
   // Reject an untrusted browser origin before Yoga parses or executes GraphQL.

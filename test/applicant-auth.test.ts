@@ -10,15 +10,18 @@ import { createDatabase } from '../src/db'
 import { auditActions } from '../src/db/schema'
 import worker from '../src/index'
 import { createDigest, hashPassword } from '../src/services/auth/crypto'
+import { bootstrapFirstSuperAdmin } from '../src/services/auth'
 import {
   consumeWrongOtpAttempt,
   createApplicantSession,
   createUserFromSignupChallenge,
   findActiveApplicantByEmail,
   findSignupChallenge,
+  grantFirstSuperAdmin,
   type AuditEventRecord,
   type SessionRecord,
 } from '../src/services/auth/queries/auth'
+import type { AuthOperationContext } from '../src/services/auth/types'
 
 type GraphQLResponse<T> = {
   data?: T
@@ -142,6 +145,62 @@ const signInWithPassword = async (password: string) =>
   `)
 
 const signIn = async () => signInWithPassword('correct horse battery staple')
+
+type BootstrapResponse = {
+  success: boolean
+  message: string | null
+  response: { userId: string; roles: string[] } | null
+}
+
+const bootstrapFirstAdmin = async (input?: {
+  password?: string
+  secret?: string
+  origin?: string
+  contentType?: string
+  rawBody?: string
+  authorization?: string | null
+  requestHeaders?: Record<string, string>
+}) => {
+  const headers = new Headers({
+    'content-type': input?.contentType ?? 'application/json',
+  })
+  if (input?.authorization !== null) {
+    headers.set(
+      'authorization',
+      input?.authorization ?? `Bearer ${input?.secret ?? env.FIRST_SUPER_ADMIN_SECRET}`,
+    )
+  }
+  if (input?.origin) headers.set('origin', input.origin)
+  for (const [name, value] of Object.entries(input?.requestHeaders ?? {})) {
+    headers.set(name, value)
+  }
+  const response = await SELF.fetch(
+    'https://api.example.test/internal/bootstrap/first-super-admin',
+    {
+      method: 'POST',
+      headers,
+      body: input?.rawBody ?? JSON.stringify({
+        currentPassword: input?.password ?? 'correct horse battery staple',
+      }),
+    },
+  )
+  return { response, body: (await response.json()) as BootstrapResponse }
+}
+
+const directAuthContext = (
+  bindings: Partial<AuthOperationContext['env']> = {},
+): AuthOperationContext => ({
+  db: createDatabase(env.DB),
+  env: {
+    AUTH_SECRET: env.AUTH_SECRET,
+    FIRST_SUPER_ADMIN_EMAIL: env.FIRST_SUPER_ADMIN_EMAIL,
+    FIRST_SUPER_ADMIN_SECRET: env.FIRST_SUPER_ADMIN_SECRET,
+    ...bindings,
+  } as AuthOperationContext['env'],
+  requestHeaders: new Headers({ 'User-Agent': 'vitest-direct-auth' }),
+  requestUrl: 'https://api.example.test/internal/bootstrap/first-super-admin',
+  responseHeaders: new Headers(),
+})
 
 const runScheduledCleanup = async () => {
   const context = createExecutionContext()
@@ -494,6 +553,384 @@ describe('applicant authentication', () => {
       success: false,
       response: null,
     })
+  })
+
+  it('bootstraps the configured applicant through curl-only HTTP and never exposes GraphQL', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+
+    // Bootstrap authenticates the configured existing applicant directly. It
+    // does not need or create a browser session.
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first(),
+    ).toEqual({ count: 0 })
+    const bootstrapped = await bootstrapFirstAdmin({
+      // These caller-controlled values must never be copied into the durable
+      // bootstrap audit rows, even when the role transition succeeds.
+      requestHeaders: {
+        'user-agent': 'correct horse battery staple',
+        'x-request-id': env.FIRST_SUPER_ADMIN_SECRET,
+        'cf-connecting-ip': env.FIRST_SUPER_ADMIN_EMAIL,
+      },
+    })
+    expect(bootstrapped.response.status).toBe(200)
+    expect(bootstrapped.body).toEqual({
+      success: true,
+      message: null,
+      response: {
+        userId: expect.any(String),
+        roles: ['APPLICANT', 'SUPER_ADMIN'],
+      },
+    })
+
+    const grants = await env.DB.prepare(
+      `SELECT role, granted_by_user_id, grant_reason, revoked_at
+       FROM core_user_role_grant ORDER BY granted_at`,
+    ).all<{
+      role: string
+      granted_by_user_id: string | null
+      grant_reason: string
+      revoked_at: number | null
+    }>()
+    expect(grants.results).toEqual([
+      {
+        role: 'APPLICANT',
+        granted_by_user_id: null,
+        grant_reason: 'VERIFIED_APPLICANT_SIGNUP',
+        revoked_at: null,
+      },
+      {
+        role: 'SUPER_ADMIN',
+        granted_by_user_id: null,
+        grant_reason: 'FIRST_SUPER_ADMIN_BOOTSTRAP',
+        revoked_at: null,
+      },
+    ])
+    expect(grants.results.some(({ role }) => role === 'ADMIN')).toBe(false)
+
+    const audits = await env.DB.prepare(
+      `SELECT action, outcome, request_id, ip_address, user_agent,
+              changes_json, metadata_json
+       FROM core_audit_event ORDER BY created_at`,
+    ).all<{
+      action: string
+      outcome: string
+      request_id: string | null
+      ip_address: string | null
+      user_agent: string | null
+      changes_json: string | null
+      metadata_json: string | null
+    }>()
+    expect(audits.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: auditActions.firstSuperAdminBootstrap,
+          outcome: 'SUCCESS',
+        }),
+      ]),
+    )
+    const serializedAudit = JSON.stringify(audits.results)
+    expect(serializedAudit).not.toContain(env.FIRST_SUPER_ADMIN_SECRET)
+    expect(serializedAudit).not.toContain('correct horse battery staple')
+    expect(serializedAudit).not.toContain(env.FIRST_SUPER_ADMIN_EMAIL)
+
+    const graphqlExposure = await graphql<unknown>(/* GraphQL */ `
+      mutation {
+        auth { bootstrapFirstSuperAdmin { success } }
+      }
+    `)
+    expect(graphqlExposure.body.data).toBeUndefined()
+    expect(graphqlExposure.body.errors?.[0]?.message).toContain(
+      'Cannot query field "bootstrapFirstSuperAdmin"',
+    )
+  })
+
+  it('permanently closes bootstrap after one historical SUPER_ADMIN grant', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+
+    const concurrent = await Promise.all([
+      bootstrapFirstAdmin(),
+      bootstrapFirstAdmin(),
+    ])
+    expect(concurrent.filter(({ body }) => body.success)).toHaveLength(1)
+    expect(concurrent.filter(({ response }) => response.status === 403)).toHaveLength(1)
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_user_role_grant WHERE role = 'SUPER_ADMIN'`,
+      ).first(),
+    ).toEqual({ count: 1 })
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_audit_event
+         WHERE action = ? AND outcome = 'SUCCESS'`,
+      )
+        .bind(auditActions.firstSuperAdminBootstrap)
+        .first(),
+    ).toEqual({ count: 1 })
+
+    await env.DB.prepare(
+      `UPDATE core_user_role_grant
+       SET revoked_at = ?, revocation_reason = 'TEST_REVOKED'
+       WHERE role = 'SUPER_ADMIN' AND revoked_at IS NULL`,
+    )
+      .bind(Date.now())
+      .run()
+    // A malformed password hash would throw if the closed endpoint attempted
+    // scrypt. The historical role must short-circuit before hash parsing.
+    await env.DB.prepare(
+      `UPDATE core_user SET password_hash = 'invalid-closed-bootstrap-hash'
+       WHERE email = 'applicant@example.com'`,
+    ).run()
+    const afterRevocation = await bootstrapFirstAdmin()
+    expect(afterRevocation.response.status).toBe(403)
+    expect(afterRevocation.body).toEqual({
+      success: false,
+      message:
+        'First administrator bootstrap is unavailable or the supplied credentials are invalid.',
+      response: null,
+    })
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_user_role_grant WHERE role = 'SUPER_ADMIN'`,
+      ).first(),
+    ).toEqual({ count: 1 })
+  })
+
+  it('fails closed for invalid bootstrap credentials, configuration, and user lifecycle', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+    const expectedFailure = {
+      success: false,
+      message:
+        'First administrator bootstrap is unavailable or the supplied credentials are invalid.',
+      response: null,
+    }
+
+    expect((await bootstrapFirstAdmin({ secret: 'wrong-secret' })).body).toEqual(
+      expectedFailure,
+    )
+    expect(
+      (await bootstrapFirstAdmin({
+        password: 'incorrect password',
+        requestHeaders: {
+          'user-agent': 'incorrect password',
+          'x-request-id': env.FIRST_SUPER_ADMIN_SECRET,
+          'cf-connecting-ip': env.FIRST_SUPER_ADMIN_EMAIL,
+        },
+      })).body,
+    ).toEqual(expectedFailure)
+    expect(
+      await bootstrapFirstSuperAdmin(
+        {
+          currentPassword: 'correct horse battery staple',
+          bootstrapSecret: env.FIRST_SUPER_ADMIN_SECRET,
+        },
+        directAuthContext({ FIRST_SUPER_ADMIN_EMAIL: 'another@example.com' }),
+      ),
+    ).toEqual(expectedFailure)
+    const oversizedConfiguredSecret = 'x'.repeat(513)
+    expect(
+      await bootstrapFirstSuperAdmin(
+        {
+          currentPassword: 'correct horse battery staple',
+          bootstrapSecret: oversizedConfiguredSecret,
+        },
+        directAuthContext({ FIRST_SUPER_ADMIN_SECRET: oversizedConfiguredSecret }),
+      ),
+    ).toEqual(expectedFailure)
+    const whitespaceConfiguredSecret = `${'x'.repeat(31)} `
+    expect(
+      await bootstrapFirstSuperAdmin(
+        {
+          currentPassword: 'correct horse battery staple',
+          bootstrapSecret: whitespaceConfiguredSecret,
+        },
+        directAuthContext({ FIRST_SUPER_ADMIN_SECRET: whitespaceConfiguredSecret }),
+      ),
+    ).toEqual(expectedFailure)
+    expect(
+      await bootstrapFirstSuperAdmin(
+        {
+          currentPassword: 'correct horse battery staple',
+          bootstrapSecret: env.FIRST_SUPER_ADMIN_SECRET,
+        },
+        directAuthContext({
+          FIRST_SUPER_ADMIN_EMAIL: undefined,
+          FIRST_SUPER_ADMIN_SECRET: undefined,
+        }),
+      ),
+    ).toEqual(expectedFailure)
+    expect(
+      await bootstrapFirstSuperAdmin(
+        {
+          currentPassword: 'correct horse battery staple',
+          bootstrapSecret: 'short',
+        },
+        directAuthContext({ FIRST_SUPER_ADMIN_SECRET: 'short' }),
+      ),
+    ).toEqual(expectedFailure)
+
+    await env.DB.prepare(
+      `UPDATE core_user SET email_verified_at = NULL
+       WHERE email = 'applicant@example.com'`,
+    ).run()
+    expect((await bootstrapFirstAdmin()).body).toEqual(expectedFailure)
+    await env.DB.prepare(
+      `UPDATE core_user SET email_verified_at = ?, deleted_at = ?
+       WHERE email = 'applicant@example.com'`,
+    )
+      .bind(Date.now(), Date.now())
+      .run()
+    expect((await bootstrapFirstAdmin()).body).toEqual(expectedFailure)
+    await env.DB.prepare(
+      `UPDATE core_user SET deleted_at = NULL
+       WHERE email = 'applicant@example.com'`,
+    ).run()
+    await env.DB.prepare(
+      `UPDATE core_user_role_grant
+       SET revoked_at = ?, revocation_reason = 'TEST_REVOKED'
+       WHERE role = 'APPLICANT' AND revoked_at IS NULL`,
+    )
+      .bind(Date.now())
+      .run()
+    expect((await bootstrapFirstAdmin()).body).toEqual(expectedFailure)
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_user_role_grant WHERE role = 'SUPER_ADMIN'`,
+      ).first(),
+    ).toEqual({ count: 0 })
+    const audits = await env.DB.prepare(
+      `SELECT request_id, ip_address, user_agent, changes_json, metadata_json
+       FROM core_audit_event
+       WHERE action = ?`,
+    )
+      .bind(auditActions.firstSuperAdminBootstrap)
+      .all<{
+        request_id: string | null
+        ip_address: string | null
+        user_agent: string | null
+        changes_json: string | null
+        metadata_json: string | null
+      }>()
+    const serializedAudit = JSON.stringify(audits.results)
+    expect(serializedAudit).not.toContain(env.FIRST_SUPER_ADMIN_SECRET)
+    expect(serializedAudit).not.toContain('correct horse battery staple')
+    expect(serializedAudit).not.toContain('incorrect password')
+    expect(serializedAudit).not.toContain(env.FIRST_SUPER_ADMIN_EMAIL)
+    expect(serializedAudit).not.toContain('another@example.com')
+  })
+
+  it('rejects browser, malformed, and non-JSON requests before bootstrap evaluation', async () => {
+    const expectedFailure = {
+      success: false,
+      message:
+        'First administrator bootstrap is unavailable or the supplied credentials are invalid.',
+      response: null,
+    }
+    const browser = await bootstrapFirstAdmin({ origin: 'https://app.example.test' })
+    expect(browser.response.status).toBe(403)
+    expect(browser.body).toEqual(expectedFailure)
+
+    const missingAuthorization = await bootstrapFirstAdmin({
+      authorization: null,
+      rawBody: '{',
+    })
+    expect(missingAuthorization.response.status).toBe(403)
+    expect(missingAuthorization.body).toEqual(expectedFailure)
+
+    const wrongType = await bootstrapFirstAdmin({ contentType: 'text/plain' })
+    expect(wrongType.response.status).toBe(400)
+    expect(wrongType.body).toEqual(expectedFailure)
+
+    const malformed = await bootstrapFirstAdmin({ rawBody: '{' })
+    expect(malformed.response.status).toBe(400)
+    expect(malformed.body).toEqual(expectedFailure)
+
+    const missingPassword = await bootstrapFirstAdmin({ rawBody: '{}' })
+    expect(missingPassword.response.status).toBe(400)
+    expect(missingPassword.body).toEqual(expectedFailure)
+
+    const unexpectedField = await bootstrapFirstAdmin({
+      rawBody: JSON.stringify({ currentPassword: 'password', email: 'other@example.com' }),
+    })
+    expect(unexpectedField.response.status).toBe(400)
+    expect(unexpectedField.body).toEqual(expectedFailure)
+
+    const oversized = await bootstrapFirstAdmin({
+      rawBody: JSON.stringify({ currentPassword: 'x'.repeat(1_025) }),
+    })
+    expect(oversized.response.status).toBe(413)
+    expect(oversized.body).toEqual(expectedFailure)
+
+    const unusableBearer = await bootstrapFirstAdmin({
+      authorization: `Bearer ${'x'.repeat(513)}`,
+    })
+    expect(unusableBearer.response.status).toBe(403)
+    expect(unusableBearer.body).toEqual(expectedFailure)
+  })
+
+  it('guards bootstrap against a password hash changed after credential verification', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+
+    const db = createDatabase(env.DB)
+    const candidate = await findActiveApplicantByEmail(db, 'applicant@example.com')
+    if (!candidate) throw new Error('Expected bootstrap candidate.')
+    await env.DB.prepare(
+      `UPDATE core_user SET password_hash = ? WHERE id = ?`,
+    )
+      .bind(await hashPassword('replacement password'), candidate.id)
+      .run()
+
+    const now = new Date()
+    const grantId = crypto.randomUUID()
+    const granted = await grantFirstSuperAdmin(db, {
+      userId: candidate.id,
+      email: candidate.email,
+      verifiedPasswordHash: candidate.passwordHash,
+      roleGrant: {
+        id: grantId,
+        userId: candidate.id,
+        role: 'SUPER_ADMIN',
+        grantedByUserId: null,
+        grantReason: 'FIRST_SUPER_ADMIN_BOOTSTRAP',
+        grantedAt: now,
+        revokedByUserId: null,
+        revokedAt: null,
+        revocationReason: null,
+      },
+      roleAuditEvent: testAuditEvent(
+        auditActions.roleGranted,
+        'CORE_USER_ROLE_GRANT',
+        grantId,
+        'SUCCESS',
+      ),
+      bootstrapAuditEvent: testAuditEvent(
+        auditActions.firstSuperAdminBootstrap,
+        'CORE_USER',
+        candidate.id,
+        'SUCCESS',
+      ),
+    })
+    expect(granted).toBe(false)
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_user_role_grant WHERE role = 'SUPER_ADMIN'`,
+      ).first(),
+    ).toEqual({ count: 0 })
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_audit_event
+         WHERE action = ? AND outcome = 'SUCCESS'`,
+      )
+        .bind(auditActions.firstSuperAdminBootstrap)
+        .first(),
+    ).toEqual({ count: 0 })
   })
 
   it('does not create a session from a stale credential read after role revocation', async () => {

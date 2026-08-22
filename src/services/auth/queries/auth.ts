@@ -3,7 +3,19 @@
  * boundaries stay here so controllers can express policy without weakening
  * the race guarantees of signup or session ownership checks.
  */
-import { and, eq, exists, gt, isNull, lte, ne, sql, type SQL } from 'drizzle-orm'
+import {
+  and,
+  eq,
+  exists,
+  gt,
+  isNotNull,
+  isNull,
+  lte,
+  ne,
+  notExists,
+  sql,
+  type SQL,
+} from 'drizzle-orm'
 import type { Database } from '../../../db'
 import {
   coreAuditEvent,
@@ -95,6 +107,157 @@ export const findActiveApplicantByEmail = async (
     )
     .limit(1)
   return record ?? null
+}
+
+/** Returns active roles in the fixed catalogue order used by public responses. */
+export const findActiveUserRoles = async (
+  db: Database,
+  userId: string,
+): Promise<UserRole[]> => {
+  const records = await db
+    .select({ role: coreUserRoleGrant.role })
+    .from(coreUserRoleGrant)
+    .where(
+      and(
+        eq(coreUserRoleGrant.userId, userId),
+        isNull(coreUserRoleGrant.revokedAt),
+      ),
+    )
+  const active = new Set(records.map(({ role }) => role))
+  const catalogue: readonly UserRole[] = ['APPLICANT', 'ADMIN', 'SUPER_ADMIN']
+  return catalogue.filter((role) => active.has(role))
+}
+
+type FirstSuperAdminGrantInput = {
+  userId: string
+  email: string
+  verifiedPasswordHash: string
+  roleGrant: UserRoleGrantRecord
+  roleAuditEvent: AuditEventRecord
+  bootstrapAuditEvent: AuditEventRecord
+}
+
+/** Repeats every mutable candidate condition at the authoritative write. */
+const firstSuperAdminCandidateExists = (
+  db: Database,
+  input: FirstSuperAdminGrantInput,
+): SQL => exists(
+  db
+    .select({ id: coreUser.id })
+    .from(coreUser)
+    .where(
+      and(
+        eq(coreUser.id, input.userId),
+        eq(coreUser.email, input.email),
+        eq(coreUser.passwordHash, input.verifiedPasswordHash),
+        isNotNull(coreUser.emailVerifiedAt),
+        isNull(coreUser.deletedAt),
+        exists(
+          db
+            .select({ id: coreUserRoleGrant.id })
+            .from(coreUserRoleGrant)
+            .where(
+              and(
+                eq(coreUserRoleGrant.userId, input.userId),
+                eq(coreUserRoleGrant.role, 'APPLICANT'),
+                isNull(coreUserRoleGrant.revokedAt),
+              ),
+            ),
+        ),
+      ),
+    ),
+)
+
+/** A revoked SUPER_ADMIN still proves that the one-time bootstrap was used. */
+const firstSuperAdminNeverGranted = (db: Database): SQL => notExists(
+  db
+    .select({ id: coreUserRoleGrant.id })
+    .from(coreUserRoleGrant)
+    .where(eq(coreUserRoleGrant.role, 'SUPER_ADMIN')),
+)
+
+/**
+ * Finds the configured credential owner only while bootstrap is still open.
+ *
+ * Keeping the historical-grant predicate in this lookup prevents needless
+ * memory-hard password verification after bootstrap has permanently closed.
+ * The write query repeats every condition to remain authoritative under races.
+ */
+export const findFirstSuperAdminCandidateByEmail = async (
+  db: Database,
+  email: string,
+): Promise<UserRecord | null> => {
+  const activeApplicantGrant = exists(
+    db
+      .select({ id: coreUserRoleGrant.id })
+      .from(coreUserRoleGrant)
+      .where(
+        and(
+          eq(coreUserRoleGrant.userId, coreUser.id),
+          eq(coreUserRoleGrant.role, 'APPLICANT'),
+          isNull(coreUserRoleGrant.revokedAt),
+        ),
+      ),
+  )
+  const [record] = await db
+    .select()
+    .from(coreUser)
+    .where(
+      and(
+        eq(coreUser.email, email),
+        isNotNull(coreUser.emailVerifiedAt),
+        isNull(coreUser.deletedAt),
+        activeApplicantGrant,
+        firstSuperAdminNeverGranted(db),
+      ),
+    )
+    .limit(1)
+  return record ?? null
+}
+
+/**
+ * Performs the only transition allowed to create the first SUPER_ADMIN grant.
+ *
+ * The absence check intentionally includes revoked grants. Since grants are
+ * retained forever, the first historical SUPER_ADMIN row doubles as the
+ * permanent bootstrap-completed marker without introducing mutable flag state.
+ * The password hash is repeated in the write predicate so a concurrent password
+ * change defeats a request that verified stale credentials.
+ */
+export const grantFirstSuperAdmin = async (
+  db: Database,
+  input: FirstSuperAdminGrantInput,
+): Promise<boolean> => {
+  const insertGrant = db
+    .insert(coreUserRoleGrant)
+    .select(sql`
+      SELECT
+        ${input.roleGrant.id},
+        ${input.roleGrant.userId},
+        ${input.roleGrant.role},
+        NULL,
+        ${input.roleGrant.grantReason},
+        ${input.roleGrant.grantedAt.getTime()},
+        NULL,
+        NULL,
+        NULL
+      WHERE ${firstSuperAdminCandidateExists(db, input)}
+        AND ${firstSuperAdminNeverGranted(db)}
+    `)
+    .returning({ id: coreUserRoleGrant.id })
+  const grantExists = exists(
+    db
+      .select({ id: coreUserRoleGrant.id })
+      .from(coreUserRoleGrant)
+      .where(eq(coreUserRoleGrant.id, input.roleGrant.id)),
+  )
+
+  const [inserted] = await db.batch([
+    insertGrant,
+    insertAuditEventWhere(db, input.roleAuditEvent, grantExists),
+    insertAuditEventWhere(db, input.bootstrapAuditEvent, grantExists),
+  ])
+  return inserted.length === 1
 }
 
 /** Atomically creates one challenge only while the normalized email is unused. */

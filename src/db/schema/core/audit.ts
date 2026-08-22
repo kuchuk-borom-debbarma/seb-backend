@@ -12,6 +12,7 @@ export const auditActions = {
   userCreated: 'USER.CREATED',
   roleGranted: 'RBAC.ROLE_GRANTED',
   roleRevoked: 'RBAC.ROLE_REVOKED',
+  firstSuperAdminBootstrap: 'RBAC.FIRST_SUPER_ADMIN_BOOTSTRAP',
   signInSucceeded: 'AUTH.SIGN_IN_SUCCEEDED',
   signInFailed: 'AUTH.SIGN_IN_FAILED',
   signedOut: 'AUTH.SIGNED_OUT',

@@ -12,6 +12,8 @@ import {
   createOtp,
   DUMMY_PASSWORD_HASH,
   hashPassword,
+  isValidBootstrapSecret,
+  verifyConfiguredSecret,
   verifyPassword,
 } from '../crypto'
 import {
@@ -27,9 +29,12 @@ import {
   deleteUserSession,
   deleteUserSessionByDigest,
   findActiveApplicantByEmail,
+  findFirstSuperAdminCandidateByEmail,
+  findActiveUserRoles,
   findSignupChallenge,
   findUserByEmail,
   findUserSessionByDigest,
+  grantFirstSuperAdmin,
   listUserSessions,
   markSignupChallengeDeliveryFailed,
   type AuditEventRecord,
@@ -48,6 +53,7 @@ import type {
   AuthenticatedUserRequest,
   AuthOperationContext,
   AuthResult,
+  FirstSuperAdminBootstrapResponse,
   StartApplicantSignupResponse,
 } from '../types'
 
@@ -60,6 +66,10 @@ const START_SIGNUP_MESSAGE =
   'If this email can be registered, a verification code has been sent.'
 const INVALID_CHALLENGE_MESSAGE = 'The verification code is invalid or has expired.'
 const AUTH_REQUIRED_MESSAGE = 'Applicant authentication is required.'
+const FIRST_SUPER_ADMIN_BOOTSTRAP_FAILURE =
+  'First administrator bootstrap is unavailable or the supplied credentials are invalid.'
+const FIRST_SUPER_ADMIN_ROLE = 'SUPER_ADMIN' as const
+const FIRST_SUPER_ADMIN_GRANT_REASON = 'FIRST_SUPER_ADMIN_BOOTSTRAP'
 
 const emailSchema = z.email()
 const challengeSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u)
@@ -99,6 +109,21 @@ const attemptsFromEnvironment = (context: AuthOperationContext): number => {
 }
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase()
+
+/**
+ * Bootstrap configuration is optional because it should be removed immediately
+ * after use. Missing or malformed values simply close the curl-only endpoint;
+ * callers never learn which configuration check failed.
+ */
+const firstSuperAdminConfiguration = (
+  context: AuthOperationContext,
+): { email: string; secret: string } | null => {
+  const email = normalizeEmail(context.env.FIRST_SUPER_ADMIN_EMAIL ?? '')
+  const secret = context.env.FIRST_SUPER_ADMIN_SECRET ?? ''
+  if (!emailSchema.safeParse(email).success) return null
+  if (!isValidBootstrapSecret(secret)) return null
+  return { email, secret }
+}
 
 const toApplicant = (value: PublicUserRecord): Applicant => ({
   id: value.id,
@@ -149,8 +174,9 @@ export const authenticatedApplicant = (
 ): Promise<AuthenticatedApplicantRequest | null> => getCurrentApplicantSession(context)
 
 /**
- * Builds one allow-listed audit record from request metadata. Callers provide
- * only public IDs and small, explicitly safe metadata objects.
+ * Builds one allow-listed audit record. Callers provide only public IDs and
+ * small, explicitly safe metadata objects. Credential-bearing maintenance
+ * operations may opt out of caller-controlled request labels entirely.
  */
 const auditEvent = (
   context: AuthOperationContext,
@@ -166,22 +192,29 @@ const auditEvent = (
     outcome?: 'SUCCESS' | 'FAILURE'
     metadata?: Record<string, string | number | boolean | null>
     createdAt?: Date
+    includeRequestMetadata?: boolean
   },
-): AuditEventRecord => ({
-  id: crypto.randomUUID(),
-  actorUserId: input.actorUserId ?? null,
-  action: input.action,
-  entityType: input.entityType,
-  entityId: input.entityId ?? null,
-  outcome: input.outcome ?? 'SUCCESS',
-  requestId:
-    context.requestHeaders.get('CF-Ray') ?? context.requestHeaders.get('X-Request-ID'),
-  ipAddress: context.requestHeaders.get('CF-Connecting-IP'),
-  userAgent: context.requestHeaders.get('User-Agent'),
-  changesJson: null,
-  metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
-  createdAt: input.createdAt ?? new Date(),
-})
+): AuditEventRecord => {
+  const includeRequestMetadata = input.includeRequestMetadata ?? true
+  return {
+    id: crypto.randomUUID(),
+    actorUserId: input.actorUserId ?? null,
+    action: input.action,
+    entityType: input.entityType,
+    entityId: input.entityId ?? null,
+    outcome: input.outcome ?? 'SUCCESS',
+    requestId: includeRequestMetadata
+      ? context.requestHeaders.get('CF-Ray') ?? context.requestHeaders.get('X-Request-ID')
+      : null,
+    ipAddress: includeRequestMetadata
+      ? context.requestHeaders.get('CF-Connecting-IP')
+      : null,
+    userAgent: includeRequestMetadata ? context.requestHeaders.get('User-Agent') : null,
+    changesJson: null,
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
+    createdAt: input.createdAt ?? new Date(),
+  }
+}
 
 /** Creates one independent challenge without revealing existing accounts. */
 export const startApplicantSignup = async (
@@ -381,6 +414,138 @@ export const verifyApplicantSignup = async (
   }
 
   return success(toApplicant(newUser))
+}
+
+/** Records a credential or guarded-write failure without copying its cause. */
+const recordFirstSuperAdminFailure = (
+  context: AuthOperationContext,
+  userId: string,
+  authenticated: boolean,
+): Promise<void> => createAuditEvent(
+  context.db,
+  auditEvent(context, {
+    action: auditActions.firstSuperAdminBootstrap,
+    entityType: 'CORE_USER',
+    entityId: userId,
+    actorUserId: authenticated ? userId : null,
+    outcome: 'FAILURE',
+    // This endpoint carries two credentials. Its audit rows intentionally omit
+    // caller-controlled request labels so a malicious User-Agent/request ID
+    // cannot copy either credential into retained history.
+    includeRequestMetadata: false,
+  }),
+)
+
+/** Builds the fixed grant and both success audits for the guarded D1 batch. */
+const attemptFirstSuperAdminGrant = (
+  candidate: UserRecord,
+  configuredEmail: string,
+  context: AuthOperationContext,
+): Promise<boolean> => {
+  const now = new Date()
+  const roleGrant: UserRoleGrantRecord = {
+    id: crypto.randomUUID(),
+    userId: candidate.id,
+    role: FIRST_SUPER_ADMIN_ROLE,
+    // Authority comes from trusted bootstrap configuration rather than another
+    // portal user; the audit event still identifies the authenticated candidate.
+    grantedByUserId: null,
+    grantReason: FIRST_SUPER_ADMIN_GRANT_REASON,
+    grantedAt: now,
+    revokedByUserId: null,
+    revokedAt: null,
+    revocationReason: null,
+  }
+  return grantFirstSuperAdmin(context.db, {
+    userId: candidate.id,
+    email: configuredEmail,
+    verifiedPasswordHash: candidate.passwordHash,
+    roleGrant,
+    roleAuditEvent: auditEvent(context, {
+      action: auditActions.roleGranted,
+      entityType: 'CORE_USER_ROLE_GRANT',
+      entityId: roleGrant.id,
+      actorUserId: candidate.id,
+      metadata: { userId: candidate.id, role: FIRST_SUPER_ADMIN_ROLE },
+      createdAt: now,
+      includeRequestMetadata: false,
+    }),
+    bootstrapAuditEvent: auditEvent(context, {
+      action: auditActions.firstSuperAdminBootstrap,
+      entityType: 'CORE_USER',
+      entityId: candidate.id,
+      actorUserId: candidate.id,
+      metadata: {
+        grantId: roleGrant.id,
+        role: FIRST_SUPER_ADMIN_ROLE,
+        reason: FIRST_SUPER_ADMIN_GRANT_REASON,
+      },
+      createdAt: now,
+      includeRequestMetadata: false,
+    }),
+  })
+}
+
+/**
+ * Promotes the configured, already-verified applicant exactly once.
+ *
+ * This function is intentionally exposed only through the curl-oriented Hono
+ * route. It is not part of the GraphQL schema. The high-entropy configuration
+ * secret is checked before D1 lookup or scrypt work, limiting unauthenticated
+ * requests to cheap constant-time HMAC operations.
+ */
+export const bootstrapFirstSuperAdmin = async (
+  input: { currentPassword: string; bootstrapSecret: string },
+  context: AuthOperationContext,
+): Promise<AuthResult<FirstSuperAdminBootstrapResponse>> => {
+  const configuration = firstSuperAdminConfiguration(context)
+  if (
+    !configuration ||
+    !passwordSchema.safeParse(input.currentPassword).success ||
+    !isValidBootstrapSecret(input.bootstrapSecret)
+  ) {
+    return failure(FIRST_SUPER_ADMIN_BOOTSTRAP_FAILURE)
+  }
+
+  const secretMatches = await verifyConfiguredSecret(
+    requireSecret(context),
+    'first-super-admin-bootstrap',
+    configuration.secret,
+    input.bootstrapSecret,
+  )
+  if (!secretMatches) return failure(FIRST_SUPER_ADMIN_BOOTSTRAP_FAILURE)
+
+  // The read-side eligibility check avoids expensive scrypt work after the
+  // permanent bootstrap lock already exists. The guarded insert repeats this
+  // condition later because another request may win after this read.
+  const candidate = await findFirstSuperAdminCandidateByEmail(
+    context.db,
+    configuration.email,
+  )
+  if (!candidate) {
+    return failure(FIRST_SUPER_ADMIN_BOOTSTRAP_FAILURE)
+  }
+
+  const passwordMatches = await verifyPassword(candidate.passwordHash, input.currentPassword)
+  if (!passwordMatches) {
+    await recordFirstSuperAdminFailure(context, candidate.id, false)
+    return failure(FIRST_SUPER_ADMIN_BOOTSTRAP_FAILURE)
+  }
+
+  const granted = await attemptFirstSuperAdminGrant(
+    candidate,
+    configuration.email,
+    context,
+  )
+  if (!granted) {
+    await recordFirstSuperAdminFailure(context, candidate.id, true)
+    return failure(FIRST_SUPER_ADMIN_BOOTSTRAP_FAILURE)
+  }
+
+  return success({
+    userId: candidate.id,
+    roles: await findActiveUserRoles(context.db, candidate.id),
+  })
 }
 
 /** Verifies a password and creates a seven-day opaque D1 session. */

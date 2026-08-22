@@ -1,8 +1,9 @@
 # Administrator identity and fixed-role RBAC
 
 This guide describes the authorization foundation shared by applicant and
-future administrative services. It covers identity and role persistence only;
-administrator GraphQL operations and account provisioning do not exist yet.
+future administrative services. The first super administrator can now be
+promoted through a one-time curl operation; administrator GraphQL operations
+and later account provisioning do not exist yet.
 
 ## One identity, several roles
 
@@ -43,7 +44,7 @@ retaining both historical `ADMIN` grants. A revocation cannot predate its grant.
 revoking actor.
 
 `granted_by_user_id` is null only for trusted system transitions, currently
-verified applicant signup and later the first-super-admin bootstrap. Future
+verified applicant signup and the first-super-admin bootstrap. Future
 administrative grant services must provide their authenticated actor. Automated
 revocation may have no user actor, but every revocation retains a reason and
 time.
@@ -80,6 +81,31 @@ operational admin action: ADMIN or SUPER_ADMIN
 role/account administration: SUPER_ADMIN
 ```
 
+## First super administrator
+
+The first super administrator begins as a normally verified applicant. A
+deployment operator temporarily configures that exact email and a random secret,
+then uses the direct curl endpoint with the applicant's current password. The
+resulting identity intentionally holds `APPLICANT` and `SUPER_ADMIN`.
+
+No `ADMIN` row is added because `SUPER_ADMIN` implies its capabilities. The
+grant records null as its granting user because authority comes from trusted
+deployment configuration; audit records identify the promoted credential-
+authenticated user and the fixed bootstrap reason.
+
+Bootstrap is absent from GraphQL and permanently closes after any historical
+`SUPER_ADMIN` grant exists. A revoked grant still closes it. All later role
+granting, recovery, and last-super-administrator protection belong to the future
+privileged administration flow.
+
+Once closed, bootstrap refuses the request before password hashing while the
+atomic grant statement retains its own permanent-lock check for concurrent
+first attempts. Bootstrap audit rows omit caller-controlled request labels so
+credentials cannot be copied into retained history through headers.
+
+Follow the [operator guide](first-super-admin-bootstrap.md) for exact commands,
+failure behaviour, and secret removal.
+
 Role strings must never come from a client-controlled signup field. Grant and
 revocation transitions must use guarded D1 batches, record allow-listed audit
 events, and protect against removing the last usable `SUPER_ADMIN`. The last
@@ -98,13 +124,11 @@ tokens, cookie values, or document/form contents.
 The current foundation does not provide:
 
 - an administrator signup or sign-in GraphQL API;
-- first-super-admin bootstrapping;
 - role grant/revoke GraphQL operations;
 - custom roles or permission sets;
 - staff profiles, departments, organizations, or partner-bank accounts;
 - MFA or separate privileged sessions; or
 - conflict-of-interest restrictions for an administrator's own applications.
 
-The future bootstrap must create a verified user and `SUPER_ADMIN` grant through
-a privileged, audited mechanism. The base schema never contains an account,
-email, password, or other administrator credential.
+The base schema never contains an account, email, password, bootstrap secret,
+or other administrator credential.

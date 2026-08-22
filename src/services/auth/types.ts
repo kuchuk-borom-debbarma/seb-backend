@@ -68,6 +68,12 @@ export type StartApplicantSignupResponse = {
   expiresAt: Date
 }
 
+/** Public response for the curl-only, one-time bootstrap operation. */
+export type FirstSuperAdminBootstrapResponse = {
+  userId: string
+  roles: UserRole[]
+}
+
 export type AuthResult<T> = {
   // Expected failures stay inside this envelope instead of becoming GraphQL errors.
   success: boolean

@@ -69,7 +69,7 @@ export const coreUserRoleGrant = sqliteTable(
       .references(() => coreUser.id, { onDelete: 'restrict' }),
     role: text('role', { enum: userRoles }).notNull(),
     // Null identifies a trusted system transition such as verified signup or
-    // the future first-super-admin bootstrap. Public input never controls it.
+    // the one-time first-super-admin bootstrap. Public input never controls it.
     grantedByUserId: text('granted_by_user_id').references(() => coreUser.id, {
       onDelete: 'restrict',
     }),

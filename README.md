@@ -4,7 +4,10 @@ Cloudflare Worker API built with Hono, GraphQL Yoga, Drizzle, D1, R2, and Queues
 
 ## Local development
 
-The checked-in `.env.example` is intentionally empty, and `.env` stays empty and gitignored. Pass local values to Wrangler without writing an environment file:
+The checked-in `.env.example` is intentionally empty. `.env` is gitignored and
+may contain local-only secrets such as the temporary first-administrator
+bootstrap values; never commit it. Regular local values may also be passed to
+Wrangler without writing an environment file:
 
 ```sh
 npm install
@@ -14,7 +17,9 @@ npx wrangler dev \
   --var FRONTEND_ORIGINS:http://localhost:3000
 ```
 
-GraphQL is served at `http://localhost:8787/graphql`. Authentication is exposed only through GraphQL.
+GraphQL is served at `http://localhost:8787/graphql`. Applicant authentication
+uses GraphQL. The one-time first-super-administrator promotion is deliberately
+available only through a direct curl endpoint documented below.
 
 Useful checks:
 
@@ -35,6 +40,15 @@ npx wrangler secret put FRONTEND_ORIGINS
 npx wrangler secret put APPLICANT_SIGNUP_TOKEN_ATTEMPT_COUNT
 npx wrangler secret put AUTH_COOKIE_SAME_SITE
 ```
+
+The first administrator temporarily also requires:
+
+```sh
+npx wrangler secret put FIRST_SUPER_ADMIN_EMAIL
+npx wrangler secret put FIRST_SUPER_ADMIN_SECRET
+```
+
+Remove both values immediately after a successful bootstrap.
 
 - `AUTH_SECRET` is required. It keys challenge, OTP, and session-token HMAC digests.
 - `FRONTEND_ORIGINS` is a comma-separated allowlist used for credentialed CORS and origin validation.
@@ -67,7 +81,11 @@ business journey, API behavior, validation, R2 flow, assumptions, and examples.
 
 ## Applicant authentication
 
-All operations are under the GraphQL `auth` namespace and return a typed envelope with `success`, optional `message`, and an operation-specific `response`. Expected authentication failures remain in that envelope; malformed GraphQL documents and unexpected faults use GraphQL errors.
+Applicant signup and session operations are under the GraphQL `auth` namespace
+and return a typed envelope with `success`, optional `message`, and an
+operation-specific `response`. Expected authentication failures remain in that
+envelope; malformed GraphQL documents and unexpected faults use GraphQL errors.
+The one-time administrator bootstrap is the documented direct-HTTP exception.
 
 ```graphql
 mutation StartSignup {
@@ -88,6 +106,8 @@ The console external-notification service prints the six-digit OTP during develo
 
 Focused implementation guides:
 
+- [Mission SEP product roadmap](docs/ROADMAP.md)
+- [First super administrator bootstrap](docs/first-super-admin-bootstrap.md)
 - [Applicant authentication service](src/services/auth/README.md)
 - [External notification service](src/services/external-notification/README.md)
 - [Applicant application service](src/services/application/README.md)

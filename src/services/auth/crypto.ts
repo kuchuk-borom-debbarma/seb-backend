@@ -9,6 +9,14 @@ const SCRYPT_P = 1
 const SCRYPT_KEY_LENGTH = 64
 const SCRYPT_MAX_MEMORY = 128 * SCRYPT_N * SCRYPT_R * 2
 
+// Bootstrap credentials travel in an HTTP Authorization header. Keeping their
+// accepted alphabet deliberately small avoids whitespace/header ambiguity, and
+// sharing this validator between configuration and request parsing prevents an
+// operator from configuring a value that the endpoint can never accept.
+const BOOTSTRAP_SECRET_PATTERN = /^[A-Za-z0-9._~+/=-]+$/u
+const BOOTSTRAP_SECRET_MIN_LENGTH = 32
+const BOOTSTRAP_SECRET_MAX_LENGTH = 512
+
 // Cloudflare Workers expose Web Crypto and browser-compatible base64 helpers.
 // URL-safe encoding keeps random tokens valid in cookies and GraphQL strings.
 const toBase64Url = (bytes: Uint8Array): string => {
@@ -49,6 +57,32 @@ const equalBytes = (left: Uint8Array, right: Uint8Array): boolean => {
   }
   return difference === 0
 }
+
+/**
+ * Compares configuration credentials without leaking a matching prefix.
+ *
+ * Both values are first converted to fixed-length, purpose-separated HMACs.
+ * This keeps comparison work independent of the submitted string length and
+ * avoids ever persisting the bootstrap credential or a reusable plain digest.
+ */
+export const verifyConfiguredSecret = async (
+  hmacSecret: string,
+  purpose: string,
+  expected: string,
+  submitted: string,
+): Promise<boolean> => {
+  const [expectedDigest, submittedDigest] = await Promise.all([
+    createDigest(hmacSecret, purpose, expected),
+    createDigest(hmacSecret, purpose, submitted),
+  ])
+  return equalBytes(encoder.encode(expectedDigest), encoder.encode(submittedDigest))
+}
+
+/** Returns true only for the accepted bearer-header-safe syntax and bounds. */
+export const isValidBootstrapSecret = (value: string): boolean =>
+  value.length >= BOOTSTRAP_SECRET_MIN_LENGTH &&
+  value.length <= BOOTSTRAP_SECRET_MAX_LENGTH &&
+  BOOTSTRAP_SECRET_PATTERN.test(value)
 
 export const createChallengeToken = (): string => {
   // 32 random bytes provide a full 256 bits of challenge entropy.

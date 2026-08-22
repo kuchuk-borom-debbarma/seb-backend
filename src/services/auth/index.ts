@@ -1,6 +1,7 @@
 export {
   authenticatedApplicant,
   applicantSessions,
+  bootstrapFirstSuperAdmin,
   cleanupExpiredAuthentication,
   currentApplicantSession,
   revokeAllApplicantSessions,
@@ -11,4 +12,5 @@ export {
   startApplicantSignup,
   verifyApplicantSignup,
 } from './controllers/auth'
+export { isValidBootstrapSecret } from './crypto'
 export type * from './types'

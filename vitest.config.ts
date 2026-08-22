@@ -36,6 +36,8 @@ export default defineWorkersConfig({
             FRONTEND_ORIGINS: 'https://app.example.test',
             AUTH_COOKIE_SAME_SITE: 'lax',
             APPLICANT_SIGNUP_TOKEN_ATTEMPT_COUNT: '5',
+            FIRST_SUPER_ADMIN_EMAIL: 'applicant@example.com',
+            FIRST_SUPER_ADMIN_SECRET: 'test-first-super-admin-secret-at-least-32-bytes',
             R2_ACCOUNT_ID: 'test-account-id',
             R2_BUCKET_NAME: 'seb-backend-test',
             R2_ACCESS_KEY_ID: 'test-access-key',

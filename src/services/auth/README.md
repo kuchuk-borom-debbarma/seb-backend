@@ -1,8 +1,8 @@
 # Applicant authentication service
 
 This service implements the project's custom applicant authentication. It does
-not use Better Auth and does not mount authentication REST routes. GraphQL
-resolvers call the exported functions directly.
+not use Better Auth. Applicant operations are GraphQL-only; the single exception
+is the direct curl route used once to promote the first super administrator.
 
 ## Authentication flow
 
@@ -121,9 +121,15 @@ token digests, cookie values, or sensitive response bodies.
   be an integer from `1` through `20`.
 - `AUTH_COOKIE_SAME_SITE` defaults to `lax`. `none` is allowed only over HTTPS
   and produces a Secure cookie.
+- `FIRST_SUPER_ADMIN_EMAIL` temporarily selects the one verified applicant that
+  may be promoted by the curl bootstrap.
+- `FIRST_SUPER_ADMIN_SECRET` is a temporary random secret containing 32 through
+  512 bearer-safe ASCII characters (`A-Z`, `a-z`, digits, `.`, `_`, `~`, `+`,
+  `/`, `=`, or `-`). Remove it together with the email after successful
+  bootstrap.
 
-Keep `.env` and `.env.example` empty. Supply local values to Wrangler and
-provision production values as Cloudflare secrets.
+Keep `.env.example` empty. `.env` is gitignored and may hold local-only values;
+production values are provisioned as Cloudflare secrets.
 
 ## Security invariants
 
@@ -140,6 +146,14 @@ provision production values as Cloudflare secrets.
 - Race-sensitive signup and session mutations use guarded D1 statements and
   bounded batches.
 - Session cookies are HttpOnly and use the configured SameSite/Secure policy.
+- First-super-administrator bootstrap is absent from GraphQL, cannot choose its
+  target email or role, and permanently closes after the first historical
+  `SUPER_ADMIN` grant.
+- Bootstrap audits omit caller-controlled request labels so a password, email,
+  or temporary secret cannot be copied into retained history through headers.
+- Once bootstrap is permanently closed, requests fail before memory-hard
+  password verification; the final D1 write still repeats the closure check to
+  decide concurrent attempts atomically.
 
 Integration coverage lives in `test/applicant-auth.test.ts`. Run it with:
 
@@ -153,6 +167,9 @@ role hierarchy, retained grant lifecycle, and future provisioning boundary.
 ## Known limitation
 
 Request, resend, and notification rate limiting are not implemented. CAPTCHA,
-password reset, MFA, account deletion APIs, and production email delivery are
-also out of scope. Do not publicly deploy applicant signup with the current
-console notification transport or without rate limiting.
+password reset, MFA, account deletion APIs, administrator-only sign-in, and
+production email delivery are also out of scope. Do not publicly deploy
+applicant signup with the current console notification transport or without
+rate limiting. See the
+[bootstrap operator guide](../../../docs/first-super-admin-bootstrap.md) for the
+one-time curl procedure.
