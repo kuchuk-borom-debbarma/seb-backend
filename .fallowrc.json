@@ -1,43 +1,27 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
-  "ignorePatterns": ["worker-configuration.d.ts"],
+  "ignorePatterns": [
+    "worker-configuration.d.ts"
+  ],
   "duplicates": {
     "ignore": [
       "src/db/schema/**",
       "src/services/application/queries/**",
       "src/services/admin/queries/**"
     ],
-    "ignoredClones": [
-      "dup:02287fb3:2",
-      "dup:3130f9e5:2",
-      "dup:b8c53c63:2",
-      "dup:c77b3abb6f87acd9-1:2",
-      "dup:c77b3abb6f87acd9-2:2",
-      "dup:c77b3abb6f87acd9-3:2",
-      "dup:c77b3abb6f87acd9-4:2",
-      "dup:c77b3abb6f87acd9-5:2",
-      "dup:c77b3abb6f87acd9-6:2",
-      "dup:c77b3abb6f87acd9-7:2",
-      "dup:c77b3abb6f87acd9-8:3",
-      "dup:c77b3abb6f87acd9-9:2",
-      "dup:c77b3abb6f87acd9-10:3",
-      "dup:c77b3abb6f87acd9-11:2",
-      "dup:c77b3abb6f87acd9-12:2",
-      "dup:c77b3abb6f87acd9-13:2",
-      "dup:c77b3abb6f87acd9-14:2",
-      "dup:c77b3abb6f87acd9-15:2",
-      "dup:c77b3abb6f87acd9-16:2",
-      "dup:c77b3abb6f87acd9-17:2",
-      "dup:c77b3abb6f87acd9-18:2",
-      "dup:d814a3ce:2"
-    ]
+    "ignoredClones": [],
+    "minOccurrences": 3
   },
   "health": {
     "coverage": "coverage/coverage-final.json",
-    "ignore": ["test/**"],
+    "ignore": [
+      "test/**"
+    ],
     "thresholdOverrides": [
       {
-        "files": ["src/services/application/queries/**"],
+        "files": [
+          "src/services/application/queries/**"
+        ],
         "maxCyclomatic": 50,
         "maxCognitive": 50,
         "maxCrap": 55,
@@ -45,7 +29,9 @@
         "reason": "Bounded D1 transition functions compose guarded SQL statements whose null-safe value bindings and dependent predicates inflate AST metrics."
       },
       {
-        "files": ["src/services/application/validation.ts"],
+        "files": [
+          "src/services/application/validation.ts"
+        ],
         "maxCyclomatic": 30,
         "maxCognitive": 30,
         "maxCrap": 35,
@@ -53,7 +39,9 @@
         "reason": "Policy validation is intentionally explicit and split by form section so every client-facing rule remains auditable."
       },
       {
-        "files": ["src/services/application/controllers/application.ts"],
+        "files": [
+          "src/services/application/controllers/application.ts"
+        ],
         "maxCyclomatic": 35,
         "maxCognitive": 40,
         "maxCrap": 40,
@@ -61,7 +49,9 @@
         "reason": "Application submission and optimistic-conflict paths are a linear orchestration of independently tested business guards."
       },
       {
-        "files": ["src/services/application/controllers/document.ts"],
+        "files": [
+          "src/services/application/controllers/document.ts"
+        ],
         "maxCyclomatic": 20,
         "maxCognitive": 20,
         "maxCrap": 30,
@@ -69,7 +59,9 @@
         "reason": "Upload authorization and finalization deliberately keep every security check visible in execution order."
       },
       {
-        "files": ["src/services/admin/controllers/**"],
+        "files": [
+          "src/services/admin/controllers/**"
+        ],
         "maxCyclomatic": 35,
         "maxCognitive": 30,
         "maxCrap": 40,
@@ -77,7 +69,9 @@
         "reason": "Administrative controllers keep lifecycle and authorization guards together so reviewers can audit the exact order before a bounded transition runs."
       },
       {
-        "files": ["src/services/admin/queries/**"],
+        "files": [
+          "src/services/admin/queries/**"
+        ],
         "maxCyclomatic": 25,
         "maxCognitive": 30,
         "maxCrap": 35,

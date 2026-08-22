@@ -44,7 +44,7 @@ export type PublicSessionRecord = Omit<SessionRecord, 'tokenDigest'>
 const changes = (result: D1Result): number => result.meta.changes ?? 0
 
 /** Builds a guarded audit INSERT used inside the same D1 transaction as a mutation. */
-const insertAuditEventWhere = (
+export const insertAuditEventWhere = (
   db: Database,
   value: AuditEventRecord,
   predicate: SQL,
@@ -130,12 +130,12 @@ export const findActiveUserByEmail = async (
 /**
  * Deduplicates and orders roles by the schema's own role catalogue.
  *
- * Both role-reading paths run this so a public response never depends on the
+ * Every role-reading path runs this so a public response never depends on the
  * order D1 happened to return grant rows in. Filtering against `userRoles`
  * rather than a local copy means a role added to the schema cannot be silently
  * dropped from public responses.
  */
-const orderedRoles = (roles: Iterable<UserRole>): UserRole[] => {
+export const orderedRoles = (roles: Iterable<UserRole>): UserRole[] => {
   const active = new Set(roles)
   return userRoles.filter((role) => active.has(role))
 }
@@ -170,9 +170,10 @@ type FirstSuperAdminGrantInput = {
 /**
  * True while the person owns no enterprise at all.
  *
- * Bootstrap revokes APPLICANT, and no operation can grant it back yet, so
- * promoting an owner would orphan their enterprises and applications
- * permanently. Soft-deleted enterprises count because they are restorable.
+ * Bootstrap revokes APPLICANT, and no operation can grant it back — role
+ * administration deliberately covers ADMIN and SUPER_ADMIN only — so promoting
+ * an owner would orphan their enterprises and applications permanently.
+ * Soft-deleted enterprises count because they are restorable.
  */
 const ownsNoEnterprise = (db: Database, userId: string): SQL => notExists(
   db
@@ -182,7 +183,7 @@ const ownsNoEnterprise = (db: Database, userId: string): SQL => notExists(
 )
 
 /** True while the person holds an active grant of exactly this one role. */
-const hasActiveRole = (db: Database, userId: string, role: UserRole): SQL => exists(
+export const hasActiveRole = (db: Database, userId: string, role: UserRole): SQL => exists(
   db
     .select({ id: coreUserRoleGrant.id })
     .from(coreUserRoleGrant)

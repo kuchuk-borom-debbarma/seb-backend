@@ -362,6 +362,10 @@ describe('applicant application business service', () => {
       ['mutation { seb { enterprise { softDelete(input: { id: "missing", expectedVersion: 1 }) { success } } } }'],
       ['mutation { seb { enterprise { restore(id: "missing", expectedVersion: 1) { success } } } }'],
       ['query { seb { application { availableProgrammeCycles { success } } } }'],
+      ['query { seb { application { myProgrammeCycles { success } } } }'],
+      ['query { seb { application { statusGuide { success } } } }'],
+      ['query { seb { application { funding(applicationId: "missing") { success } } } }'],
+      ['query { seb { application { draftChanges(applicationId: "missing") { success } } } }'],
       ['query { seb { application { mine { success } } } }'],
       ['query { seb { application { byId(id: "missing") { success } } } }'],
       ['query { seb { application { validate(applicationId: "missing") { success } } } }'],
@@ -2035,6 +2039,18 @@ describe('applicant application business service', () => {
     } }, applicant.cookie)
     expect(forbidden.data?.seb.application.saveDraft).toEqual({ success: false, response: null })
 
+    // While revision is required only the requested section is editable, and
+    // the field says exactly what `saveDraft` accepted and refused above.
+    const locked = await graphql<{
+      seb: { application: { byId: { response: { editableSections: string[] } | null } } }
+    }>(`query($id: ID!) { seb { application { byId(id: $id) {
+      response { editableSections }
+    } } } }`, { id: application.id }, applicant.cookie)
+    // The three requested sections, in the fixed catalogue order rather than
+    // the order the requests happened to be issued in.
+    expect(locked.data?.seb.application.byId.response?.editableSections)
+      .toEqual(['APPLICANT_PROFILE', 'FINANCIAL', 'DOCUMENTS'])
+
     const revisedDraft = structuredClone(completeDraft)
     revisedDraft.financial.totalProjectCostPaise = '51000000'
     const revised = await graphql<{
@@ -2048,6 +2064,22 @@ describe('applicant application business service', () => {
       draft: revisedDraft,
     } }, applicant.cookie)
     expect(revised.data?.seb.application.saveDraft.response).toEqual({ currentVersion: 4 })
+
+    // Before resubmitting, the applicant can review exactly which sections
+    // their answers change relative to the submission under revision. This is
+    // the same comparison a reviewer sees in the administrative workspace.
+    const changes = await graphql<{
+      seb: { application: { draftChanges: { success: boolean; response: {
+        sections: string[]
+        comparedToSubmissionNumber: number
+      } | null } } }
+    }>(`query($id: ID!) { seb { application { draftChanges(applicationId: $id) {
+      success response { sections comparedToSubmissionNumber }
+    } } } }`, { id: application.id }, applicant.cookie)
+    expect(changes.data?.seb.application.draftChanges.response).toEqual({
+      sections: ['FINANCIAL'],
+      comparedToSubmissionNumber: 1,
+    })
 
     const resubmitted = await graphql<{
       seb: { application: { resubmit: { success: boolean; response: { currentVersion: number; statusVersion: number; status: string } | null } } }
@@ -2066,6 +2098,41 @@ describe('applicant application business service', () => {
       submissionId: expect.any(String),
       resolvedAt: expect.any(Number),
     })
+
+    // A revision response and a first submission are both SUBMITTED, and staff
+    // handle them completely differently, so the named queues separate them by
+    // submission number. Asserted here because this is the only place a real
+    // second submission exists. Roles are joined live, so granting ADMIN makes
+    // the applicant's existing session administrative on the next request.
+    await env.DB.prepare(
+      `INSERT INTO core_user_role_grant (id, user_id, role, grant_reason, granted_at)
+       VALUES (?, ?, 'ADMIN', 'QUEUE_ASSERTION', ?)`,
+    ).bind(crypto.randomUUID(), applicant.userId, Date.now()).run()
+
+    const queues = await graphql<{
+      admin: { intake: { queues: { response: { queues: Array<{ queue: string; count: number }> } } } }
+    }>(`query { admin { intake { queues { response { queues { queue count } } } } } }`,
+      {}, applicant.cookie)
+    const countFor = (queue: string) => queues.data?.admin.intake.queues.response.queues
+      .find((entry) => entry.queue === queue)?.count
+    expect(countFor('REVISION_RESPONSES')).toBe(1)
+    expect(countFor('NEW_SUBMISSIONS')).toBe(0)
+
+    const revisionResponses = await graphql<{
+      admin: { intake: { queue: { response: { nodes: Array<{ id: string; submissionNumber: number }> } } } }
+    }>(`query { admin { intake { queue(input: { first: 10, queue: REVISION_RESPONSES }) {
+      response { nodes { id submissionNumber } }
+    } } } }`, {}, applicant.cookie)
+    expect(revisionResponses.data?.admin.intake.queue.response.nodes).toEqual([
+      { id: application.id, submissionNumber: 2 },
+    ])
+
+    const newSubmissions = await graphql<{
+      admin: { intake: { queue: { response: { nodes: unknown[] } } } }
+    }>(`query { admin { intake { queue(input: { first: 10, queue: NEW_SUBMISSIONS }) {
+      response { nodes { id } }
+    } } } }`, {}, applicant.cookie)
+    expect(newSubmissions.data?.admin.intake.queue.response.nodes).toEqual([])
   })
 
   it('rejects an expansion start when its derived ledger evidence changes before the batch', async () => {
@@ -2171,13 +2238,20 @@ describe('applicant application business service', () => {
     const initial = await startInitial(applicant.cookie, enterprise.id, initialCycle)
     expect(await findExpansionAwardForApplication(createDatabase(env.DB), initial.id)).toBeNull()
     const beforeAward = await graphql<{
-      seb: { application: { expansionEligibility: { response: { eligible: boolean; reasons: string[] } } } }
+      seb: { application: { expansionEligibility: { response: {
+        eligible: boolean
+        reasons: Array<{ code: string; message: string; obligationId: string | null }>
+      } } } }
     }>(`query { seb { application { expansionEligibility(
       enterpriseId: "${enterprise.id}", programmeCycleId: "${initialCycle}"
-    ) { response { eligible reasons } } } } }`, {}, applicant.cookie)
+    ) { response { eligible reasons { code message obligationId } } } } } }`, {}, applicant.cookie)
     expect(beforeAward.data?.seb.application.expansionEligibility.response).toEqual({
       eligible: false,
-      reasons: ['NO_QUALIFYING_AWARD_OR_RELEASE'],
+      reasons: [{
+        code: 'NO_QUALIFYING_AWARD',
+        message: 'This enterprise has no sanctioned funding award to expand from.',
+        obligationId: null,
+      }],
     })
     const { awardId } = await insertActiveAward(
       applicant.userId,
@@ -2260,13 +2334,22 @@ describe('applicant application business service', () => {
       assessmentTime + 1, assessmentTime + 1,
     ).run()
     const failedUtilization = await graphql<{
-      seb: { application: { expansionEligibility: { response: { eligible: boolean; reasons: string[] } } } }
+      seb: { application: { expansionEligibility: { response: {
+        eligible: boolean
+        reasons: Array<{ code: string; message: string; obligationId: string | null }>
+      } } } }
     }>(`query { seb { application { expansionEligibility(
       enterpriseId: "${enterprise.id}", programmeCycleId: "${expansionCycle}"
-    ) { response { eligible reasons } } } } }`, {}, applicant.cookie)
+    ) { response { eligible reasons { code message obligationId } } } } } }`, {}, applicant.cookie)
     expect(failedUtilization.data?.seb.application.expansionEligibility.response).toEqual({
       eligible: false,
-      reasons: [`UTILIZATION_NOT_PASSED:${obligationId}`],
+      // The obligation is named in its own field rather than concatenated into
+      // the code, so a client can link the reason to the release it is about.
+      reasons: [{
+        code: 'UTILIZATION_NOT_PASSED',
+        message: 'A utilization assessment for one of your releases has not passed yet.',
+        obligationId,
+      }],
     })
     await env.DB.prepare(`INSERT INTO seb_award_assessment (
       id, funding_award_id, assessment_type, assessment_number, outcome,
@@ -2290,13 +2373,20 @@ describe('applicant application business service', () => {
     const expansion = started.data?.seb.application.startExpansion.response
     if (!expansion) throw new Error('expansion missing')
     const competing = await graphql<{
-      seb: { application: { expansionEligibility: { response: { eligible: boolean; reasons: string[] } } } }
+      seb: { application: { expansionEligibility: { response: {
+        eligible: boolean
+        reasons: Array<{ code: string; message: string; obligationId: string | null }>
+      } } } }
     }>(`query { seb { application { expansionEligibility(
       enterpriseId: "${enterprise.id}", programmeCycleId: "${expansionCycle}"
-    ) { response { eligible reasons } } } } }`, {}, applicant.cookie)
+    ) { response { eligible reasons { code message obligationId } } } } } }`, {}, applicant.cookie)
     expect(competing.data?.seb.application.expansionEligibility.response).toEqual({
       eligible: false,
-      reasons: ['COMPETING_PHASE_APPLICATION'],
+      reasons: [{
+        code: 'COMPETING_PHASE_APPLICATION',
+        message: 'Another application for this phase is already in progress.',
+        obligationId: null,
+      }],
     })
 
     const deleted = await graphql<{
@@ -2493,12 +2583,20 @@ describe('applicant application business service', () => {
     const initial = await startInitial(applicant.cookie, enterprise.id, cycleId)
     const { awardId } = await insertActiveAward(applicant.userId, initial.id, Date.now())
     const eligibility = async () => graphql<{
-      seb: { application: { expansionEligibility: { response: { eligible: boolean; reasons: string[] } } } }
+      seb: { application: { expansionEligibility: { response: {
+        eligible: boolean
+        reasons: Array<{ code: string; message: string; obligationId: string | null }>
+      } } } }
     }>(`query { seb { application { expansionEligibility(
       enterpriseId: "${enterprise.id}", programmeCycleId: "${cycleId}"
-    ) { response { eligible reasons } } } } }`, {}, applicant.cookie)
+    ) { response { eligible reasons { code message obligationId } } } } } }`, {}, applicant.cookie)
     expect((await eligibility()).data?.seb.application.expansionEligibility.response)
-      .toEqual({ eligible: false, reasons: ['TWELVE_MONTH_WAIT_NOT_COMPLETE'] })
+      .toEqual({ eligible: false, reasons: [{
+        code: 'TWELVE_MONTH_WAIT_NOT_COMPLETE',
+        message:
+          'Twelve months of operation since the first release have not been completed yet.',
+        obligationId: null,
+      }] })
 
     const release = await env.DB.prepare(
       `SELECT id FROM seb_disbursement WHERE funding_award_id = ? AND sequence_number = 1`,
@@ -2522,7 +2620,11 @@ describe('applicant application business service', () => {
       Date.now(),
     ).run()
     expect((await eligibility()).data?.seb.application.expansionEligibility.response)
-      .toEqual({ eligible: false, reasons: ['NO_QUALIFYING_AWARD_OR_RELEASE'] })
+      .toEqual({ eligible: false, reasons: [{
+        code: 'NO_POSITIVE_RELEASE',
+        message: 'No funds have been released and retained under the award yet.',
+        obligationId: null,
+      }] })
 
     const retainedReleaseId = crypto.randomUUID()
     const overReversedReleaseId = crypto.randomUUID()
@@ -2585,7 +2687,11 @@ describe('applicant application business service', () => {
       ),
     ])
     expect((await eligibility()).data?.seb.application.expansionEligibility.response)
-      .toEqual({ eligible: false, reasons: ['NO_QUALIFYING_AWARD_OR_RELEASE'] })
+      .toEqual({ eligible: false, reasons: [{
+        code: 'NO_POSITIVE_RELEASE',
+        message: 'No funds have been released and retained under the award yet.',
+        obligationId: null,
+      }] })
 
     // A later release restores a positive award-wide balance, while the
     // over-reversed release remains non-qualifying. Its own utilization
@@ -2617,6 +2723,239 @@ describe('applicant application business service', () => {
         .bind(crypto.randomUUID(), cycleId, ledgerTime),
     ])
     expect((await eligibility()).data?.seb.application.expansionEligibility.response)
-      .toEqual({ eligible: false, reasons: ['TWELVE_MONTH_WAIT_NOT_COMPLETE'] })
+      .toEqual({ eligible: false, reasons: [{
+        code: 'TWELVE_MONTH_WAIT_NOT_COMPLETE',
+        message:
+          'Twelve months of operation since the first release have not been completed yet.',
+        obligationId: null,
+      }] })
   })
+  it('tells the applicant what is editable, what changed, and what each status means', async () => {
+    const applicant = await applicantSession()
+    const cycleId = await insertOpenCycle(applicant.userId)
+    const enterprise = await createEnterprise(applicant.cookie)
+    const started = await graphql<{
+      seb: { application: { startInitial: { response: {
+        id: string
+        editableSections: string[]
+      } | null } } }
+    }>(`mutation($input: StartApplicationInput!) {
+      seb { application { startInitial(input: $input) {
+        response { id editableSections }
+      } } }
+    }`, { input: { enterpriseId: enterprise.id, programmeCycleId: cycleId } },
+      applicant.cookie)
+    const application = started.data?.seb.application.startInitial.response
+    if (!application) throw new Error('Expected a started application.')
+
+    // A draft is entirely open, which is exactly what `saveApplicationDraft`
+    // allows for a DRAFT application.
+    expect(application.editableSections).toEqual([
+      'ENTERPRISE', 'APPLICANT_PROFILE', 'FINANCIAL', 'PRIOR_FUNDING',
+      'EXPANSION', 'DOCUMENTS', 'DECLARATION',
+    ])
+
+    // Nothing has been submitted, so there is no baseline to compare against.
+    const draftChangesQuery = `query($id: ID!) { seb { application {
+      draftChanges(applicationId: $id) { success message response { sections } }
+    } } }`
+    type DraftChangesBody = {
+      seb: { application: { draftChanges: { success: boolean; message: string | null } } }
+    }
+    // Another applicant's opaque application ID is indistinguishable from one
+    // that never existed.
+    const stranger = await applicantSession()
+    const foreign = await graphql<DraftChangesBody>(draftChangesQuery,
+      { id: application.id }, stranger.cookie)
+    expect(foreign.data?.seb.application.draftChanges).toMatchObject({
+      success: false, message: 'The application was not found.',
+    })
+
+    const noBaseline = await graphql<DraftChangesBody>(draftChangesQuery,
+      { id: application.id }, applicant.cookie)
+    expect(noBaseline.data?.seb.application.draftChanges).toMatchObject({
+      success: false,
+      message: 'This application has not been submitted yet, so there is nothing to compare.',
+    })
+
+    const guide = await graphql<{
+      seb: { application: { statusGuide: { response: { statuses: Array<{
+        status: string
+        label: string
+        explanation: string
+        nextActor: string
+        nextAction: string | null
+      }> } } } }
+    }>(`query { seb { application { statusGuide { response { statuses {
+      status label explanation nextActor nextAction
+    } } } } } }`, {}, applicant.cookie)
+    const statuses = guide.data?.seb.application.statusGuide.response.statuses ?? []
+    // Every status the workflow can produce is explained, in workflow order.
+    expect(statuses.map((entry) => entry.status)).toEqual([
+      'DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED',
+      'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED',
+      'SANCTIONED', 'DISBURSED', 'CANCELLED',
+    ])
+    expect(statuses.every((entry) => entry.label && entry.explanation)).toBe(true)
+    expect(statuses.find((entry) => entry.status === 'DRAFT')).toMatchObject({
+      nextActor: 'APPLICANT',
+      nextAction: 'Complete every section and the required documents, then submit.',
+    })
+    expect(statuses.find((entry) => entry.status === 'DESK_REVIEW')).toMatchObject({
+      nextActor: 'PROGRAMME_OFFICE', nextAction: null,
+    })
+    expect(statuses.find((entry) => entry.status === 'REJECTED')?.nextActor).toBe('NOBODY')
+    // Staff do not commit to a completion date, so nothing here may imply one.
+    const guideText = JSON.stringify(statuses)
+    for (const timing of ['days', 'weeks', 'within', 'by ']) {
+      expect(guideText.toLowerCase()).not.toContain(timing)
+    }
+  })
+
+  it('lists the applicant own cycles including closed ones, separately from startable ones', async () => {
+    const applicant = await applicantSession()
+    const cycleId = await insertOpenCycle(applicant.userId)
+    const enterprise = await createEnterprise(applicant.cookie)
+    await graphql(`mutation($input: StartApplicationInput!) {
+      seb { application { startInitial(input: $input) { success } } }
+    }`, { input: { enterpriseId: enterprise.id, programmeCycleId: cycleId } },
+      applicant.cookie)
+
+    const cycleQuery = `query { seb { application {
+      availableProgrammeCycles { response { cycles {
+        id cycleCode displayName status applicantGuidance opensAt closesAt
+      } } }
+      myProgrammeCycles { response { cycles { id status } } }
+    } } }`
+    type CycleBody = {
+      seb: { application: {
+        availableProgrammeCycles: { response: { cycles: Array<{
+          id: string; displayName: string; status: string; applicantGuidance: string | null
+        }> } }
+        myProgrammeCycles: { response: { cycles: Array<{ id: string; status: string }> } }
+      } }
+    }
+    const open = await graphql<CycleBody>(cycleQuery, {}, applicant.cookie)
+    expect(open.data?.seb.application.availableProgrammeCycles.response.cycles)
+      .toContainEqual(expect.objectContaining({
+        id: cycleId,
+        displayName: 'Mission SEP Test Cycle',
+        status: 'OPEN',
+      }))
+    expect(open.data?.seb.application.myProgrammeCycles.response.cycles)
+      .toEqual([{ id: cycleId, status: 'OPEN' }])
+
+    // Once the cycle closes, the applicant keeps it as read-only history while
+    // it disappears from the only list a "start application" action may use.
+    await env.DB.prepare(
+      `UPDATE seb_programme_cycle SET status = 'CLOSED', closes_at = ? WHERE id = ?`,
+    ).bind(Date.now() - 1_000, cycleId).run()
+
+    const closed = await graphql<CycleBody>(cycleQuery, {}, applicant.cookie)
+    expect(closed.data?.seb.application.availableProgrammeCycles.response.cycles)
+      .toEqual([])
+    expect(closed.data?.seb.application.myProgrammeCycles.response.cycles)
+      .toEqual([{ id: cycleId, status: 'CLOSED' }])
+
+    // History is scoped to work the applicant can still see. Deleting their
+    // only draft in the cycle removes the cycle too, rather than leaving a
+    // read-only entry with nothing in it to open.
+    await env.DB.prepare(
+      `UPDATE seb_application SET deleted_at = ? WHERE programme_cycle_id = ?`,
+    ).bind(Date.now(), cycleId).run()
+    const withoutApplications = await graphql<CycleBody>(cycleQuery, {}, applicant.cookie)
+    expect(withoutApplications.data?.seb.application.myProgrammeCycles.response.cycles)
+      .toEqual([])
+
+    // A cycle an administrator removed is gone from the applicant's history as
+    // well, the same way every other applicant-facing cycle read treats it.
+    await env.DB.prepare(
+      `UPDATE seb_application SET deleted_at = NULL WHERE programme_cycle_id = ?`,
+    ).bind(cycleId).run()
+    await env.DB.prepare('UPDATE seb_programme_cycle SET deleted_at = ? WHERE id = ?')
+      .bind(Date.now(), cycleId).run()
+    const deletedCycle = await graphql<CycleBody>(cycleQuery, {}, applicant.cookie)
+    expect(deletedCycle.data?.seb.application.myProgrammeCycles.response.cycles)
+      .toEqual([])
+  })
+
+  it('names the applications that block an enterprise deletion', async () => {
+    const applicant = await applicantSession()
+    const cycleId = await insertOpenCycle(applicant.userId)
+    const enterprise = await createEnterprise(applicant.cookie)
+    const started = await graphql<{
+      seb: { application: { startInitial: { response: { id: string } | null } } }
+    }>(`mutation($input: StartApplicationInput!) {
+      seb { application { startInitial(input: $input) { response { id } } } }
+    }`, { input: { enterpriseId: enterprise.id, programmeCycleId: cycleId } },
+      applicant.cookie)
+    const applicationId = started.data?.seb.application.startInitial.response?.id
+    if (!applicationId) throw new Error('Expected a started application.')
+
+    const deleteQuery = `mutation($input: EnterpriseDeletionInput!) {
+      seb { enterprise { softDelete(input: $input) {
+        success message response { id } blockers {
+          applicationId referenceNumber status hasAward
+        }
+      } } }
+    }`
+    type DeletionBody = {
+      seb: { enterprise: { softDelete: {
+        success: boolean
+        message: string | null
+        response: { id: string } | null
+        blockers: Array<{
+          applicationId: string
+          referenceNumber: string | null
+          status: string
+          hasAward: boolean
+        }>
+      } } }
+    }
+    const blocked = await graphql<DeletionBody>(deleteQuery,
+      { input: { id: enterprise.id, expectedVersion: enterprise.currentVersion } },
+      applicant.cookie)
+    expect(blocked.data?.seb.enterprise.softDelete).toEqual({
+      success: false,
+      message:
+        'Delete all drafts first. Submitted applications and awards retain their enterprise.',
+      response: null,
+      // The exact application is named, so the applicant knows what to remove.
+      blockers: [{
+        applicationId,
+        referenceNumber: null,
+        status: 'DRAFT',
+        hasAward: false,
+      }],
+    })
+
+    // With the draft removed the enterprise deletes, and the field is present
+    // and empty rather than absent.
+    const removedDraft = await graphql<{
+      seb: { application: { softDeleteDraft: { success: boolean; message: string | null } } }
+    }>(`mutation($input: ApplicationDeletionInput!) {
+      seb { application { softDeleteDraft(input: $input) { success message } } }
+    }`, { input: {
+      applicationId, expectedVersion: 1, expectedStatusVersion: 1, reason: 'No longer needed.',
+    } }, applicant.cookie)
+    expect(removedDraft.data?.seb.application.softDeleteDraft.success,
+      JSON.stringify(removedDraft)).toBe(true)
+
+    const deleted = await graphql<DeletionBody>(deleteQuery,
+      { input: { id: enterprise.id, expectedVersion: enterprise.currentVersion } },
+      applicant.cookie)
+    expect(deleted.data?.seb.enterprise.softDelete).toMatchObject({
+      success: true, blockers: [],
+    })
+
+    // Another applicant's enterprise reports nothing at all, so the richer
+    // response cannot be used to probe somebody else's history.
+    const stranger = await applicantSession()
+    const probed = await graphql<DeletionBody>(deleteQuery,
+      { input: { id: enterprise.id, expectedVersion: 1 } }, stranger.cookie)
+    expect(probed.data?.seb.enterprise.softDelete).toMatchObject({
+      success: false, blockers: [],
+    })
+  })
+
 })

@@ -16,6 +16,27 @@ import type {
   ttmDecisionOutcomes,
 } from '../../db/schema'
 
+/**
+ * The named work queues staff actually operate from.
+ *
+ * Most map to a single application status, but two do not, which is why this is
+ * its own vocabulary rather than a reuse of `ApplicationStatus`: a first
+ * submission and an answer to a revision request are both `SUBMITTED` and need
+ * completely different handling, so they are separated by submission number.
+ */
+export const intakeQueueKeys = [
+  'NEW_SUBMISSIONS',
+  'DESK_REVIEW',
+  'REVISION_RESPONSES',
+  'PARTNER_BANK_EVALUATION',
+  'TTM_REVIEW',
+  'APPROVED',
+  'REJECTED',
+  'SANCTIONED',
+  'DISBURSED',
+] as const
+export type IntakeQueueKey = (typeof intakeQueueKeys)[number]
+
 export type AdminOperationContext = {
   db: Database
   env: AppBindings

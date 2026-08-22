@@ -1,18 +1,26 @@
 import { GraphQLScalarType, Kind } from 'graphql'
 import { createSchema, createYoga } from 'graphql-yoga'
 import type { AppBindings } from '../bindings'
+import accessMutationTypeDefs from './mutations/access/access.graphql'
 import authMutationTypeDefs from './mutations/auth/auth.graphql'
 import adminMutationTypeDefs from './mutations/admin/admin.graphql'
+import accessQueryTypeDefs from './queries/access/access.graphql'
 import authQueryTypeDefs from './queries/auth/auth.graphql'
 import adminQueryTypeDefs from './queries/admin/admin.graphql'
 import sebMutationTypeDefs from './mutations/seb/seb.graphql'
 import sebQueryTypeDefs from './queries/seb/seb.graphql'
+import { accessResolvers } from './resolvers/access/access'
 import { authResolvers } from './resolvers/auth/auth'
 import { adminResolvers } from './resolvers/admin/admin'
 import { sebResolvers } from './resolvers/seb/seb'
 import baseTypeDefs from './schema.graphql'
 import type { GraphQLContext } from './types'
-import { singleAdminMutationRule, singleAuthMutationRule, singleSebMutationRule } from './validation'
+import {
+  singleAccessMutationRule,
+  singleAdminMutationRule,
+  singleAuthMutationRule,
+  singleSebMutationRule,
+} from './validation'
 import { parseDateOnly } from '../services/application/validation'
 
 export type { AppBindings } from '../bindings'
@@ -95,6 +103,8 @@ const schema = createSchema<GraphQLContext>({
     baseTypeDefs,
     authQueryTypeDefs,
     authMutationTypeDefs,
+    accessQueryTypeDefs,
+    accessMutationTypeDefs,
     adminQueryTypeDefs,
     adminMutationTypeDefs,
     sebQueryTypeDefs,
@@ -114,6 +124,7 @@ const schema = createSchema<GraphQLContext>({
       },
     },
     authResolvers,
+    accessResolvers,
     adminResolvers,
     sebResolvers,
   ],
@@ -134,6 +145,7 @@ const graphqlServer = createYoga<GraphQLContext>({
         addValidationRule: (rule: typeof singleAuthMutationRule) => void
       }) {
         addValidationRule(singleAuthMutationRule)
+        addValidationRule(singleAccessMutationRule)
         addValidationRule(singleSebMutationRule)
         addValidationRule(singleAdminMutationRule)
       },

@@ -37,8 +37,8 @@ input EnterpriseDeletionInput {
 type SebEnterpriseMutation {
   create(input: EnterpriseProfileInput!): EnterpriseResult!
   update(input: UpdateEnterpriseInput!): EnterpriseResult!
-  softDelete(input: EnterpriseDeletionInput!): EnterpriseResult!
-  restore(id: ID!, expectedVersion: Int!): EnterpriseResult!
+  softDelete(input: EnterpriseDeletionInput!): EnterpriseDeletionResult!
+  restore(id: ID!, expectedVersion: Int!): EnterpriseDeletionResult!
 }
 
 input StartApplicationInput {

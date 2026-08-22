@@ -10,10 +10,12 @@ import {
   findLatestSubmittedVersion,
   findOpenProgrammeCycle,
   findSubmissionPolicy,
+  findDraftChanges,
   findOwnedApplicationHead,
   insertApplicationAggregate,
   listActiveDocumentTypes,
   listApplicationTimeline,
+  listApplicantProgrammeCycles,
   listAvailableProgrammeCycles,
   listOpenRevisionSections,
   listOwnedApplications,
@@ -35,8 +37,16 @@ import {
   runConstraintSafe,
   success,
 } from '../support'
+import {
+  APPLICATION_NOT_FOUND_MESSAGE,
+  applicantForVersionedWrite,
+  ownedApplication,
+  ownedApplicationAtVersion,
+} from '../ownership'
+import { applicationStatusGuide } from '../status-guide'
 import type {
   Application,
+  ApplicationStatusGuideEntry,
   ApplicationDraftInput,
   ApplicationOperationContext,
   ApplicationSection,
@@ -121,18 +131,26 @@ const sourceDraft = (
   }
 }
 
-const validExpectedVersions = (expectedVersion: number, expectedStatusVersion: number) =>
-  Number.isInteger(expectedVersion) &&
-  expectedVersion >= 1 &&
-  Number.isInteger(expectedStatusVersion) &&
-  expectedStatusVersion >= 1
-
 export const availableProgrammeCycles = async (
   context: ApplicationOperationContext,
 ): Promise<SebResult<{ cycles: ProgrammeCycle[] }>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
   return success({ cycles: await listAvailableProgrammeCycles(context.db, new Date()) })
+}
+
+/**
+ * Every cycle this applicant has work in, including closed and archived ones.
+ *
+ * The client renders these read-only. Offering "start application" is driven by
+ * `availableProgrammeCycles` alone, so a closed cycle can never carry one.
+ */
+export const myProgrammeCycles = async (
+  context: ApplicationOperationContext,
+): Promise<SebResult<{ cycles: ProgrammeCycle[] }>> => {
+  const applicant = await currentApplicant(context)
+  if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
+  return success({ cycles: await listApplicantProgrammeCycles(context.db, applicant.id) })
 }
 
 export const myApplications = async (
@@ -355,17 +373,10 @@ export const saveApplicationDraft = async (
   },
   context: ApplicationOperationContext,
 ): Promise<SebResult<Application>> => {
-  const applicant = await currentApplicant(context)
-  if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
-  if (!validExpectedVersions(input.expectedVersion, input.expectedStatusVersion)) {
-    return failure('Expected versions must be positive integers.')
-  }
-  const application = await loadOwnedApplication(context.db, applicant.id, input.applicationId)
-  if (!application) return failure('The application was not found.')
-  if (
-    application.currentVersion !== input.expectedVersion ||
-    application.statusVersion !== input.expectedStatusVersion
-  ) return failure('The application changed. Refresh it and try again.')
+  const authorized = await ownedApplicationAtVersion(input, context)
+  if ('refusal' in authorized) return authorized.refusal
+  const applicant = { id: authorized.applicantId }
+  const application = authorized.application
   if (application.status !== 'DRAFT' && application.status !== 'REVISION_REQUIRED') {
     return failure('The application cannot be edited in its current status.')
   }
@@ -453,13 +464,13 @@ const changeApplicationDeletion = async (
   context: ApplicationOperationContext,
   deleted: boolean,
 ): Promise<SebResult<Application>> => {
-  const applicant = await currentApplicant(context)
-  if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
-  if (!validExpectedVersions(input.expectedVersion, input.expectedStatusVersion)) {
-    return failure('Expected versions must be positive integers.')
-  }
+  const authorized = await applicantForVersionedWrite<Application>(input, context)
+  if ('refusal' in authorized) return authorized.refusal
+  const applicant = { id: authorized.applicantId }
+  // Soft-deleted heads are included: restoring one is a write on a row that is
+  // deliberately still there.
   const head = await findOwnedApplicationHead(context.db, applicant.id, input.applicationId, true)
-  if (!head) return failure('The application was not found.')
+  if (!head) return failure(APPLICATION_NOT_FOUND_MESSAGE)
   if (
     head.currentVersion !== input.expectedVersion ||
     head.statusVersion !== input.expectedStatusVersion ||
@@ -537,18 +548,13 @@ const submit = async (
   context: ApplicationOperationContext,
   resubmission: boolean,
 ): Promise<SebResult<Application>> => {
-  const applicant = await currentApplicant(context)
-  if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
-  if (!validExpectedVersions(input.expectedVersion, input.expectedStatusVersion)) {
-    return failure('Expected versions must be positive integers.')
+  const authorized = await ownedApplicationAtVersion(input, context)
+  if ('refusal' in authorized) return authorized.refusal
+  const applicant = { id: authorized.applicantId }
+  const application = authorized.application
+  if (application.status !== (resubmission ? 'REVISION_REQUIRED' : 'DRAFT')) {
+    return failure('The application changed or cannot be submitted in its current status.')
   }
-  const application = await loadOwnedApplication(context.db, applicant.id, input.applicationId)
-  if (!application) return failure('The application was not found.')
-  if (
-    application.currentVersion !== input.expectedVersion ||
-    application.statusVersion !== input.expectedStatusVersion ||
-    application.status !== (resubmission ? 'REVISION_REQUIRED' : 'DRAFT')
-  ) return failure('The application changed or cannot be submitted in its current status.')
   const now = new Date()
   const cycle = resubmission
     ? null
@@ -645,6 +651,38 @@ export const resubmitApplication = (
   input: { applicationId: string; expectedVersion: number; expectedStatusVersion: number },
   context: ApplicationOperationContext,
 ) => submit(input, context, true)
+
+/**
+ * The plain-language catalogue for every application status.
+ *
+ * Static, but kept behind the applicant guard so the whole `seb` namespace has
+ * one authentication rule rather than an exception a reader has to remember.
+ */
+export const applicationStatusExplanations = async (
+  context: ApplicationOperationContext,
+): Promise<SebResult<{ statuses: ApplicationStatusGuideEntry[] }>> => {
+  if (!await currentApplicant(context)) return failure(AUTH_REQUIRED_MESSAGE)
+  return success({ statuses: applicationStatusGuide })
+}
+
+/** What this draft changes relative to the last submission, for a final review. */
+export const applicationDraftChanges = async (
+  applicationId: string,
+  context: ApplicationOperationContext,
+): Promise<SebResult<{
+  sections: ApplicationSection[]
+  comparedToSubmissionNumber: number
+}>> => {
+  const owned = await ownedApplication<{
+    sections: ApplicationSection[]
+    comparedToSubmissionNumber: number
+  }>(applicationId, context)
+  if ('refusal' in owned) return owned.refusal
+  const changes = await findDraftChanges(context.db, owned.application)
+  return changes
+    ? success(changes)
+    : failure('This application has not been submitted yet, so there is nothing to compare.')
+}
 
 export const applicationTimeline = async (
   input: { applicationId: string; first?: number | null; after?: string | null },

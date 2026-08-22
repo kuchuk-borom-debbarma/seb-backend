@@ -11,8 +11,12 @@ from D1 on every request. A current `ADMIN` or `SUPER_ADMIN` grant opens the
 `admin` GraphQL namespace; revocation takes effect on the next request.
 `SUPER_ADMIN` includes ordinary administrative capability. Sign-in requires
 only one active role of any kind, so the bootstrapped first administrator holds
-`SUPER_ADMIN` alone and signs in normally. Role management and account recovery
-remain launch blockers.
+`SUPER_ADMIN` alone and signs in normally.
+
+A super administrator provisions further administrators under the separate
+`access` namespace, described in the
+[administrator RBAC guide](admin-rbac.md#role-administration). Account recovery
+remains a launch blocker.
 
 Every mutation uses one action below `mutation.admin`. Expected role loss,
 stale versions, invalid transitions, and policy failures return the normal
@@ -38,11 +42,37 @@ per run. Opened cycles cannot be deleted.
 
 ## Intake queues and claiming
 
-Drafts never appear in intake. The queue exposes the latest formal submission,
+Drafts never appear in intake, and claiming one is refused the same way an
+unknown application is. The queue exposes the latest formal submission,
 reference, enterprise, applicant, pinned cycle, phase/type, category, sector,
 status, assignee, submission time, and activity time. Staff may filter by those
 dimensions and order by oldest waiting, newest submission, or last activity.
 Pagination uses a stable timestamp-and-ID cursor.
+
+### Named queues
+
+Beyond ad-hoc filtering, `admin.intake.queue` accepts a `queue` key naming the
+work list staff actually operate from, and `admin.intake.queues` returns the
+count waiting in each. Every queue is reported, including empty ones, so the
+chips stay stable rather than appearing and disappearing.
+
+| Queue | Applications |
+| --- | --- |
+| `NEW_SUBMISSIONS` | `SUBMITTED`, submission number 1 |
+| `REVISION_RESPONSES` | `SUBMITTED`, submission number above 1 |
+| `DESK_REVIEW` | `DESK_REVIEW` |
+| `PARTNER_BANK_EVALUATION` | `PARTNER_BANK_EVALUATION` |
+| `TTM_REVIEW` | `TTM_REVIEW` |
+| `APPROVED` / `REJECTED` / `SANCTIONED` / `DISBURSED` | the matching status |
+
+The first two queues are why this is its own vocabulary rather than a reuse of
+`ApplicationStatus`: a first submission and an answer to a revision request are
+both `SUBMITTED` and need completely different handling. `CANCELLED` belongs to
+no queue, because nobody works from it.
+
+`queue` and `status` are mutually exclusive. Supplying both is refused rather
+than silently intersected, which would return an empty page instead of the
+queue that was asked for. Both accept an optional `cycleId`.
 
 Claiming is mandatory because it answers “who owns the next decision?” and is
 the concurrency lock for workflow actions. Two simultaneous claims are
@@ -196,7 +226,8 @@ form contents, money, bank correspondence, notes, or credentials.
 
 ## Public-launch blockers
 
-Do not publicly launch administrative operations until role
-management/recovery, a production malware scanner, rate limits, privacy/access
-approval, and the unresolved TTAADC policy decisions in the
-[policy alignment guide](policy-alignment.md) are complete.
+Do not publicly launch administrative operations until account recovery, a
+production malware scanner, rate limits, privacy/access approval, and the
+unresolved TTAADC policy decisions in the
+[policy alignment guide](policy-alignment.md) are complete. Role management is
+delivered.

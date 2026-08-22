@@ -995,11 +995,20 @@ describe('Mission SEP administration', () => {
       ])).toEqual(new Set([submitted.applicationId, later.applicationId]))
     }
 
-    const unclaimedDownload = await graphql<any>(`query($id: ID!) { admin { intake {
+    // An unclaimed application, an application that does not exist, and an
+    // unsubmitted draft are all refused identically, so probing identifiers
+    // cannot reveal which of them a reviewer is looking at.
+    const downloadQuery = `query($id: ID!) { admin { intake {
       documentDownloadUrl(applicationId: $id, submissionDocumentId: "missing") { success message }
-    } } }`, { id: submitted.applicationId }, administrator.cookie)
-    expect(unclaimedDownload.data.admin.intake.documentDownloadUrl.message)
-      .toBe('Claim the application before opening its documents.')
+    } } }`
+    for (const applicationId of [submitted.applicationId, 'missing', crypto.randomUUID()]) {
+      const refused = await graphql<any>(downloadQuery, { id: applicationId },
+        administrator.cookie)
+      expect(refused.data.admin.intake.documentDownloadUrl).toMatchObject({
+        success: false,
+        message: 'Claim the application before opening its documents.',
+      })
+    }
     const missingClaim = await graphql<any>(`mutation { admin { intake {
       claim(input: { applicationId: "missing", expectedAssignmentVersion: 0, conflictAcknowledged: false }) { success }
     } } }`, {}, administrator.cookie)
@@ -2144,5 +2153,264 @@ describe('Mission SEP administration', () => {
     expect(workspace.releases.length).toBeGreaterThan(0)
     expect(workspace.assessments.length).toBeGreaterThan(0)
     expect(workspace.recoveries).toHaveLength(2)
+
+    // The same journey, read back by the person it belongs to. Everything below
+    // is derived from the ledger the administrator just built, so the applicant
+    // view can never drift from the authoritative records.
+    const applicantView = await graphql<any>(`query($id: ID!) { seb { application {
+      funding(applicationId: $id) { success message response {
+        award {
+          sanctionOrderNumber sanctionDate sanctionedAmountPaise applicantConditions
+          status closureDisposition grossReleasedPaise reversedPaise netReleasedPaise
+          remainingPlannedPaise
+        }
+        releases { sequenceNumber amountPaise paymentReference reversedAmountPaise }
+        assessments { assessmentType assessmentNumber outcome summary latest }
+      } }
+    } } }`, { id: applicationId }, administrator.cookie)
+    expect(applicantView.errors).toBeUndefined()
+    const applicantFunding = applicantView.data.seb.application.funding
+    expect(applicantFunding.success).toBe(true)
+    expect(applicantFunding.response.award).toEqual({
+      sanctionOrderNumber: `SANCTION-${applicationId}`,
+      sanctionDate: '2026-06-20',
+      sanctionedAmountPaise: '900000',
+      applicantConditions: 'Submit utilization evidence for every release.',
+      status: 'CANCELLED',
+      closureDisposition: null,
+      // 600000 + 100000 released, 100000 reversed against the first release.
+      grossReleasedPaise: '700000',
+      reversedPaise: '100000',
+      netReleasedPaise: '600000',
+      remainingPlannedPaise: '300000',
+    })
+    // The reversal is folded into the release it corrects rather than listed as
+    // its own ledger entry, so the applicant reads what they were actually paid.
+    expect(applicantFunding.response.releases).toEqual([
+      {
+        sequenceNumber: 1,
+        amountPaise: '600000',
+        paymentReference: `PAY-${applicationId}`,
+        reversedAmountPaise: '100000',
+      },
+      {
+        sequenceNumber: 2,
+        amountPaise: '100000',
+        paymentReference: `PAY-SECOND-${applicationId}`,
+        reversedAmountPaise: '0',
+      },
+    ])
+    // The complete history stays readable in the order it happened, while the
+    // current result of each series is identified. Both utilization results are
+    // current because utilization is assessed once per release, not once per
+    // award; only the superseded PERFORMANCE pass is marked stale.
+    expect(applicantFunding.response.assessments).toEqual([
+      expect.objectContaining({
+        assessmentType: 'UTILIZATION', assessmentNumber: 1,
+        outcome: 'PASSED', summary: 'Utilization passed.', latest: true,
+      }),
+      expect.objectContaining({
+        assessmentType: 'UTILIZATION', assessmentNumber: 1,
+        outcome: 'PASSED', summary: 'Second utilization passed.', latest: true,
+      }),
+      expect.objectContaining({
+        assessmentType: 'PERFORMANCE', assessmentNumber: 1,
+        outcome: 'PASSED', latest: false,
+      }),
+      expect.objectContaining({
+        assessmentType: 'FINANCIAL_AUDIT', assessmentNumber: 1, latest: true,
+      }),
+      expect.objectContaining({
+        assessmentType: 'PERFORMANCE', assessmentNumber: 2,
+        outcome: 'FAILED', latest: true,
+        summary: 'Performance reassessment retained a later failure.',
+      }),
+    ])
+    // Nothing programme-office-only reached the applicant. These strings are all
+    // present on the underlying rows the administrator wrote above.
+    const serialized = JSON.stringify(applicantFunding.response)
+    for (const internalValue of [
+      `TTM-REL-${applicationId}`,
+      `PA-${applicationId}`,
+      `PV-${applicationId}`,
+      `UC-${applicationId}`,
+      'Verified against the second release.',
+      `REV-${applicationId}`,
+    ]) {
+      expect(serialized).not.toContain(internalValue)
+    }
+
+    // Another applicant cannot read it, and the refusal is the same one an
+    // application that never existed would produce.
+    const otherApplicant = await adminSession(['APPLICANT'])
+    const foreignRead = await graphql<any>(`query($id: ID!) {
+      seb { application { funding(applicationId: $id) { success message response { award { sanctionOrderNumber } } } } }
+    }`, { id: applicationId }, otherApplicant.cookie)
+    expect(foreignRead.data.seb.application.funding).toEqual({
+      success: false, message: 'The application was not found.', response: null,
+    })
+  })
+
+  it('gives administrators a named queue per stage with matching counts', async () => {
+    const administrator = await adminSession(['APPLICANT', 'ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie)
+    const first = await createSubmittedApplication(
+      administrator.cookie, administrator.userId, cycle.id,
+    )
+    const second = await createSubmittedApplication(
+      administrator.cookie, administrator.userId, cycle.id,
+    )
+
+    const queueQuery = `query($input: AdminIntakeQueueInput) { admin { intake {
+      queue(input: $input) { success message response {
+        nodes { id status submissionNumber statusVersion assignmentVersion }
+      } }
+    } } }`
+    const summaryQuery = `query($cycleId: ID) { admin { intake {
+      queues(cycleId: $cycleId) { success message response { queues { queue count } } }
+    } } }`
+    const countFor = (body: any, queue: string) =>
+      body.data.admin.intake.queues.response.queues
+        .find((entry: any) => entry.queue === queue).count
+    const idsIn = (body: any) =>
+      body.data.admin.intake.queue.response.nodes.map((node: any) => node.id).sort()
+    // Versions are read back rather than assumed, so this test asserts queue
+    // membership instead of accidentally asserting version arithmetic.
+    const stateOf = async (applicationId: string) => {
+      const body = await graphql<any>(queueQuery, { input: { first: 50 } },
+        administrator.cookie)
+      return body.data.admin.intake.queue.response.nodes
+        .find((node: any) => node.id === applicationId)
+    }
+
+    const beforeReview = await graphql<any>(summaryQuery, { cycleId: cycle.id },
+      administrator.cookie)
+    expect(countFor(beforeReview, 'NEW_SUBMISSIONS')).toBe(2)
+    expect(countFor(beforeReview, 'DESK_REVIEW')).toBe(0)
+    // Every queue is reported even when empty, so the chips do not come and go.
+    expect(beforeReview.data.admin.intake.queues.response.queues).toHaveLength(9)
+
+    const newSubmissions = await graphql<any>(queueQuery,
+      { input: { first: 10, queue: 'NEW_SUBMISSIONS' } }, administrator.cookie)
+    expect(idsIn(newSubmissions)).toEqual([first.applicationId, second.applicationId].sort())
+
+    // Moving one application on, the queues follow its status.
+    const beforeClaim = await stateOf(first.applicationId)
+    const claimed = await graphql<any>(`mutation($input: ClaimApplicationInput!) {
+      admin { intake { claim(input: $input) { success message } } }
+    }`, { input: {
+      applicationId: first.applicationId,
+      expectedAssignmentVersion: beforeClaim.assignmentVersion,
+      conflictAcknowledged: true,
+    } }, administrator.cookie)
+    expect(claimed.data.admin.intake.claim.success).toBe(true)
+    const started = await graphql<any>(`mutation($input: StartDeskReviewInput!) {
+      admin { intake { startDeskReview(input: $input) { success message } } }
+    }`, { input: {
+      applicationId: first.applicationId,
+      expectedStatusVersion: beforeClaim.statusVersion,
+    } }, administrator.cookie)
+    expect(started.data.admin.intake.startDeskReview.success,
+      JSON.stringify(started)).toBe(true)
+
+    const afterReviewStart = await graphql<any>(summaryQuery, { cycleId: cycle.id },
+      administrator.cookie)
+    expect(countFor(afterReviewStart, 'NEW_SUBMISSIONS')).toBe(1)
+    expect(countFor(afterReviewStart, 'DESK_REVIEW')).toBe(1)
+    const deskReviewQueue = await graphql<any>(queueQuery,
+      { input: { first: 10, queue: 'DESK_REVIEW' } }, administrator.cookie)
+    expect(idsIn(deskReviewQueue)).toEqual([first.applicationId])
+
+    // A cancelled application belongs to no queue at all. Written directly
+    // because no operation produces that status yet; the guard exists so the
+    // first one that does cannot silently appear in staff work lists.
+    await env.DB.prepare(`UPDATE seb_application SET status = 'CANCELLED' WHERE id = ?`)
+      .bind(second.applicationId)
+      .run()
+    const afterCancellation = await graphql<any>(summaryQuery, { cycleId: cycle.id },
+      administrator.cookie)
+    expect(afterCancellation.data.admin.intake.queues.response.queues).toEqual(
+      beforeReview.data.admin.intake.queues.response.queues.map((entry: any) => ({
+        ...entry,
+        count: entry.queue === 'DESK_REVIEW' ? 1 : 0,
+      })),
+    )
+
+    // A cycle filter narrows the counts; another cycle sees none of this work.
+    const otherCycle = await createOpenedCycle(administrator.cookie)
+    const otherCycleSummary = await graphql<any>(summaryQuery, { cycleId: otherCycle.id },
+      administrator.cookie)
+    expect(countFor(otherCycleSummary, 'NEW_SUBMISSIONS')).toBe(0)
+    expect(countFor(otherCycleSummary, 'DESK_REVIEW')).toBe(0)
+
+    // The two filters are subsets of one status, so combining them is refused
+    // rather than quietly intersected into an empty page.
+    const conflicting = await graphql<any>(queueQuery,
+      { input: { first: 10, queue: 'NEW_SUBMISSIONS', status: 'DESK_REVIEW' } },
+      administrator.cookie)
+    expect(conflicting.data.admin.intake.queue).toMatchObject({
+      success: false, message: 'Filter by queue or by status, not both.', response: null,
+    })
+
+    // A draft has never been formally submitted, so it belongs to no queue and
+    // cannot be claimed: reviewers must not be able to reach unsubmitted work.
+    const draftEnterprise = await graphql<any>(`mutation($input: EnterpriseProfileInput!) {
+      seb { enterprise { create(input: $input) { response { id } } } }
+    }`, { input: {
+      name: 'Unsubmitted Draft Enterprise', establishmentDate: '2026-01-01',
+      registrationType: 'NONE', registrationNumber: null, gstin: null,
+      businessSector: 'FOOD_PROCESSING', otherBusinessSector: null,
+      businessBlockOrVillage: 'Khumulwng', businessDistrict: 'West Tripura',
+      businessPinCode: '799045', contactNumber: '+919876543210',
+      contactEmail: 'draft@example.test',
+    } }, administrator.cookie)
+    const draft = await graphql<any>(`mutation($input: StartApplicationInput!) {
+      seb { application { startInitial(input: $input) { response { id } } } }
+    }`, { input: {
+      enterpriseId: draftEnterprise.data.seb.enterprise.create.response.id,
+      programmeCycleId: cycle.id,
+    } }, administrator.cookie)
+    const draftId = draft.data.seb.application.startInitial.response.id
+    const claimedDraft = await graphql<any>(`mutation($input: ClaimApplicationInput!) {
+      admin { intake { claim(input: $input) { success message } } }
+    }`, { input: {
+      applicationId: draftId, expectedAssignmentVersion: 0, conflictAcknowledged: true,
+    } }, administrator.cookie)
+    expect(claimedDraft.data.admin.intake.claim).toMatchObject({
+      success: false, message: 'The application was not found.',
+    })
+    const withDraft = await graphql<any>(summaryQuery, { cycleId: cycle.id },
+      administrator.cookie)
+    expect(countFor(withDraft, 'NEW_SUBMISSIONS')).toBe(0)
+    expect(countFor(withDraft, 'DESK_REVIEW')).toBe(1)
+
+    const applicantOnly = await adminSession(['APPLICANT'])
+    const refused = await graphql<any>(summaryQuery, { cycleId: null }, applicantOnly.cookie)
+    expect(refused.data.admin.intake.queues).toMatchObject({
+      success: false, message: 'Administrator access is required.',
+    })
+  })
+
+  it('reports a sanctioned application that has no award yet', async () => {
+    const administrator = await adminSession(['APPLICANT', 'ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie)
+    const submitted = await createSubmittedApplication(
+      administrator.cookie, administrator.userId, cycle.id,
+    )
+    const beforeAward = await graphql<any>(`query($id: ID!) {
+      seb { application { funding(applicationId: $id) { success message response { award { sanctionOrderNumber } } } } }
+    }`, { id: submitted.applicationId }, administrator.cookie)
+    expect(beforeAward.data.seb.application.funding).toEqual({
+      success: false,
+      message: 'No funding award has been created for this application yet.',
+      response: null,
+    })
+
+    const signedOut = await graphql<any>(`query($id: ID!) {
+      seb { application { funding(applicationId: $id) { success message } } }
+    }`, { id: submitted.applicationId })
+    expect(signedOut.data.seb.application.funding).toMatchObject({
+      success: false, message: 'Applicant authentication is required.',
+    })
   })
 })

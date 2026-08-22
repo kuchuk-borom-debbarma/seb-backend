@@ -1,0 +1,46 @@
+extend type Query {
+  access: AccessQuery!
+}
+
+# Administrative view of one identity. Lookup is exact-match only: there is
+# deliberately no listing or prefix search, so this namespace cannot be used to
+# enumerate accounts.
+type AccessQuery {
+  userByEmail(email: String!): ManagedUserResult!
+  userById(id: ID!): ManagedUserResult!
+}
+
+# One entry in the retained role history. Revocation closes a grant rather than
+# deleting it, so a closed grant keeps who revoked it, when, and why.
+type RoleGrant {
+  id: ID!
+  role: UserRole!
+  grantReason: String!
+  grantedAt: DateTime!
+  # Null identifies a trusted system transition such as verified signup or the
+  # one-time first-super-admin bootstrap, never an anonymous portal user.
+  grantedByUserId: ID
+  revokedByUserId: ID
+  revokedAt: DateTime
+  revocationReason: String
+}
+
+type ManagedUser {
+  id: ID!
+  email: String!
+  emailVerified: Boolean!
+  # Soft-deleted accounts are shown rather than hidden, so an operator
+  # investigating a closed account can still read its role history.
+  deleted: Boolean!
+  createdAt: DateTime!
+  # Active grants only, in the fixed role-catalogue order.
+  roles: [UserRole!]!
+  # Complete retained history, oldest first.
+  grants: [RoleGrant!]!
+}
+
+type ManagedUserResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: ManagedUser
+}

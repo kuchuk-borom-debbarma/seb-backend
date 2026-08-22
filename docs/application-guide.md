@@ -138,6 +138,28 @@ Applicants perform draft, submit, and resubmit transitions. Authorized staff
 continue through the separate `admin` namespace; see the
 [administrator workflow guide](admin-workflow-guide.md).
 
+### Knowing what to do next
+
+`seb.application.statusGuide` returns a label, plain-language explanation, next
+actor (`APPLICANT`, `PROGRAMME_OFFICE`, or `NOBODY`), and next action for every
+status. It is built from the schema's own status list, so a status added to the
+workflow cannot be missing from it, and it deliberately carries no dates: a
+status says who holds the work, never when they will finish it.
+
+### Knowing what may be edited
+
+`Application.editableSections` lists the sections the applicant may change right
+now — every section while the application is a draft, only the sections named by
+unresolved revision requests while revision is required, and none otherwise. It
+is derived from the same rule the draft-save path enforces, so it can never
+invite an edit the write would refuse.
+
+Before resubmitting, `seb.application.draftChanges` names the sections the
+current draft changes relative to the last submission, using the same comparison
+the administrative workspace shows a reviewer. The server-stamped declaration
+acceptance time is excluded, so an edit to one section never reports the
+declaration as changed too.
+
 ## Form-to-schema mapping
 
 | Form section | GraphQL draft object | `seb_application_version` columns |
@@ -189,8 +211,17 @@ At least one release must retain a positive amount, total net disbursement must
 be positive, and the target cycle’s UTC calendar waiting period after the first
 retained release must have arrived. Every retained release’s latest utilization
 assessment plus the latest performance and financial-audit assessments must
-meet the target cycle’s required outcomes. Eligibility reports each unmet gate
-separately.
+meet the target cycle’s required outcomes.
+
+Eligibility reports each unmet gate separately, as a code, an applicant-safe
+message, and — for utilization — the release obligation it is about:
+`NO_QUALIFYING_AWARD`, `QUALIFYING_AWARD_NOT_ACTIVE`, `NO_POSITIVE_RELEASE`,
+`TWELVE_MONTH_WAIT_NOT_COMPLETE`, `UTILIZATION_NOT_PASSED`,
+`PERFORMANCE_NOT_PASSED`, `FINANCIAL_AUDIT_NOT_PASSED`, and
+`COMPETING_PHASE_APPLICATION`. The first three are distinguished rather than
+collapsed because “you have never been sanctioned”, “your award is suspended”,
+and “nothing has actually been paid out” are three different things to act on.
+`eligibleAt` carries the first calendar instant the waiting rule is satisfied.
 
 Example: a release on 2024-02-29 reaches its 12-month calendar anniversary on
 2025-02-28. A full reversal removes that release from eligibility; a partial
@@ -223,6 +254,49 @@ allowed up to 10 MB. Download links last five minutes, force
 attachment, and never make the bucket public. Replacing or logically deleting a
 slot does not delete immutable finalized objects.
 
+## Seeing the funding outcome
+
+Once an administrator sanctions an application, `seb.application.funding`
+returns what the award has actually paid out. Every amount is derived from the
+append-only disbursement ledger rather than stored, so it cannot drift from the
+releases and reversals behind it:
+
+- the sanction order, date, amount, status, closure disposition, and
+  applicant-safe conditions;
+- gross released, reversed, net released, and remaining planned amounts, the
+  last clamped at zero because a corrected award can be amended below what was
+  already released;
+- each payment with its date, amount, safe payment reference, and how much of it
+  was reversed — the reversal is folded into the release it corrects rather than
+  listed as its own ledger entry; and
+- each assessment with its type, number, outcome, applicant-safe summary, and
+  whether it is the current result. Utilization is assessed once per release, so
+  more than one utilization result can be current at the same time.
+
+Programme-office detail never leaves the server: TTM approval references,
+bank-account verification, performance agreements, physical verification,
+evidence references, internal notes, recovery cases, and award version history
+are all absent from this view.
+
+## Programme cycles the applicant can see
+
+`availableProgrammeCycles` is the only list a “start application” action may be
+offered from: it contains the cycles a new application can be started in right
+now. `myProgrammeCycles` returns the cycles the applicant already has work in,
+whatever their state, so closed and archived cycles render as read-only history.
+Keeping them separate is what stops a closed cycle from ever carrying a start
+action. Both expose the cycle code, display name, year, policy reference,
+applicant guidance, lifecycle status, and application window.
+
+## Deleting an enterprise
+
+An enterprise can be removed only once nothing depends on it. A refused deletion
+returns `blockers`, naming the exact applications in the way with their
+reference numbers, statuses, and whether they carry an award — so the applicant
+knows which draft to remove rather than guessing. The list is scoped to the
+caller's own applications, so it cannot be used to probe somebody else's
+history, and the field is present and empty on every other outcome.
+
 ## GraphQL examples
 
 ```graphql
@@ -244,6 +318,14 @@ query Validate($id: ID!) {
 
 mutation Submit($input: ApplicationVersionInput!) {
   seb { application { submit(input: $input) { success message response { referenceNumber status } } } }
+}
+
+query Funding($id: ID!) {
+  seb { application { funding(applicationId: $id) { success message response {
+    award { sanctionOrderNumber sanctionedAmountPaise netReleasedPaise remainingPlannedPaise status }
+    releases { sequenceNumber occurredAt amountPaise paymentReference reversedAmountPaise }
+    assessments { assessmentType assessmentNumber outcome summary latest }
+  } } } }
 }
 ```
 
@@ -281,9 +363,10 @@ the application coverage gate, and `npm run check` for the complete gate.
 The base schema is replaceable because no production database exists; no
 incremental migration is added. Programme-cycle administration, intake, desk
 review, bank evidence, TTM decisions, awards, payments, assessments, and
-recovery now exist under the administrator namespace. Notifications,
-idempotency, rate limiting, a production malware provider, role management,
-and public deployment remain excluded. R2 CORS and
+recovery now exist under the administrator namespace, and role administration
+under the `access` namespace. Notifications, idempotency, rate limiting, a
+production malware provider, administrator account recovery, and public
+deployment remain excluded. R2 CORS and
 bucket-scoped credentials are required outside tests. Staff document downloads
 remain fail-closed until a production scanner records `ACCEPTED`.
 

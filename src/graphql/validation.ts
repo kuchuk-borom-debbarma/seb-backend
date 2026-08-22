@@ -58,7 +58,7 @@ const actionFields = (fields: FieldNode[]): FieldNode[] =>
 /** Builds the shared one-action rule used by the auth and SEB namespaces. */
 const singleMutationNamespaceRule = (
   context: ValidationContext,
-  namespaceName: 'auth' | 'seb' | 'admin',
+  namespaceName: 'auth' | 'access' | 'seb' | 'admin',
   nestedNamespaces: boolean,
   message: string,
 ): ASTVisitor => ({
@@ -113,6 +113,19 @@ export const singleAuthMutationRule = (context: ValidationContext): ASTVisitor =
     'auth',
     false,
     'Only one field may be selected beneath mutation.auth.',
+  )
+
+/**
+ * Enforces one side-effecting operation below each `mutation.access` document.
+ * Role changes are audited individually, so two in one request would produce a
+ * partial side effect before any error could be raised.
+ */
+export const singleAccessMutationRule = (context: ValidationContext): ASTVisitor =>
+  singleMutationNamespaceRule(
+    context,
+    'access',
+    false,
+    'Only one field may be selected beneath mutation.access.',
   )
 
 /**

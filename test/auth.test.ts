@@ -139,7 +139,9 @@ const verifySignup = async (challengeToken: string, otp: string) => {
   return body.data?.auth.verifyApplicantSignup
 }
 
-const signInWithPassword = async (password: string) =>
+const DEFAULT_PASSWORD = 'correct horse battery staple'
+
+const signInAs = async (email: string, password: string) =>
   graphql<{
     auth: {
       signIn: {
@@ -151,14 +153,27 @@ const signInWithPassword = async (password: string) =>
     mutation {
       auth {
           signIn(input: {
-            email: "applicant@example.com"
+            email: "${email}"
             password: "${password}"
         }) { success response { session { id } } }
       }
     }
   `)
 
-const signInDefault = async () => signInWithPassword('correct horse battery staple')
+const signInWithPassword = async (password: string) =>
+  signInAs('applicant@example.com', password)
+
+const signInDefault = async () => signInWithPassword(DEFAULT_PASSWORD)
+
+/** Completes the signup pair so a test starts from a real verified applicant. */
+const registerApplicant = async (
+  email: string,
+  notificationLog: ReturnType<typeof vi.spyOn>,
+) => {
+  const signup = await startSignup(email, notificationLog)
+  const verified = await verifySignup(signup.challengeToken, signup.otp)
+  if (!verified?.success) throw new Error(`Unable to register ${email} in test.`)
+}
 
 type BootstrapResponse = {
   success: boolean
@@ -219,8 +234,9 @@ const directAuthContext = (
 /**
  * Revokes every outstanding grant, deactivating each account in the fixture.
  *
- * Written directly because role revocation has no API yet; it arrives with the
- * role administration in section 9.3 of the product roadmap.
+ * Written directly because `access.revokeRole` deliberately refuses APPLICANT:
+ * that grant is created only by verified signup and cannot be granted back, so
+ * no operation may close it. Deactivation therefore has no API to drive.
  */
 const revokeEveryRoleGrant = () => env.DB.prepare(
   `UPDATE core_user_role_grant
@@ -238,6 +254,147 @@ const cookieAuthContext = (cookie: string): AuthOperationContext => ({
   requestUrl: 'https://api.example.test/graphql',
   responseHeaders: new Headers(),
 })
+
+type ManagedGrant = {
+  id: string
+  role: string
+  grantReason: string
+  grantedByUserId: string | null
+  revokedByUserId: string | null
+  revokedAt: string | null
+  revocationReason: string | null
+}
+
+type ManagedUserBody = {
+  access: {
+    userByEmail?: ManagedUserResultBody
+    userById?: ManagedUserResultBody
+  }
+}
+
+type ManagedUserMutationBody = {
+  access: {
+    grantRole?: ManagedUserResultBody
+    revokeRole?: ManagedUserResultBody
+  }
+}
+
+type ManagedUserResultBody = {
+  success: boolean
+  message: string | null
+  response: {
+    id: string
+    email: string
+    emailVerified: boolean
+    deleted: boolean
+    roles: string[]
+    grants: ManagedGrant[]
+  } | null
+}
+
+const MANAGED_USER_SELECTION = /* GraphQL */ `
+  success
+  message
+  response {
+    id
+    email
+    emailVerified
+    deleted
+    roles
+    grants {
+      id
+      role
+      grantReason
+      grantedByUserId
+      revokedByUserId
+      revokedAt
+      revocationReason
+    }
+  }
+`
+
+const managedUserByEmail = async (email: string, cookie: string) =>
+  graphql<ManagedUserBody>(/* GraphQL */ `
+    query {
+      access {
+        userByEmail(email: "${email}") { ${MANAGED_USER_SELECTION} }
+      }
+    }
+  `, cookie)
+
+const managedUserById = async (id: string, cookie: string) =>
+  graphql<ManagedUserBody>(/* GraphQL */ `
+    query {
+      access { userById(id: "${id}") { ${MANAGED_USER_SELECTION} } }
+    }
+  `, cookie)
+
+const grantRole = async (
+  input: { userId: string; role: string; reason?: string; password?: string },
+  cookie: string,
+) => graphql<ManagedUserMutationBody>(/* GraphQL */ `
+  mutation {
+    access {
+      grantRole(input: {
+        userId: "${input.userId}"
+        role: ${input.role}
+        reason: "${input.reason ?? 'Joining the programme office'}"
+        currentPassword: "${input.password ?? DEFAULT_PASSWORD}"
+      }) { ${MANAGED_USER_SELECTION} }
+    }
+  }
+`, cookie)
+
+const revokeRole = async (
+  input: { grantId: string; reason?: string; password?: string },
+  cookie: string,
+) => graphql<ManagedUserMutationBody>(/* GraphQL */ `
+  mutation {
+    access {
+      revokeRole(input: {
+        grantId: "${input.grantId}"
+        reason: "${input.reason ?? 'Left the programme office'}"
+        currentPassword: "${input.password ?? DEFAULT_PASSWORD}"
+      }) { ${MANAGED_USER_SELECTION} }
+    }
+  }
+`, cookie)
+
+const activeGrantId = (user: ManagedUserResultBody['response'], role: string): string => {
+  const grant = user?.grants.find(
+    (candidate) => candidate.role === role && candidate.revokedAt === null,
+  )
+  if (!grant) throw new Error(`Expected an active ${role} grant in test.`)
+  return grant.id
+}
+
+/**
+ * Produces the portal's first super administrator and signs them in.
+ *
+ * Driven entirely through the real signup, curl bootstrap, and sign-in paths so
+ * role-administration tests start from a state the product can actually reach.
+ */
+const establishSuperAdmin = async (notificationLog: ReturnType<typeof vi.spyOn>) => {
+  await registerApplicant('applicant@example.com', notificationLog)
+  const bootstrapped = await bootstrapFirstAdmin()
+  const userId = bootstrapped.body.response?.userId
+  if (!userId) throw new Error('Unable to bootstrap the first super administrator in test.')
+  const signedIn = await signInAs('applicant@example.com', DEFAULT_PASSWORD)
+  return { userId, cookie: cookieHeaderFrom(signedIn.response) }
+}
+
+/** Registers a second person and returns their managed identity. */
+const registerManagedApplicant = async (
+  email: string,
+  notificationLog: ReturnType<typeof vi.spyOn>,
+  cookie: string,
+) => {
+  await registerApplicant(email, notificationLog)
+  const looked = await managedUserByEmail(email, cookie)
+  const user = looked.body.data?.access.userByEmail?.response
+  if (!user) throw new Error(`Unable to look up ${email} in test.`)
+  return user
+}
 
 const runScheduledCleanup = async () => {
   const context = createExecutionContext()
@@ -1855,5 +2012,541 @@ describe('authentication', () => {
         count: number
       }>(),
     ).toEqual({ count: 0 })
+  })
+})
+
+describe('administrative role management', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('grants ADMIN and lets the new administrator sign in and work', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const superAdmin = await establishSuperAdmin(notificationLog)
+    const subject = await registerManagedApplicant(
+      'reviewer@example.com',
+      notificationLog,
+      superAdmin.cookie,
+    )
+    expect(subject).toMatchObject({
+      email: 'reviewer@example.com',
+      emailVerified: true,
+      deleted: false,
+      roles: ['APPLICANT'],
+    })
+
+    const granted = await grantRole(
+      { userId: subject.id, role: 'ADMIN', reason: 'Joining desk review' },
+      superAdmin.cookie,
+    )
+    const managed = granted.body.data?.access.grantRole
+    expect(managed?.success).toBe(true)
+    // Dual roles remain permitted: only the bootstrap path produces an
+    // administrator who holds no applicant grant.
+    expect(managed?.response?.roles).toEqual(['APPLICANT', 'ADMIN'])
+    const adminGrant = managed?.response?.grants.find((grant) => grant.role === 'ADMIN')
+    expect(adminGrant).toMatchObject({
+      grantReason: 'Joining desk review',
+      grantedByUserId: superAdmin.userId,
+      revokedAt: null,
+      revocationReason: null,
+    })
+
+    const signedIn = await signInAs('reviewer@example.com', DEFAULT_PASSWORD)
+    expect(signedIn.body.data?.auth.signIn.success).toBe(true)
+    const reviewerCookie = cookieHeaderFrom(signedIn.response)
+    const queue = await graphql<{
+      admin: { intake: { queue: { success: boolean } } }
+    }>(/* GraphQL */ `
+      query { admin { intake { queue(input: { first: 5 }) { success } } } }
+    `, reviewerCookie)
+    expect(queue.body.data?.admin.intake.queue.success).toBe(true)
+
+    // A plain administrator may not manage anyone else's authority.
+    const escalation = await grantRole(
+      { userId: subject.id, role: 'SUPER_ADMIN' },
+      reviewerCookie,
+    )
+    expect(escalation.body.data?.access.grantRole).toMatchObject({
+      success: false,
+      message: 'Authentication is required.',
+      response: null,
+    })
+
+    const audit = await env.DB.prepare(
+      `SELECT actor_user_id, entity_type, entity_id, metadata_json
+       FROM core_audit_event WHERE action = ? AND entity_id = ?`,
+    )
+      .bind(auditActions.roleGranted, adminGrant?.id)
+      .first<{
+        actor_user_id: string
+        entity_type: string
+        entity_id: string
+        metadata_json: string
+      }>()
+    expect(audit).toMatchObject({
+      actor_user_id: superAdmin.userId,
+      entity_type: 'CORE_USER_ROLE_GRANT',
+    })
+    // The reason is retained on the grant row; audit metadata stays limited to
+    // public identifiers and the role name.
+    expect(JSON.parse(audit?.metadata_json ?? '{}')).toEqual({
+      subjectUserId: subject.id,
+      role: 'ADMIN',
+    })
+    expect(audit?.metadata_json).not.toContain('reviewer@example.com')
+  })
+
+  it('refuses a duplicate active grant and re-grants a revoked role as new history', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const superAdmin = await establishSuperAdmin(notificationLog)
+    const subject = await registerManagedApplicant(
+      'reviewer@example.com',
+      notificationLog,
+      superAdmin.cookie,
+    )
+
+    const first = await grantRole({ userId: subject.id, role: 'ADMIN' }, superAdmin.cookie)
+    const firstGrantId = activeGrantId(
+      first.body.data?.access.grantRole?.response ?? null,
+      'ADMIN',
+    )
+
+    const duplicate = await grantRole(
+      { userId: subject.id, role: 'ADMIN' },
+      superAdmin.cookie,
+    )
+    expect(duplicate.body.data?.access.grantRole).toMatchObject({
+      success: false,
+      message: 'That role is already active for this user.',
+      response: null,
+    })
+
+    const revoked = await revokeRole(
+      { grantId: firstGrantId, reason: 'Moved to another department' },
+      superAdmin.cookie,
+    )
+    expect(revoked.body.data?.access.revokeRole?.success).toBe(true)
+    expect(revoked.body.data?.access.revokeRole?.response?.roles).toEqual(['APPLICANT'])
+
+    const regranted = await grantRole(
+      { userId: subject.id, role: 'ADMIN', reason: 'Returned to desk review' },
+      superAdmin.cookie,
+    )
+    const grants = regranted.body.data?.access.grantRole?.response?.grants ?? []
+    const adminGrants = grants.filter((grant) => grant.role === 'ADMIN')
+    // Re-granting adds a row rather than reopening the old one, so the history
+    // of who held what and when stays complete.
+    expect(adminGrants).toHaveLength(2)
+    expect(adminGrants[0]).toMatchObject({
+      id: firstGrantId,
+      revokedByUserId: superAdmin.userId,
+      revocationReason: 'Moved to another department',
+    })
+    expect(adminGrants[0]?.revokedAt).not.toBeNull()
+    expect(adminGrants[1]).toMatchObject({
+      grantReason: 'Returned to desk review',
+      revokedAt: null,
+    })
+  })
+
+  it('requires a correct password and a reason, and writes nothing otherwise', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const superAdmin = await establishSuperAdmin(notificationLog)
+    const subject = await registerManagedApplicant(
+      'reviewer@example.com',
+      notificationLog,
+      superAdmin.cookie,
+    )
+
+    const wrongPassword = await grantRole(
+      { userId: subject.id, role: 'ADMIN', password: 'not the right password' },
+      superAdmin.cookie,
+    )
+    expect(wrongPassword.body.data?.access.grantRole).toMatchObject({
+      success: false,
+      message: 'Your password is incorrect.',
+    })
+
+    const blankReason = await grantRole(
+      { userId: subject.id, role: 'ADMIN', reason: '   ' },
+      superAdmin.cookie,
+    )
+    expect(blankReason.body.data?.access.grantRole?.message).toContain('reason')
+
+    const longReason = await grantRole(
+      { userId: subject.id, role: 'ADMIN', reason: 'r'.repeat(501) },
+      superAdmin.cookie,
+    )
+    expect(longReason.body.data?.access.grantRole?.success).toBe(false)
+
+    // Every refusal happened before any write, so the subject still holds only
+    // the grant verified signup gave them, and no ADMIN audit event exists.
+    const after = await managedUserById(subject.id, superAdmin.cookie)
+    expect(after.body.data?.access.userById?.response?.roles).toEqual(['APPLICANT'])
+    expect(after.body.data?.access.userById?.response?.grants).toHaveLength(1)
+    const audits = await env.DB.prepare(
+      `SELECT count(*) AS count FROM core_audit_event
+       WHERE action = ? AND metadata_json = ?`,
+    )
+      .bind(
+        auditActions.roleGranted,
+        JSON.stringify({ subjectUserId: subject.id, role: 'ADMIN' }),
+      )
+      .first<{ count: number }>()
+    expect(audits?.count).toBe(0)
+  })
+
+  it('keeps at least one usable super administrator', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const superAdmin = await establishSuperAdmin(notificationLog)
+    const successor = await registerManagedApplicant(
+      'successor@example.com',
+      notificationLog,
+      superAdmin.cookie,
+    )
+    const own = await managedUserById(superAdmin.userId, superAdmin.cookie)
+    const ownGrantId = activeGrantId(
+      own.body.data?.access.userById?.response ?? null,
+      'SUPER_ADMIN',
+    )
+
+    // Nobody else holds the role yet, so the only grant cannot be closed. The
+    // remaining-holder rule is reported ahead of the self-revocation rule
+    // because it is the one that says what to do about it.
+    const lastOne = await revokeRole({ grantId: ownGrantId }, superAdmin.cookie)
+    expect(lastOne.body.data?.access.revokeRole).toMatchObject({
+      success: false,
+      message:
+        'At least one super administrator must remain. Grant the role to someone else first.',
+    })
+
+    const promoted = await grantRole(
+      { userId: successor.id, role: 'SUPER_ADMIN', reason: 'Programme office lead' },
+      superAdmin.cookie,
+    )
+    const successorGrantId = activeGrantId(
+      promoted.body.data?.access.grantRole?.response ?? null,
+      'SUPER_ADMIN',
+    )
+
+    // A soft-deleted holder is not usable, so the guard must ignore them.
+    await env.DB.prepare('UPDATE core_user SET deleted_at = ? WHERE id = ?')
+      .bind(Date.now(), successor.id)
+      .run()
+    const withDeletedHolder = await revokeRole({ grantId: ownGrantId }, superAdmin.cookie)
+    expect(withDeletedHolder.body.data?.access.revokeRole?.success).toBe(false)
+
+    await env.DB.prepare('UPDATE core_user SET deleted_at = NULL WHERE id = ?')
+      .bind(successor.id)
+      .run()
+    const successorSignIn = await signInAs('successor@example.com', DEFAULT_PASSWORD)
+    const successorCookie = cookieHeaderFrom(successorSignIn.response)
+
+    // With a second usable holder the demotion is allowed — performed by the
+    // other super administrator, because self-revocation is always refused.
+    const demoted = await revokeRole(
+      { grantId: ownGrantId, reason: 'Handing over the programme office' },
+      successorCookie,
+    )
+    expect(demoted.body.data?.access.revokeRole?.success).toBe(true)
+    expect(demoted.body.data?.access.revokeRole?.response?.roles).toEqual([])
+
+    // The remaining holder is once again the last one.
+    const nowLast = await revokeRole({ grantId: successorGrantId }, successorCookie)
+    expect(nowLast.body.data?.access.revokeRole?.success).toBe(false)
+  })
+
+  it('refuses self-revocation of super administrator but allows it for admin', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const superAdmin = await establishSuperAdmin(notificationLog)
+    // A second holder exists, so the remaining-holder rule is satisfied and the
+    // self-revocation rule is the one under test.
+    const successor = await registerManagedApplicant(
+      'successor@example.com',
+      notificationLog,
+      superAdmin.cookie,
+    )
+    await grantRole(
+      { userId: successor.id, role: 'SUPER_ADMIN', reason: 'Programme office lead' },
+      superAdmin.cookie,
+    )
+    const own = await managedUserById(superAdmin.userId, superAdmin.cookie)
+    const ownSuperGrantId = activeGrantId(
+      own.body.data?.access.userById?.response ?? null,
+      'SUPER_ADMIN',
+    )
+
+    const selfDemotion = await revokeRole({ grantId: ownSuperGrantId }, superAdmin.cookie)
+    expect(selfDemotion.body.data?.access.revokeRole).toMatchObject({
+      success: false,
+      message:
+        'You cannot revoke your own super administrator access. '
+        + 'Another super administrator must do it.',
+    })
+
+    // A redundant ADMIN grant on the same person may be closed by them: it
+    // cannot remove administrative access while SUPER_ADMIN is still held.
+    const withAdmin = await grantRole(
+      { userId: superAdmin.userId, role: 'ADMIN', reason: 'Redundant operational role' },
+      superAdmin.cookie,
+    )
+    const ownAdminGrantId = activeGrantId(
+      withAdmin.body.data?.access.grantRole?.response ?? null,
+      'ADMIN',
+    )
+    const selfAdminRevoke = await revokeRole(
+      { grantId: ownAdminGrantId, reason: 'No longer needed' },
+      superAdmin.cookie,
+    )
+    expect(selfAdminRevoke.body.data?.access.revokeRole?.success).toBe(true)
+    expect(selfAdminRevoke.body.data?.access.revokeRole?.response?.roles)
+      .toEqual(['SUPER_ADMIN'])
+  })
+
+  it('keeps APPLICANT outside role administration entirely', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const superAdmin = await establishSuperAdmin(notificationLog)
+    const subject = await registerManagedApplicant(
+      'reviewer@example.com',
+      notificationLog,
+      superAdmin.cookie,
+    )
+
+    // The enum stops a grant at the schema boundary, before any resolver runs.
+    const grantAttempt = await grantRole(
+      { userId: subject.id, role: 'APPLICANT' },
+      superAdmin.cookie,
+    )
+    expect(grantAttempt.body.data).toBeUndefined()
+    expect(grantAttempt.body.errors?.[0]?.message).toContain('APPLICANT')
+
+    // A revocation names a grant ID, so the role of the row it resolves to is
+    // checked in the service instead.
+    const applicantGrantId = activeGrantId(subject, 'APPLICANT')
+    const revokeAttempt = await revokeRole({ grantId: applicantGrantId }, superAdmin.cookie)
+    expect(revokeAttempt.body.data?.access.revokeRole).toMatchObject({
+      success: false,
+      message: 'Only administrative roles can be revoked here.',
+    })
+
+    const after = await managedUserById(subject.id, superAdmin.cookie)
+    expect(after.body.data?.access.userById?.response?.roles).toEqual(['APPLICANT'])
+  })
+
+  it('refuses unknown users, stale grants, and unverified subjects', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const superAdmin = await establishSuperAdmin(notificationLog)
+
+    expect(
+      (await managedUserByEmail('nobody@example.com', superAdmin.cookie))
+        .body.data?.access.userByEmail,
+    ).toMatchObject({ success: false, message: 'No user was found.', response: null })
+    expect(
+      (await managedUserByEmail('not-an-email', superAdmin.cookie))
+        .body.data?.access.userByEmail?.message,
+    ).toBe('Enter a valid email address.')
+    expect(
+      (await managedUserById('not-a-uuid', superAdmin.cookie))
+        .body.data?.access.userById?.message,
+    ).toBe('No user was found.')
+    expect(
+      (await managedUserById(crypto.randomUUID(), superAdmin.cookie))
+        .body.data?.access.userById?.success,
+    ).toBe(false)
+
+    expect(
+      (await grantRole({ userId: 'not-a-uuid', role: 'ADMIN' }, superAdmin.cookie))
+        .body.data?.access.grantRole?.message,
+    ).toBe('No user was found.')
+    expect(
+      (await grantRole({ userId: crypto.randomUUID(), role: 'ADMIN' }, superAdmin.cookie))
+        .body.data?.access.grantRole?.success,
+    ).toBe(false)
+    expect(
+      (await revokeRole({ grantId: 'not-a-uuid' }, superAdmin.cookie))
+        .body.data?.access.revokeRole?.message,
+    ).toBe('That role grant is not active.')
+    expect(
+      (await revokeRole({ grantId: crypto.randomUUID() }, superAdmin.cookie))
+        .body.data?.access.revokeRole?.message,
+    ).toBe('That role grant is not active.')
+
+    // A soft-deleted or unverified identity cannot receive administrative
+    // authority, because neither can sign in to use it.
+    const subject = await registerManagedApplicant(
+      'reviewer@example.com',
+      notificationLog,
+      superAdmin.cookie,
+    )
+    await env.DB.prepare('UPDATE core_user SET deleted_at = ? WHERE id = ?')
+      .bind(Date.now(), subject.id)
+      .run()
+    expect(
+      (await grantRole({ userId: subject.id, role: 'ADMIN' }, superAdmin.cookie))
+        .body.data?.access.grantRole?.message,
+    ).toBe('No user was found.')
+
+    await env.DB.prepare(
+      'UPDATE core_user SET deleted_at = NULL, email_verified_at = NULL WHERE id = ?',
+    )
+      .bind(subject.id)
+      .run()
+    expect(
+      (await grantRole({ userId: subject.id, role: 'ADMIN' }, superAdmin.cookie))
+        .body.data?.access.grantRole?.message,
+    ).toBe('That user has not verified their email address yet.')
+
+    // Soft-deleted identities stay readable so their history can be audited.
+    await env.DB.prepare('UPDATE core_user SET deleted_at = ? WHERE id = ?')
+      .bind(Date.now(), subject.id)
+      .run()
+    expect(
+      (await managedUserById(subject.id, superAdmin.cookie))
+        .body.data?.access.userById?.response,
+    ).toMatchObject({ deleted: true, emailVerified: false })
+  })
+
+  it('leaves sessions to the existing deactivation paths after a revocation', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const superAdmin = await establishSuperAdmin(notificationLog)
+    const subject = await registerManagedApplicant(
+      'reviewer@example.com',
+      notificationLog,
+      superAdmin.cookie,
+    )
+    const granted = await grantRole(
+      { userId: subject.id, role: 'ADMIN' },
+      superAdmin.cookie,
+    )
+    const adminGrantId = activeGrantId(
+      granted.body.data?.access.grantRole?.response ?? null,
+      'ADMIN',
+    )
+    const signedIn = await signInAs('reviewer@example.com', DEFAULT_PASSWORD)
+    const reviewerCookie = cookieHeaderFrom(signedIn.response)
+
+    await revokeRole({ grantId: adminGrantId }, superAdmin.cookie)
+
+    // Roles are joined live, so administrative access is refused immediately,
+    // while the session itself survives because APPLICANT remains.
+    const refused = await graphql<{
+      admin: { intake: { queue: { success: boolean; message: string | null } } }
+    }>(/* GraphQL */ `
+      query { admin { intake { queue(input: { first: 5 }) { success message } } } }
+    `, reviewerCookie)
+    expect(refused.body.data?.admin.intake.queue).toMatchObject({
+      success: false,
+      message: 'Administrator access is required.',
+    })
+    const stillSignedIn = await graphql<CurrentSessionBody>(/* GraphQL */ `
+      query { auth { currentSession { success response { user { roles } } } } }
+    `, reviewerCookie)
+    expect(stillSignedIn.body.data?.auth.currentSession.response)
+      .toMatchObject({ user: { roles: ['APPLICANT'] } })
+
+    // Losing the last remaining role is what destroys sessions, and that is
+    // handled by the deactivation paths rather than by role administration.
+    await revokeEveryRoleGrant()
+    const deactivated = await graphql<CurrentSessionBody>(/* GraphQL */ `
+      query { auth { currentSession { success response { user { roles } } } } }
+    `, reviewerCookie)
+    expect(deactivated.body.data?.auth.currentSession.response).toBeNull()
+    // Presenting the cookie destroys every session that account holds. The
+    // super administrator's own row survives until they make a request or the
+    // scheduled sweep runs, which is what makes deactivation durable.
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session WHERE user_id = ?')
+        .bind(subject.id)
+        .first(),
+    ).toEqual({ count: 0 })
+    await runScheduledCleanup()
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first(),
+    ).toEqual({ count: 0 })
+  })
+
+  it('rejects more than one nested access mutation before execution', async () => {
+    const { body } = await graphql<unknown>(/* GraphQL */ `
+      mutation {
+        access {
+          grantRole(input: {
+            userId: "00000000-0000-4000-8000-000000000000"
+            role: ADMIN
+            reason: "first"
+            currentPassword: "x"
+          }) { success }
+          revokeRole(input: {
+            grantId: "00000000-0000-4000-8000-000000000001"
+            reason: "second"
+            currentPassword: "x"
+          }) { success }
+        }
+      }
+    `)
+    expect(body.data).toBeUndefined()
+    expect(body.errors?.[0]?.message).toBe(
+      'Only one field may be selected beneath mutation.access.',
+    )
+  })
+
+  it('closes the whole namespace to anyone who is not a super administrator', async () => {
+    const anonymous = await graphql<ManagedUserBody>(/* GraphQL */ `
+      query { access { userByEmail(email: "applicant@example.com") { success message } } }
+    `)
+    expect(anonymous.body.data?.access.userByEmail).toMatchObject({
+      success: false,
+      message: 'Authentication is required.',
+    })
+
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    await registerApplicant('applicant@example.com', notificationLog)
+    const applicantCookie = cookieHeaderFrom((await signInDefault()).response)
+    const asApplicant = await managedUserById(crypto.randomUUID(), applicantCookie)
+    expect(asApplicant.body.data?.access.userById?.message).toBe(
+      'Authentication is required.',
+    )
+
+    /**
+     * The mutations must refuse before they describe their subject.
+     *
+     * A caller who learns "no user was found" for one ID and "that role is
+     * already active" for another has been handed an oracle for which user IDs
+     * are real and which of them are administrators — which is exactly what
+     * exact-match-only lookup exists to prevent. Every probe below must return
+     * the same refusal.
+     */
+    const subject = await env.DB.prepare(
+      `SELECT id FROM core_user WHERE email = 'applicant@example.com'`,
+    ).first<{ id: string }>()
+    if (!subject) throw new Error('Expected the registered applicant.')
+    const probes = [
+      { userId: subject.id, cookie: undefined },
+      { userId: crypto.randomUUID(), cookie: undefined },
+      { userId: subject.id, cookie: applicantCookie },
+      { userId: 'not-a-uuid', cookie: applicantCookie },
+    ]
+    for (const probe of probes) {
+      const attempt = await graphql<ManagedUserMutationBody>(/* GraphQL */ `
+        mutation {
+          access {
+            grantRole(input: {
+              userId: "${probe.userId}"
+              role: ADMIN
+              reason: "Probing for existing accounts"
+              currentPassword: "${DEFAULT_PASSWORD}"
+            }) { success message response { id } }
+          }
+        }
+      `, probe.cookie)
+      expect(attempt.body.data?.access.grantRole).toEqual({
+        success: false,
+        message: 'Authentication is required.',
+        response: null,
+      })
+    }
+
+    const revokeProbe = await revokeRole({ grantId: crypto.randomUUID() }, applicantCookie)
+    expect(revokeProbe.body.data?.access.revokeRole).toMatchObject({
+      success: false, message: 'Authentication is required.',
+    })
   })
 })

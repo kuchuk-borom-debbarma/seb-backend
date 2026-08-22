@@ -11,6 +11,7 @@ import {
   sql,
   lt,
   lte,
+  type SQL,
 } from 'drizzle-orm'
 import type { Database } from '../../../db'
 import {
@@ -39,12 +40,15 @@ import {
   sebDisbursement,
   sebAwardAssessment,
 } from '../../../db/schema'
+import { changedSections } from '../../application/sections'
 import { encodeAdminCursor } from '../pagination'
 import { adminAudit } from '../support'
+import { intakeQueueKeys } from '../types'
 import type {
   AdminOperationContext,
   DeskReviewCheckInput,
   DeskReviewOutcome,
+  IntakeQueueKey,
   PageInfo,
   RevisionRequestInput,
 } from '../types'
@@ -82,6 +86,24 @@ export const latestSubmission = async (db: Database, applicationId: string) => {
   return row ?? null
 }
 
+
+const queueKeyPredicate = (queue: IntakeQueueKey): SQL => {
+  if (queue === 'NEW_SUBMISSIONS') {
+    return and(
+      eq(sebApplication.status, 'SUBMITTED'),
+      eq(sebApplicationSubmission.submissionNumber, 1),
+    )!
+  }
+  if (queue === 'REVISION_RESPONSES') {
+    return and(
+      eq(sebApplication.status, 'SUBMITTED'),
+      gt(sebApplicationSubmission.submissionNumber, 1),
+    )!
+  }
+  return eq(sebApplication.status, queue)
+}
+
+
 export const listIntakeQueue = async (
   db: Database,
   input: {
@@ -98,6 +120,7 @@ export const listIntakeQueue = async (
     submittedFrom?: Date | null
     submittedTo?: Date | null
     order?: 'OLDEST_WAITING' | 'NEWEST_SUBMISSION' | 'LAST_ACTIVITY' | null
+    queue?: IntakeQueueKey | null
   },
 ): Promise<{ nodes: unknown[]; pageInfo: PageInfo }> => {
   const order = input.order ?? 'OLDEST_WAITING'
@@ -167,6 +190,7 @@ export const listIntakeQueue = async (
         sql`${sebApplication.status} <> 'DRAFT'`,
         input.cycleId ? eq(sebApplication.programmeCycleId, input.cycleId) : undefined,
         input.status ? eq(sebApplication.status, input.status) : undefined,
+        input.queue ? queueKeyPredicate(input.queue) : undefined,
         input.phaseNumber ? eq(sebApplication.phaseNumber, input.phaseNumber) : undefined,
         input.applicationType
           ? eq(sebApplication.applicationType, input.applicationType)
@@ -204,6 +228,61 @@ export const listIntakeQueue = async (
       ) : null,
     },
   }
+}
+
+/**
+ * Counts the applications waiting in each named queue.
+ *
+ * One grouped aggregate rather than one query per queue. The two `SUBMITTED`
+ * queues are separated by the same submission-number rule the list uses, so a
+ * chip count can never disagree with the queue it opens.
+ */
+export const intakeQueueSummary = async (
+  db: Database,
+  cycleId?: string | null,
+): Promise<Array<{ queue: IntakeQueueKey; count: number }>> => {
+  const rows = await db
+    .select({
+      status: sebApplication.status,
+      submissionNumber: sebApplicationSubmission.submissionNumber,
+      count: sql<number>`count(*)`,
+    })
+    .from(sebApplication)
+    .innerJoin(
+      sebApplicationSubmission,
+      and(
+        eq(sebApplicationSubmission.applicationId, sebApplication.id),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${sebApplicationSubmission} AS newer_submission
+          WHERE newer_submission.application_id = ${sebApplication.id}
+            AND newer_submission.submission_number > ${sebApplicationSubmission.submissionNumber}
+        )`,
+      ),
+    )
+    .where(
+      and(
+        isNull(sebApplication.deletedAt),
+        sql`${sebApplication.status} <> 'DRAFT'`,
+        cycleId ? eq(sebApplication.programmeCycleId, cycleId) : undefined,
+      ),
+    )
+    .groupBy(sebApplication.status, sebApplicationSubmission.submissionNumber)
+
+  // Every queue is reported, including empty ones, so the caller renders a
+  // stable set of chips instead of one that appears and disappears.
+  const counts = new Map<IntakeQueueKey, number>(
+    intakeQueueKeys.map((queue) => [queue, 0]),
+  )
+  for (const row of rows) {
+    const queue: IntakeQueueKey | undefined = row.status === 'SUBMITTED'
+      ? (row.submissionNumber === 1 ? 'NEW_SUBMISSIONS' : 'REVISION_RESPONSES')
+      : intakeQueueKeys.find((key) => key === row.status)
+    // CANCELLED has no queue: it is a terminal state nobody works from.
+    if (!queue) continue
+    // Seeded above, so every queue key is already present.
+    counts.set(queue, counts.get(queue)! + Number(row.count))
+  }
+  return intakeQueueKeys.map((queue) => ({ queue, count: counts.get(queue)! }))
 }
 
 export const loadWorkspace = async (db: Database, applicationId: string) => {
@@ -281,34 +360,17 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
     ),
   )).orderBy(asc(sebApplicationVersion.version))
   const snapshotsByVersion = new Map(snapshots.map((snapshot) => [snapshot.version, snapshot]))
-  const sectionFields = {
-    ENTERPRISE: ['businessName', 'establishmentDate', 'registrationType', 'registrationNumber',
-      'gstin', 'businessSector', 'otherBusinessSector', 'applicationCategory',
-      'majorityOwnershipConfirmed'],
-    APPLICANT_PROFILE: ['primaryApplicantName', 'designation', 'dateOfBirth', 'gender',
-      'businessBlockOrVillage', 'businessDistrict', 'businessPinCode', 'contactNumber',
-      'contactEmail'],
-    FINANCIAL: ['totalProjectCostPaise', 'seedFundRequestedPaise', 'bankLoanProposedPaise',
-      'promoterContributionPaise'],
-    PRIOR_FUNDING: ['receivedGovernmentFunding', 'governmentSchemeName',
-      'governmentFundingAmountPaise', 'governmentFundingSanctionYear', 'hasExistingBankCredit',
-      'existingBankName', 'existingCreditAmountPaise', 'existingCreditStatus'],
-    EXPANSION: ['priorSanctionOrderNumber', 'priorSanctionDate',
-      'priorNetDisbursedAmountPaise', 'continuousOperationMonths'],
-    DOCUMENTS: ['nocRequired'],
-    DECLARATION: ['relationshipType', 'relatedPersonName', 'declarationAccepted',
-      'declarationAcceptedAt', 'declarationPlace'],
-  } as const
   const submissionChanges = submissions.slice(1).map((submission, index) => {
     const previousSubmission = submissions[index]!
-    const previous = snapshotsByVersion.get(previousSubmission.applicationVersion)!
-    const current = snapshotsByVersion.get(submission.applicationVersion)!
     return {
       fromSubmissionNumber: previousSubmission.submissionNumber,
       toSubmissionNumber: submission.submissionNumber,
-      sections: Object.entries(sectionFields)
-        .filter(([, fields]) => fields.some((field) => previous[field] !== current[field]))
-        .map(([section]) => section),
+      // Shared with the applicant's pre-resubmission review, so staff and
+      // applicant can never be shown a different set of changed sections.
+      sections: changedSections(
+        snapshotsByVersion.get(previousSubmission.applicationVersion)!,
+        snapshotsByVersion.get(submission.applicationVersion)!,
+      ),
     }
   })
   return {

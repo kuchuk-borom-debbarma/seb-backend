@@ -11,7 +11,12 @@ import {
   sebFundingCaseVersion,
 } from '../../../db/schema'
 import { d1ChangedExactlyOne, sqlNullable, type AuditRecord } from '../support'
-import type { Connection, Enterprise, EnterpriseProfileInput } from '../types'
+import type {
+  Connection,
+  Enterprise,
+  EnterpriseDeletionBlocker,
+  EnterpriseProfileInput,
+} from '../types'
 import { encodeCursor } from '../pagination'
 
 type EnterpriseRecord = typeof sebEnterprise.$inferSelect
@@ -249,27 +254,47 @@ export const updateEnterpriseAggregate = async (
   return d1ChangedExactlyOne(result)
 }
 
-export const enterpriseHasBlockingHistory = async (
+/**
+ * Names the exact applications that prevent an enterprise from being deleted.
+ *
+ * Returning the list rather than a bare boolean is what lets the refusal say
+ * "these two applications" instead of leaving the applicant to guess which of
+ * their drafts to remove first.
+ *
+ * Ownership scoping belongs in this read as well as in the final write.
+ * Without it the richer response would reveal whether another applicant's
+ * opaque enterprise ID has application or award history.
+ */
+export const listEnterpriseDeletionBlockers = async (
   db: Database,
   userId: string,
   enterpriseId: string,
-): Promise<boolean> => {
-  const [row] = await db
-    .select({ id: sebApplication.id })
+): Promise<EnterpriseDeletionBlocker[]> => {
+  const rows = await db
+    .select({
+      applicationId: sebApplication.id,
+      referenceNumber: sebApplication.referenceNumber,
+      status: sebApplication.status,
+      awardId: sebFundingAward.id,
+    })
     .from(sebApplication)
     .leftJoin(sebFundingAward, eq(sebFundingAward.applicationId, sebApplication.id))
     .where(
       and(
         eq(sebApplication.enterpriseId, enterpriseId),
-        // Ownership belongs in this preflight read as well as the final write.
-        // Otherwise different failure messages would reveal whether another
-        // applicant's opaque enterprise ID has application or award history.
         eq(sebApplication.applicantUserId, userId),
+        // A live application blocks deletion. So does a deleted one that still
+        // has an award, because the award has to keep its enterprise.
         or(isNull(sebApplication.deletedAt), isNotNull(sebFundingAward.id)),
       ),
     )
-    .limit(1)
-  return row !== undefined
+    .orderBy(asc(sebApplication.phaseNumber), asc(sebApplication.createdAt))
+  return rows.map((row) => ({
+    applicationId: row.applicationId,
+    referenceNumber: row.referenceNumber,
+    status: row.status,
+    hasAward: row.awardId !== null,
+  }))
 }
 
 export const setEnterpriseDeleted = async (

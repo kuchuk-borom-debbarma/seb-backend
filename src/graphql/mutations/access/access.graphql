@@ -1,0 +1,33 @@
+extend type Mutation {
+  access: AccessMutation!
+}
+
+# APPLICANT is deliberately absent. It is created only by verified signup and no
+# operation can grant it back, so allowing it here would let one revocation
+# strip an applicant permanently with no recovery path.
+enum ManageableRole {
+  ADMIN
+  SUPER_ADMIN
+}
+
+# `currentPassword` is the step-up confirmation required before any change to
+# another person's authority. It is verified against the caller's own account.
+input GrantRoleInput {
+  userId: ID!
+  role: ManageableRole!
+  reason: String!
+  currentPassword: String!
+}
+
+# Revocation names the exact grant it closes, so acting on a row that has
+# already changed fails loudly instead of resolving to a different grant.
+input RevokeRoleInput {
+  grantId: ID!
+  reason: String!
+  currentPassword: String!
+}
+
+type AccessMutation {
+  grantRole(input: GrantRoleInput!): ManagedUserResult!
+  revokeRole(input: RevokeRoleInput!): ManagedUserResult!
+}

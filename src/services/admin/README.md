@@ -59,6 +59,14 @@ drafts are excluded. Supported orderings are oldest waiting, newest submission,
 and last activity. The cursor column changes with the selected ordering, so a
 client must not reuse a cursor with different filters/order.
 
+Beyond ad-hoc filters, the queue accepts a named `queue` key and
+`admin.intake.queues` returns the count waiting in each one, as a single grouped
+aggregate rather than one query per queue. Most keys map to a status, but new
+submissions and revision responses are both `SUBMITTED` and are separated by
+submission number, which is why the keys are their own vocabulary rather than a
+reuse of `ApplicationStatus`. `queue` and `status` are mutually exclusive:
+supplying both is refused rather than intersected into a silently empty page.
+
 ## Frozen documents and scans
 
 Each submission pins logical document ID plus immutable file version. Staff
@@ -96,8 +104,10 @@ belongs in the enforced Istanbul coverage set.
 ## Public-launch limitations
 
 The first administrator signs in with the shared email/password login, which
-accepts any active role. Invitations, account recovery, and role management are
-not yet available. A production malware scanner, rate limits, approved privacy/access
-rules, and resolved TTAADC ceiling/jurisdiction decisions are also missing.
+accepts any active role. Further administrators are provisioned through the
+`access` namespace in the authentication service. Invitations and account
+recovery are not yet available. A production malware scanner, rate limits,
+approved privacy/access rules, and resolved TTAADC ceiling/jurisdiction
+decisions are also missing.
 Administrative operations must not be publicly launched until those roadmap
 blockers are complete.

@@ -66,7 +66,14 @@ type SebEnterpriseQuery {
 }
 
 type SebApplicationQuery {
+  # Cycles a new application may be started in right now. A "start application"
+  # action may only ever be offered from this list.
   availableProgrammeCycles: ProgrammeCyclesResult!
+  # Cycles this applicant already has work in, whatever their state, so closed
+  # and archived cycles render as read-only history.
+  myProgrammeCycles: ProgrammeCyclesResult!
+  # Plain-language explanation and next action for every application status.
+  statusGuide: ApplicationStatusGuideResult!
   mine(
     first: Int
     after: String
@@ -81,6 +88,10 @@ type SebApplicationQuery {
     programmeCycleId: ID!
   ): ExpansionEligibilityResult!
   timeline(applicationId: ID!, first: Int, after: String): TimelineConnectionResult!
+  funding(applicationId: ID!): ApplicantFundingResult!
+  # What this draft changes relative to the last submission, for a final review
+  # before resubmitting.
+  draftChanges(applicationId: ID!): ApplicationChangedSectionsResult!
   documentDownloadUrl(documentId: ID!): DocumentDownloadResult!
 }
 
@@ -118,11 +129,36 @@ type EnterpriseConnection {
 type ProgrammeCycle {
   id: ID!
   cycleCode: String!
+  displayName: String!
   cycleYear: Int!
   policyReference: String
+  applicantGuidance: String
+  # The cycle's own lifecycle state, which is not the same as whether an
+  # application may start in it. The application window is opensAt/closesAt.
+  status: ProgrammeCycleStatus!
   currentVersion: Int!
   opensAt: DateTime
   closesAt: DateTime
+}
+
+# Who the applicant is waiting on. NOBODY means the application has finished.
+enum NextActor { APPLICANT PROGRAMME_OFFICE NOBODY }
+
+# Deliberately carries no dates: a status says who holds the work, never when
+# they will finish it.
+type ApplicationStatusGuideEntry {
+  status: ApplicationStatus!
+  label: String!
+  explanation: String!
+  nextActor: NextActor!
+  # What the applicant can do now; null when nothing is theirs to do.
+  nextAction: String
+}
+type ApplicationStatusGuide { statuses: [ApplicationStatusGuideEntry!]! }
+
+type ApplicationChangedSections {
+  sections: [ApplicationSection!]!
+  comparedToSubmissionNumber: Int!
 }
 
 type ProgrammeCyclesResponse { cycles: [ProgrammeCycle!]! }
@@ -261,6 +297,10 @@ type Application {
   snapshot: ApplicationSnapshot!
   documents: [ApplicationDocument!]!
   revisionRequests: [RevisionRequest!]!
+  # Sections the applicant may change right now. Every section while the
+  # application is a draft, only the sections named by unresolved revision
+  # requests while revision is required, and none otherwise.
+  editableSections: [ApplicationSection!]!
 }
 
 type ValidationIssue {
@@ -271,12 +311,23 @@ type ValidationIssue {
 }
 type ValidationReport { valid: Boolean!, issues: [ValidationIssue!]! }
 
+# One unmet expansion rule, stated separately so an applicant blocked by three
+# things sees three things.
+type ExpansionReason {
+  code: String!
+  message: String!
+  # The release obligation this reason is about, for utilization results.
+  # Null for reasons that apply to the award as a whole.
+  obligationId: ID
+}
+
 type ExpansionEligibility {
   eligible: Boolean!
   nextPhaseNumber: Int
   qualifyingAwardId: ID
+  # The first calendar instant the twelve-month operating rule is satisfied.
   eligibleAt: DateTime
-  reasons: [String!]!
+  reasons: [ExpansionReason!]!
 }
 
 type TimelineEvent {
@@ -290,7 +341,81 @@ type TimelineEvent {
 }
 type TimelineConnection { nodes: [TimelineEvent!]!, pageInfo: PageInfo! }
 
+# The applicant's view of what an award has actually paid out. Amounts are
+# derived from the append-only ledger, so they cannot drift from the releases
+# and reversals behind them.
+type ApplicantAward {
+  sanctionOrderNumber: String!
+  sanctionDate: Date!
+  sanctionedAmountPaise: Money!
+  applicantConditions: String
+  status: AwardStatus!
+  closureDisposition: AwardClosureDisposition
+  grossReleasedPaise: Money!
+  reversedPaise: Money!
+  netReleasedPaise: Money!
+  remainingPlannedPaise: Money!
+}
+
+# One payment. A correction is folded in as `reversedAmountPaise` rather than
+# listed as its own entry, and internal banking prerequisites are never shown.
+type ApplicantRelease {
+  sequenceNumber: Int!
+  occurredAt: DateTime!
+  amountPaise: Money!
+  paymentReference: String
+  reversedAmountPaise: Money!
+}
+
+# Reviewer-only evidence references and internal notes are deliberately absent.
+type ApplicantAssessment {
+  assessmentType: AssessmentType!
+  assessmentNumber: Int!
+  outcome: AssessmentOutcome!
+  assessedAt: DateTime!
+  summary: String!
+  # True when this is the current result rather than a superseded one. Utilization
+  # is assessed per release, so several can be current at once.
+  latest: Boolean!
+}
+
+type ApplicantFunding {
+  award: ApplicantAward!
+  releases: [ApplicantRelease!]!
+  assessments: [ApplicantAssessment!]!
+}
+
 type DocumentDownloadResponse { downloadUrl: String!, expiresAt: DateTime! }
+
+# One application that has to be dealt with before its enterprise can be deleted.
+type EnterpriseDeletionBlocker {
+  applicationId: ID!
+  # Null while the application has never been submitted.
+  referenceNumber: String
+  status: ApplicationStatus!
+  hasAward: Boolean!
+}
+
+# Deletion carries an extra field so a refusal can name what blocked it. Always
+# present and empty on every other outcome.
+type EnterpriseDeletionResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: Enterprise
+  blockers: [EnterpriseDeletionBlocker!]!
+}
+
+type ApplicationStatusGuideResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: ApplicationStatusGuide
+}
+
+type ApplicationChangedSectionsResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: ApplicationChangedSections
+}
 
 type EnterpriseResult implements BaseResponse {
   success: Boolean!
@@ -316,6 +441,11 @@ type ApplicationConnectionResult implements BaseResponse {
   success: Boolean!
   message: String
   response: ApplicationConnection
+}
+type ApplicantFundingResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: ApplicantFunding
 }
 type ApplicationValidationResult implements BaseResponse {
   success: Boolean!

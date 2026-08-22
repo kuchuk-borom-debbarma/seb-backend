@@ -16,6 +16,7 @@ type AdminProgrammeCycleQuery {
 
 type AdminIntakeQuery {
   queue(input: AdminIntakeQueueInput): AdminApplicationConnectionResult!
+  queues(cycleId: ID): AdminQueueSummaryResult!
   byReference(referenceNumber: String!): AdminApplicationResult!
   workspace(applicationId: ID!): AdminWorkspaceResult!
   documentDownloadUrl(applicationId: ID!, submissionDocumentId: ID!): DocumentDownloadResult!
@@ -45,11 +46,28 @@ input AdminIntakeQueueInput {
   submittedFrom: DateTime
   submittedTo: DateTime
   order: AdminIntakeOrder
+  # Mutually exclusive with `status`: two queues are subsets of one status, so
+  # supplying both is refused rather than silently intersected.
+  queue: AdminIntakeQueueKey
 }
 
 enum AdminIntakeOrder { OLDEST_WAITING NEWEST_SUBMISSION LAST_ACTIVITY }
 
-enum ProgrammeCycleStatus { DRAFT OPEN CLOSED ARCHIVED }
+# The named work queues staff operate from. NEW_SUBMISSIONS and
+# REVISION_RESPONSES are both SUBMITTED applications, separated by whether this
+# is a first submission or an answer to a revision request.
+enum AdminIntakeQueueKey {
+  NEW_SUBMISSIONS
+  DESK_REVIEW
+  REVISION_RESPONSES
+  PARTNER_BANK_EVALUATION
+  TTM_REVIEW
+  APPROVED
+  REJECTED
+  SANCTIONED
+  DISBURSED
+}
+
 enum FundingCeilingState { UNRESOLVED RESOLVED }
 enum FundingCeilingScope { APPLICATION PHASE ENTERPRISE FUNDING_CASE }
 enum ProgrammeJurisdiction { TRIPURA TTAADC }
@@ -60,11 +78,8 @@ enum ProgrammeReasonContext {
   AWARD_AMENDMENT AWARD_SUSPENSION AWARD_CANCELLATION AWARD_CLOSURE
   RELEASE_REVERSAL RECOVERY RECOVERY_WAIVER
 }
-enum AssessmentType { UTILIZATION PERFORMANCE FINANCIAL_AUDIT }
-enum AssessmentOutcome { PASSED FAILED }
 enum BankOutcome { RECOMMENDED NOT_RECOMMENDED MORE_INFORMATION_REQUIRED }
 enum TtmDecisionOutcome { APPROVED REJECTED DEFERRED REVISION_REQUIRED }
-enum AwardStatus { ACTIVE SUSPENDED CANCELLED CLOSED }
 enum RecoveryEntryType { DEMAND RECEIPT WAIVER REVERSAL }
 enum RecoveryComponent { PRINCIPAL PENAL_INTEREST }
 
@@ -134,6 +149,9 @@ type AdminApplicationState {
   updatedAt: DateTime!
 }
 type AdminApplicationConnection { nodes: [AdminApplicationQueueItem!]!, pageInfo: PageInfo! }
+# Every queue is reported, including empty ones, so the chips stay stable.
+type AdminQueueCount { queue: AdminIntakeQueueKey!, count: Int! }
+type AdminQueueSummary { queues: [AdminQueueCount!]! }
 
 # Workspaces deliberately expose fixed, non-sensitive operational summaries.
 # Internal notes are returned only through the administrator namespace.
@@ -198,6 +216,7 @@ type AdminCycleCountsResult implements BaseResponse { success: Boolean!, message
 type AdminCycleEventsResult implements BaseResponse { success: Boolean!, message: String, response: AdminCycleEventList }
 type AdminApplicationResult implements BaseResponse { success: Boolean!, message: String, response: AdminApplicationState }
 type AdminApplicationConnectionResult implements BaseResponse { success: Boolean!, message: String, response: AdminApplicationConnection }
+type AdminQueueSummaryResult implements BaseResponse { success: Boolean!, message: String, response: AdminQueueSummary }
 type AdminWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminWorkspace }
 type AdminMeetingsResponse { meetings: [AdminTtmMeeting!]! }
 type AdminMeetingsResult implements BaseResponse { success: Boolean!, message: String, response: AdminMeetingsResponse }

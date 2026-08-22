@@ -2,6 +2,10 @@ import type { AppBindings } from '../../bindings'
 import type { Database } from '../../db'
 import type {
   applicationCategories,
+  awardAssessmentOutcomes,
+  awardAssessmentTypes,
+  fundingAwardClosureDispositions,
+  fundingAwardStatuses,
   applicationSections,
   applicationStatuses,
   applicationTypes,
@@ -11,6 +15,7 @@ import type {
   documentTypes,
   enterpriseStatuses,
   genders,
+  programmeCycleStatuses,
   registrationTypes,
   relationshipTypes,
 } from '../../db/schema'
@@ -41,6 +46,12 @@ export type CreditStatus = (typeof creditStatuses)[number]
 export type RelationshipType = (typeof relationshipTypes)[number]
 export type DocumentType = (typeof documentTypes)[number]
 export type ApplicationSection = (typeof applicationSections)[number]
+export type ProgrammeCycleStatus = (typeof programmeCycleStatuses)[number]
+export type FundingAwardStatus = (typeof fundingAwardStatuses)[number]
+export type FundingAwardClosureDisposition =
+  (typeof fundingAwardClosureDispositions)[number]
+export type AwardAssessmentType = (typeof awardAssessmentTypes)[number]
+export type AwardAssessmentOutcome = (typeof awardAssessmentOutcomes)[number]
 
 export type EnterpriseProfileInput = {
   name: string
@@ -201,11 +212,22 @@ export type Application = {
   snapshot: ApplicationSnapshot
   documents: ApplicationDocument[]
   revisionRequests: RevisionRequest[]
+  /**
+   * Sections the applicant may change right now.
+   *
+   * Every section while the application is a draft, only the sections named by
+   * unresolved revision requests while revision is required, and none
+   * otherwise. Anything outside this list is locked.
+   */
+  editableSections: ApplicationSection[]
 }
 
+// The list view is deliberately lighter than the detail view: editable
+// sections need the application's revision requests, which a paginated list
+// must not read per row.
 export type ApplicationSummary = Omit<
   Application,
-  'snapshot' | 'documents' | 'revisionRequests'
+  'snapshot' | 'documents' | 'revisionRequests' | 'editableSections'
 > & {
   businessName: string | null
   cycleCode: string
@@ -215,11 +237,56 @@ export type ApplicationSummary = Omit<
 export type ProgrammeCycle = {
   id: string
   cycleCode: string
+  displayName: string
   cycleYear: number
   policyReference: string | null
+  applicantGuidance: string | null
+  /**
+   * The cycle's own lifecycle state, which is not the same as whether an
+   * application may start in it: a cycle can be OPEN but outside its
+   * application window. The window is `opensAt`/`closesAt`.
+   */
+  status: ProgrammeCycleStatus
   currentVersion: number
   opensAt: Date | null
   closesAt: Date | null
+}
+
+/** One application that has to be dealt with before its enterprise can go. */
+export type EnterpriseDeletionBlocker = {
+  applicationId: string
+  /** Null while the application has never been submitted. */
+  referenceNumber: string | null
+  status: ApplicationStatus
+  hasAward: boolean
+}
+
+/**
+ * Deletion carries an extra field so a refusal can name what blocked it.
+ *
+ * Always present and empty on every other outcome, so a client never has to
+ * distinguish "not blocked" from "field absent".
+ */
+export type EnterpriseDeletionResult = SebResult<Enterprise> & {
+  blockers: EnterpriseDeletionBlocker[]
+}
+
+/** Who the applicant is waiting on. NOBODY means the application has finished. */
+export type NextActor = 'APPLICANT' | 'PROGRAMME_OFFICE' | 'NOBODY'
+
+/**
+ * One status explained in plain language.
+ *
+ * Deliberately carries no dates: a status says who holds the work, never when
+ * they will finish it.
+ */
+export type ApplicationStatusGuideEntry = {
+  status: ApplicationStatus
+  label: string
+  explanation: string
+  nextActor: NextActor
+  /** What the applicant can do now; null when nothing is theirs to do. */
+  nextAction: string | null
 }
 
 export type ValidationIssue = {
@@ -234,12 +301,39 @@ export type ValidationReport = {
   issues: ValidationIssue[]
 }
 
+/**
+ * One unmet expansion rule, stated separately so the applicant can see exactly
+ * what remains outstanding rather than a single combined refusal.
+ */
+export type ExpansionReason = {
+  code: ExpansionReasonCode
+  message: string
+  /**
+   * The release obligation this reason is about, for utilization results.
+   * Null for reasons that apply to the award as a whole.
+   */
+  obligationId: string | null
+}
+
+const expansionReasonCodes = [
+  'NO_QUALIFYING_AWARD',
+  'QUALIFYING_AWARD_NOT_ACTIVE',
+  'NO_POSITIVE_RELEASE',
+  'TWELVE_MONTH_WAIT_NOT_COMPLETE',
+  'UTILIZATION_NOT_PASSED',
+  'PERFORMANCE_NOT_PASSED',
+  'FINANCIAL_AUDIT_NOT_PASSED',
+  'COMPETING_PHASE_APPLICATION',
+] as const
+export type ExpansionReasonCode = (typeof expansionReasonCodes)[number]
+
 export type ExpansionEligibility = {
   eligible: boolean
   nextPhaseNumber: number | null
   qualifyingAwardId: string | null
+  /** The first calendar instant the twelve-month rule is satisfied. */
   eligibleAt: Date | null
-  reasons: string[]
+  reasons: ExpansionReason[]
 }
 
 export type TimelineEvent = {
@@ -272,4 +366,54 @@ export type UploadAuthorization = {
 export type DownloadAuthorization = {
   downloadUrl: string
   expiresAt: Date
+}
+
+/**
+ * Applicant-visible view of an award and what it has actually paid out.
+ *
+ * Amounts are derived from the append-only ledger rather than stored, so they
+ * cannot drift from the releases and reversals behind them.
+ */
+export type ApplicantAward = {
+  sanctionOrderNumber: string
+  sanctionDate: string
+  sanctionedAmountPaise: number
+  applicantConditions: string | null
+  status: FundingAwardStatus
+  closureDisposition: FundingAwardClosureDisposition | null
+  grossReleasedPaise: number
+  reversedPaise: number
+  netReleasedPaise: number
+  remainingPlannedPaise: number
+}
+
+/** One payment, with any correction folded into it rather than listed apart. */
+export type ApplicantRelease = {
+  sequenceNumber: number
+  occurredAt: Date
+  amountPaise: number
+  paymentReference: string | null
+  reversedAmountPaise: number
+}
+
+/** One post-award assessment result, without reviewer-only evidence or notes. */
+export type ApplicantAssessment = {
+  assessmentType: AwardAssessmentType
+  assessmentNumber: number
+  outcome: AwardAssessmentOutcome
+  assessedAt: Date
+  summary: string
+  /**
+   * True when this is the current result rather than a superseded one.
+   *
+   * Utilization is assessed per release, so more than one utilization
+   * assessment can be current at the same time.
+   */
+  latest: boolean
+}
+
+export type ApplicantFunding = {
+  award: ApplicantAward
+  releases: ApplicantRelease[]
+  assessments: ApplicantAssessment[]
 }

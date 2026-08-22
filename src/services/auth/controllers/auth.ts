@@ -46,6 +46,13 @@ import {
   type UserRecord,
   type UserRoleGrantRecord,
 } from '../queries/auth'
+import {
+  auditEvent,
+  AUTH_REQUIRED_MESSAGE,
+  failure,
+  normalizeEmail,
+  success,
+} from '../support'
 import type {
   AuthenticatedAdministratorRequest,
   AuthenticatedApplicantRequest,
@@ -67,7 +74,6 @@ const APPLICANT_ROLE = 'APPLICANT' as const
 const START_SIGNUP_MESSAGE =
   'If this email can be registered, a verification code has been sent.'
 const INVALID_CHALLENGE_MESSAGE = 'The verification code is invalid or has expired.'
-const AUTH_REQUIRED_MESSAGE = 'Authentication is required.'
 const FIRST_SUPER_ADMIN_BOOTSTRAP_FAILURE =
   'First administrator bootstrap is unavailable or the supplied credentials are invalid.'
 const FIRST_SUPER_ADMIN_ROLE = 'SUPER_ADMIN' as const
@@ -79,18 +85,6 @@ const emailSchema = z.email()
 const challengeSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u)
 const otpSchema = z.string().regex(/^\d{6}$/u)
 const passwordSchema = z.string().min(8).max(128)
-
-const success = <T>(response: T, message: string | null = null): AuthResult<T> => ({
-  success: true,
-  message,
-  response,
-})
-
-const failure = <T>(message: string): AuthResult<T> => ({
-  success: false,
-  message,
-  response: null,
-})
 
 const requireSecret = (context: AuthOperationContext): string => {
   const secret = context.env.AUTH_SECRET
@@ -111,8 +105,6 @@ const attemptsFromEnvironment = (context: AuthOperationContext): number => {
   }
   return parsed
 }
-
-const normalizeEmail = (email: string): string => email.trim().toLowerCase()
 
 /**
  * Bootstrap configuration is optional because it should be removed immediately
@@ -221,46 +213,17 @@ export const authenticatedAdministrator = async (
 }
 
 /**
- * Builds one allow-listed audit record. Callers provide only public IDs and
- * small, explicitly safe metadata objects. Credential-bearing maintenance
- * operations may opt out of caller-controlled request labels entirely.
+ * The narrowest guard in the service: role management only.
+ *
+ * `SUPER_ADMIN` implies `ADMIN` everywhere else, so this deliberately does not
+ * accept `ADMIN`. Granting and revoking authority is the one capability a plain
+ * administrator must not inherit.
  */
-const auditEvent = (
+export const authenticatedSuperAdministrator = async (
   context: AuthOperationContext,
-  input: {
-    action: (typeof auditActions)[keyof typeof auditActions]
-    entityType:
-      | 'CORE_USER'
-      | 'CORE_USER_ROLE_GRANT'
-      | 'CORE_SESSION'
-      | 'CORE_SIGNUP_CHALLENGE'
-    entityId?: string | null
-    actorUserId?: string | null
-    outcome?: 'SUCCESS' | 'FAILURE'
-    metadata?: Record<string, string | number | boolean | null>
-    createdAt?: Date
-    includeRequestMetadata?: boolean
-  },
-): AuditEventRecord => {
-  const includeRequestMetadata = input.includeRequestMetadata ?? true
-  return {
-    id: crypto.randomUUID(),
-    actorUserId: input.actorUserId ?? null,
-    action: input.action,
-    entityType: input.entityType,
-    entityId: input.entityId ?? null,
-    outcome: input.outcome ?? 'SUCCESS',
-    requestId: includeRequestMetadata
-      ? context.requestHeaders.get('CF-Ray') ?? context.requestHeaders.get('X-Request-ID')
-      : null,
-    ipAddress: includeRequestMetadata
-      ? context.requestHeaders.get('CF-Connecting-IP')
-      : null,
-    userAgent: includeRequestMetadata ? context.requestHeaders.get('User-Agent') : null,
-    changesJson: null,
-    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
-    createdAt: input.createdAt ?? new Date(),
-  }
+): Promise<AuthenticatedUserRequest | null> => {
+  const current = await getCurrentSession(context)
+  return current?.roles.includes('SUPER_ADMIN') ? current : null
 }
 
 /** Creates one independent challenge without revealing existing accounts. */

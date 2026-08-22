@@ -84,3 +84,25 @@ export const normalizeOptionalText = (
 export const changedExactlyOne = (
   result: unknown[] | { meta: { changes?: number } },
 ): boolean => Array.isArray(result) ? result.length === 1 : (result.meta.changes ?? 0) === 1
+
+/**
+ * The preamble every reasoned, version-guarded administrative transition shares.
+ *
+ * Each of these transitions is authorized the same way, requires the same
+ * bounded mandatory reason, and takes the same optimistic-concurrency version.
+ * Only the message describing a malformed request differs, so that is the one
+ * thing a caller supplies.
+ */
+export const authorizeReasonedTransition = async (
+  context: AdminOperationContext,
+  input: { reason: string; expectedVersion: number },
+  invalidRequestMessage: string,
+): Promise<{ actorId: string; reason: string } | { refusal: AdminResult<never> }> => {
+  const administrator = await currentAdministrator(context)
+  if (!administrator) return { refusal: failure(ADMIN_REQUIRED_MESSAGE) }
+  const reason = normalizeRequiredText(input.reason, 1_000)
+  if (!reason || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
+    return { refusal: failure(invalidRequestMessage) }
+  }
+  return { actorId: administrator.id, reason }
+}

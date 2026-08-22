@@ -8,6 +8,7 @@ import {
   changeAssignment,
   completeDeskReviewWrite,
   insertInternalNote,
+  intakeQueueSummary,
   latestSubmission,
   listIntakeQueue,
   loadApplicationHead,
@@ -18,6 +19,7 @@ import {
 import {
   ADMIN_REQUIRED_MESSAGE,
   constraintSafe,
+  authorizeReasonedTransition,
   currentAdministrator,
   failure,
   normalizeRequiredText,
@@ -26,6 +28,7 @@ import {
 } from '../support'
 import type {
   AdminOperationContext,
+  IntakeQueueKey,
   AdminResult,
   DeskReviewCheckInput,
   DeskReviewOutcome,
@@ -47,10 +50,17 @@ export const intakeQueue = async (
     submittedFrom?: Date | null
     submittedTo?: Date | null
     order?: 'OLDEST_WAITING' | 'NEWEST_SUBMISSION' | 'LAST_ACTIVITY' | null
+    queue?: IntakeQueueKey | null
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
   if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  // Two named queues are subsets of one status, so combining the filters could
+  // silently return an empty page instead of the queue that was asked for.
+  // Refusing says which one to drop rather than leaving the caller guessing.
+  if (input.queue && input.status) {
+    return failure('Filter by queue or by status, not both.')
+  }
   const first = adminPageSize(input.first)
   const after = decodeAdminCursor(input.after)
   if (!first || after === 'INVALID') return failure('Invalid pagination arguments.')
@@ -61,6 +71,15 @@ export const intakeQueue = async (
     return failure('The submission date range is invalid.')
   }
   return success(await listIntakeQueue(context.db, { ...input, first, after }))
+}
+
+/** Counts for the queue chips; the same rules the queue list itself applies. */
+export const intakeQueues = async (
+  cycleId: string | null | undefined,
+  context: AdminOperationContext,
+): Promise<AdminResult<unknown>> => {
+  if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  return success({ queues: await intakeQueueSummary(context.db, cycleId) })
 }
 
 export const intakeByReference = async (
@@ -102,6 +121,29 @@ const reasonForApplication = async (
   })
 }
 
+/**
+ * Authorizes an administrator and loads the application they named.
+ *
+ * Callers keep their own extra condition — assignment, lifecycle state — since
+ * those genuinely differ, and supply the refusal for a missing application so
+ * it stays indistinguishable from failing their own condition. A reviewer must
+ * not be able to tell an unsubmitted draft from an ID that was never real.
+ */
+const administratorWithApplication = async (
+  context: AdminOperationContext,
+  applicationId: string,
+  notFoundMessage: string,
+): Promise<
+  | { administrator: { id: string }; head: NonNullable<Awaited<ReturnType<typeof loadApplicationHead>>> }
+  | { refusal: AdminResult<never> }
+> => {
+  const administrator = await currentAdministrator(context)
+  if (!administrator) return { refusal: failure(ADMIN_REQUIRED_MESSAGE) }
+  const head = await loadApplicationHead(context.db, applicationId)
+  if (!head) return { refusal: failure(notFoundMessage) }
+  return { administrator, head }
+}
+
 export const claimApplication = async (
   input: {
     applicationId: string
@@ -110,10 +152,13 @@ export const claimApplication = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
-  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
-  const head = await loadApplicationHead(context.db, input.applicationId)
-  if (!head || head.application.status === 'DRAFT') return failure('The application was not found.')
+  const authorized = await administratorWithApplication(
+    context, input.applicationId, 'The application was not found.',
+  )
+  if ('refusal' in authorized) return authorized.refusal
+  const { administrator, head } = authorized
+  // A draft has never been submitted, so it must stay invisible to reviewers.
+  if (head.application.status === 'DRAFT') return failure('The application was not found.')
   if (head.application.applicantUserId === administrator.id && !input.conflictAcknowledged) {
     return failure('Acknowledge that you are acting on your own application.')
   }
@@ -388,16 +433,16 @@ export const cancelRevisionRequest = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
-  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
-  const reason = normalizeRequiredText(input.reason, 1_000)
-  if (!reason || !Number.isInteger(input.expectedStatusVersion) || input.expectedStatusVersion < 1) {
-    return failure('Enter a valid cancellation reason and expected version.')
-  }
+  const authorized = await authorizeReasonedTransition(
+    context,
+    { reason: input.reason, expectedVersion: input.expectedStatusVersion },
+    'Enter a valid cancellation reason and expected version.',
+  )
+  if ('refusal' in authorized) return authorized.refusal
   const changed = await constraintSafe(() => cancelRevisionRequestWrite(context, {
     ...input,
-    reason,
-    actorUserId: administrator.id,
+    reason: authorized.reason,
+    actorUserId: authorized.actorId,
     now: new Date(),
   }))
   return changed ? success(await loadWorkspace(context.db, input.applicationId)) : failure(STALE_MESSAGE)
@@ -407,10 +452,14 @@ export const adminDocumentDownloadUrl = async (
   input: { applicationId: string; submissionDocumentId: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
-  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
-  const head = await loadApplicationHead(context.db, input.applicationId)
-  if (!head || head.application.assignedToUserId !== administrator.id) {
+  // A missing application and one the caller has not claimed are refused
+  // identically, so probing IDs cannot reveal which drafts or applications
+  // exist. An unclaimed draft has no assignee and lands here too.
+  const authorized = await administratorWithApplication(
+    context, input.applicationId, 'Claim the application before opening its documents.',
+  )
+  if ('refusal' in authorized) return authorized.refusal
+  if (authorized.head.application.assignedToUserId !== authorized.administrator.id) {
     return failure('Claim the application before opening its documents.')
   }
   const document = await acceptedPinnedDocument(context.db, input)

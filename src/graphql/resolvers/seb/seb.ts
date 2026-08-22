@@ -1,6 +1,9 @@
 /** Thin GraphQL adapters for the applicant-facing Mission SEP domain. */
 import {
   applicationById,
+  applicationDraftChanges,
+  applicationFunding,
+  applicationStatusExplanations,
   applicationTimeline,
   availableProgrammeCycles,
   createEnterprise,
@@ -10,6 +13,7 @@ import {
   finalizeDocumentUpload,
   issueDocumentUpload,
   myApplications,
+  myProgrammeCycles,
   myEnterprises,
   restoreApplicationDocument,
   restoreApplicationDraft,
@@ -74,6 +78,10 @@ export const sebResolvers = {
     ) => restoreEnterprise(args, context),
   },
   SebApplicationQuery: {
+    myProgrammeCycles: (_parent: unknown, _args: unknown, context: GraphQLContext) =>
+      myProgrammeCycles(context),
+    statusGuide: (_parent: unknown, _args: unknown, context: GraphQLContext) =>
+      applicationStatusExplanations(context),
     availableProgrammeCycles: (
       _parent: unknown,
       _args: unknown,
@@ -102,6 +110,16 @@ export const sebResolvers = {
       args: { enterpriseId: string; programmeCycleId: string },
       context: GraphQLContext,
     ) => expansionEligibility(args, context),
+    funding: (
+      _parent: unknown,
+      args: { applicationId: string },
+      context: GraphQLContext,
+    ) => applicationFunding(args.applicationId, context),
+    draftChanges: (
+      _parent: unknown,
+      args: { applicationId: string },
+      context: GraphQLContext,
+    ) => applicationDraftChanges(args.applicationId, context),
     timeline: (
       _parent: unknown,
       args: { applicationId: string; first?: number | null; after?: string | null },

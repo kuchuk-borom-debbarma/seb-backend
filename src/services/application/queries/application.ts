@@ -18,6 +18,7 @@ import {
 } from 'drizzle-orm'
 import type { Database } from '../../../db'
 import {
+  applicationSections,
   coreAuditEvent,
   sebAwardAssessment,
   sebApplication,
@@ -42,6 +43,8 @@ import {
   sebUtilizationObligation,
   sebRevisionRequest,
 } from '../../../db/schema'
+import { foldDisbursementLedger } from '../ledger'
+import { changedSections } from '../sections'
 import { encodeCursor } from '../pagination'
 import {
   d1ChangedExactlyOne,
@@ -63,7 +66,10 @@ import type {
   DocumentType,
   ExpansionClaim,
   ExpansionEligibility,
+  ExpansionReason,
+  ExpansionReasonCode,
   ProgrammeCycle,
+  RevisionRequest,
   TimelineEvent,
 } from '../types'
 import {
@@ -328,9 +334,72 @@ export const loadOwnedApplication = async (
   ])
   return {
     ...applicationBase(head),
+    // Derived from the revision requests already read above rather than a
+    // fourth query, and from the same rule `saveApplicationDraft` enforces, so
+    // the field can never invite an edit the write path would refuse.
+    editableSections: editableSectionsFor(head.status, revisionRequests),
     snapshot: snapshotFromRecord(requireInvariant(version, 'Application current version is missing.')),
     documents,
     revisionRequests,
+  }
+}
+
+/**
+ * Which form sections the applicant may currently change.
+ *
+ * A draft is entirely open. While revision is required only the sections named
+ * by unresolved requests may change, and every other status is read-only.
+ */
+const editableSectionsFor = (
+  status: ApplicationHeadRecord['status'],
+  revisionRequests: ReadonlyArray<RevisionRequest>,
+): ApplicationSection[] => {
+  if (status === 'DRAFT') return [...applicationSections]
+  if (status !== 'REVISION_REQUIRED') return []
+  const open = new Set(
+    revisionRequests
+      .filter((request) => request.resolvedAt === null && request.cancelledAt === null)
+      .map((request) => request.section),
+  )
+  return applicationSections.filter((section) => open.has(section))
+}
+
+/**
+ * Names the sections the current draft changes relative to the last submission.
+ *
+ * Returns null when nothing has been submitted yet, because there is nothing to
+ * compare against — a first submission changes everything by definition. Uses
+ * the section map shared with the administrative workspace, so an applicant
+ * reviewing their resubmission sees exactly the sections a reviewer will.
+ */
+export const findDraftChanges = async (
+  db: Database,
+  head: ApplicationHeadRecord,
+): Promise<{ sections: ApplicationSection[]; comparedToSubmissionNumber: number } | null> => {
+  const [latest] = await db
+    .select({
+      submissionNumber: sebApplicationSubmission.submissionNumber,
+      applicationVersion: sebApplicationSubmission.applicationVersion,
+    })
+    .from(sebApplicationSubmission)
+    .where(eq(sebApplicationSubmission.applicationId, head.id))
+    .orderBy(desc(sebApplicationSubmission.submissionNumber))
+    .limit(1)
+  if (!latest) return null
+  const versions = await db
+    .select()
+    .from(sebApplicationVersion)
+    .where(
+      and(
+        eq(sebApplicationVersion.applicationId, head.id),
+        inArray(sebApplicationVersion.version, [latest.applicationVersion, head.currentVersion]),
+      ),
+    )
+  const submitted = versions.find((version) => version.version === latest.applicationVersion)!
+  const current = versions.find((version) => version.version === head.currentVersion)!
+  return {
+    sections: changedSections(submitted, current),
+    comparedToSubmissionNumber: latest.submissionNumber,
   }
 }
 
@@ -398,6 +467,23 @@ export const listOwnedApplications = async (
   }
 }
 
+/** Everything an applicant may see about a cycle. Policy rules stay internal. */
+const publicProgrammeCycle = (
+  row: typeof sebProgrammeCycle.$inferSelect,
+): ProgrammeCycle => ({
+  id: row.id,
+  cycleCode: row.cycleCode,
+  displayName: row.displayName,
+  cycleYear: row.cycleYear,
+  policyReference: row.policyReference,
+  applicantGuidance: row.applicantGuidance,
+  status: row.status,
+  currentVersion: row.currentVersion,
+  opensAt: row.opensAt,
+  closesAt: row.closesAt,
+})
+
+/** Cycles a new application may be started in right now. */
 export const listAvailableProgrammeCycles = async (
   db: Database,
   now: Date,
@@ -407,15 +493,40 @@ export const listAvailableProgrammeCycles = async (
     .from(sebProgrammeCycle)
     .where(programmeCycleOpenAt(now))
     .orderBy(asc(sebProgrammeCycle.opensAt), asc(sebProgrammeCycle.cycleCode))
-  return rows.map((row) => ({
-    id: row.id,
-    cycleCode: row.cycleCode,
-    cycleYear: row.cycleYear,
-    policyReference: row.policyReference,
-    currentVersion: row.currentVersion,
-    opensAt: row.opensAt,
-    closesAt: row.closesAt,
-  }))
+  return rows.map(publicProgrammeCycle)
+}
+
+/**
+ * Cycles this applicant already has work in, whatever their state.
+ *
+ * Kept separate from the available list rather than merged with a flag, because
+ * the two answer different questions: this one describes history that must
+ * render read-only, and the other is the only list a "start application" action
+ * may ever be offered from.
+ */
+export const listApplicantProgrammeCycles = async (
+  db: Database,
+  userId: string,
+): Promise<ProgrammeCycle[]> => {
+  const rows = await db
+    .selectDistinct({ cycle: sebProgrammeCycle })
+    .from(sebProgrammeCycle)
+    .innerJoin(
+      sebApplication,
+      eq(sebApplication.programmeCycleId, sebProgrammeCycle.id),
+    )
+    .where(
+      and(
+        eq(sebApplication.applicantUserId, userId),
+        // Scoped to the applications this person can actually still see, and to
+        // cycles an administrator has not removed. Without both terms a cycle
+        // would appear in their history with nothing in it to look at.
+        isNull(sebApplication.deletedAt),
+        isNull(sebProgrammeCycle.deletedAt),
+      ),
+    )
+    .orderBy(desc(sebProgrammeCycle.cycleYear), asc(sebProgrammeCycle.cycleCode))
+  return rows.map((row) => publicProgrammeCycle(row.cycle))
 }
 
 export const findOpenProgrammeCycle = async (
@@ -531,25 +642,12 @@ const eligibleAwardFromCandidate = async (
     .from(sebDisbursement)
     .where(eq(sebDisbursement.fundingAwardId, award.awardId))
     .orderBy(asc(sebDisbursement.occurredAt), asc(sebDisbursement.sequenceNumber))
-  const releases = entries.filter((entry) => entry.entryType === 'RELEASE')
-  const reversalByRelease = new Map<string, number>()
-  for (const entry of entries) {
-    if (entry.entryType === 'REVERSAL' && entry.relatedDisbursementId) {
-      reversalByRelease.set(
-        entry.relatedDisbursementId,
-        (reversalByRelease.get(entry.relatedDisbursementId) ?? 0) + entry.amountPaise,
-      )
-    }
-  }
-  const retainedAmount = (release: (typeof releases)[number]) =>
-    release.amountPaise - (reversalByRelease.get(release.id) ?? 0)
-  const firstRelease = releases.find((release) => retainedAmount(release) > 0)
+  // Entries arrive in occurrence order, so the first retained release below is
+  // the one the twelve-month expansion wait is measured from.
+  const { releases, netReleasedPaise } = foldDisbursementLedger(entries)
+  const firstRelease = releases.find((entry) => entry.retainedAmountPaise > 0)?.release
   if (!firstRelease) return null
-  const netDisbursedPaise = releases.reduce(
-    (total, release) => total + retainedAmount(release),
-    0,
-  )
-  if (netDisbursedPaise <= 0) return null
+  if (netReleasedPaise <= 0) return null
   return {
     awardId: award.awardId,
     priorApplicationId: award.applicationId,
@@ -557,14 +655,22 @@ const eligibleAwardFromCandidate = async (
     sanctionOrderNumber: award.sanctionOrderNumber,
     sanctionDate: award.sanctionDate,
     firstReleaseAt: firstRelease.occurredAt,
-    netDisbursedPaise,
+    netDisbursedPaise: netReleasedPaise,
   }
 }
 
+/**
+ * Finds the award an expansion could build on, or says which rule ruled it out.
+ *
+ * Award status is classified here rather than filtered in SQL. Filtering would
+ * collapse "you have never been sanctioned", "your award is suspended", and
+ * "nothing has actually been paid out" into one indistinguishable absence, and
+ * those are three different things for the applicant to act on.
+ */
 const eligibleAwardForCase = async (
   db: Database,
   fundingCaseId: string,
-): Promise<EligibleAward | null> => {
+): Promise<{ award: EligibleAward } | { blockedBy: ExpansionReasonCode }> => {
   const awards = await db
     .select({
       awardId: sebFundingAward.id,
@@ -572,22 +678,27 @@ const eligibleAwardForCase = async (
       phaseNumber: sebApplication.phaseNumber,
       sanctionOrderNumber: sebFundingAward.sanctionOrderNumber,
       sanctionDate: sebFundingAward.sanctionDate,
+      status: sebFundingAward.status,
     })
     .from(sebFundingAward)
     .innerJoin(sebApplication, eq(sebApplication.id, sebFundingAward.applicationId))
     .where(
       and(
         eq(sebFundingAward.fundingCaseId, fundingCaseId),
-        eq(sebFundingAward.status, 'ACTIVE'),
         isNull(sebFundingAward.deletedAt),
       ),
     )
     .orderBy(desc(sebApplication.phaseNumber))
-  for (const award of awards) {
+  if (awards.length === 0) return { blockedBy: 'NO_QUALIFYING_AWARD' }
+  const active = awards.filter((award) => award.status === 'ACTIVE')
+  if (active.length === 0) return { blockedBy: 'QUALIFYING_AWARD_NOT_ACTIVE' }
+  for (const award of active) {
     const eligible = await eligibleAwardFromCandidate(db, award)
-    if (eligible) return eligible
+    if (eligible) return { award: eligible }
   }
-  return null
+  // An active award exists but nothing survives its reversals, so there is no
+  // release to measure the twelve-month operating period from.
+  return { blockedBy: 'NO_POSITIVE_RELEASE' }
 }
 
 const hasCompetingPhase = async (
@@ -612,6 +723,41 @@ const hasCompetingPhase = async (
   return row !== undefined
 }
 
+/**
+ * Applicant-safe wording for each unmet expansion rule.
+ *
+ * Each rule reads as its own sentence, because an applicant blocked by three
+ * things needs to see three things. The messages name what is missing without
+ * quoting programme-office evidence references or internal notes.
+ */
+const expansionReasonMessages: Record<ExpansionReasonCode, string> = {
+  NO_QUALIFYING_AWARD:
+    'This enterprise has no sanctioned funding award to expand from.',
+  QUALIFYING_AWARD_NOT_ACTIVE:
+    'The funding award for this enterprise is not active, so it cannot support an expansion.',
+  NO_POSITIVE_RELEASE:
+    'No funds have been released and retained under the award yet.',
+  TWELVE_MONTH_WAIT_NOT_COMPLETE:
+    'Twelve months of operation since the first release have not been completed yet.',
+  UTILIZATION_NOT_PASSED:
+    'A utilization assessment for one of your releases has not passed yet.',
+  PERFORMANCE_NOT_PASSED:
+    'The performance assessment for your award has not passed yet.',
+  FINANCIAL_AUDIT_NOT_PASSED:
+    'The financial audit for your award has not passed yet.',
+  COMPETING_PHASE_APPLICATION:
+    'Another application for this phase is already in progress.',
+}
+
+const expansionReason = (
+  code: ExpansionReasonCode,
+  obligationId: string | null = null,
+): ExpansionReason => ({
+  code,
+  message: expansionReasonMessages[code],
+  obligationId,
+})
+
 export const evaluateExpansionEligibility = async (
   db: Database,
   fundingCaseId: string,
@@ -619,8 +765,8 @@ export const evaluateExpansionEligibility = async (
   excludeApplicationId?: string,
   targetCycleId?: string,
 ): Promise<{ result: ExpansionEligibility; award: EligibleAward | null }> => {
-  const award = await eligibleAwardForCase(db, fundingCaseId)
-  if (!award) {
+  const qualifying = await eligibleAwardForCase(db, fundingCaseId)
+  if ('blockedBy' in qualifying) {
     return {
       award: null,
       result: {
@@ -628,14 +774,17 @@ export const evaluateExpansionEligibility = async (
         nextPhaseNumber: null,
         qualifyingAwardId: null,
         eligibleAt: null,
-        reasons: ['NO_QUALIFYING_AWARD_OR_RELEASE'],
+        reasons: [expansionReason(qualifying.blockedBy)],
       },
     }
   }
+  const award = qualifying.award
   const nextPhaseNumber = award.priorPhaseNumber + 1
   const eligibleAt = addUtcCalendarMonths(award.firstReleaseAt, 12)
-  const reasons: string[] = []
-  if (now.getTime() < eligibleAt.getTime()) reasons.push('TWELVE_MONTH_WAIT_NOT_COMPLETE')
+  const reasons: ExpansionReason[] = []
+  if (now.getTime() < eligibleAt.getTime()) {
+    reasons.push(expansionReason('TWELVE_MONTH_WAIT_NOT_COMPLETE'))
+  }
 
   // The target cycle owns expansion policy. Each positively retained release
   // must have its own passing utilization result, while performance and
@@ -674,14 +823,17 @@ export const evaluateExpansionEligibility = async (
       .select()
       .from(sebDisbursement)
       .where(eq(sebDisbursement.fundingAwardId, award.awardId))
+    // Folded once for the whole award rather than per obligation, so the number
+    // of obligations never multiplies the accounting work.
+    const retainedByRelease = new Map(
+      foldDisbursementLedger(entries).releases.map(
+        (entry) => [entry.release.id, entry.retainedAmountPaise],
+      ),
+    )
     for (const obligation of obligations) {
       // The obligation has a restrictive composite foreign key to this exact
       // award/release pair, so a matching immutable release always exists.
-      const release = entries.find((entry) => entry.id === obligation.releaseId)!
-      const reversed = entries
-        .filter((entry) => entry.relatedDisbursementId === obligation.releaseId)
-        .reduce((sum, entry) => sum + entry.amountPaise, 0)
-      if (release.amountPaise - reversed <= 0) continue
+      if (retainedByRelease.get(obligation.releaseId)! <= 0) continue
       const [latest] = await db
         .select({ outcome: sebAwardAssessment.outcome })
         .from(sebAwardAssessment)
@@ -695,7 +847,7 @@ export const evaluateExpansionEligibility = async (
         .orderBy(desc(sebAwardAssessment.assessmentNumber))
         .limit(1)
       if (latest?.outcome !== 'PASSED') {
-        reasons.push(`UTILIZATION_NOT_PASSED:${obligation.id}`)
+        reasons.push(expansionReason('UTILIZATION_NOT_PASSED', obligation.id))
       }
     }
   }
@@ -713,10 +865,12 @@ export const evaluateExpansionEligibility = async (
       )
       .orderBy(desc(sebAwardAssessment.assessmentNumber))
       .limit(1)
-    if (latest?.outcome !== 'PASSED') reasons.push(`${assessmentType}_NOT_PASSED`)
+    if (latest?.outcome !== 'PASSED') {
+      reasons.push(expansionReason(`${assessmentType}_NOT_PASSED`))
+    }
   }
   if (await hasCompetingPhase(db, fundingCaseId, nextPhaseNumber, excludeApplicationId)) {
-    reasons.push('COMPETING_PHASE_APPLICATION')
+    reasons.push(expansionReason('COMPETING_PHASE_APPLICATION'))
   }
   return {
     award,

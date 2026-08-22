@@ -11,9 +11,19 @@ export default defineWorkersConfig({
       include: [
         'src/services/application/controllers/**/*.ts',
         'src/services/application/queries/**/*.ts',
+        'src/services/application/ledger.ts',
         'src/services/application/pagination.ts',
         'src/services/application/uploads.ts',
         'src/services/application/validation.ts',
+        // Authentication controllers stay outside the gate for the same reason
+        // `controllers/auth.ts` does: their lost-race refusals are only
+        // reachable from a genuinely concurrent writer, and password
+        // confirmation is synchronous CPU work that blocks the test isolate, so
+        // no disturbance can be timed into that window. The guarded SQL those
+        // branches depend on is gated below, which is where the invariants live.
+        'src/services/auth/queries/access.ts',
+        'src/services/auth/support.ts',
+        'src/graphql/resolvers/access/**/*.ts',
         'src/graphql/resolvers/seb/**/*.ts',
         'src/services/admin/controllers/**/*.ts',
         'src/services/admin/queries/**/*.ts',

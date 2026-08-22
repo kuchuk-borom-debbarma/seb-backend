@@ -19,6 +19,7 @@ import { approvedReason, latestSubmission } from '../queries/intake'
 import {
   ADMIN_REQUIRED_MESSAGE,
   constraintSafe,
+  authorizeReasonedTransition,
   currentAdministrator,
   failure,
   normalizeOptionalText,
@@ -374,14 +375,14 @@ export const closeRecoveryCase = async (
   input: { recoveryCaseId: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
-  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
-  const reason = normalizeRequiredText(input.reason, 1_000)
-  if (!reason || !expectedVersion(input.expectedVersion)) return failure('Enter a valid closure reason.')
+  const authorized = await authorizeReasonedTransition(
+    context, input, 'Enter a valid closure reason.',
+  )
+  if ('refusal' in authorized) return authorized.refusal
   const changed = await constraintSafe(() => closeRecoveryWrite(context, {
     ...input,
-    reason,
-    actorId: administrator.id,
+    reason: authorized.reason,
+    actorId: authorized.actorId,
     now: new Date(),
   }))
   return changed ? success(await recoveryWorkspace(context.db, input.recoveryCaseId)) : failure('Recovery can close only at a zero balance with a current version.')
@@ -391,16 +392,14 @@ export const cancelRecoveryCase = async (
   input: { recoveryCaseId: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
-  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
-  const reason = normalizeRequiredText(input.reason, 1_000)
-  if (!reason || !expectedVersion(input.expectedVersion)) {
-    return failure('Enter a valid recovery cancellation reason.')
-  }
+  const authorized = await authorizeReasonedTransition(
+    context, input, 'Enter a valid recovery cancellation reason.',
+  )
+  if ('refusal' in authorized) return authorized.refusal
   const changed = await constraintSafe(() => cancelRecoveryWrite(context, {
     ...input,
-    reason,
-    actorId: administrator.id,
+    reason: authorized.reason,
+    actorId: authorized.actorId,
     now: new Date(),
   }))
   return changed

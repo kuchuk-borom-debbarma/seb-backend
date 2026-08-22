@@ -27,11 +27,61 @@ import {
   STALE_MESSAGE,
   success,
 } from '../support'
-import type { AdminOperationContext, AdminResult, BankOutcome, TtmDecisionOutcome } from '../types'
+import type {
+  AdminOperationContext,
+  AdminResult,
+  BankOutcome,
+  RevisionRequestInput,
+  TtmDecisionOutcome,
+} from '../types'
 
 const validDate = (value: string) => parseDateOnly(value) !== null
 const validExpected = (value: number) => Number.isInteger(value) && value >= 1
 const validInstant = (value: Date) => value instanceof Date && !Number.isNaN(value.getTime())
+
+/**
+ * Validates the revision requests an outcome carries, for every outcome that
+ * can carry them.
+ *
+ * Recording and correcting a bank outcome, and recording and correcting a TTM
+ * decision, all apply the same three rules: a revision-bearing outcome needs at
+ * least one request, each request must name a distinct section, and each needs
+ * an approved reason plus a safe instruction. Only the wording differs, so only
+ * the wording is passed in — four copies of the rules is how one of them ends
+ * up missing the uniqueness check.
+ */
+const revisionRequestProblem = async (
+  context: AdminOperationContext,
+  input: {
+    carriesRevisions: boolean
+    revisions: RevisionRequestInput[]
+    cycleId: string
+    cycleVersion: number
+    sectionsMessage: string
+    instructionMessage: string
+    unexpectedMessage: string
+  },
+): Promise<string | null> => {
+  if (!input.carriesRevisions) {
+    return input.revisions.length > 0 ? input.unexpectedMessage : null
+  }
+  const sections = new Set(input.revisions.map((revision) => revision.section))
+  if (input.revisions.length === 0 || sections.size !== input.revisions.length) {
+    return input.sectionsMessage
+  }
+  for (const revision of input.revisions) {
+    const approved = await approvedReason(context.db, {
+      id: revision.reasonCategoryId,
+      cycleId: input.cycleId,
+      version: input.cycleVersion,
+      context: 'REVISION',
+    })
+    if (!approved || !normalizeRequiredText(revision.note, 1_000)) {
+      return input.instructionMessage
+    }
+  }
+  return null
+}
 
 export const referApplicationToBank = async (
   input: {
@@ -84,7 +134,7 @@ export const recordBankOutcome = async (
     availableLoanAmountPaise?: number | null
     applicantSummary: string
     internalNote?: string | null
-    revisions: Array<{ section: 'ENTERPRISE' | 'APPLICANT_PROFILE' | 'FINANCIAL' | 'PRIOR_FUNDING' | 'DOCUMENTS' | 'DECLARATION'; reasonCategoryId: string; note: string }>
+    revisions: RevisionRequestInput[]
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
@@ -101,25 +151,16 @@ export const recordBankOutcome = async (
   }
   const submission = await latestSubmission(context.db, input.applicationId)
   if (!submission) return failure('The submitted application was not found.')
-  if (input.outcome === 'MORE_INFORMATION_REQUIRED') {
-    if (input.revisions.length === 0 ||
-        new Set(input.revisions.map((revision) => revision.section)).size !== input.revisions.length) {
-      return failure('Bank requests for more information require unique editable sections.')
-    }
-    for (const revision of input.revisions) {
-      const reason = await approvedReason(context.db, {
-        id: revision.reasonCategoryId,
-        cycleId: submission.snapshot.programmeCycleId,
-        version: submission.snapshot.programmeCycleVersion,
-        context: 'REVISION',
-      })
-      if (!reason || !normalizeRequiredText(revision.note, 1_000)) {
-        return failure('Every bank revision needs an approved reason and safe instruction.')
-      }
-    }
-  } else if (input.revisions.length > 0) {
-    return failure('This bank outcome cannot include revision requests.')
-  }
+  const bankRevisionProblem = await revisionRequestProblem(context, {
+    carriesRevisions: input.outcome === 'MORE_INFORMATION_REQUIRED',
+    revisions: input.revisions,
+    cycleId: submission.snapshot.programmeCycleId,
+    cycleVersion: submission.snapshot.programmeCycleVersion,
+    sectionsMessage: 'Bank requests for more information require unique editable sections.',
+    instructionMessage: 'Every bank revision needs an approved reason and safe instruction.',
+    unexpectedMessage: 'This bank outcome cannot include revision requests.',
+  })
+  if (bankRevisionProblem) return failure(bankRevisionProblem)
   const changed = await constraintSafe(() => recordBankOutcomeWrite(context, {
     ...input,
     decisionReference: reference,
@@ -188,19 +229,16 @@ export const correctBankOutcome = async (
         version: submission.snapshot.programmeCycleVersion,
         context: 'BANK_OUTCOME_CORRECTION',
       })) return failure('Enter a valid approved bank-outcome correction.')
-  if (input.outcome === 'MORE_INFORMATION_REQUIRED') {
-    if (input.revisions.length === 0 ||
-        new Set(input.revisions.map((revision) => revision.section)).size !== input.revisions.length) {
-      return failure('Bank requests for more information require unique editable sections.')
-    }
-    for (const revision of input.revisions) if (!normalizeRequiredText(revision.note, 1_000) ||
-      !await approvedReason(context.db, {
-        id: revision.reasonCategoryId,
-        cycleId: submission.snapshot.programmeCycleId,
-        version: submission.snapshot.programmeCycleVersion,
-        context: 'REVISION',
-      })) return failure('Every bank revision needs an approved reason and safe instruction.')
-  } else if (input.revisions.length > 0) return failure('This bank outcome cannot include revisions.')
+  const correctionRevisionProblem = await revisionRequestProblem(context, {
+    carriesRevisions: input.outcome === 'MORE_INFORMATION_REQUIRED',
+    revisions: input.revisions,
+    cycleId: submission.snapshot.programmeCycleId,
+    cycleVersion: submission.snapshot.programmeCycleVersion,
+    sectionsMessage: 'Bank requests for more information require unique editable sections.',
+    instructionMessage: 'Every bank revision needs an approved reason and safe instruction.',
+    unexpectedMessage: 'This bank outcome cannot include revisions.',
+  })
+  if (correctionRevisionProblem) return failure(correctionRevisionProblem)
   const changed = await constraintSafe(() => correctBankOutcomeWrite(context, {
     ...input,
     decisionReference: reference,
@@ -413,7 +451,7 @@ export const recordTtmDecision = async (
     reasonCategoryId?: string | null
     applicantMessage: string
     nextAction?: string | null
-    revisions: Array<{ section: 'ENTERPRISE' | 'APPLICANT_PROFILE' | 'FINANCIAL' | 'PRIOR_FUNDING' | 'DOCUMENTS' | 'DECLARATION'; reasonCategoryId: string; note: string }>
+    revisions: RevisionRequestInput[]
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
@@ -446,20 +484,16 @@ export const recordTtmDecision = async (
       context: reasonContext,
     })) return failure('Select an approved decision reason.')
   } else if (input.reasonCategoryId) return failure('Approval does not use a reason category.')
-  if (input.outcome === 'REVISION_REQUIRED') {
-    const problem = input.revisions.length === 0 ||
-      new Set(input.revisions.map((revision) => revision.section)).size !== input.revisions.length
-      ? 'Revision decisions require unique editable sections.' : null
-    if (problem) return failure(problem)
-    for (const revision of input.revisions) {
-      if (!normalizeRequiredText(revision.note, 1_000) || !await approvedReason(context.db, {
-        id: revision.reasonCategoryId,
-        cycleId: submission.snapshot.programmeCycleId,
-        version: submission.snapshot.programmeCycleVersion,
-        context: 'REVISION',
-      })) return failure('Every TTM revision needs an approved reason and safe instruction.')
-    }
-  } else if (input.revisions.length > 0) return failure('This decision cannot include revisions.')
+  const decisionRevisionProblem = await revisionRequestProblem(context, {
+    carriesRevisions: input.outcome === 'REVISION_REQUIRED',
+    revisions: input.revisions,
+    cycleId: submission.snapshot.programmeCycleId,
+    cycleVersion: submission.snapshot.programmeCycleVersion,
+    sectionsMessage: 'Revision decisions require unique editable sections.',
+    instructionMessage: 'Every TTM revision needs an approved reason and safe instruction.',
+    unexpectedMessage: 'This decision cannot include revisions.',
+  })
+  if (decisionRevisionProblem) return failure(decisionRevisionProblem)
   const changed = await constraintSafe(() => recordTtmDecisionWrite(context, {
     ...input,
     reference,
@@ -514,19 +548,16 @@ export const correctTtmDecision = async (
       context: reasonContext,
     })) return failure('Select an approved decision reason.')
   } else if (input.reasonCategoryId) return failure('Approval does not use a reason category.')
-  if (input.outcome === 'REVISION_REQUIRED') {
-    if (input.revisions.length === 0 ||
-        new Set(input.revisions.map((revision) => revision.section)).size !== input.revisions.length) {
-      return failure('Revision decisions require unique editable sections.')
-    }
-    for (const revision of input.revisions) if (!normalizeRequiredText(revision.note, 1_000) ||
-      !await approvedReason(context.db, {
-        id: revision.reasonCategoryId,
-        cycleId: submission.snapshot.programmeCycleId,
-        version: submission.snapshot.programmeCycleVersion,
-        context: 'REVISION',
-      })) return failure('Every TTM revision needs an approved reason and safe instruction.')
-  } else if (input.revisions.length > 0) return failure('This decision cannot include revisions.')
+  const correctedRevisionProblem = await revisionRequestProblem(context, {
+    carriesRevisions: input.outcome === 'REVISION_REQUIRED',
+    revisions: input.revisions,
+    cycleId: submission.snapshot.programmeCycleId,
+    cycleVersion: submission.snapshot.programmeCycleVersion,
+    sectionsMessage: 'Revision decisions require unique editable sections.',
+    instructionMessage: 'Every TTM revision needs an approved reason and safe instruction.',
+    unexpectedMessage: 'This decision cannot include revisions.',
+  })
+  if (correctedRevisionProblem) return failure(correctedRevisionProblem)
   const changed = await constraintSafe(() => correctTtmDecisionWrite(context, {
     ...input,
     reference,

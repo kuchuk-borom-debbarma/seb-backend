@@ -1,4 +1,11 @@
 export {
+  grantRole,
+  managedUserByEmail,
+  managedUserById,
+  revokeRole,
+} from './controllers/access'
+export type { ManageableRole } from './queries/access'
+export {
   authenticatedApplicant,
   authenticatedAdministrator,
   bootstrapFirstSuperAdmin,

@@ -67,6 +67,37 @@ export type AuthenticatedApplicantRequest = AuthenticatedUserRequest
 /** Administrative guards accept ADMIN directly or SUPER_ADMIN by implication. */
 export type AuthenticatedAdministratorRequest = AuthenticatedUserRequest
 
+/**
+ * One entry in a person's retained role history.
+ *
+ * Written out rather than inferred from the table so adding a column cannot
+ * silently widen the administrative response. Revocation closes a grant instead
+ * of deleting it, so a closed grant keeps its actor, time, and reason.
+ */
+export type ManagedRoleGrant = {
+  id: string
+  role: UserRole
+  grantReason: string
+  grantedAt: Date
+  // Null identifies a trusted system transition such as verified signup or the
+  // one-time first-super-admin bootstrap, never an anonymous portal user.
+  grantedByUserId: string | null
+  revokedByUserId: string | null
+  revokedAt: Date | null
+  revocationReason: string | null
+}
+
+/** Administrative view of one identity, its active roles, and its full history. */
+export type ManagedUser = {
+  id: string
+  email: string
+  emailVerified: boolean
+  deleted: boolean
+  createdAt: Date
+  roles: UserRole[]
+  grants: ManagedRoleGrant[]
+}
+
 export type StartApplicantSignupResponse = {
   challengeToken: string
   expiresAt: Date

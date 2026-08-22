@@ -104,7 +104,6 @@ type AdminDecisionMutation {
 }
 
 input CreateAwardInput { applicationId: ID!, decisionId: ID!, expectedStatusVersion: Int!, sanctionOrderNumber: String!, sanctionDate: Date!, applicantConditions: String }
-enum AwardClosureDisposition { RELEASES_COMPLETE REMAINDER_NOT_RELEASED }
 input ChangeAwardInput { awardId: ID!, applicationId: ID!, expectedVersion: Int!, expectedStatusVersion: Int!, status: AwardStatus!, closureDisposition: AwardClosureDisposition, sanctionedAmountPaise: Money!, applicantConditions: String, reasonCategoryId: ID!, reason: String! }
 input RecordReleaseInput { awardId: ID!, applicationId: ID!, expectedLedgerVersion: Int!, amountPaise: Money!, occurredAt: DateTime!, externalReference: String!, ttmApprovalReference: String!, ttmApprovalDate: Date!, bankAccountVerifiedAt: DateTime!, performanceAgreementReference: String!, performanceAgreementExecutedAt: DateTime!, physicalVerificationRequired: Boolean!, physicalVerificationReference: String, physicalVerificationCompletedAt: DateTime, applicantMessage: String! }
 input ReverseReleaseInput { awardId: ID!, applicationId: ID!, releaseId: ID!, expectedLedgerVersion: Int!, amountPaise: Money!, occurredAt: DateTime!, externalReference: String!, reasonCategoryId: ID!, applicantMessage: String! }

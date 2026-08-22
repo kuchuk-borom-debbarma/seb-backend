@@ -1,9 +1,12 @@
 export {
   applicationById,
+  applicationDraftChanges,
+  applicationStatusExplanations,
   applicationTimeline,
   availableProgrammeCycles,
   expansionEligibility,
   myApplications,
+  myProgrammeCycles,
   restoreApplicationDraft,
   resubmitApplication,
   saveApplicationDraft,
@@ -13,6 +16,7 @@ export {
   submitApplication,
   validateApplication,
 } from './controllers/application'
+export { applicationFunding } from './controllers/funding'
 export {
   createEnterprise,
   enterpriseById,

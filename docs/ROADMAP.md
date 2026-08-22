@@ -151,8 +151,8 @@ without altering older submitted applications.
 - [x] Deleting an enterprise also makes its funding case unavailable.
 - [x] Restoring an enterprise restores its funding case in the same action.
 - [x] Another applicant cannot delete or restore the enterprise.
-- [ ] Add a clear applicant-facing explanation listing the exact applications or
-  awards that prevent deletion, instead of returning only a general refusal.
+- [x] A refused deletion lists the exact applications or awards preventing it,
+  with their reference numbers and statuses, instead of a general refusal.
 
 ---
 
@@ -169,14 +169,15 @@ submitted in an older cycle.
 - [x] Closing a cycle prevents new applications from starting in it.
 - [x] An applicant responding to an official revision request may resubmit after
   the original cycle closes.
-- [ ] Show the applicant the cycle name, application opening time, closing time,
-  policy reference, and a plain-language status.
+- [x] The applicant cycle view carries the cycle name, application opening and
+  closing times, policy reference, and lifecycle status.
 - [ ] Show a countdown or explicit closing date in the applicant journey; do not
   rely on colour alone to communicate urgency.
-- [ ] Show closed cycles in read-only application history without offering a
-  “start application” action.
-- [ ] Publish cycle-specific applicant guidance and clearly identify any rule
-  that differs from an earlier cycle.
+- [x] Cycles the applicant has work in are listed separately from cycles a new
+  application may start in, so closed cycles render read-only and can never
+  carry a “start application” action.
+- [ ] Clearly identify any cycle rule that differs from an earlier cycle.
+  Cycle-specific applicant guidance is already published to the applicant.
 
 ---
 
@@ -222,11 +223,12 @@ submitted in an older cycle.
   are still true and no replacement application has claimed the award.
 - [x] Expansion drafts receive prior sanction, release, net-disbursement, and
   operating-period facts from programme records rather than applicant typing.
-- [ ] Explain every failed eligibility check separately to the applicant: missing
-  award, inactive award, no positive release, anniversary not reached, or an
-  existing competing application.
-- [ ] When time is the only unmet rule, show the exact first eligible calendar
-  date.
+- [x] Every failed eligibility check is reported separately with its own
+  applicant-safe message: missing award, inactive award, no positive release,
+  anniversary not reached, an unpassed assessment, or a competing application.
+  Utilization reasons name the release obligation they are about.
+- [x] The exact first eligible calendar instant is returned alongside the
+  reasons, so it can be shown when time is the only unmet rule.
 
 ---
 
@@ -392,12 +394,11 @@ submitted in an older cycle.
   already recorded on the application.
 - [x] The timeline does not expose internal secrets, staff-only notes, or another
   applicant's information.
-- [ ] Define and display a plain-language explanation and next action for every
-  status: `DRAFT`, `SUBMITTED`, `DESK_REVIEW`, `REVISION_REQUIRED`,
-  `PARTNER_BANK_EVALUATION`, `TTM_REVIEW`, `APPROVED`, `REJECTED`,
-  `SANCTIONED`, and `DISBURSED`.
-- [ ] Show who must act next—applicant or programme office—without showing a
-  promised completion date unless staff explicitly set one.
+- [x] A status guide defines a label, plain-language explanation, and next
+  action for every status, built from the schema's own status list so a new
+  status cannot be missing from it.
+- [x] Each status names who must act next—applicant, programme office, or
+  nobody—and the guide deliberately carries no dates at all.
 
 ---
 
@@ -417,12 +418,13 @@ The applicant response and the staff issuance/cancellation workflow both exist.
 - [x] Resubmission remains available after the original programme cycle closes.
 - [x] Let an administrator cancel an incorrect revision request with a reason
   and issue a replacement without editing or hiding the original request.
-- [ ] Show revision requests grouped by section with their issue date, note, and
-  current state.
-- [ ] Clearly mark fields that are locked because no revision was requested for
-  their section.
-- [ ] Show the applicant a final comparison of changed sections before
-  resubmission.
+- [x] Revision requests carry their section, issue date, note, and resolved or
+  cancelled state, ready to group by section.
+- [x] The application reports which sections are editable right now, derived
+  from the same rule the draft-save path enforces, so a locked section can
+  never be shown as editable.
+- [x] The applicant can list the sections their draft changes relative to the
+  submission under revision, using the same comparison a reviewer sees.
 
 ---
 
@@ -430,7 +432,8 @@ The applicant response and the staff issuance/cancellation workflow both exist.
 
 Sign-in accepts any person holding at least one active role, so an
 administrator who is not also an applicant can reach administrative operations.
-Account recovery and super-administrator provisioning remain incomplete.
+A super administrator can provision and demote administrators under the `access`
+namespace. Account recovery remains incomplete.
 
 ### 9.1 Role rules already established
 
@@ -457,7 +460,9 @@ Account recovery and super-administrator provisioning remain incomplete.
   transition that grants `SUPER_ADMIN`, so bootstrap produces an
   administrator-only account and a losing request changes neither role.
 - [x] Refuse to promote an applicant who owns any enterprise, because losing
-  `APPLICANT` would strand that enterprise until role administration exists.
+  `APPLICANT` would strand that enterprise permanently: role administration
+  deliberately covers `ADMIN` and `SUPER_ADMIN` only, so nothing can grant
+  `APPLICANT` back.
 - [x] Delete the promoted account's existing sessions in the same transition, so
   administrative authority requires a fresh sign-in.
 - [x] Record the promoted user, time, role grant, role revocation, and fixed
@@ -468,7 +473,7 @@ Account recovery and super-administrator provisioning remain incomplete.
 - [x] Refuse sign-in for a person whose every role grant has been revoked, and
   destroy their existing sessions rather than only refusing them, so restoring
   a role cannot revive a previously issued token.
-- [ ] Require fresh password confirmation before a super administrator changes
+- [x] Require fresh password confirmation before a super administrator changes
   another person's roles.
 - [x] Provide administrative session listing, sign-out, and revoke-all controls.
 - [ ] Define account recovery that requires verified organizational approval and
@@ -476,18 +481,24 @@ Account recovery and super-administrator provisioning remain incomplete.
 
 ### 9.3 User and role management
 
-- [ ] Let a super administrator search users by exact email or public user ID.
-- [ ] Show verified email, active roles, account state, and retained role history
+Role administration lives under the `access` GraphQL namespace. Grant and
+revoke are both restricted to `ADMIN` and `SUPER_ADMIN`: `APPLICANT` is created
+only by verified signup and cannot be granted back by any operation, so allowing
+its revocation here would strip an applicant permanently with no recovery path.
+
+- [x] Let a super administrator search users by exact email or public user ID.
+- [x] Show verified email, active roles, account state, and retained role history
   without exposing passwords or private application answers.
-- [ ] Let a super administrator grant `ADMIN` or `SUPER_ADMIN` with a mandatory
+- [x] Let a super administrator grant `ADMIN` or `SUPER_ADMIN` with a mandatory
   reason.
-- [ ] Let a super administrator revoke a role with a mandatory reason.
-- [ ] Prevent duplicate active grants of the same role.
-- [ ] Permit a previously revoked role to be granted again as a new history item.
-- [ ] Prevent removal of the last usable `SUPER_ADMIN` account.
-- [ ] Prevent a super administrator from accidentally removing their own final
-  administrative access without another active super administrator confirming.
-- [ ] Show the affected user, role, actor, reason, and time for every grant and
+- [x] Let a super administrator revoke a role with a mandatory reason.
+- [x] Prevent duplicate active grants of the same role.
+- [x] Permit a previously revoked role to be granted again as a new history item.
+- [x] Prevent removal of the last usable `SUPER_ADMIN` account, decided by the
+  guarded write itself so two concurrent revocations cannot both succeed.
+- [x] Prevent a super administrator from removing their own super administrator
+  access; another super administrator must do it.
+- [x] Show the affected user, role, actor, reason, and time for every grant and
   revocation.
 - [ ] Notify the affected person after an administrative role is granted or
   revoked; the notification must not be required for the role change to take
@@ -526,9 +537,11 @@ Account recovery and super-administrator provisioning remain incomplete.
 
 ### 11.1 Queue visibility
 
-- [ ] Give administrators separate queues for newly submitted, desk review,
-  revision responses, partner-bank evaluation, TTM review, approved, rejected,
-  sanctioned, and disbursed applications.
+- [x] Administrators have separate named queues for newly submitted, desk
+  review, revision responses, partner-bank evaluation, TTM review, approved,
+  rejected, sanctioned, and disbursed applications, with matching counts. New
+  submissions and revision responses are both `SUBMITTED` and are separated by
+  submission number.
 - [x] Each queue item shows reference number, enterprise, applicant, phase,
   programme cycle, current status, submission time, and last activity time.
 - [x] Support filtering by cycle, status, phase, application type, sector,
@@ -653,7 +666,7 @@ is no separate bank user or bank portal in this roadmap.
   new releases.
 - [x] Closing an award requires the programme to state whether all planned
   releases are complete or the remaining amount will not be released.
-- [ ] The applicant can see sanction order, sanction date, sanctioned amount,
+- [x] The applicant can see sanction order, sanction date, sanctioned amount,
   award status, and applicant-safe conditions.
 - [ ] The applicant can download an official sanction letter generated or
   uploaded by an administrator.
@@ -674,8 +687,9 @@ is no separate bank user or bank portal in this roadmap.
   release; the original release is never edited or deleted.
 - [x] A reversal cannot exceed the unreversed amount of its related release.
 - [x] A reversal must belong to the same award as its related release.
-- [ ] The award view shows sanctioned amount, gross releases, reversals, net
-  released amount, and remaining planned amount.
+- [x] The award view shows sanctioned amount, gross releases, reversals, net
+  released amount, and remaining planned amount, all derived from the
+  append-only ledger rather than stored.
 - [x] Recording the first successful release changes the application to
   `DISBURSED` and records an applicant-visible event.
 - [x] Later releases keep the status `DISBURSED` and add separate timeline items.
@@ -683,8 +697,10 @@ is no separate bank user or bank portal in this roadmap.
   prerequisites, and actual payment in one transition.
 - [x] Every release creates its own utilization obligation due 180 UTC calendar
   days after that release.
-- [ ] The applicant sees payment date, amount, safe reference, and whether an
-  amount was reversed; internal banking credentials are never shown.
+- [x] The applicant sees payment date, amount, safe reference, and whether an
+  amount was reversed, with the reversal folded into the release it corrects.
+  TTM approval references, bank-account verification, performance agreements,
+  and physical verification stay internal.
 - [x] Releasing more than the currently sanctioned amount requires an explicit
   corrected award amount before the release can be recorded.
 
@@ -698,13 +714,14 @@ is no separate bank user or bank portal in this roadmap.
   assessor, evidence reference, and applicant-safe summary.
 - [x] A reassessment creates the next assessment number for that type and does
   not overwrite the earlier result.
-- [ ] The latest assessment of each type is clearly identified while the complete
-  history remains readable.
+- [x] The current result of each assessment series is clearly identified while
+  the complete history remains readable. Utilization is assessed per release, so
+  more than one utilization result can be current at once.
 - [x] Failed assessments can trigger award suspension only through a separate,
   reasoned administrative action; recording “failed” alone does not silently
   change the award.
-- [ ] The applicant can see the applicant-safe outcome and required follow-up but
-  not internal reviewer notes.
+- [x] The applicant sees the applicant-safe summary and outcome; evidence
+  references and internal reviewer notes are never returned.
 - [x] Expansion requires every positively retained release’s latest utilization
   result and the latest performance and financial-audit results to pass.
 
@@ -773,7 +790,7 @@ record.
 - [ ] Provide a complete application history showing submissions, status changes,
   revision requests, decisions, awards, releases, reversals, and assessments in
   event order.
-- [ ] Provide a role-change history for super administrators.
+- [x] Provide a role-change history for super administrators.
 
 ---
 
@@ -785,7 +802,7 @@ complete.
 - [ ] Replace console-only email delivery with the approved production provider.
 - [ ] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits.
 - [ ] Enable malware scanning before staff can open applicant documents.
-- [ ] Complete administrator provisioning and recovery procedures.
+- [ ] Complete administrator recovery procedures. Provisioning is delivered.
 - [ ] Approve applicant privacy notice, consent text, retention schedule, and
   grievance/contact process.
 - [ ] Define who may see application answers, documents, decisions, and reports
@@ -847,9 +864,9 @@ their prerequisites.
    applicant-plus-administrator operational workflow.
 2. Complete intake, review, partner-bank, TTM, award, release, assessment, and
    recovery scenario testing with programme staff.
-3. Complete administrator role management and recovery before enabling the
-   already implemented business workflow publicly. Administrator-only sign-in
-   is delivered.
+3. Complete administrator recovery before enabling the already implemented
+   business workflow publicly. Administrator-only sign-in and role management
+   are delivered; account recovery is not.
 4. Complete production applicant-account protections, email delivery, malware
    scanning, and abuse limits.
 5. Complete notifications, reports, privacy/access rules, and operational

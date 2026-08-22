@@ -81,6 +81,14 @@ type BooleanResult implements BaseResponse {
   response: BooleanResponse
 }
 
+# Shared vocabulary used by both the administrative and applicant surfaces.
+# Declared here so neither namespace's SDL depends on the other being loaded.
+enum ProgrammeCycleStatus { DRAFT OPEN CLOSED ARCHIVED }
+enum AwardStatus { ACTIVE SUSPENDED CANCELLED CLOSED }
+enum AwardClosureDisposition { RELEASES_COMPLETE REMAINDER_NOT_RELEASED }
+enum AssessmentType { UTILIZATION PERFORMANCE FINANCIAL_AUDIT }
+enum AssessmentOutcome { PASSED FAILED }
+
 type Health {
   name: String!
   status: String!

@@ -96,8 +96,12 @@ npx wrangler d1 execute DB --command 'DELETE FROM core_session'
 
 - `controllers/auth.ts`: validation, authentication policy, response envelopes,
   cookies, and orchestration. Each use case is a directly exported function.
+- `controllers/access.ts`: administrative role-management policy.
 - `queries/auth.ts`: Drizzle statements, guarded writes, ownership checks, and
   D1 batch boundaries.
+- `queries/access.ts`: role-management SQL and its guarded writes.
+- `support.ts`: the response envelope, audit-record builder, and shared text
+  normalization, mirroring the other two services' `support.ts`.
 - `crypto.ts`: challenge/OTP/session generation, HMAC digests, and scrypt
   password hashing/verification.
 - `cookies.ts`: cookie parsing, creation, and clearing.
@@ -120,10 +124,39 @@ Every operation receives a request-scoped `AuthOperationContext` containing:
 The module holds no request state in globals, so one Worker isolate can safely
 serve concurrent requests.
 
+## Role administration
+
+The `access` query and mutation namespaces are implemented here rather than in
+the administrative service, because `core_user`, `core_user_role_grant`, and
+`core_session` are written from exactly one place. That is what keeps the
+last-super-administrator guard, the bootstrap role swap, and session
+deactivation from drifting apart.
+
+A super administrator may look up one identity by exact email or ID — never a
+list, which would enumerate accounts — and grant or revoke `ADMIN` and
+`SUPER_ADMIN`. `APPLICANT` is deliberately outside this API: verified signup is
+its only source and nothing can grant it back, so allowing its revocation would
+strip an applicant permanently.
+
+Every mutation requires a fresh password confirmation from the caller, checked
+after the cheap authorization and validation so an unauthorized request never
+forces memory-hard scrypt. Because scrypt runs outside D1 and takes real time,
+each guarded write repeats the caller's own `SUPER_ADMIN` grant, the subject's
+lifecycle state, and the duplicate-role check in SQL.
+
+Revocation writes no session code at all. Roles are joined live, so the demoted
+person's next administrative call is refused immediately, and a person who lost
+only one of several roles keeps their session. Losing the last role is handled
+by the deactivation paths above.
+
+See the [administrator RBAC guide](../../../docs/admin-rbac.md#role-administration)
+for the full rule set.
+
 ## GraphQL integration
 
-Authentication lives below the `auth` query and mutation namespaces. Resolvers
-are adapters only; they do not contain validation, cryptography, or SQL.
+Authentication lives below the `auth` query and mutation namespaces, and role
+administration below `access`. Resolvers are adapters only; they do not contain
+validation, cryptography, or SQL.
 
 Expected authentication failures use the common envelope:
 
@@ -191,6 +224,9 @@ production values are provisioned as Cloudflare secrets.
 - First-super-administrator bootstrap is absent from GraphQL, cannot choose its
   target email or role, and permanently closes after the first historical
   `SUPER_ADMIN` grant.
+- The last usable `SUPER_ADMIN` grant cannot be revoked, and a super
+  administrator cannot revoke their own. Both are decided by predicates inside
+  the update, so concurrent revocations cannot leave the portal with none.
 - Bootstrap exchanges `APPLICANT` for `SUPER_ADMIN` inside one guarded
   transaction. A losing request writes neither, so an account is never stranded
   with no active role and therefore no way to sign in.
@@ -200,21 +236,22 @@ production values are provisioned as Cloudflare secrets.
   password verification; the final D1 write still repeats the closure check to
   decide concurrent attempts atomically.
 
-Integration coverage lives in `test/auth.test.ts`. Run it with:
+Integration coverage for both namespaces lives in `test/auth.test.ts`. Run it
+with:
 
 ```sh
 npm test -- test/auth.test.ts
 ```
 
 See the [administrator RBAC guide](../../../docs/admin-rbac.md) for the fixed
-role hierarchy, retained grant lifecycle, and future provisioning boundary.
+role hierarchy, retained grant lifecycle, and the role-administration rules.
 
 ## Known limitation
 
 Request, resend, and notification rate limiting are not implemented. CAPTCHA,
 password reset, account deletion APIs, administrator account recovery, and
-production email delivery are also out of scope. Do not publicly deploy
-applicant signup with the current console notification transport or without
-rate limiting. See the
+production email delivery are also out of scope; administrator provisioning is
+now available, but recovery is not. Do not publicly deploy applicant signup with
+the current console notification transport or without rate limiting. See the
 [bootstrap operator guide](../../../docs/first-super-admin-bootstrap.md) for the
 one-time curl procedure.

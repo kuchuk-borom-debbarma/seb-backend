@@ -23,6 +23,7 @@ import {
   fundingByApplication,
   intakeByReference,
   intakeQueue,
+  intakeQueues,
   intakeWorkspace,
   openProgrammeCycle,
   openRecoveryCase,
@@ -79,6 +80,7 @@ export const adminResolvers = {
   },
   AdminIntakeQuery: {
     queue: (_parent: unknown, args: { input?: Parameters<typeof intakeQueue>[0] }, context: GraphQLContext) => intakeQueue(args.input ?? {}, context),
+    queues: (_parent: unknown, args: { cycleId?: string | null }, context: GraphQLContext) => intakeQueues(args.cycleId, context),
     byReference: (_parent: unknown, args: { referenceNumber: string }, context: GraphQLContext) => intakeByReference(args.referenceNumber, context),
     workspace: (_parent: unknown, args: { applicationId: string }, context: GraphQLContext) => intakeWorkspace(args.applicationId, context),
     documentDownloadUrl: (_parent: unknown, args: { applicationId: string; submissionDocumentId: string }, context: GraphQLContext) => adminDocumentDownloadUrl(args, context),

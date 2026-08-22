@@ -30,6 +30,12 @@ npm run check
 npx wrangler deploy --dry-run
 ```
 
+`npm run check` runs the typecheck, the coverage suite at a 100% threshold,
+`fallow --type-aware`, and the D1 schema drift check. Duplication analysis is
+configured with `minOccurrences: 3`: a *pair* of structurally parallel functions
+— create/update, record/correct — is context-specific rather than copy-paste,
+while a third copy is worth consolidating and still fails the check.
+
 ## Cloudflare configuration
 
 Provision production values through Cloudflare rather than the empty env files:
@@ -105,6 +111,15 @@ mutation StartSignup {
 ```
 
 The console external-notification service prints the six-digit OTP during development. Only HMAC digests of OTPs and challenge tokens are stored. Signup grants `APPLICANT` and does not create a session. Password sign-in accepts any person holding at least one active role, so an administrator who is not an applicant signs in through the same operation; it creates an HttpOnly browser-session cookie while the D1 session expires after seven days.
+
+## Role administration
+
+After the one-time bootstrap, a super administrator provisions and demotes
+further administrators under the GraphQL `access` namespace. Grant and revoke
+cover `ADMIN` and `SUPER_ADMIN` only, each requires a fresh password
+confirmation and a retained reason, and the last usable `SUPER_ADMIN` grant
+cannot be revoked. See the
+[administrator RBAC guide](docs/admin-rbac.md#role-administration).
 
 Focused implementation guides:
 

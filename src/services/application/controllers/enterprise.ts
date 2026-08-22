@@ -2,7 +2,7 @@
 import { auditActions } from '../../../db/schema'
 import { decodeCursor, pageSize } from '../pagination'
 import {
-  enterpriseHasBlockingHistory,
+  listEnterpriseDeletionBlockers,
   findOwnedEnterprise,
   insertEnterpriseAggregate,
   listOwnedEnterprises,
@@ -24,6 +24,7 @@ import type {
   ApplicationOperationContext,
   Connection,
   Enterprise,
+  EnterpriseDeletionResult,
   SuppliedEnterpriseProfile,
   SebResult,
 } from '../types'
@@ -141,14 +142,24 @@ const changeEnterpriseDeletion = async (
   input: { id: string; expectedVersion: number; reason?: string | null },
   context: ApplicationOperationContext,
   deleted: boolean,
-): Promise<SebResult<Enterprise>> => {
+): Promise<EnterpriseDeletionResult> => {
   const applicant = await currentApplicant(context)
-  if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
+  if (!applicant) return { ...failure(AUTH_REQUIRED_MESSAGE), blockers: [] }
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
-    return failure('Expected version must be a positive integer.')
+    return { ...failure('Expected version must be a positive integer.'), blockers: [] }
   }
-  if (deleted && (await enterpriseHasBlockingHistory(context.db, applicant.id, input.id))) {
-    return failure('Delete all drafts first. Submitted applications and awards retain their enterprise.')
+  if (deleted) {
+    // Named individually so the applicant can act on the list instead of
+    // hunting for whichever draft or award is holding the enterprise open.
+    const blockers = await listEnterpriseDeletionBlockers(context.db, applicant.id, input.id)
+    if (blockers.length > 0) {
+      return {
+        ...failure(
+          'Delete all drafts first. Submitted applications and awards retain their enterprise.',
+        ),
+        blockers,
+      }
+    }
   }
   const now = new Date()
   const changed = await setEnterpriseDeleted(context.db, {
@@ -166,11 +177,16 @@ const changeEnterpriseDeletion = async (
       now,
     }),
   })
-  if (!changed) return failure('The enterprise was not found or its state changed.')
-  return success(requireInvariant(
-    await findOwnedEnterprise(context.db, applicant.id, input.id, true),
-    'Changed enterprise could not be read.',
-  ))
+  if (!changed) {
+    return { ...failure('The enterprise was not found or its state changed.'), blockers: [] }
+  }
+  return {
+    ...success(requireInvariant(
+      await findOwnedEnterprise(context.db, applicant.id, input.id, true),
+      'Changed enterprise could not be read.',
+    )),
+    blockers: [],
+  }
 }
 
 export const softDeleteEnterprise = (

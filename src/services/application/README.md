@@ -9,13 +9,23 @@ no service class or dependency-injection interface.
 - `controllers/enterprise.ts` owns enterprise create, edit, soft-delete, and
   restore use cases.
 - `controllers/application.ts` owns cycle discovery, initial and expansion
-  starts, full-snapshot draft saves, validation, submission, resubmission, and
-  the applicant timeline.
+  starts, full-snapshot draft saves, validation, submission, resubmission, the
+  applicant timeline, the status guide, and the pre-resubmission change review.
+- `controllers/funding.ts` owns the applicant's read of the award, payments, and
+  assessments an administrator recorded. It writes nothing.
 - `controllers/document.ts` owns private R2 upload intents, finalization,
   download authorization, logical deletion, restoration, and cleanup.
 - `queries/*` contain Drizzle persistence. Race-sensitive transitions use
   guarded writes inside bounded D1 batches.
 - `validation.ts` normalizes drafts and applies submission rules.
+- `ownership.ts` holds the one definition of “the caller owns this application”,
+  including the version preconditions every draft write shares.
+- `ledger.ts` folds an award's append-only disbursements into retained money.
+  Shared by the applicant funding view and expansion eligibility so they can
+  never disagree about the same award.
+- `sections.ts` maps form sections to snapshot fields. Shared with the
+  administrative workspace so staff and applicant see the same changed sections.
+- `status-guide.ts` explains every application status in plain language.
 - `uploads.ts` signs R2 requests and verifies finalized object metadata and
   magic bytes.
 
@@ -36,7 +46,9 @@ R2, request headers/URL, and response headers.
 - Multi-row state changes use D1 batches and make dependent statements
   conditional on the guarded root write.
 - Applicants can change only `DRAFT` data, or sections named by unresolved
-  revision requests while status is `REVISION_REQUIRED`.
+  revision requests while status is `REVISION_REQUIRED`. `editableSections` is
+  derived from that same rule, so it can never advertise an edit the write path
+  would refuse.
 - Draft creation and validation use the immutable cycle version pinned at
   start; later cycle guidance cannot rewrite older eligibility rules.
 - Formal submissions pin the exact form and logical-document file versions.
@@ -46,6 +58,10 @@ R2, request headers/URL, and response headers.
   utilization and to award-level performance and financial audit.
 - Audit metadata contains only public IDs and allow-listed lifecycle values. It
   never contains form data, filenames, R2 keys, URLs, or checksums.
+- The funding view returns an explicit allow-list of fields. TTM approval
+  references, bank-account verification, performance agreements, physical
+  verification, evidence references, internal notes, recovery cases, and award
+  version history are never exposed to an applicant.
 
 ## R2 configuration
 
@@ -79,8 +95,9 @@ the rest of the bounded batch and retries the failed intent on a later run.
 
 Programme-cycle administration, reviewer revisions, bank/TTM decisions,
 awards, disbursements, assessments, and recovery now live in the administrator
-service. Notifications, idempotency storage, rate limiting, production malware
-scanning, and administrator role management remain excluded.
+service, and role administration in the authentication service. Notifications,
+idempotency storage, rate limiting, production malware scanning, and
+administrator account recovery remain excluded.
 
 See the [combined application guide](../../../docs/application-guide.md) for the
 business journey, examples, entity glossary, field rules, and GraphQL usage.

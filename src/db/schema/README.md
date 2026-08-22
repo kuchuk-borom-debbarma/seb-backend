@@ -293,8 +293,9 @@ state synchronized whenever tables or application rules change.
 The schema foundation, applicant authentication/application flow, private R2
 uploads, programme-cycle governance, administrative intake/review, offline bank
 evidence, TTM decisions, awards, releases, assessments, and recovery exist.
-Administrator role management and recovery, a production malware scanner,
-notification delivery, and public-launch protections remain future work. See the
+Administrator role management exists; account recovery, a production malware
+scanner, notification delivery, and public-launch protections remain future
+work. See the
 [combined application guide](../../../docs/application-guide.md)
 for the end-to-end business and API behavior, and the focused
 [application integrity guide](../../../docs/application-integrity.md) for the

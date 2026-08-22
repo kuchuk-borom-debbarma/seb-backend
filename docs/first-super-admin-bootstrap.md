@@ -134,12 +134,17 @@ needs a larger payload.
 
 ## 4. Recovering a lost SUPER_ADMIN grant
 
-The promoted account holds exactly one grant. Sign-in requires at least one
-active role, and bootstrap stays permanently closed once any historical
+Role administration now prevents this from happening through the portal: the
+last usable `SUPER_ADMIN` grant cannot be revoked, and a super administrator
+cannot revoke their own. Promote a second super administrator through
+`access.grantRole` as soon as bootstrap completes, and this section becomes
+unnecessary.
+
+It still applies if the sole account is lost some other way — a forgotten
+password, or a soft deletion applied directly to D1. Sign-in requires at least
+one active role, and bootstrap stays permanently closed once any historical
 `SUPER_ADMIN` grant exists — including a revoked one — so this route cannot
-promote a replacement. Until section 9.3 of the [roadmap](ROADMAP.md) delivers
-role administration and its "prevent removal of the last usable `SUPER_ADMIN`"
-guard, restoring access requires direct database access:
+promote a replacement. Restoring access then requires direct database access:
 
 ```sh
 npx wrangler d1 execute DB --command "
