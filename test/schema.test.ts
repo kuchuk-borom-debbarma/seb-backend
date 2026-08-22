@@ -3,13 +3,18 @@ import { describe, expect, it } from 'vitest'
 
 const insertUser = async (id = crypto.randomUUID()) => {
   const now = Date.now()
-  await env.DB.prepare(
-    `INSERT INTO core_user (
-      id, email, password_hash, email_verified_at, role, row_version, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, 'APPLICANT', 1, ?, ?)`,
-  )
-    .bind(id, `${id}@example.test`, 'unused-test-password-hash', now, now, now)
-    .run()
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO core_user (
+        id, email, password_hash, email_verified_at, row_version, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, 1, ?, ?)`,
+    ).bind(id, `${id}@example.test`, 'unused-test-password-hash', now, now, now),
+    env.DB.prepare(
+      `INSERT INTO core_user_role_grant (
+        id, user_id, role, grant_reason, granted_at
+      ) VALUES (?, ?, 'APPLICANT', 'TEST_FIXTURE', ?)`,
+    ).bind(crypto.randomUUID(), id, now),
+  ])
   return id
 }
 
@@ -168,6 +173,7 @@ describe('core and Mission SEP schema', () => {
       'core_session',
       'core_signup_challenge',
       'core_user',
+      'core_user_role_grant',
       'seb_application',
       'seb_application_document',
       'seb_application_document_version',
@@ -203,6 +209,9 @@ describe('core and Mission SEP schema', () => {
     expect(indexes.results.map(({ name }) => name)).toEqual(
       expect.arrayContaining([
         'core_session_expiry_idx',
+        'core_user_role_grant_active_uq',
+        'core_user_role_grant_user_idx',
+        'core_user_role_grant_role_idx',
         'seb_enterprise_owner_idx',
         'seb_application_case_phase_idx',
         'seb_funding_award_case_idx',
@@ -210,6 +219,106 @@ describe('core and Mission SEP schema', () => {
         'seb_application_qualifying_award_version_number_uq',
       ]),
     )
+  })
+
+  it('retains fixed multi-role grants and permits only one active copy', async () => {
+    const userId = await insertUser()
+    const now = Date.now()
+    const adminGrantId = crypto.randomUUID()
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO core_user_role_grant (
+          id, user_id, role, granted_by_user_id, grant_reason, granted_at
+        ) VALUES (?, ?, 'ADMIN', ?, 'TEST_ADMIN_GRANT', ?)`,
+      ).bind(adminGrantId, userId, userId, now),
+      env.DB.prepare(
+        `INSERT INTO core_user_role_grant (
+          id, user_id, role, granted_by_user_id, grant_reason, granted_at
+        ) VALUES (?, ?, 'SUPER_ADMIN', ?, 'TEST_SUPER_ADMIN_GRANT', ?)`,
+      ).bind(crypto.randomUUID(), userId, userId, now),
+    ])
+
+    const active = await env.DB.prepare(
+      `SELECT role FROM core_user_role_grant
+       WHERE user_id = ? AND revoked_at IS NULL ORDER BY role`,
+    )
+      .bind(userId)
+      .all<{ role: string }>()
+    expect(active.results.map(({ role }) => role)).toEqual([
+      'ADMIN',
+      'APPLICANT',
+      'SUPER_ADMIN',
+    ])
+
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO core_user_role_grant (
+          id, user_id, role, grant_reason, granted_at
+        ) VALUES (?, ?, 'NOT_A_ROLE', 'INVALID', ?)`,
+      )
+        .bind(crypto.randomUUID(), userId, now)
+        .run(),
+    ).rejects.toThrow()
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO core_user_role_grant (
+          id, user_id, role, grant_reason, granted_at
+        ) VALUES (?, ?, 'ADMIN', 'DUPLICATE', ?)`,
+      )
+        .bind(crypto.randomUUID(), userId, now)
+        .run(),
+    ).rejects.toThrow()
+    await expect(
+      env.DB.prepare(
+        `UPDATE core_user_role_grant
+         SET revoked_by_user_id = ? WHERE id = ?`,
+      )
+        .bind(userId, adminGrantId)
+        .run(),
+    ).rejects.toThrow()
+    await expect(
+      env.DB.prepare(
+        `UPDATE core_user_role_grant
+         SET revoked_at = ?, revocation_reason = 'IMPOSSIBLE_HISTORY'
+         WHERE id = ?`,
+      )
+        .bind(now - 1, adminGrantId)
+        .run(),
+    ).rejects.toThrow()
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO core_user_role_grant (
+          id, user_id, role, grant_reason, granted_at
+        ) VALUES (?, 'missing-user', 'ADMIN', 'INVALID_OWNER', ?)`,
+      )
+        .bind(crypto.randomUUID(), now)
+        .run(),
+    ).rejects.toThrow()
+
+    await env.DB.prepare(
+      `UPDATE core_user_role_grant
+       SET revoked_by_user_id = ?, revoked_at = ?, revocation_reason = 'ROLE_CHANGED'
+       WHERE id = ?`,
+    )
+      .bind(userId, now + 1, adminGrantId)
+      .run()
+    await env.DB.prepare(
+      `INSERT INTO core_user_role_grant (
+        id, user_id, role, granted_by_user_id, grant_reason, granted_at
+      ) VALUES (?, ?, 'ADMIN', ?, 'ROLE_REGRANTED', ?)`,
+    )
+      .bind(crypto.randomUUID(), userId, userId, now + 2)
+      .run()
+
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS total,
+          sum(CASE WHEN revoked_at IS NULL THEN 1 ELSE 0 END) AS active
+         FROM core_user_role_grant WHERE user_id = ? AND role = 'ADMIN'`,
+      )
+        .bind(userId)
+        .first(),
+    ).toEqual({ total: 2, active: 1 })
   })
 
   it('allows many enterprises per user while enforcing owner and case scope', async () => {

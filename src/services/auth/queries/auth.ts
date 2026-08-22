@@ -10,15 +10,18 @@ import {
   coreSession,
   coreSignupChallenge,
   coreUser,
+  coreUserRoleGrant,
+  type UserRole,
 } from '../../../db/schema'
 
 export type UserRecord = typeof coreUser.$inferSelect
+export type UserRoleGrantRecord = typeof coreUserRoleGrant.$inferSelect
 export type SessionRecord = typeof coreSession.$inferSelect
 export type SignupChallengeRecord = typeof coreSignupChallenge.$inferSelect
 export type AuditEventRecord = typeof coreAuditEvent.$inferInsert
 export type PublicUserRecord = Pick<
   UserRecord,
-  'id' | 'email' | 'emailVerifiedAt' | 'role' | 'createdAt' | 'updatedAt'
+  'id' | 'email' | 'emailVerifiedAt' | 'createdAt' | 'updatedAt'
 >
 export type PublicSessionRecord = Omit<SessionRecord, 'tokenDigest'>
 
@@ -63,15 +66,33 @@ export const findUserByEmail = async (
   return record ?? null
 }
 
-/** Credential authentication only considers users that have not been deleted. */
-export const findActiveUserByEmail = async (
+/**
+ * Applicant credential authentication requires both a live identity and a
+ * live APPLICANT grant. Looking up the grant for every sign-in means a revoked
+ * role cannot be revived by an old session or a cached user row.
+ */
+export const findActiveApplicantByEmail = async (
   db: Database,
   email: string,
 ): Promise<UserRecord | null> => {
+  const applicantRoleExists = exists(
+    db
+      .select({ id: coreUserRoleGrant.id })
+      .from(coreUserRoleGrant)
+      .where(
+        and(
+          eq(coreUserRoleGrant.userId, coreUser.id),
+          eq(coreUserRoleGrant.role, 'APPLICANT'),
+          isNull(coreUserRoleGrant.revokedAt),
+        ),
+      ),
+  )
   const [record] = await db
     .select()
     .from(coreUser)
-    .where(and(eq(coreUser.email, email), isNull(coreUser.deletedAt)))
+    .where(
+      and(eq(coreUser.email, email), isNull(coreUser.deletedAt), applicantRoleExists),
+    )
     .limit(1)
   return record ?? null
 }
@@ -169,13 +190,23 @@ export const createUserFromSignupChallenge = async (
   db: Database,
   input: {
     user: UserRecord
+    roleGrant: UserRoleGrantRecord
     challenge: SignupChallengeRecord
     submittedOtpDigest: string
     now: Date
     auditEvent: AuditEventRecord
+    roleAuditEvent: AuditEventRecord
   },
 ): Promise<boolean> => {
-  const { user, challenge, submittedOtpDigest, now, auditEvent } = input
+  const {
+    user,
+    roleGrant,
+    challenge,
+    submittedOtpDigest,
+    now,
+    auditEvent,
+    roleAuditEvent,
+  } = input
   const userExists = exists(
     db.select({ id: coreUser.id }).from(coreUser).where(eq(coreUser.id, user.id)),
   )
@@ -188,7 +219,6 @@ export const createUserFromSignupChallenge = async (
         ${coreSignupChallenge.email},
         ${user.passwordHash},
         ${user.emailVerifiedAt?.getTime() ?? null},
-        ${user.role},
         ${user.rowVersion},
         ${user.createdAt.getTime()},
         ${user.updatedAt.getTime()},
@@ -205,6 +235,23 @@ export const createUserFromSignupChallenge = async (
     `)
     .onConflictDoNothing({ target: coreUser.email })
     .returning({ id: coreUser.id })
+
+  // The grant is part of the same batch and depends on the freshly generated
+  // user ID. Any role-insert failure rolls back the identity and challenge
+  // transition, so a verified applicant can never exist without APPLICANT.
+  const insertRoleGrant = db.insert(coreUserRoleGrant).select(sql`
+    SELECT
+      ${roleGrant.id},
+      ${user.id},
+      ${roleGrant.role},
+      ${roleGrant.grantedByUserId},
+      ${roleGrant.grantReason},
+      ${roleGrant.grantedAt.getTime()},
+      NULL,
+      NULL,
+      NULL
+    WHERE ${userExists}
+  `)
 
   const consumeWinner = db
     .update(coreSignupChallenge)
@@ -235,11 +282,14 @@ export const createUserFromSignupChallenge = async (
     )
 
   const insertAudit = insertAuditEventWhere(db, auditEvent, userExists)
+  const insertRoleAudit = insertAuditEventWhere(db, roleAuditEvent, userExists)
   const [inserted] = await db.batch([
     insertUser,
+    insertRoleGrant,
     consumeWinner,
     cancelSiblings,
     insertAudit,
+    insertRoleAudit,
   ])
   return inserted.length === 1
 }
@@ -319,30 +369,76 @@ export const consumeWrongOtpAttempt = async (
   await db.batch([exhaust, decrement, db.insert(coreAuditEvent).values(auditEvent)])
 }
 
-export const createUserSession = async (
+/**
+ * Creates an applicant session only while the identity and APPLICANT grant are
+ * still authoritative. Password verification is intentionally outside D1 and
+ * may be slow, so the INSERT repeats those conditions at write time instead of
+ * trusting the controller's earlier credential lookup.
+ */
+export const createApplicantSession = async (
   db: Database,
   value: SessionRecord,
   auditEvent: AuditEventRecord,
-): Promise<void> => {
-  await db.batch([
-    db.insert(coreSession).values(value),
-    db.insert(coreAuditEvent).values(auditEvent),
-  ])
+): Promise<boolean> => {
+  const applicantIsStillActive = exists(
+    db
+      .select({ id: coreUserRoleGrant.id })
+      .from(coreUserRoleGrant)
+      .innerJoin(coreUser, eq(coreUser.id, coreUserRoleGrant.userId))
+      .where(
+        and(
+          eq(coreUserRoleGrant.userId, value.userId),
+          eq(coreUserRoleGrant.role, 'APPLICANT'),
+          isNull(coreUserRoleGrant.revokedAt),
+          isNull(coreUser.deletedAt),
+          sql`${coreUser.emailVerifiedAt} IS NOT NULL`,
+        ),
+      ),
+  )
+
+  const insertSession = db
+    .insert(coreSession)
+    .select(sql`
+      SELECT
+        ${value.id},
+        ${value.userId},
+        ${value.tokenDigest},
+        ${value.expiresAt.getTime()},
+        ${value.ipAddress},
+        ${value.userAgent},
+        ${value.createdAt.getTime()},
+        ${value.updatedAt.getTime()}
+      WHERE ${applicantIsStillActive}
+    `)
+    .returning({ id: coreSession.id })
+  const sessionExists = exists(
+    db.select({ id: coreSession.id }).from(coreSession).where(eq(coreSession.id, value.id)),
+  )
+  const insertAudit = insertAuditEventWhere(db, auditEvent, sessionExists)
+  const [inserted] = await db.batch([insertSession, insertAudit])
+  return inserted.length === 1
 }
 
-/** Resolves one live token digest and its non-deleted owning user in one query. */
+/**
+ * Resolves one live token digest, its non-deleted owner, and current roles in
+ * one query. Roles are joined live rather than copied into the session so a
+ * grant or revocation takes effect on the very next request.
+ */
 export const findUserSessionByDigest = async (
   db: Database,
   tokenDigest: string,
   now: Date,
-): Promise<{ user: PublicUserRecord; session: PublicSessionRecord } | null> => {
-  const [record] = await db
+): Promise<{
+  user: PublicUserRecord
+  roles: UserRole[]
+  session: PublicSessionRecord
+} | null> => {
+  const records = await db
     .select({
       user: {
         id: coreUser.id,
         email: coreUser.email,
         emailVerifiedAt: coreUser.emailVerifiedAt,
-        role: coreUser.role,
         createdAt: coreUser.createdAt,
         updatedAt: coreUser.updatedAt,
       },
@@ -355,9 +451,17 @@ export const findUserSessionByDigest = async (
         ipAddress: coreSession.ipAddress,
         userAgent: coreSession.userAgent,
       },
+      role: coreUserRoleGrant.role,
     })
     .from(coreSession)
     .innerJoin(coreUser, eq(coreUser.id, coreSession.userId))
+    .leftJoin(
+      coreUserRoleGrant,
+      and(
+        eq(coreUserRoleGrant.userId, coreUser.id),
+        isNull(coreUserRoleGrant.revokedAt),
+      ),
+    )
     .where(
       and(
         eq(coreSession.tokenDigest, tokenDigest),
@@ -365,8 +469,12 @@ export const findUserSessionByDigest = async (
         isNull(coreUser.deletedAt),
       ),
     )
-    .limit(1)
-  return record ?? null
+  const first = records[0]
+  if (!first) return null
+  const roles = [
+    ...new Set(records.flatMap(({ role }) => role === null ? [] : [role])),
+  ]
+  return { user: first.user, session: first.session, roles }
 }
 
 /** Marks expired challenges but physically removes expired transient sessions. */

@@ -12,9 +12,12 @@ import worker from '../src/index'
 import { createDigest, hashPassword } from '../src/services/auth/crypto'
 import {
   consumeWrongOtpAttempt,
+  createApplicantSession,
   createUserFromSignupChallenge,
+  findActiveApplicantByEmail,
   findSignupChallenge,
   type AuditEventRecord,
+  type SessionRecord,
 } from '../src/services/auth/queries/auth'
 
 type GraphQLResponse<T> = {
@@ -24,7 +27,11 @@ type GraphQLResponse<T> = {
 
 const testAuditEvent = (
   action: (typeof auditActions)[keyof typeof auditActions],
-  entityType: 'CORE_USER' | 'CORE_SIGNUP_CHALLENGE',
+  entityType:
+    | 'CORE_USER'
+    | 'CORE_USER_ROLE_GRANT'
+    | 'CORE_SESSION'
+    | 'CORE_SIGNUP_CHALLENGE',
   entityId: string,
   outcome: 'SUCCESS' | 'FAILURE',
 ): AuditEventRecord => ({
@@ -291,6 +298,16 @@ describe('applicant authentication', () => {
         'SELECT status, consumed_by_user_id FROM core_signup_challenge',
       ).first<{ status: string; consumed_by_user_id: string | null }>(),
     ).toMatchObject({ status: 'CONSUMED' })
+    expect(
+      await env.DB.prepare(
+        `SELECT role, grant_reason, revoked_at
+         FROM core_user_role_grant`,
+      ).first(),
+    ).toEqual({
+      role: 'APPLICANT',
+      grant_reason: 'VERIFIED_APPLICANT_SIGNUP',
+      revoked_at: null,
+    })
 
     const auditRows = await env.DB.prepare(
       'SELECT action, actor_user_id, entity_id, metadata_json FROM core_audit_event ORDER BY created_at',
@@ -305,6 +322,7 @@ describe('applicant authentication', () => {
         auditActions.signupChallengeCreated,
         auditActions.otpFailed,
         auditActions.userCreated,
+        auditActions.roleGranted,
       ]),
     )
     expect(JSON.stringify(auditRows.results)).not.toContain(otp)
@@ -410,6 +428,129 @@ describe('applicant authentication', () => {
     })
   })
 
+  it('loads multiple roles live and immediately stops applicant authorization after revocation', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+    const signedIn = await signIn()
+    const cookie = cookieHeaderFrom(signedIn.response)
+    const user = await env.DB.prepare(
+      `SELECT id FROM core_user WHERE email = 'applicant@example.com'`,
+    ).first<{ id: string }>()
+    if (!user) throw new Error('Expected applicant user.')
+
+    await env.DB.prepare(
+      `INSERT INTO core_user_role_grant (
+        id, user_id, role, grant_reason, granted_at
+      ) VALUES (?, ?, 'ADMIN', 'TEST_ADMIN_ROLE', ?)`,
+    )
+      .bind(crypto.randomUUID(), user.id, Date.now())
+      .run()
+
+    const currentQuery = /* GraphQL */ `
+      query {
+        auth {
+          currentApplicantSession {
+            success
+            response { applicant { role } }
+          }
+        }
+      }
+    `
+    const multiRole = await graphql<{
+      auth: {
+        currentApplicantSession: {
+          success: boolean
+          response: { applicant: { role: string } } | null
+        }
+      }
+    }>(currentQuery, cookie)
+    expect(multiRole.body.data?.auth.currentApplicantSession).toMatchObject({
+      success: true,
+      response: { applicant: { role: 'APPLICANT' } },
+    })
+
+    await env.DB.prepare(
+      `UPDATE core_user_role_grant
+       SET revoked_at = ?, revocation_reason = 'TEST_REVOKED'
+       WHERE user_id = ? AND role = 'APPLICANT' AND revoked_at IS NULL`,
+    )
+      .bind(Date.now(), user.id)
+      .run()
+
+    const revoked = await graphql<{
+      auth: {
+        currentApplicantSession: { success: boolean; message: null; response: null }
+      }
+    }>(currentQuery, cookie)
+    expect(revoked.body.data?.auth.currentApplicantSession).toEqual({
+      success: true,
+      response: null,
+    })
+    // The identity session remains valid for future ADMIN operations; only the
+    // applicant capability disappears, so no browser cookie is cleared here.
+    expect(revoked.response.headers.get('set-cookie')).toBeNull()
+    expect((await signIn()).body.data?.auth.signInApplicant).toMatchObject({
+      success: false,
+      response: null,
+    })
+  })
+
+  it('does not create a session from a stale credential read after role revocation', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+
+    const db = createDatabase(env.DB)
+    // This is the credential lookup that happens before the intentionally slow
+    // password hash. Revoking after it models the exact sign-in race.
+    const staleUser = await findActiveApplicantByEmail(db, 'applicant@example.com')
+    if (!staleUser) throw new Error('Expected applicant credential record.')
+    await env.DB.prepare(
+      `UPDATE core_user_role_grant
+       SET revoked_at = ?, revocation_reason = 'REVOKED_DURING_SIGN_IN'
+       WHERE user_id = ? AND role = 'APPLICANT' AND revoked_at IS NULL`,
+    )
+      .bind(Date.now(), staleUser.id)
+      .run()
+
+    const now = new Date()
+    const session: SessionRecord = {
+      id: crypto.randomUUID(),
+      userId: staleUser.id,
+      tokenDigest: 'stale-sign-in-digest',
+      expiresAt: new Date(now.getTime() + 60_000),
+      ipAddress: null,
+      userAgent: null,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const created = await createApplicantSession(
+      db,
+      session,
+      testAuditEvent(
+        auditActions.signInSucceeded,
+        'CORE_SESSION',
+        session.id,
+        'SUCCESS',
+      ),
+    )
+
+    expect(created).toBe(false)
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
+        count: number
+      }>(),
+    ).toEqual({ count: 0 })
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_audit_event WHERE action = ?`,
+      )
+        .bind(auditActions.signInSucceeded)
+        .first<{ count: number }>(),
+    ).toEqual({ count: 0 })
+  })
+
   it('exhausts only the supplied challenge and leaves sibling challenges valid', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const first = await startSignup('applicant@example.com', notificationLog)
@@ -445,6 +586,19 @@ describe('applicant authentication', () => {
     expect(results.filter((result) => result?.success)).toHaveLength(1)
     expect(
       await env.DB.prepare('SELECT count(*) AS count FROM core_user').first<{ count: number }>(),
+    ).toEqual({ count: 1 })
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_user_role_grant
+         WHERE role = 'APPLICANT' AND revoked_at IS NULL`,
+      ).first<{ count: number }>(),
+    ).toEqual({ count: 1 })
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_audit_event WHERE action = ?`,
+      )
+        .bind(auditActions.roleGranted)
+        .first<{ count: number }>(),
     ).toEqual({ count: 1 })
   })
 
@@ -486,13 +640,23 @@ describe('applicant authentication', () => {
         email: challenge.email,
         passwordHash: await passwordHash,
         emailVerifiedAt: createdAt,
-        role: 'APPLICANT',
         rowVersion: 1,
         createdAt,
         updatedAt: createdAt,
         deletedAt: null,
         deletedByUserId: null,
         deleteReason: null,
+      },
+      roleGrant: {
+        id: crypto.randomUUID(),
+        userId,
+        role: 'APPLICANT',
+        grantedByUserId: null,
+        grantReason: 'VERIFIED_APPLICANT_SIGNUP',
+        grantedAt: createdAt,
+        revokedByUserId: null,
+        revokedAt: null,
+        revocationReason: null,
       },
       challenge,
       submittedOtpDigest: await createDigest(
@@ -502,11 +666,22 @@ describe('applicant authentication', () => {
       ),
       now: new Date(),
       auditEvent: testAuditEvent(auditActions.userCreated, 'CORE_USER', userId, 'SUCCESS'),
+      roleAuditEvent: testAuditEvent(
+        auditActions.roleGranted,
+        'CORE_USER_ROLE_GRANT',
+        userId,
+        'SUCCESS',
+      ),
     })
 
     expect(created).toBe(false)
     expect(
       await env.DB.prepare('SELECT count(*) AS count FROM core_user').first<{
+        count: number
+      }>(),
+    ).toEqual({ count: 0 })
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_user_role_grant').first<{
         count: number
       }>(),
     ).toEqual({ count: 0 })
@@ -537,6 +712,11 @@ describe('applicant authentication', () => {
     expect(await verifySignup(signup.challengeToken, signup.otp)).toBeUndefined()
     expect(
       await env.DB.prepare('SELECT count(*) AS count FROM core_user').first<{
+        count: number
+      }>(),
+    ).toEqual({ count: 0 })
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_user_role_grant').first<{
         count: number
       }>(),
     ).toEqual({ count: 0 })

@@ -1,5 +1,5 @@
 import { coreAuditEvent } from './core/audit'
-import { coreSession, coreSignupChallenge, coreUser } from './core/auth'
+import { coreSession, coreSignupChallenge, coreUser, coreUserRoleGrant } from './core/auth'
 import {
   sebApplication,
   sebApplicationSubmission,
@@ -36,6 +36,7 @@ export * from './seb/workflow'
 /** Complete schema passed to the request-scoped Drizzle D1 client. */
 export const schema = {
   coreUser,
+  coreUserRoleGrant,
   coreSession,
   coreSignupChallenge,
   coreAuditEvent,

@@ -21,12 +21,12 @@ import {
   createAuditEvent,
   createSignupChallenge,
   createUserFromSignupChallenge,
-  createUserSession,
+  createApplicantSession,
   deleteAllUserSessions,
   deleteOtherUserSessions,
   deleteUserSession,
   deleteUserSessionByDigest,
-  findActiveUserByEmail,
+  findActiveApplicantByEmail,
   findSignupChallenge,
   findUserByEmail,
   findUserSessionByDigest,
@@ -38,12 +38,14 @@ import {
   type SessionRecord,
   type SignupChallengeRecord,
   type UserRecord,
+  type UserRoleGrantRecord,
 } from '../queries/auth'
 import type {
   Applicant,
   ApplicantAuthResponse,
   ApplicantSession,
   AuthenticatedApplicantRequest,
+  AuthenticatedUserRequest,
   AuthOperationContext,
   AuthResult,
   StartApplicantSignupResponse,
@@ -119,7 +121,9 @@ const toApplicantSession = (
   current: value.id === currentSessionId,
 })
 
-const getCurrentSession = async (context: AuthOperationContext) => {
+const getCurrentSession = async (
+  context: AuthOperationContext,
+): Promise<AuthenticatedUserRequest | null> => {
   const token = readSessionToken(context.requestHeaders)
   if (!token) return null
 
@@ -132,14 +136,17 @@ const getCurrentSession = async (context: AuthOperationContext) => {
   return current
 }
 
-/**
- * Internal authorization primitive shared by authenticated business services.
- * It deliberately returns only the public user/session records; callers never
- * receive the cookie token or its digest.
- */
+const getCurrentApplicantSession = async (
+  context: AuthOperationContext,
+): Promise<AuthenticatedApplicantRequest | null> => {
+  const current = await getCurrentSession(context)
+  return current?.roles.includes(APPLICANT_ROLE) ? current : null
+}
+
+/** Applicant primitive requiring a current, active APPLICANT role grant. */
 export const authenticatedApplicant = (
   context: AuthOperationContext,
-): Promise<AuthenticatedApplicantRequest | null> => getCurrentSession(context)
+): Promise<AuthenticatedApplicantRequest | null> => getCurrentApplicantSession(context)
 
 /**
  * Builds one allow-listed audit record from request metadata. Callers provide
@@ -149,7 +156,11 @@ const auditEvent = (
   context: AuthOperationContext,
   input: {
     action: (typeof auditActions)[keyof typeof auditActions]
-    entityType: 'CORE_USER' | 'CORE_SESSION' | 'CORE_SIGNUP_CHALLENGE'
+    entityType:
+      | 'CORE_USER'
+      | 'CORE_USER_ROLE_GRANT'
+      | 'CORE_SESSION'
+      | 'CORE_SIGNUP_CHALLENGE'
     entityId?: string | null
     actorUserId?: string | null
     outcome?: 'SUCCESS' | 'FAILURE'
@@ -323,7 +334,6 @@ export const verifyApplicantSignup = async (
     email: challenge.email,
     passwordHash: await hashPassword(input.password),
     emailVerifiedAt: createdAt,
-    role: APPLICANT_ROLE,
     rowVersion: 1,
     createdAt,
     updatedAt: createdAt,
@@ -331,9 +341,21 @@ export const verifyApplicantSignup = async (
     deletedByUserId: null,
     deleteReason: null,
   }
+  const applicantRoleGrant: UserRoleGrantRecord = {
+    id: crypto.randomUUID(),
+    userId: newUser.id,
+    role: APPLICANT_ROLE,
+    grantedByUserId: null,
+    grantReason: 'VERIFIED_APPLICANT_SIGNUP',
+    grantedAt: createdAt,
+    revokedByUserId: null,
+    revokedAt: null,
+    revocationReason: null,
+  }
 
   const created = await createUserFromSignupChallenge(context.db, {
     user: newUser,
+    roleGrant: applicantRoleGrant,
     challenge,
     submittedOtpDigest,
     now,
@@ -341,6 +363,13 @@ export const verifyApplicantSignup = async (
       action: auditActions.userCreated,
       entityType: 'CORE_USER',
       entityId: newUser.id,
+      createdAt,
+    }),
+    roleAuditEvent: auditEvent(context, {
+      action: auditActions.roleGranted,
+      entityType: 'CORE_USER_ROLE_GRANT',
+      entityId: applicantRoleGrant.id,
+      metadata: { userId: newUser.id, role: APPLICANT_ROLE },
       createdAt,
     }),
   })
@@ -374,7 +403,7 @@ export const signInApplicant = async (
     return failure('Invalid email or password.')
   }
 
-  const user = await findActiveUserByEmail(context.db, email)
+  const user = await findActiveApplicantByEmail(context.db, email)
   // Unknown emails use the same scrypt work factor to reduce timing-based account
   // discovery. The final message is generic for every credential failure.
   const passwordMatches = await verifyPassword(
@@ -408,7 +437,7 @@ export const signInApplicant = async (
     ipAddress: context.requestHeaders.get('CF-Connecting-IP'),
     userAgent: context.requestHeaders.get('User-Agent'),
   }
-  await createUserSession(
+  const sessionCreated = await createApplicantSession(
     context.db,
     session,
     auditEvent(context, {
@@ -419,6 +448,21 @@ export const signInApplicant = async (
       createdAt: now,
     }),
   )
+  if (!sessionCreated) {
+    // A role revocation or user deletion that wins during password hashing must
+    // also win sign-in. Do not set a cookie or report a successful session from
+    // the stale credential read.
+    await createAuditEvent(
+      context.db,
+      auditEvent(context, {
+        action: auditActions.signInFailed,
+        entityType: 'CORE_USER',
+        entityId: user.id,
+        outcome: 'FAILURE',
+      }),
+    )
+    return failure('Invalid email or password.')
+  }
   setSessionCookie(context, token)
 
   return success({
@@ -431,7 +475,7 @@ export const signInApplicant = async (
 export const currentApplicantSession = async (
   context: AuthOperationContext,
 ): Promise<AuthResult<ApplicantAuthResponse>> => {
-  const current = await getCurrentSession(context)
+  const current = await getCurrentApplicantSession(context)
   if (!current) return { success: true, message: null, response: null }
 
   return success({
@@ -444,7 +488,7 @@ export const currentApplicantSession = async (
 export const applicantSessions = async (
   context: AuthOperationContext,
 ): Promise<AuthResult<{ sessions: ApplicantSession[] }>> => {
-  const current = await getCurrentSession(context)
+  const current = await getCurrentApplicantSession(context)
   if (!current) return failure(AUTH_REQUIRED_MESSAGE)
 
   const sessions = await listUserSessions(context.db, current.user.id, new Date())
@@ -482,7 +526,7 @@ export const revokeApplicantSession = async (
   sessionId: string,
   context: AuthOperationContext,
 ): Promise<AuthResult<{ value: boolean }>> => {
-  const current = await getCurrentSession(context)
+  const current = await getCurrentApplicantSession(context)
   if (!current) return failure(AUTH_REQUIRED_MESSAGE)
 
   // Ownership is part of the DELETE predicate, so another applicant's public
@@ -506,7 +550,7 @@ export const revokeApplicantSession = async (
 export const revokeOtherApplicantSessions = async (
   context: AuthOperationContext,
 ): Promise<AuthResult<{ value: boolean }>> => {
-  const current = await getCurrentSession(context)
+  const current = await getCurrentApplicantSession(context)
   if (!current) return failure(AUTH_REQUIRED_MESSAGE)
 
   await deleteOtherUserSessions(
@@ -527,7 +571,7 @@ export const revokeOtherApplicantSessions = async (
 export const revokeAllApplicantSessions = async (
   context: AuthOperationContext,
 ): Promise<AuthResult<{ value: boolean }>> => {
-  const current = await getCurrentSession(context)
+  const current = await getCurrentApplicantSession(context)
   if (!current) return failure(AUTH_REQUIRED_MESSAGE)
 
   await deleteAllUserSessions(

@@ -10,6 +10,8 @@ export const auditActions = {
   signupNotificationFailed: 'AUTH.SIGNUP_NOTIFICATION_FAILED',
   otpFailed: 'AUTH.OTP_FAILED',
   userCreated: 'USER.CREATED',
+  roleGranted: 'RBAC.ROLE_GRANTED',
+  roleRevoked: 'RBAC.ROLE_REVOKED',
   signInSucceeded: 'AUTH.SIGN_IN_SUCCEEDED',
   signInFailed: 'AUTH.SIGN_IN_FAILED',
   signedOut: 'AUTH.SIGNED_OUT',

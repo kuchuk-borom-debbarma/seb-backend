@@ -93,5 +93,6 @@ Focused implementation guides:
 - [Applicant application service](src/services/application/README.md)
 - [Mission SEP business and technical guide](docs/application-guide.md)
 - [Application integrity and failure recovery](docs/application-integrity.md)
+- [Administrator identity and fixed-role RBAC](docs/admin-rbac.md)
 
 Do not expose this version publicly until request and notification rate limiting is implemented.

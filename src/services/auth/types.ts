@@ -1,5 +1,6 @@
 import type { AppBindings } from '../../bindings'
 import type { Database } from '../../db'
+import type { UserRole } from '../../db/schema'
 
 export type { AppBindings } from '../../bindings'
 
@@ -38,15 +39,16 @@ export type ApplicantAuthResponse = {
   session: ApplicantSession
 }
 
-export type AuthenticatedApplicantRequest = {
+/** Internal session identity. Roles are loaded from active D1 grants per request. */
+export type AuthenticatedUserRequest = {
   user: {
     id: string
     email: string
     emailVerifiedAt: Date | null
-    role: 'APPLICANT'
     createdAt: Date
     updatedAt: Date
   }
+  roles: UserRole[]
   session: {
     id: string
     userId: string
@@ -57,6 +59,9 @@ export type AuthenticatedApplicantRequest = {
     userAgent: string | null
   }
 }
+
+/** Applicant guards return this only after confirming an active APPLICANT grant. */
+export type AuthenticatedApplicantRequest = AuthenticatedUserRequest
 
 export type StartApplicantSignupResponse = {
   challengeToken: string

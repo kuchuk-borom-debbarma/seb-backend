@@ -66,9 +66,14 @@ const applicantSession = async () => {
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO core_user (
-        id, email, password_hash, email_verified_at, role, row_version, created_at, updated_at
-      ) VALUES (?, ?, 'unused', ?, 'APPLICANT', 1, ?, ?)`,
+        id, email, password_hash, email_verified_at, row_version, created_at, updated_at
+      ) VALUES (?, ?, 'unused', ?, 1, ?, ?)`,
     ).bind(userId, `${userId}@example.test`, now, now, now),
+    env.DB.prepare(
+      `INSERT INTO core_user_role_grant (
+        id, user_id, role, grant_reason, granted_at
+      ) VALUES (?, ?, 'APPLICANT', 'TEST_FIXTURE', ?)`,
+    ).bind(crypto.randomUUID(), userId, now),
     env.DB.prepare(
       `INSERT INTO core_session (
         id, user_id, token_digest, expires_at, created_at, updated_at

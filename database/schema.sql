@@ -64,7 +64,6 @@ CREATE TABLE `core_user` (
 	`email` text NOT NULL,
 	`password_hash` text NOT NULL,
 	`email_verified_at` integer,
-	`role` text DEFAULT 'APPLICANT' NOT NULL,
 	`row_version` integer DEFAULT 1 NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
@@ -72,11 +71,33 @@ CREATE TABLE `core_user` (
 	`deleted_by_user_id` text,
 	`delete_reason` text,
 	FOREIGN KEY (`deleted_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
-	CONSTRAINT "core_user_role_check" CHECK("core_user"."role" = 'APPLICANT'),
 	CONSTRAINT "core_user_row_version_check" CHECK("core_user"."row_version" >= 1)
 );
 
 CREATE UNIQUE INDEX `core_user_email_unique` ON `core_user` (`email`);
+CREATE TABLE `core_user_role_grant` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`role` text NOT NULL,
+	`granted_by_user_id` text,
+	`grant_reason` text NOT NULL,
+	`granted_at` integer NOT NULL,
+	`revoked_by_user_id` text,
+	`revoked_at` integer,
+	`revocation_reason` text,
+	FOREIGN KEY (`user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`granted_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`revoked_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "core_user_role_grant_role_check" CHECK("core_user_role_grant"."role" IN ('APPLICANT', 'ADMIN', 'SUPER_ADMIN')),
+	CONSTRAINT "core_user_role_grant_revocation_check" CHECK(("core_user_role_grant"."revoked_at" IS NULL AND "core_user_role_grant"."revoked_by_user_id" IS NULL AND "core_user_role_grant"."revocation_reason" IS NULL)
+        OR ("core_user_role_grant"."revoked_at" IS NOT NULL
+          AND "core_user_role_grant"."revocation_reason" IS NOT NULL
+          AND "core_user_role_grant"."revoked_at" >= "core_user_role_grant"."granted_at"))
+);
+
+CREATE UNIQUE INDEX `core_user_role_grant_active_uq` ON `core_user_role_grant` (`user_id`,`role`) WHERE "core_user_role_grant"."revoked_at" IS NULL;
+CREATE INDEX `core_user_role_grant_user_idx` ON `core_user_role_grant` (`user_id`,`revoked_at`,`role`);
+CREATE INDEX `core_user_role_grant_role_idx` ON `core_user_role_grant` (`role`,`revoked_at`,`user_id`);
 CREATE TABLE `seb_application` (
 	`id` text PRIMARY KEY NOT NULL,
 	`applicant_user_id` text NOT NULL,

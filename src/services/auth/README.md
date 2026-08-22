@@ -16,9 +16,9 @@ resolvers call the exported functions directly.
    receive an unstored decoy challenge with the same public response shape and
    no notification, which avoids account enumeration.
 5. `verifyApplicantSignup` validates the password before reading the challenge.
-   A correct OTP atomically creates a verified `APPLICANT`, consumes the winning
-   challenge, cancels pending siblings, and writes an audit event. Signup does
-   not create a login session.
+   A correct OTP atomically creates a verified user with an active `APPLICANT`
+   role grant, consumes the winning challenge, cancels pending siblings, and
+   writes safe user/role audit events. Signup does not create a login session.
 
 Repeated signup starts create independent pairs. A wrong OTP decrements only its
 own pair, so one challenge cannot invalidate a sibling. D1 guards and unique
@@ -27,10 +27,10 @@ normalized email.
 
 ### Password sign-in
 
-`signInApplicant` normalizes the email, verifies the scrypt password hash, and
-creates a random session token. Only the token digest is stored in D1. The raw
-token is returned to the browser in an HttpOnly cookie and is never exposed in a
-GraphQL response.
+`signInApplicant` requires an active `APPLICANT` role, normalizes the email,
+verifies the scrypt password hash, and creates a random session token. Only the
+token digest is stored in D1. The raw token is returned to the browser in an
+HttpOnly cookie and is never exposed in a GraphQL response.
 
 The browser cookie has no persistent `Max-Age`, while the D1 session has a
 seven-day server expiry. Current-session and session-list responses expose only
@@ -105,8 +105,8 @@ client must return with its OTP.
 
 Authentication records fixed, allow-listed action names for challenge creation,
 notification failure, OTP failure, user creation, sign-in success/failure,
-sign-out, revocation, and bulk revocation. When practical, a state change and
-its successful audit event share one D1 batch.
+role grants, sign-out, revocation, and bulk revocation. When practical, a state
+change and its successful audit event share one D1 batch.
 
 Audit metadata may contain public entity IDs and small operational values. It
 must never contain passwords, password hashes, OTPs, challenge/session tokens,
@@ -128,6 +128,10 @@ provision production values as Cloudflare secrets.
 ## Security invariants
 
 - Applicant role and verified-email time are server controlled.
+- Roles are retained grants, not a mutable field on the user. Public signup can
+  create only `APPLICANT`.
+- Active roles are loaded from D1 on every request rather than cached in the
+  session, so revocation is immediately authoritative.
 - Email normalization is trim plus lowercase; passwords are not normalized.
 - Existing and soft-deleted emails remain reserved.
 - Deleted users cannot sign in and their sessions cannot authenticate.
@@ -142,6 +146,9 @@ Integration coverage lives in `test/applicant-auth.test.ts`. Run it with:
 ```sh
 npm test -- test/applicant-auth.test.ts
 ```
+
+See the [administrator RBAC guide](../../../docs/admin-rbac.md) for the fixed
+role hierarchy, retained grant lifecycle, and future provisioning boundary.
 
 ## Known limitation
 

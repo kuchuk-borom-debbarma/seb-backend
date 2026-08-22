@@ -96,7 +96,11 @@ for optimistic concurrency.
 
 ### `core`: reusable identity and audit
 
-- `core_user`: verified portal identity, password hash, role, and soft deletion.
+- `core_user`: verified portal identity, password hash, and soft deletion. Roles
+  are intentionally not copied onto the identity row.
+- `core_user_role_grant`: retained assignments for the fixed `APPLICANT`,
+  `ADMIN`, and `SUPER_ADMIN` roles. A partial unique index allows one active
+  grant per user/role while preserving revoked and re-granted history.
 - `core_session`: short-lived login sessions. This is the only table whose rows
   are intentionally hard-deleted on sign-out, revocation, user deletion, or
   expiry.
@@ -225,8 +229,9 @@ releases and do not over-reverse them.
   A resolved policy can later be represented in programme-cycle policy data and
   submission validation.
 - No programme cycle is seeded by the base schema.
-- Administrative identity, award services, payment integrations, and reviewer
-  operations are not implemented yet.
+- The shared administrative identity and fixed-role grant foundation exists;
+  administrator provisioning, GraphQL operations, award services, payment
+  integrations, and reviewer workflows are not implemented yet.
 - The database is not deployed with production data, so `database/schema.sql`
   remains a replaceable canonical baseline rather than an incremental migration.
 
@@ -261,3 +266,5 @@ future work. See the [combined application guide](../../../docs/application-guid
 for the end-to-end business and API behavior, and the focused
 [application integrity guide](../../../docs/application-integrity.md) for the
 write-time race guards and failure-recovery rules built on this schema.
+Administrative authorization is documented separately in the
+[fixed-role RBAC guide](../../../docs/admin-rbac.md).
