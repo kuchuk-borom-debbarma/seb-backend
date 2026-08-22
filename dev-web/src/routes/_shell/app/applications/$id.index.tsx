@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
 import { StatusRail } from '#/features/application/StatusRail'
+import { FORM_SECTIONS, SECTION_TITLES } from '#/features/application/draft'
 import { statusGuideQuery } from '#/features/application/queries'
 import {
   applicationQuery,
@@ -39,6 +40,16 @@ function ApplicationPage() {
 
   const openRevisions = application.revisionRequests.filter(
     (request) => request.resolvedAt === null && request.cancelledAt === null,
+  )
+
+  /*
+   * A draft unlocks every section, EXPANSION included, but expansion values are
+   * derived by the server from the qualifying award and are rejected if a client
+   * sends them. Listing a section nobody can type would send an applicant
+   * looking for a part of the form that does not exist.
+   */
+  const editableFormSections = FORM_SECTIONS.filter((section) =>
+    application.editableSections.includes(section),
   )
 
   return (
@@ -87,7 +98,7 @@ function ApplicationPage() {
             <div className="card-body stack">
               {openRevisions.map((request) => (
                 <div key={request.id} className="notice" data-tone="action">
-                  <span className="notice-title">{humanize(request.section)}</span>
+                  <span className="notice-title">{SECTION_TITLES[request.section]}</span>
                   {request.note}
                   <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.75rem' }}>
                     Requested {formatDateTime(request.requestedAt)}
@@ -105,9 +116,13 @@ function ApplicationPage() {
           <div className="card-body">
             <div className="detail-grid">
               <Detail label="Reference number">
-                <span className="tabular">
-                  {application.referenceNumber ?? 'Issued at first submission'}
-                </span>
+                {application.referenceNumber ? (
+                  <span className="tabular">{application.referenceNumber}</span>
+                ) : (
+                  // Set apart from a real reference: this is what will happen,
+                  // not a value anyone can quote.
+                  <span className="muted">Issued at first submission</span>
+                )}
               </Detail>
               <Detail label="First submitted">
                 {formatDate(application.firstSubmittedAt)}
@@ -115,9 +130,9 @@ function ApplicationPage() {
               <Detail label="Started">{formatDate(application.createdAt)}</Detail>
               <Detail label="Last changed">{formatDateTime(application.updatedAt)}</Detail>
               <Detail label="Sections you can edit">
-                {application.editableSections.length === 0
+                {editableFormSections.length === 0
                   ? 'None — this application is read-only'
-                  : application.editableSections.map(humanize).join(', ')}
+                  : editableFormSections.map((section) => SECTION_TITLES[section]).join(', ')}
               </Detail>
               <Detail label="Documents attached">
                 <span className="tabular">

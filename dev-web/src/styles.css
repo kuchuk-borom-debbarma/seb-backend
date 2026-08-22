@@ -356,24 +356,37 @@ th.numeric {
 }
 
 /* A label/value grid, the workhorse of every detail screen. */
+/* auto-fill rather than auto-fit: a row of three keeps the column width of a
+   row of four instead of stretching to fill the card, so every label/value pair
+   on the page lines up with the ones above and below it. */
 .detail-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
   gap: var(--space-5) var(--space-6);
 }
 
-/* Inside a form, a field is a column whose control sits at the bottom, so a
-   label that wraps to two lines does not push its own input below the rest of
-   the row. */
-.fieldset .detail-grid > div {
-  display: flex;
-  flex-direction: column;
+/*
+ * Inside a form, every field lends its three parts — label, control, message —
+ * to the section grid's own rows. Labels then align with labels and controls
+ * with controls across the row, however many lines a label wraps to and whether
+ * or not a field carries a hint beneath it.
+ *
+ * This replaces an earlier trick that pushed each control to the bottom of its
+ * column. That handled a two-line label but not a hint, because a hint sits
+ * below the control and so lifted it clear of its neighbours.
+ */
+.fieldset .detail-grid {
+  /* Row gap now separates a label from its own control, so it is the tight one.
+     Fields are held apart by their own padding instead. */
+  row-gap: var(--space-1);
 }
 
-.fieldset .detail-grid > div > .input,
-.fieldset .detail-grid > div > .select,
-.fieldset .detail-grid > div > .textarea {
-  margin-top: auto;
+.fieldset .detail-grid > * {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 3;
+  align-content: start;
+  padding-bottom: var(--space-5);
 }
 
 .table {
@@ -519,12 +532,56 @@ th.numeric {
   width: auto;
 }
 
+/* An attestation: a single statement the applicant ticks. It sits across the
+   section rather than in a field column, because it answers for the whole
+   section and its sentence needs the width. */
 .checkbox-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 0.875rem;
+  min-height: 2.25rem;
+}
+
+.checkbox-row label {
+  cursor: pointer;
+}
+
+/* A yes/no question. The fieldset carries no border of its own — the legend is
+   the question and the two answers sit under it like any other field's control,
+   so a form of these reads as one column rather than a stack of boxes. */
+.choice-field {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0; /* fieldsets refuse to shrink in a grid without this */
+}
+
+/* The section fieldset insets its legend to sit inside its border; this one has
+   no border, and its legend is a field label that must line up with the rest. */
+.choice-field legend {
+  padding: 0;
+}
+
+.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  min-height: 2.25rem;
+  align-items: center;
+}
+
+.choice {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   font-size: 0.875rem;
-  min-height: 2.25rem;
+  cursor: pointer;
+}
+
+.choice-field:disabled .choice {
+  cursor: default;
+  color: var(--muted);
 }
 
 /* A disclosure summary is a control: it needs a pointer, a focus ring and

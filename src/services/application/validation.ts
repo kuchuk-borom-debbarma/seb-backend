@@ -107,6 +107,21 @@ const requiredKeys = {
   ],
 } as const
 
+/**
+ * Names a document the way the person holding it would.
+ *
+ * Lower-casing the whole enum turned ST_CERTIFICATE into "st certificate" and
+ * DPR into "dpr", which read as typos in a message asking somebody to go and
+ * find that exact document.
+ */
+const DOCUMENT_ACRONYMS = new Set(['ST', 'GST', 'DPR', 'NOC'])
+
+const readableDocumentType = (documentType: string): string =>
+  documentType
+    .split('_')
+    .map((word) => (DOCUMENT_ACRONYMS.has(word) ? word : word.toLowerCase()))
+    .join(' ')
+
 const issue = (
   section: ApplicationSection,
   field: string,
@@ -659,7 +674,7 @@ const validateDocumentSubmission = (
       ).map((rule) => rule.documentType))
   for (const documentType of requiredDocuments) {
     if (!activeDocumentTypes.has(documentType)) {
-      issues.push(issue('DOCUMENTS', documentType, 'DOCUMENT_REQUIRED', `Upload ${documentType.replaceAll('_', ' ').toLowerCase()}.`))
+      issues.push(issue('DOCUMENTS', documentType, 'DOCUMENT_REQUIRED', `Upload the ${readableDocumentType(documentType)}.`))
     }
   }
 }

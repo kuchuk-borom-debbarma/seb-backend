@@ -91,6 +91,10 @@ const ACRONYMS = new Set([
  */
 export const humanize = (value: string): string =>
   value
+    // Field names arrive in camelCase and enums in SCREAMING_SNAKE, and both
+    // reach the interface — a validation issue names its field. Splitting on
+    // both keeps "receivedGovernmentFunding" from rendering as one word.
+    .replace(/([a-z0-9])([A-Z])/gu, '$1_$2')
     .split('_')
     .map((word, index) => {
       if (ACRONYMS.has(word)) return word

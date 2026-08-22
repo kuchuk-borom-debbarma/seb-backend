@@ -81,14 +81,23 @@ test.describe('the application form', () => {
     // The API refuses details for support that was not received, so the fields
     // are not offered until the answer calls for them.
     await expect(page.getByLabel('Scheme')).toBeHidden()
-    await page
-      .getByLabel('This enterprise has received government funding before')
-      .check()
+    const government = page.getByRole('group', {
+      name: 'Has this enterprise received government funding before?',
+    })
+    await government.getByLabel('Yes').check()
     await expect(page.getByLabel('Scheme')).toBeVisible()
 
     await expect(page.getByLabel('Bank', { exact: true })).toBeHidden()
-    await page.getByLabel('This enterprise has existing bank credit').check()
+    const credit = page.getByRole('group', {
+      name: 'Does this enterprise have existing bank credit?',
+    })
+    await credit.getByLabel('Yes').check()
     await expect(page.getByLabel('Bank', { exact: true })).toBeVisible()
+
+    // "No" is a complete answer, not the absence of one, and it puts the
+    // details away again.
+    await government.getByLabel('No').check()
+    await expect(page.getByLabel('Scheme')).toBeHidden()
   })
 
   test('will not submit an incomplete application, and lists what is missing', async ({
