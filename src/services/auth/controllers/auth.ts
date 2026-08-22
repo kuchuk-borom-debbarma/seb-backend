@@ -43,6 +43,7 @@ import type {
   Applicant,
   ApplicantAuthResponse,
   ApplicantSession,
+  AuthenticatedApplicantRequest,
   AuthOperationContext,
   AuthResult,
   StartApplicantSignupResponse,
@@ -130,6 +131,15 @@ const getCurrentSession = async (context: AuthOperationContext) => {
   if (!current) clearSessionCookie(context)
   return current
 }
+
+/**
+ * Internal authorization primitive shared by authenticated business services.
+ * It deliberately returns only the public user/session records; callers never
+ * receive the cookie token or its digest.
+ */
+export const authenticatedApplicant = (
+  context: AuthOperationContext,
+): Promise<AuthenticatedApplicantRequest | null> => getCurrentSession(context)
 
 /**
  * Builds one allow-listed audit record from request metadata. Callers provide

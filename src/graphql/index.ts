@@ -3,10 +3,14 @@ import { createSchema, createYoga } from 'graphql-yoga'
 import type { AppBindings } from '../bindings'
 import authMutationTypeDefs from './mutations/auth/auth.graphql'
 import authQueryTypeDefs from './queries/auth/auth.graphql'
+import sebMutationTypeDefs from './mutations/seb/seb.graphql'
+import sebQueryTypeDefs from './queries/seb/seb.graphql'
 import { authResolvers } from './resolvers/auth/auth'
+import { sebResolvers } from './resolvers/seb/seb'
 import baseTypeDefs from './schema.graphql'
 import type { GraphQLContext } from './types'
-import { singleAuthMutationRule } from './validation'
+import { singleAuthMutationRule, singleSebMutationRule } from './validation'
+import { parseDateOnly } from '../services/application/validation'
 
 export type { AppBindings } from '../bindings'
 
@@ -33,12 +37,69 @@ const dateTimeScalar = new GraphQLScalarType({
   },
 })
 
+const dateScalar = new GraphQLScalarType({
+  name: 'Date',
+  serialize(value) {
+    if (typeof value !== 'string' || !parseDateOnly(value)) {
+      throw new TypeError('Date must be a real date in YYYY-MM-DD format.')
+    }
+    return value
+  },
+  parseValue(value) {
+    if (typeof value !== 'string' || !parseDateOnly(value)) {
+      throw new TypeError('Date must be a real date in YYYY-MM-DD format.')
+    }
+    return value
+  },
+  parseLiteral(node) {
+    if (node.kind !== Kind.STRING || !parseDateOnly(node.value)) {
+      throw new TypeError('Date must be a real date in YYYY-MM-DD format.')
+    }
+    return node.value
+  },
+})
+
+const parseMoney = (value: unknown): number => {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && /^\d+$/u.test(value)
+        ? Number(value)
+        : Number.NaN
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new TypeError('Money must be a non-negative safe integer number of paise.')
+  }
+  return parsed
+}
+
+const moneyScalar = new GraphQLScalarType({
+  name: 'Money',
+  serialize(value) {
+    return String(parseMoney(value))
+  },
+  parseValue: parseMoney,
+  parseLiteral(node) {
+    if (node.kind !== Kind.INT && node.kind !== Kind.STRING) {
+      throw new TypeError('Money must be an integer number of paise.')
+    }
+    return parseMoney(node.value)
+  },
+})
+
 // SDL is split by domain while schema assembly stays in one discoverable place.
 const schema = createSchema<GraphQLContext>({
-  typeDefs: [baseTypeDefs, authQueryTypeDefs, authMutationTypeDefs],
+  typeDefs: [
+    baseTypeDefs,
+    authQueryTypeDefs,
+    authMutationTypeDefs,
+    sebQueryTypeDefs,
+    sebMutationTypeDefs,
+  ],
   resolvers: [
     {
       DateTime: dateTimeScalar,
+      Date: dateScalar,
+      Money: moneyScalar,
       Query: {
         health: () => ({
           name: 'seb-backend',
@@ -48,6 +109,7 @@ const schema = createSchema<GraphQLContext>({
       },
     },
     authResolvers,
+    sebResolvers,
   ],
 })
 
@@ -66,6 +128,7 @@ const graphqlServer = createYoga<GraphQLContext>({
         addValidationRule: (rule: typeof singleAuthMutationRule) => void
       }) {
         addValidationRule(singleAuthMutationRule)
+        addValidationRule(singleSebMutationRule)
       },
     },
   ],

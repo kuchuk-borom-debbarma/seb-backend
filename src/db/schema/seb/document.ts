@@ -1,5 +1,13 @@
 import { sql } from 'drizzle-orm'
-import { check, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import {
+  check,
+  foreignKey,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core'
 import { coreUser } from '../core/auth'
 import { versionedSoftDeleteColumns } from '../shared'
 import { sebApplication } from './application'
@@ -15,6 +23,14 @@ export const documentTypes = [
   'NOC',
 ] as const
 export const documentVersionOperations = ['UPLOAD', 'REPLACE'] as const
+export const documentUploadIntentStatuses = [
+  'ISSUED',
+  'FINALIZED',
+  'REJECTED',
+  'CLEANUP_PENDING',
+  'EXPIRED',
+] as const
+export const documentUploadCleanupTargetStatuses = ['REJECTED', 'EXPIRED'] as const
 
 /** Stable logical slot for one kind of application evidence. */
 export const sebApplicationDocument = sqliteTable(
@@ -73,6 +89,93 @@ export const sebApplicationDocumentVersion = sqliteTable(
     check(
       'seb_application_document_operation_check',
       sql`${table.operation} IN ('UPLOAD', 'REPLACE')`,
+    ),
+  ],
+)
+
+/**
+ * Retained authorization for one direct browser-to-R2 upload.
+ *
+ * The URL itself is never stored. The intent binds one opaque object key to an
+ * applicant, application, document slot, expected version, checksum, and
+ * expiry. This makes the later GraphQL finalization race-safe and gives the
+ * scheduled cleanup an exact object key without scanning the private bucket.
+ */
+export const sebDocumentUploadIntent = sqliteTable(
+  'seb_document_upload_intent',
+  {
+    id: text('id').primaryKey(),
+    applicationId: text('application_id')
+      .notNull()
+      .references(() => sebApplication.id, { onDelete: 'restrict' }),
+    applicantUserId: text('applicant_user_id')
+      .notNull()
+      .references(() => coreUser.id, { onDelete: 'restrict' }),
+    documentType: text('document_type', { enum: documentTypes }).notNull(),
+    expectedDocumentVersion: integer('expected_document_version').notNull(),
+    objectKey: text('object_key').notNull().unique(),
+    originalFilename: text('original_filename').notNull(),
+    contentType: text('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    checksumSha256: text('checksum_sha256').notNull(),
+    status: text('status', { enum: documentUploadIntentStatuses })
+      .notNull()
+      .default('ISSUED'),
+    // Cleanup may span multiple cron runs when R2 is unavailable. Persisting
+    // the intended terminal state prevents a rejected upload from later being
+    // mislabeled as merely expired (or vice versa).
+    cleanupTargetStatus: text('cleanup_target_status', {
+      enum: documentUploadCleanupTargetStatuses,
+    }),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    finalizedDocumentVersionId: text('finalized_document_version_id').references(
+      () => sebApplicationDocumentVersion.id,
+      { onDelete: 'restrict' },
+    ),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    // The applicant/application pair proves ownership at the database boundary
+    // rather than trusting an ID supplied during finalization.
+    foreignKey({
+      columns: [table.applicantUserId, table.applicationId],
+      foreignColumns: [sebApplication.applicantUserId, sebApplication.id],
+      name: 'seb_document_upload_intent_owner_application_fk',
+    }).onDelete('restrict'),
+    check(
+      'seb_document_upload_intent_type_check',
+      sql`${table.documentType} IN ('IDENTITY_AGE_PROOF', 'ST_CERTIFICATE', 'ADDRESS_PROOF', 'BUSINESS_REGISTRATION', 'GST_REGISTRATION', 'DPR', 'BANK_DETAILS', 'NOC')`,
+    ),
+    check(
+      'seb_document_upload_intent_status_check',
+      sql`${table.status} IN ('ISSUED', 'FINALIZED', 'REJECTED', 'CLEANUP_PENDING', 'EXPIRED')`,
+    ),
+    check(
+      'seb_document_upload_intent_expected_version_check',
+      sql`${table.expectedDocumentVersion} >= 0`,
+    ),
+    check(
+      'seb_document_upload_intent_size_check',
+      sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 10485760`,
+    ),
+    check(
+      'seb_document_upload_intent_lifecycle_check',
+      sql`(${table.status} = 'FINALIZED'
+          AND ${table.finalizedDocumentVersionId} IS NOT NULL
+          AND ${table.cleanupTargetStatus} IS NULL)
+        OR (${table.status} = 'CLEANUP_PENDING'
+          AND ${table.finalizedDocumentVersionId} IS NULL
+          AND ${table.cleanupTargetStatus} IN ('REJECTED', 'EXPIRED'))
+        OR (${table.status} NOT IN ('FINALIZED', 'CLEANUP_PENDING')
+          AND ${table.finalizedDocumentVersionId} IS NULL
+          AND ${table.cleanupTargetStatus} IS NULL)`,
+    ),
+    index('seb_document_upload_intent_cleanup_idx').on(table.status, table.expiresAt),
+    index('seb_document_upload_intent_owner_idx').on(
+      table.applicantUserId,
+      table.applicationId,
+      table.createdAt,
     ),
   ],
 )

@@ -41,38 +41,63 @@ const collectFields = (
   return fields
 }
 
-/** Enforces one side-effecting operation below each `mutation.auth` document. */
-export const singleAuthMutationRule = (context: ValidationContext): ASTVisitor => ({
+const fragmentMap = (document: DocumentNode) => new Map(
+  document.definitions
+    .filter((definition): definition is FragmentDefinitionNode =>
+      definition.kind === 'FragmentDefinition',
+    )
+    .map((fragment) => [fragment.name.value, fragment]),
+)
+
+// GraphQL clients commonly add __typename automatically. Meta-fields describe
+// the response shape and never invoke a business action, so they must not count
+// toward the one-mutation limit.
+const actionFields = (fields: FieldNode[]): FieldNode[] =>
+  fields.filter((field) => field.name.value !== '__typename')
+
+/** Builds the shared one-action rule used by the auth and SEB namespaces. */
+const singleMutationNamespaceRule = (
+  context: ValidationContext,
+  namespaceName: 'auth' | 'seb',
+  nestedNamespaces: boolean,
+  message: string,
+): ASTVisitor => ({
   Document: {
     leave(document: DocumentNode) {
-      const fragments = new Map(
-        document.definitions
-          .filter((definition): definition is FragmentDefinitionNode =>
-            definition.kind === 'FragmentDefinition',
-          )
-          .map((fragment) => [fragment.name.value, fragment]),
-      )
-
+      const fragments = fragmentMap(document)
       for (const definition of document.definitions) {
         if (definition.kind !== 'OperationDefinition' || definition.operation !== 'mutation') {
           continue
         }
 
-        let authActionCount = 0
-        const authFields = collectFields(definition.selectionSet, fragments, new Set()).filter(
-          (field) => field.name.value === 'auth',
+        const namespaceFields = collectFields(
+          definition.selectionSet,
+          fragments,
+          new Set(),
+        ).filter(
+          (field) => field.name.value === namespaceName,
         )
-        for (const authField of authFields) {
-          if (authField.selectionSet) {
-            authActionCount += collectFields(authField.selectionSet, fragments, new Set()).length
-          }
-        }
-
-        if (authActionCount > 1) {
-          // Reporting during validation guarantees no resolver has run yet.
+        const selectedFields = actionFields(namespaceFields.flatMap((field) =>
+          field.selectionSet
+            ? collectFields(field.selectionSet, fragments, new Set())
+            : [],
+        ))
+        const actionCount = nestedNamespaces
+          ? selectedFields.reduce(
+              (count, namespace) => count + (
+                namespace.selectionSet
+                  ? actionFields(
+                      collectFields(namespace.selectionSet, fragments, new Set()),
+                    ).length
+                  : 0
+              ),
+              0,
+            )
+          : selectedFields.length
+        if (actionCount > 1) {
           context.reportError(
-            new GraphQLError('Only one field may be selected beneath mutation.auth.', {
-              nodes: authFields,
+            new GraphQLError(message, {
+              nodes: namespaceFields,
             }),
           )
         }
@@ -80,3 +105,25 @@ export const singleAuthMutationRule = (context: ValidationContext): ASTVisitor =
     },
   },
 })
+
+/** Enforces one side-effecting operation below each `mutation.auth` document. */
+export const singleAuthMutationRule = (context: ValidationContext): ASTVisitor =>
+  singleMutationNamespaceRule(
+    context,
+    'auth',
+    false,
+    'Only one field may be selected beneath mutation.auth.',
+  )
+
+/**
+ * Allows one side-effecting field across `mutation.seb.enterprise` and
+ * `mutation.seb.application`. Namespace fields themselves are harmless; the
+ * action immediately below either namespace is what must be singular.
+ */
+export const singleSebMutationRule = (context: ValidationContext): ASTVisitor =>
+  singleMutationNamespaceRule(
+    context,
+    'seb',
+    true,
+    'Only one action may be selected beneath mutation.seb.',
+  )

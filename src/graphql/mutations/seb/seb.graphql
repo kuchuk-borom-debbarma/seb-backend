@@ -1,0 +1,177 @@
+extend type Mutation {
+  seb: SebMutation!
+}
+
+type SebMutation {
+  enterprise: SebEnterpriseMutation!
+  application: SebApplicationMutation!
+}
+
+input EnterpriseProfileInput {
+  name: String!
+  establishmentDate: Date
+  registrationType: RegistrationType!
+  registrationNumber: String
+  gstin: String
+  businessSector: BusinessSector
+  otherBusinessSector: String
+  businessBlockOrVillage: String
+  businessDistrict: String
+  businessPinCode: String
+  contactNumber: String
+  contactEmail: String
+}
+
+input UpdateEnterpriseInput {
+  id: ID!
+  expectedVersion: Int!
+  profile: EnterpriseProfileInput!
+}
+
+input EnterpriseDeletionInput {
+  id: ID!
+  expectedVersion: Int!
+  reason: String
+}
+
+type SebEnterpriseMutation {
+  create(input: EnterpriseProfileInput!): EnterpriseResult!
+  update(input: UpdateEnterpriseInput!): EnterpriseResult!
+  softDelete(input: EnterpriseDeletionInput!): EnterpriseResult!
+  restore(id: ID!, expectedVersion: Int!): EnterpriseResult!
+}
+
+input StartApplicationInput {
+  enterpriseId: ID!
+  programmeCycleId: ID!
+}
+
+input EnterpriseDetailsInput {
+  businessName: String
+  establishmentDate: Date
+  registrationType: RegistrationType
+  registrationNumber: String
+  gstin: String
+  businessSector: BusinessSector
+  otherBusinessSector: String
+  applicationCategory: ApplicationCategory
+  majorityOwnershipConfirmed: Boolean
+}
+
+input ApplicantProfileInput {
+  primaryApplicantName: String
+  designation: ApplicantDesignation
+  dateOfBirth: Date
+  gender: Gender
+  businessBlockOrVillage: String
+  businessDistrict: String
+  businessPinCode: String
+  contactNumber: String
+  contactEmail: String
+}
+
+input FinancialInput {
+  totalProjectCostPaise: Money
+  seedFundRequestedPaise: Money
+  bankLoanProposedPaise: Money
+  promoterContributionPaise: Money
+}
+
+input PriorFundingInput {
+  receivedGovernmentFunding: Boolean
+  governmentSchemeName: String
+  governmentFundingAmountPaise: Money
+  governmentFundingSanctionYear: Int
+  hasExistingBankCredit: Boolean
+  existingBankName: String
+  existingCreditAmountPaise: Money
+  existingCreditStatus: CreditStatus
+}
+
+input DocumentRequirementsInput { nocRequired: Boolean }
+
+input DeclarationInput {
+  relationshipType: RelationshipType
+  relatedPersonName: String
+  declarationAccepted: Boolean
+  declarationPlace: String
+}
+
+input ApplicationDraftInput {
+  enterprise: EnterpriseDetailsInput!
+  applicantProfile: ApplicantProfileInput!
+  financial: FinancialInput!
+  priorFunding: PriorFundingInput!
+  documents: DocumentRequirementsInput!
+  declaration: DeclarationInput!
+}
+
+input SaveApplicationDraftInput {
+  applicationId: ID!
+  expectedVersion: Int!
+  expectedStatusVersion: Int!
+  draft: ApplicationDraftInput!
+}
+
+input ApplicationVersionInput {
+  applicationId: ID!
+  expectedVersion: Int!
+  expectedStatusVersion: Int!
+}
+
+input ApplicationDeletionInput {
+  applicationId: ID!
+  expectedVersion: Int!
+  expectedStatusVersion: Int!
+  reason: String
+}
+
+input IssueDocumentUploadInput {
+  applicationId: ID!
+  documentType: DocumentType!
+  expectedDocumentVersion: Int!
+  originalFilename: String!
+  contentType: String!
+  sizeBytes: Int!
+  checksumSha256: String!
+}
+
+input ApplicationDocumentVersionInput {
+  applicationId: ID!
+  documentId: ID!
+  expectedVersion: Int!
+}
+
+type UploadHeader { name: String!, value: String! }
+type UploadAuthorization {
+  uploadId: ID!
+  uploadUrl: String!
+  expiresAt: DateTime!
+  requiredHeaders: [UploadHeader!]!
+}
+type UploadAuthorizationResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: UploadAuthorization
+}
+
+type FinalizedDocumentResponse { documentId: ID!, version: Int! }
+type FinalizedDocumentResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: FinalizedDocumentResponse
+}
+
+type SebApplicationMutation {
+  startInitial(input: StartApplicationInput!): ApplicationResult!
+  startExpansion(input: StartApplicationInput!): ApplicationResult!
+  saveDraft(input: SaveApplicationDraftInput!): ApplicationResult!
+  softDeleteDraft(input: ApplicationDeletionInput!): ApplicationResult!
+  restoreDraft(input: ApplicationVersionInput!): ApplicationResult!
+  issueDocumentUpload(input: IssueDocumentUploadInput!): UploadAuthorizationResult!
+  finalizeDocumentUpload(uploadId: ID!): FinalizedDocumentResult!
+  softDeleteDocument(input: ApplicationDocumentVersionInput!): BooleanResult!
+  restoreDocument(input: ApplicationDocumentVersionInput!): BooleanResult!
+  submit(input: ApplicationVersionInput!): ApplicationResult!
+  resubmit(input: ApplicationVersionInput!): ApplicationResult!
+}

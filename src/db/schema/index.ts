@@ -6,7 +6,11 @@ import {
   sebApplicationVersion,
 } from './seb/application'
 import { sebFundingCase, sebFundingCaseVersion } from './seb/case'
-import { sebApplicationDocument, sebApplicationDocumentVersion } from './seb/document'
+import {
+  sebApplicationDocument,
+  sebApplicationDocumentVersion,
+  sebDocumentUploadIntent,
+} from './seb/document'
 import { sebEnterprise, sebEnterpriseVersion } from './seb/enterprise'
 import {
   sebApplicationQualifyingAward,
@@ -46,6 +50,7 @@ export const schema = {
   sebApplicationSubmission,
   sebApplicationDocument,
   sebApplicationDocumentVersion,
+  sebDocumentUploadIntent,
   sebRevisionRequest,
   sebApplicationEvent,
   sebFundingAward,

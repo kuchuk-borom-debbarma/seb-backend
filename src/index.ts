@@ -3,6 +3,7 @@ import type { AppBindings } from './bindings'
 import { createDatabase } from './db'
 import { handleGraphQLRequest } from './graphql'
 import { cleanupExpiredAuthentication } from './services/auth'
+import { cleanupExpiredDocumentUploads } from './services/application'
 
 const app = new Hono<{ Bindings: AppBindings }>()
 
@@ -105,11 +106,19 @@ export default {
   scheduled(_controller: ScheduledController, env: AppBindings, ctx: ExecutionContext) {
     // Cleanup is deliberately off the request path. waitUntil lets Cloudflare
     // keep the scheduled task alive after the handler returns.
-    ctx.waitUntil(cleanupExpiredAuthentication(createDatabase(env.DB)))
+    const db = createDatabase(env.DB)
+    ctx.waitUntil(
+      Promise.all([
+        cleanupExpiredAuthentication(db),
+        cleanupExpiredDocumentUploads({ db, env }),
+      ]).then(() => undefined),
+    )
   },
   async queue(batch: MessageBatch, _env: CloudflareBindings) {
     for (const message of batch.messages) {
-      console.log('Processing queue message', message.id, message.body)
+      // Queue payloads may eventually contain notification data. Log only the
+      // Cloudflare message identifier so production logs cannot retain it.
+      console.log('Processing queue message', message.id)
     }
   },
 }

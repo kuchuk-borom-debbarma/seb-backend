@@ -110,6 +110,8 @@ CREATE TABLE `seb_application` (
 CREATE UNIQUE INDEX `seb_application_reference_number_unique` ON `seb_application` (`reference_number`);
 CREATE UNIQUE INDEX `seb_application_id_cycle_uq` ON `seb_application` (`id`,`programme_cycle_id`);
 CREATE UNIQUE INDEX `seb_application_case_id_uq` ON `seb_application` (`funding_case_id`,`id`);
+CREATE UNIQUE INDEX `seb_application_owner_id_uq` ON `seb_application` (`applicant_user_id`,`id`);
+CREATE UNIQUE INDEX `seb_application_case_cycle_phase_uq` ON `seb_application` (`funding_case_id`,`programme_cycle_id`,`phase_number`);
 CREATE INDEX `seb_application_owner_idx` ON `seb_application` (`applicant_user_id`,`deleted_at`,`updated_at`);
 CREATE INDEX `seb_application_enterprise_idx` ON `seb_application` (`enterprise_id`,`deleted_at`,`updated_at`);
 CREATE INDEX `seb_application_case_phase_idx` ON `seb_application` (`funding_case_id`,`phase_number`);
@@ -173,10 +175,11 @@ CREATE TABLE `seb_application_version` (
 	`existing_bank_name` text,
 	`existing_credit_amount_paise` integer,
 	`existing_credit_status` text,
-	`claimed_prior_sanction_order_number` text,
-	`claimed_prior_sanction_date` text,
-	`claimed_prior_disbursed_amount_paise` integer,
-	`claimed_continuous_operation_months` integer,
+	`prior_sanction_order_number` text,
+	`prior_sanction_date` text,
+	`prior_net_disbursed_amount_paise` integer,
+	`continuous_operation_months` integer,
+	`noc_required` integer,
 	`relationship_type` text,
 	`related_person_name` text,
 	`declaration_accepted` integer,
@@ -189,7 +192,7 @@ CREATE TABLE `seb_application_version` (
 	CONSTRAINT "seb_application_version_type_check" CHECK("seb_application_version"."application_type" IN ('INITIAL', 'EXPANSION')),
 	CONSTRAINT "seb_application_version_phase_check" CHECK(("seb_application_version"."application_type" = 'INITIAL' AND "seb_application_version"."phase_number" = 1)
         OR ("seb_application_version"."application_type" = 'EXPANSION' AND "seb_application_version"."phase_number" >= 2)),
-	CONSTRAINT "seb_application_version_change_type_check" CHECK("seb_application_version"."change_type" IN ('INITIAL', 'SAVE', 'REVISION', 'RESUBMISSION')),
+	CONSTRAINT "seb_application_version_change_type_check" CHECK("seb_application_version"."change_type" IN ('INITIAL', 'SAVE', 'REVISION', 'SUBMISSION', 'RESUBMISSION')),
 	CONSTRAINT "seb_application_version_registration_type_check" CHECK("seb_application_version"."registration_type" IS NULL OR "seb_application_version"."registration_type" IN ('NONE', 'CIN', 'UDYAM')),
 	CONSTRAINT "seb_application_version_sector_check" CHECK("seb_application_version"."business_sector" IS NULL OR "seb_application_version"."business_sector" IN ('AGRICULTURE_AND_ALLIED', 'HANDLOOM_TEXTILE_AND_HANDICRAFTS', 'FOOD_PROCESSING', 'TOURISM_AND_HOSPITALITY', 'INFORMATION_TECHNOLOGY', 'MANUFACTURING_AND_SERVICES', 'OTHER')),
 	CONSTRAINT "seb_application_version_category_check" CHECK("seb_application_version"."application_category" IS NULL OR "seb_application_version"."application_category" IN ('CATEGORY_A', 'CATEGORY_B')),
@@ -203,12 +206,13 @@ CREATE TABLE `seb_application_version` (
         AND ("seb_application_version"."promoter_contribution_paise" IS NULL OR "seb_application_version"."promoter_contribution_paise" >= 0)
         AND ("seb_application_version"."government_funding_amount_paise" IS NULL OR "seb_application_version"."government_funding_amount_paise" >= 0)
         AND ("seb_application_version"."existing_credit_amount_paise" IS NULL OR "seb_application_version"."existing_credit_amount_paise" >= 0)
-        AND ("seb_application_version"."claimed_prior_disbursed_amount_paise" IS NULL OR "seb_application_version"."claimed_prior_disbursed_amount_paise" >= 0)),
+        AND ("seb_application_version"."prior_net_disbursed_amount_paise" IS NULL OR "seb_application_version"."prior_net_disbursed_amount_paise" >= 0)),
 	CONSTRAINT "seb_application_version_boolean_check" CHECK(("seb_application_version"."majority_ownership_confirmed" IS NULL OR "seb_application_version"."majority_ownership_confirmed" IN (0, 1))
         AND ("seb_application_version"."received_government_funding" IS NULL OR "seb_application_version"."received_government_funding" IN (0, 1))
         AND ("seb_application_version"."has_existing_bank_credit" IS NULL OR "seb_application_version"."has_existing_bank_credit" IN (0, 1))
+        AND ("seb_application_version"."noc_required" IS NULL OR "seb_application_version"."noc_required" IN (0, 1))
         AND ("seb_application_version"."declaration_accepted" IS NULL OR "seb_application_version"."declaration_accepted" IN (0, 1))),
-	CONSTRAINT "seb_application_version_operation_months_check" CHECK("seb_application_version"."claimed_continuous_operation_months" IS NULL OR "seb_application_version"."claimed_continuous_operation_months" >= 0)
+	CONSTRAINT "seb_application_version_operation_months_check" CHECK("seb_application_version"."continuous_operation_months" IS NULL OR "seb_application_version"."continuous_operation_months" >= 0)
 );
 
 CREATE UNIQUE INDEX `seb_application_version_number_uq` ON `seb_application_version` (`application_id`,`version`);
@@ -286,6 +290,45 @@ CREATE TABLE `seb_application_document_version` (
 
 CREATE UNIQUE INDEX `seb_application_document_version_r2_object_key_unique` ON `seb_application_document_version` (`r2_object_key`);
 CREATE UNIQUE INDEX `seb_application_document_version_number_uq` ON `seb_application_document_version` (`document_id`,`version`);
+CREATE TABLE `seb_document_upload_intent` (
+	`id` text PRIMARY KEY NOT NULL,
+	`application_id` text NOT NULL,
+	`applicant_user_id` text NOT NULL,
+	`document_type` text NOT NULL,
+	`expected_document_version` integer NOT NULL,
+	`object_key` text NOT NULL,
+	`original_filename` text NOT NULL,
+	`content_type` text NOT NULL,
+	`size_bytes` integer NOT NULL,
+	`checksum_sha256` text NOT NULL,
+	`status` text DEFAULT 'ISSUED' NOT NULL,
+	`cleanup_target_status` text,
+	`expires_at` integer NOT NULL,
+	`finalized_document_version_id` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`application_id`) REFERENCES `seb_application`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`applicant_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`finalized_document_version_id`) REFERENCES `seb_application_document_version`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`applicant_user_id`,`application_id`) REFERENCES `seb_application`(`applicant_user_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_document_upload_intent_type_check" CHECK("seb_document_upload_intent"."document_type" IN ('IDENTITY_AGE_PROOF', 'ST_CERTIFICATE', 'ADDRESS_PROOF', 'BUSINESS_REGISTRATION', 'GST_REGISTRATION', 'DPR', 'BANK_DETAILS', 'NOC')),
+	CONSTRAINT "seb_document_upload_intent_status_check" CHECK("seb_document_upload_intent"."status" IN ('ISSUED', 'FINALIZED', 'REJECTED', 'CLEANUP_PENDING', 'EXPIRED')),
+	CONSTRAINT "seb_document_upload_intent_expected_version_check" CHECK("seb_document_upload_intent"."expected_document_version" >= 0),
+	CONSTRAINT "seb_document_upload_intent_size_check" CHECK("seb_document_upload_intent"."size_bytes" > 0 AND "seb_document_upload_intent"."size_bytes" <= 10485760),
+	CONSTRAINT "seb_document_upload_intent_lifecycle_check" CHECK(("seb_document_upload_intent"."status" = 'FINALIZED'
+          AND "seb_document_upload_intent"."finalized_document_version_id" IS NOT NULL
+          AND "seb_document_upload_intent"."cleanup_target_status" IS NULL)
+        OR ("seb_document_upload_intent"."status" = 'CLEANUP_PENDING'
+          AND "seb_document_upload_intent"."finalized_document_version_id" IS NULL
+          AND "seb_document_upload_intent"."cleanup_target_status" IN ('REJECTED', 'EXPIRED'))
+        OR ("seb_document_upload_intent"."status" NOT IN ('FINALIZED', 'CLEANUP_PENDING')
+          AND "seb_document_upload_intent"."finalized_document_version_id" IS NULL
+          AND "seb_document_upload_intent"."cleanup_target_status" IS NULL))
+);
+
+CREATE UNIQUE INDEX `seb_document_upload_intent_object_key_unique` ON `seb_document_upload_intent` (`object_key`);
+CREATE INDEX `seb_document_upload_intent_cleanup_idx` ON `seb_document_upload_intent` (`status`,`expires_at`);
+CREATE INDEX `seb_document_upload_intent_owner_idx` ON `seb_document_upload_intent` (`applicant_user_id`,`application_id`,`created_at`);
 CREATE TABLE `seb_enterprise` (
 	`id` text PRIMARY KEY NOT NULL,
 	`portal_owner_user_id` text NOT NULL,
@@ -376,8 +419,8 @@ CREATE TABLE `seb_application_qualifying_award` (
 );
 
 CREATE UNIQUE INDEX `seb_application_qualifying_award_application_id_unique` ON `seb_application_qualifying_award` (`application_id`);
-CREATE UNIQUE INDEX `seb_application_qualifying_award_current_funding_award_id_unique` ON `seb_application_qualifying_award` (`current_funding_award_id`);
 CREATE UNIQUE INDEX `seb_application_qualifying_award_id_case_uq` ON `seb_application_qualifying_award` (`id`,`funding_case_id`);
+CREATE UNIQUE INDEX `seb_application_qualifying_award_current_award_uq` ON `seb_application_qualifying_award` (`current_funding_award_id`);
 CREATE INDEX `seb_application_qualifying_award_case_idx` ON `seb_application_qualifying_award` (`funding_case_id`,`status`,`updated_at`);
 CREATE TABLE `seb_application_qualifying_award_version` (
 	`id` text PRIMARY KEY NOT NULL,

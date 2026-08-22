@@ -40,7 +40,13 @@ export const applicationStatuses = [
   'DISBURSED',
 ] as const
 
-export const applicationChangeTypes = ['INITIAL', 'SAVE', 'REVISION', 'RESUBMISSION'] as const
+export const applicationChangeTypes = [
+  'INITIAL',
+  'SAVE',
+  'REVISION',
+  'SUBMISSION',
+  'RESUBMISSION',
+] as const
 export const applicationTypes = ['INITIAL', 'EXPANSION'] as const
 export const applicationCategories = ['CATEGORY_A', 'CATEGORY_B'] as const
 export const applicantDesignations = [
@@ -91,6 +97,14 @@ export const sebApplication = sqliteTable(
     // application and the exact immutable policy-cycle version.
     uniqueIndex('seb_application_id_cycle_uq').on(table.id, table.programmeCycleId),
     uniqueIndex('seb_application_case_id_uq').on(table.fundingCaseId, table.id),
+    uniqueIndex('seb_application_owner_id_uq').on(table.applicantUserId, table.id),
+    // A phase may be retried in a later cycle, but duplicate attempts inside
+    // the same policy window are always a client or concurrency error.
+    uniqueIndex('seb_application_case_cycle_phase_uq').on(
+      table.fundingCaseId,
+      table.programmeCycleId,
+      table.phaseNumber,
+    ),
     check('seb_application_current_version_check', sql`${table.currentVersion} >= 1`),
     check('seb_application_status_version_check', sql`${table.statusVersion} >= 1`),
     check(
@@ -190,14 +204,19 @@ export const sebApplicationVersion = sqliteTable(
     existingCreditAmountPaise: integer('existing_credit_amount_paise'),
     existingCreditStatus: text('existing_credit_status', { enum: creditStatuses }),
 
-    // Section 5: applicant-declared prior-award details. The linked award and
-    // ledger are authoritative; these copied values preserve what was submitted.
-    claimedPriorSanctionOrderNumber: text('claimed_prior_sanction_order_number'),
-    claimedPriorSanctionDate: text('claimed_prior_sanction_date'),
-    claimedPriorDisbursedAmountPaise: integer('claimed_prior_disbursed_amount_paise'),
-    claimedContinuousOperationMonths: integer('claimed_continuous_operation_months'),
+    // Section 5: server-derived prior-award facts copied into the immutable
+    // snapshot. Applicants cannot override the linked award or ledger totals.
+    priorSanctionOrderNumber: text('prior_sanction_order_number'),
+    priorSanctionDate: text('prior_sanction_date'),
+    priorNetDisbursedAmountPaise: integer('prior_net_disbursed_amount_paise'),
+    continuousOperationMonths: integer('continuous_operation_months'),
 
-    // Section 7: applicant declaration. Section 6 documents live separately.
+    // Section 6: the form says "NOC, if applicable". Keeping the applicant's
+    // applicability declaration in the snapshot makes the document rule
+    // deterministic when an old submission is reviewed.
+    nocRequired: integer('noc_required', { mode: 'boolean' }),
+
+    // Section 7: applicant declaration. The files themselves live separately.
     relationshipType: text('relationship_type', { enum: relationshipTypes }),
     relatedPersonName: text('related_person_name'),
     declarationAccepted: integer('declaration_accepted', { mode: 'boolean' }),
@@ -231,7 +250,7 @@ export const sebApplicationVersion = sqliteTable(
     ),
     check(
       'seb_application_version_change_type_check',
-      sql`${table.changeType} IN ('INITIAL', 'SAVE', 'REVISION', 'RESUBMISSION')`,
+      sql`${table.changeType} IN ('INITIAL', 'SAVE', 'REVISION', 'SUBMISSION', 'RESUBMISSION')`,
     ),
     check(
       'seb_application_version_registration_type_check',
@@ -269,7 +288,7 @@ export const sebApplicationVersion = sqliteTable(
         AND (${table.promoterContributionPaise} IS NULL OR ${table.promoterContributionPaise} >= 0)
         AND (${table.governmentFundingAmountPaise} IS NULL OR ${table.governmentFundingAmountPaise} >= 0)
         AND (${table.existingCreditAmountPaise} IS NULL OR ${table.existingCreditAmountPaise} >= 0)
-        AND (${table.claimedPriorDisbursedAmountPaise} IS NULL OR ${table.claimedPriorDisbursedAmountPaise} >= 0)`,
+        AND (${table.priorNetDisbursedAmountPaise} IS NULL OR ${table.priorNetDisbursedAmountPaise} >= 0)`,
     ),
     // SQLite has no native Boolean storage class. These checks prevent values
     // such as 2 or -1 from being silently decoded by Drizzle as `true`.
@@ -278,11 +297,12 @@ export const sebApplicationVersion = sqliteTable(
       sql`(${table.majorityOwnershipConfirmed} IS NULL OR ${table.majorityOwnershipConfirmed} IN (0, 1))
         AND (${table.receivedGovernmentFunding} IS NULL OR ${table.receivedGovernmentFunding} IN (0, 1))
         AND (${table.hasExistingBankCredit} IS NULL OR ${table.hasExistingBankCredit} IN (0, 1))
+        AND (${table.nocRequired} IS NULL OR ${table.nocRequired} IN (0, 1))
         AND (${table.declarationAccepted} IS NULL OR ${table.declarationAccepted} IN (0, 1))`,
     ),
     check(
       'seb_application_version_operation_months_check',
-      sql`${table.claimedContinuousOperationMonths} IS NULL OR ${table.claimedContinuousOperationMonths} >= 0`,
+      sql`${table.continuousOperationMonths} IS NULL OR ${table.continuousOperationMonths} >= 0`,
     ),
   ],
 )

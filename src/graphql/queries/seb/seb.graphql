@@ -1,0 +1,338 @@
+extend type Query {
+  seb: SebQuery!
+}
+
+scalar Date
+scalar Money
+
+enum RegistrationType { NONE CIN UDYAM }
+enum BusinessSector {
+  AGRICULTURE_AND_ALLIED
+  HANDLOOM_TEXTILE_AND_HANDICRAFTS
+  FOOD_PROCESSING
+  TOURISM_AND_HOSPITALITY
+  INFORMATION_TECHNOLOGY
+  MANUFACTURING_AND_SERVICES
+  OTHER
+}
+enum EnterpriseStatus { PROPOSED ACTIVE INACTIVE }
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  DESK_REVIEW
+  REVISION_REQUIRED
+  PARTNER_BANK_EVALUATION
+  TTM_REVIEW
+  APPROVED
+  REJECTED
+  SANCTIONED
+  DISBURSED
+}
+enum ApplicationType { INITIAL EXPANSION }
+enum ApplicationCategory { CATEGORY_A CATEGORY_B }
+enum ApplicantDesignation { PROPRIETOR MANAGING_PARTNER DIRECTOR AUTHORIZED_SIGNATORY }
+enum Gender { MALE FEMALE OTHER }
+enum CreditStatus { STANDARD NPA }
+enum RelationshipType { SON_OF DAUGHTER_OF WIFE_OF }
+enum DocumentType {
+  IDENTITY_AGE_PROOF
+  ST_CERTIFICATE
+  ADDRESS_PROOF
+  BUSINESS_REGISTRATION
+  GST_REGISTRATION
+  DPR
+  BANK_DETAILS
+  NOC
+}
+enum ApplicationSection {
+  ENTERPRISE
+  APPLICANT_PROFILE
+  FINANCIAL
+  PRIOR_FUNDING
+  EXPANSION
+  DOCUMENTS
+  DECLARATION
+}
+
+type SebQuery {
+  enterprise: SebEnterpriseQuery!
+  application: SebApplicationQuery!
+}
+
+type SebEnterpriseQuery {
+  mine(first: Int, after: String, includeDeleted: Boolean): EnterpriseConnectionResult!
+  byId(id: ID!): EnterpriseResult!
+}
+
+type SebApplicationQuery {
+  availableProgrammeCycles: ProgrammeCyclesResult!
+  mine(
+    first: Int
+    after: String
+    enterpriseId: ID
+    status: ApplicationStatus
+    includeDeleted: Boolean
+  ): ApplicationConnectionResult!
+  byId(id: ID!): ApplicationResult!
+  validate(applicationId: ID!): ApplicationValidationResult!
+  expansionEligibility(
+    enterpriseId: ID!
+    programmeCycleId: ID!
+  ): ExpansionEligibilityResult!
+  timeline(applicationId: ID!, first: Int, after: String): TimelineConnectionResult!
+  documentDownloadUrl(documentId: ID!): DocumentDownloadResult!
+}
+
+type PageInfo {
+  endCursor: String
+  hasNextPage: Boolean!
+}
+
+type Enterprise {
+  id: ID!
+  name: String!
+  establishmentDate: Date
+  registrationType: RegistrationType!
+  registrationNumber: String
+  gstin: String
+  businessSector: BusinessSector
+  otherBusinessSector: String
+  businessBlockOrVillage: String
+  businessDistrict: String
+  businessPinCode: String
+  contactNumber: String
+  contactEmail: String
+  status: EnterpriseStatus!
+  currentVersion: Int!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  deletedAt: DateTime
+}
+
+type EnterpriseConnection {
+  nodes: [Enterprise!]!
+  pageInfo: PageInfo!
+}
+
+type ProgrammeCycle {
+  id: ID!
+  cycleCode: String!
+  cycleYear: Int!
+  policyReference: String
+  currentVersion: Int!
+  opensAt: DateTime
+  closesAt: DateTime
+}
+
+type ProgrammeCyclesResponse { cycles: [ProgrammeCycle!]! }
+
+type ApplicationSummary {
+  id: ID!
+  enterpriseId: ID!
+  fundingCaseId: ID!
+  programmeCycleId: ID!
+  applicationType: ApplicationType!
+  phaseNumber: Int!
+  referenceNumber: String
+  currentVersion: Int!
+  status: ApplicationStatus!
+  statusVersion: Int!
+  firstSubmittedAt: DateTime
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  deletedAt: DateTime
+  businessName: String
+  cycleCode: String!
+  cycleYear: Int!
+}
+
+type ApplicationConnection {
+  nodes: [ApplicationSummary!]!
+  pageInfo: PageInfo!
+}
+
+type EnterpriseSnapshot {
+  businessName: String
+  establishmentDate: Date
+  registrationType: RegistrationType
+  registrationNumber: String
+  gstin: String
+  businessSector: BusinessSector
+  otherBusinessSector: String
+  applicationCategory: ApplicationCategory
+  majorityOwnershipConfirmed: Boolean
+}
+
+type ApplicantProfileSnapshot {
+  primaryApplicantName: String
+  designation: ApplicantDesignation
+  dateOfBirth: Date
+  gender: Gender
+  businessBlockOrVillage: String
+  businessDistrict: String
+  businessPinCode: String
+  contactNumber: String
+  contactEmail: String
+}
+
+type FinancialSnapshot {
+  totalProjectCostPaise: Money
+  seedFundRequestedPaise: Money
+  bankLoanProposedPaise: Money
+  promoterContributionPaise: Money
+}
+
+type PriorFundingSnapshot {
+  receivedGovernmentFunding: Boolean
+  governmentSchemeName: String
+  governmentFundingAmountPaise: Money
+  governmentFundingSanctionYear: Int
+  hasExistingBankCredit: Boolean
+  existingBankName: String
+  existingCreditAmountPaise: Money
+  existingCreditStatus: CreditStatus
+}
+
+type DocumentRequirementsSnapshot { nocRequired: Boolean }
+
+type DeclarationSnapshot {
+  relationshipType: RelationshipType
+  relatedPersonName: String
+  declarationAccepted: Boolean
+  declarationPlace: String
+}
+
+type ApplicationSnapshot {
+  version: Int!
+  programmeCycleVersion: Int!
+  applicationType: ApplicationType!
+  phaseNumber: Int!
+  changeType: String!
+  createdAt: DateTime!
+  declarationAcceptedAt: DateTime
+  enterprise: EnterpriseSnapshot!
+  applicantProfile: ApplicantProfileSnapshot!
+  financial: FinancialSnapshot!
+  priorFunding: PriorFundingSnapshot!
+  documents: DocumentRequirementsSnapshot!
+  declaration: DeclarationSnapshot!
+  priorSanctionOrderNumber: String
+  priorSanctionDate: Date
+  priorNetDisbursedAmountPaise: Money
+  continuousOperationMonths: Int
+}
+
+type ApplicationDocument {
+  id: ID!
+  documentType: DocumentType!
+  currentVersion: Int!
+  originalFilename: String!
+  contentType: String!
+  sizeBytes: Int!
+  createdAt: DateTime!
+  deletedAt: DateTime
+}
+
+type RevisionRequest {
+  id: ID!
+  section: ApplicationSection!
+  note: String!
+  requestedAt: DateTime!
+  resolvedAt: DateTime
+  cancelledAt: DateTime
+}
+
+type Application {
+  id: ID!
+  enterpriseId: ID!
+  fundingCaseId: ID!
+  programmeCycleId: ID!
+  applicationType: ApplicationType!
+  phaseNumber: Int!
+  referenceNumber: String
+  currentVersion: Int!
+  status: ApplicationStatus!
+  statusVersion: Int!
+  firstSubmittedAt: DateTime
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  deletedAt: DateTime
+  snapshot: ApplicationSnapshot!
+  documents: [ApplicationDocument!]!
+  revisionRequests: [RevisionRequest!]!
+}
+
+type ValidationIssue {
+  section: ApplicationSection!
+  field: String!
+  code: String!
+  message: String!
+}
+type ValidationReport { valid: Boolean!, issues: [ValidationIssue!]! }
+
+type ExpansionEligibility {
+  eligible: Boolean!
+  nextPhaseNumber: Int
+  qualifyingAwardId: ID
+  eligibleAt: DateTime
+  reasons: [String!]!
+}
+
+type TimelineEvent {
+  id: ID!
+  eventType: String!
+  fromStatus: ApplicationStatus
+  toStatus: ApplicationStatus
+  section: ApplicationSection
+  message: String
+  createdAt: DateTime!
+}
+type TimelineConnection { nodes: [TimelineEvent!]!, pageInfo: PageInfo! }
+
+type DocumentDownloadResponse { downloadUrl: String!, expiresAt: DateTime! }
+
+type EnterpriseResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: Enterprise
+}
+type EnterpriseConnectionResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: EnterpriseConnection
+}
+type ProgrammeCyclesResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: ProgrammeCyclesResponse
+}
+type ApplicationResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: Application
+}
+type ApplicationConnectionResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: ApplicationConnection
+}
+type ApplicationValidationResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: ValidationReport
+}
+type ExpansionEligibilityResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: ExpansionEligibility
+}
+type TimelineConnectionResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: TimelineConnection
+}
+type DocumentDownloadResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: DocumentDownloadResponse
+}

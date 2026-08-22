@@ -149,7 +149,10 @@ export const sebApplicationQualifyingAward = sqliteTable(
     id: text('id').primaryKey(),
     applicationId: text('application_id').notNull().unique(),
     fundingCaseId: text('funding_case_id').notNull(),
-    currentFundingAwardId: text('current_funding_award_id').unique(),
+    // SQLite permits multiple NULL values in a unique index. Cancelling a
+    // rejected/deleted attempt clears this pointer, so history remains reusable
+    // while two current attempts can never claim the same award concurrently.
+    currentFundingAwardId: text('current_funding_award_id'),
     status: text('status', { enum: qualifyingAwardLinkStatuses })
       .notNull()
       .default('ACTIVE'),
@@ -181,6 +184,9 @@ export const sebApplicationQualifyingAward = sqliteTable(
     uniqueIndex('seb_application_qualifying_award_id_case_uq').on(
       table.id,
       table.fundingCaseId,
+    ),
+    uniqueIndex('seb_application_qualifying_award_current_award_uq').on(
+      table.currentFundingAwardId,
     ),
     check(
       'seb_application_qualifying_award_version_check',

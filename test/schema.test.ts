@@ -178,6 +178,7 @@ describe('core and Mission SEP schema', () => {
       'seb_application_version',
       'seb_award_assessment',
       'seb_disbursement',
+      'seb_document_upload_intent',
       'seb_enterprise',
       'seb_enterprise_version',
       'seb_funding_award',
@@ -414,7 +415,7 @@ describe('core and Mission SEP schema', () => {
 
     for (const [field, value] of [
       ['majority_ownership_confirmed', 2],
-      ['claimed_continuous_operation_months', -1],
+      ['continuous_operation_months', -1],
       ['seed_fund_requested_paise', -1],
       ['business_sector', 'NOT_A_SECTOR'],
     ] as const) {
@@ -497,15 +498,16 @@ describe('core and Mission SEP schema', () => {
       ),
     ])
 
-    // A second active link cannot consume the same award.
+    // One award can back only one current attempt. Rejected/deleted attempts
+    // first clear their pointer, after which the immutable version keeps the
+    // historic association and a later application can reuse the award.
     const competingExpansionId = await insertApplication({
       ...first,
       applicationId: crypto.randomUUID(),
       type: 'EXPANSION',
       phase: 3,
     })
-    await expect(
-      env.DB.prepare(
+    await expect(env.DB.prepare(
         `INSERT INTO seb_application_qualifying_award (
           id, application_id, funding_case_id, current_funding_award_id, status,
           current_version, created_by_user_id, created_at, updated_at
@@ -520,8 +522,7 @@ describe('core and Mission SEP schema', () => {
           now,
           now,
         )
-        .run(),
-    ).rejects.toThrow()
+        .run()).rejects.toThrow()
 
     // A link cannot smuggle in an award from another funding case.
     const second = await createGraph()
@@ -624,7 +625,15 @@ describe('core and Mission SEP schema', () => {
       ],
     })
 
-    // The old award is reusable after correction because only active links are unique.
+    // The old award is reusable by a different expansion after the current
+    // association moves away from it. A link root remains one-to-one with its
+    // application; retries receive their own application and link roots.
+    const retryExpansionId = await insertApplication({
+      ...first,
+      applicationId: crypto.randomUUID(),
+      type: 'EXPANSION',
+      phase: 5,
+    })
     await env.DB.prepare(
       `INSERT INTO seb_application_qualifying_award (
         id, application_id, funding_case_id, current_funding_award_id, status,
@@ -633,7 +642,7 @@ describe('core and Mission SEP schema', () => {
     )
       .bind(
         crypto.randomUUID(),
-        competingExpansionId,
+        retryExpansionId,
         first.caseId,
         firstAwardId,
         first.userId,

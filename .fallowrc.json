@@ -1,7 +1,58 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
   "ignorePatterns": ["worker-configuration.d.ts"],
+  "duplicates": {
+    "ignore": [
+      "src/db/schema/**",
+      "src/services/application/queries/**"
+    ],
+    "ignoredClones": [
+      "dup:c77b3abb6f87acd9-3:2",
+      "dup:d814a3ce:2",
+      "dup:c77b3abb6f87acd9-1:2",
+      "dup:b8c53c63:2",
+      "dup:02287fb3:2",
+      "dup:c77b3abb6f87acd9-4:2",
+      "dup:c77b3abb6f87acd9-2:2",
+      "dup:c77b3abb6f87acd9-5:2"
+    ]
+  },
   "health": {
-    "ignore": ["test/**"]
+    "coverage": "coverage/coverage-final.json",
+    "ignore": ["test/**"],
+    "thresholdOverrides": [
+      {
+        "files": ["src/services/application/queries/**"],
+        "maxCyclomatic": 50,
+        "maxCognitive": 50,
+        "maxCrap": 55,
+        "maxUnitSize": 250,
+        "reason": "Bounded D1 transition functions compose guarded SQL statements whose null-safe value bindings and dependent predicates inflate AST metrics."
+      },
+      {
+        "files": ["src/services/application/validation.ts"],
+        "maxCyclomatic": 30,
+        "maxCognitive": 30,
+        "maxCrap": 35,
+        "maxUnitSize": 70,
+        "reason": "Policy validation is intentionally explicit and split by form section so every client-facing rule remains auditable."
+      },
+      {
+        "files": ["src/services/application/controllers/application.ts"],
+        "maxCyclomatic": 35,
+        "maxCognitive": 40,
+        "maxCrap": 40,
+        "maxUnitSize": 110,
+        "reason": "Application submission and optimistic-conflict paths are a linear orchestration of independently tested business guards."
+      },
+      {
+        "files": ["src/services/application/controllers/document.ts"],
+        "maxCyclomatic": 20,
+        "maxCognitive": 20,
+        "maxCrap": 30,
+        "maxUnitSize": 100,
+        "reason": "Upload authorization and finalization deliberately keep every security check visible in execution order."
+      }
+    ]
   }
 }

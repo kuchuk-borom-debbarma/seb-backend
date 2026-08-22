@@ -7,8 +7,9 @@
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "fallow": "fallow --type-aware",
-    "check": "npm run typecheck && npm run fallow && npm run db:schema:check && npm test",
+    "check": "npm run typecheck && npm run test:coverage && npm run fallow && npm run db:schema:check",
     "db:schema:print": "drizzle-kit export --config drizzle.config.ts",
     "db:schema:generate": "node scripts/check-schema.mjs --write",
     "db:schema:check": "node scripts/check-schema.mjs",
@@ -16,6 +17,7 @@
   },
   "dependencies": {
     "@noble/hashes": "^2.3.0",
+    "aws4fetch": "^1.0.20",
     "drizzle-orm": "^0.45.2",
     "graphql": "^17.0.2",
     "graphql-yoga": "^5.22.0",
@@ -25,6 +27,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.71",
     "@types/node": "^26.2.0",
+    "@vitest/coverage-istanbul": "^3.2.7",
     "drizzle-kit": "^0.31.10",
     "fallow": "^3.17.0",
     "typescript": "^5.9.3",

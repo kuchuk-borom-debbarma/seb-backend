@@ -61,7 +61,9 @@ Physical SQLite table names use the same `core_` and `seb_` prefixes. Business r
 
 The checked-in `database/schema.sql` file is the canonical baseline for an empty database. It is intentionally not an incremental migration or an upgrade path for an existing deployment.
 
-Read the [schema and application lifecycle guide](src/db/schema/README.md) for the complete user → enterprise → funding case → application → award model, its policy assumptions, and the base-schema workflow.
+Read the [schema guide](src/db/schema/README.md) for persistence design and the
+[combined application guide](docs/application-guide.md) for the complete
+business journey, API behavior, validation, R2 flow, assumptions, and examples.
 
 ## Applicant authentication
 
@@ -88,5 +90,8 @@ Focused implementation guides:
 
 - [Applicant authentication service](src/services/auth/README.md)
 - [External notification service](src/services/external-notification/README.md)
+- [Applicant application service](src/services/application/README.md)
+- [Mission SEP business and technical guide](docs/application-guide.md)
+- [Application integrity and failure recovery](docs/application-integrity.md)
 
 Do not expose this version publicly until request and notification rate limiting is implemented.

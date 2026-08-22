@@ -15,6 +15,20 @@ export const auditActions = {
   signedOut: 'AUTH.SIGNED_OUT',
   sessionRevoked: 'AUTH.SESSION_REVOKED',
   sessionsRevoked: 'AUTH.SESSIONS_REVOKED',
+  enterpriseCreated: 'SEB.ENTERPRISE_CREATED',
+  enterpriseUpdated: 'SEB.ENTERPRISE_UPDATED',
+  enterpriseDeleted: 'SEB.ENTERPRISE_DELETED',
+  enterpriseRestored: 'SEB.ENTERPRISE_RESTORED',
+  applicationStarted: 'SEB.APPLICATION_STARTED',
+  applicationSaved: 'SEB.APPLICATION_SAVED',
+  applicationDeleted: 'SEB.APPLICATION_DELETED',
+  applicationRestored: 'SEB.APPLICATION_RESTORED',
+  applicationSubmitted: 'SEB.APPLICATION_SUBMITTED',
+  applicationResubmitted: 'SEB.APPLICATION_RESUBMITTED',
+  documentUploadIssued: 'SEB.DOCUMENT_UPLOAD_ISSUED',
+  documentFinalized: 'SEB.DOCUMENT_FINALIZED',
+  documentDeleted: 'SEB.DOCUMENT_DELETED',
+  documentRestored: 'SEB.DOCUMENT_RESTORED',
 } as const
 
 /**

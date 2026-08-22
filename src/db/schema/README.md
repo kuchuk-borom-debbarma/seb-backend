@@ -63,8 +63,8 @@ The expected application lifecycle is:
    `seb_application_qualifying_award`. Corrections and cancellations create
    immutable `seb_application_qualifying_award_version` rows, so an incorrect
    association is never overwritten or deleted. The future application service
-   derives eligibility from the preceding phase, disbursement dates, current
-   assessment results, and competing applications rather than trusting a manual
+   derives eligibility from the preceding phase, retained disbursement dates,
+   and competing applications rather than trusting a manual
    Phase-II flag.
 
 ## Why the schema has both current rows and versions
@@ -150,9 +150,9 @@ legal/business record. Its nullable draft fields are grouped as follows:
   and promoter contribution.
 - Prior funding and credit: applicant-declared government funding and bank
   credit details.
-- Expansion claim: claimed prior sanction order/date, claimed disbursement, and
-  claimed continuous-operation months. These preserve what the applicant said;
-  award, ledger, and assessment tables remain authoritative.
+- Expansion facts: prior sanction order/date, net retained disbursement, and
+  continuous-operation months are derived by the backend from the qualifying
+  award and append-only ledger, then frozen into the submitted snapshot.
 - Declaration: relationship, related person, acceptance time, and place.
 - Evidence: documents live in their own versioned tables rather than inside the
   form snapshot.
@@ -185,10 +185,11 @@ cannot silently be reused. Sessions are the deliberate exception and are
 physically removed to prevent unbounded accumulation.
 
 Some rules require an atomic multi-row decision and therefore belong to the
-future service, not a single-row check constraint. Expansion eligibility will
-verify the immediately preceding phase, same enterprise/case, first successful
-release at least 12 months earlier, latest required assessments passed, and no
-competing active expansion application. Award creation will verify that the
+application service, not a single-row check constraint. Expansion eligibility
+verifies the immediately preceding phase, same enterprise/case, a retained
+release at least 12 months earlier, and no competing active expansion
+application. Assessments are historical but do not currently gate applicant
+eligibility. Award creation will verify that the
 application is sanctioned. Ledger services will verify that reversals point to
 releases and do not over-reverse them.
 
@@ -224,8 +225,8 @@ releases and do not over-reverse them.
   A resolved policy can later be represented in programme-cycle policy data and
   submission validation.
 - No programme cycle is seeded by the base schema.
-- Administrative identity, application APIs, upload operations, award services,
-  payment integrations, and eligibility execution are not implemented yet.
+- Administrative identity, award services, payment integrations, and reviewer
+  operations are not implemented yet.
 - The database is not deployed with production data, so `database/schema.sql`
   remains a replaceable canonical baseline rather than an incremental migration.
 
@@ -252,8 +253,11 @@ state synchronized whenever tables or application rules change.
 
 ## Current state
 
-The schema foundation and applicant authentication persistence exist. The
-application, document, review, award, ledger, and assessment tables are defined
-and integration-tested, but no application-facing GraphQL operations or service
-implementations write them yet. R2 and Queue bindings exist, while production
-upload and notification transports remain future work.
+The schema foundation, applicant authentication, applicant enterprise and
+application GraphQL operations, validation, submission/resubmission, private R2
+upload finalization, and cleanup exist. Administrative review, award, ledger,
+assessment, malware-scanning, and production-notification services remain
+future work. See the [combined application guide](../../../docs/application-guide.md)
+for the end-to-end business and API behavior, and the focused
+[application integrity guide](../../../docs/application-integrity.md) for the
+write-time race guards and failure-recovery rules built on this schema.

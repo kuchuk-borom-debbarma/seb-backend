@@ -38,6 +38,26 @@ export type ApplicantAuthResponse = {
   session: ApplicantSession
 }
 
+export type AuthenticatedApplicantRequest = {
+  user: {
+    id: string
+    email: string
+    emailVerifiedAt: Date | null
+    role: 'APPLICANT'
+    createdAt: Date
+    updatedAt: Date
+  }
+  session: {
+    id: string
+    userId: string
+    expiresAt: Date
+    createdAt: Date
+    updatedAt: Date
+    ipAddress: string | null
+    userAgent: string | null
+  }
+}
+
 export type StartApplicantSignupResponse = {
   challengeToken: string
   expiresAt: Date
