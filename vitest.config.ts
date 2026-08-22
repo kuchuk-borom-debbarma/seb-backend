@@ -2,6 +2,10 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
 export default defineWorkersConfig({
   test: {
+    // The Worker's own suite only. `dev-web` is a separate package whose
+    // end-to-end specs are run by Playwright against a real browser, and which
+    // would otherwise be collected here by the default `**/*.spec.ts` glob.
+    include: ['test/**/*.test.ts'],
     // Istanbul instrumentation makes the intentionally end-to-end
     // administration journey slower than Vitest's five-second default.
     testTimeout: 30_000,

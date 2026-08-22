@@ -30,6 +30,23 @@ npm run check
 npx wrangler deploy --dry-run
 ```
 
+## Development web client
+
+`dev-web/` is a browser client covering the API, used to demonstrate and
+exercise the programme by hand. It is a development tool, but it is not a mock:
+every control maps to a real operation, and nothing appears on screen that does
+not work.
+
+```sh
+npm run local                  # the Worker, on http://localhost:9999
+cd dev-web && npm run local    # the client, on http://localhost:9990
+```
+
+It is a separate package with its own dependency tree, excluded from this
+package's TypeScript, Vitest and `fallow` runs. See the
+[development web client guide](docs/dev-web-guide.md) for first-run setup, the
+session-forwarding design, and its end-to-end suite.
+
 `npm run check` runs the typecheck, the coverage suite at a 100% threshold,
 `fallow --type-aware`, and the D1 schema drift check. Duplication analysis is
 configured with `minOccurrences: 3`: a *pair* of structurally parallel functions
@@ -124,6 +141,7 @@ cannot be revoked. See the
 Focused implementation guides:
 
 - [Mission SEP product roadmap](docs/ROADMAP.md)
+- [Development web client](docs/dev-web-guide.md)
 - [First super administrator bootstrap](docs/first-super-admin-bootstrap.md)
 - [Authentication service](src/services/auth/README.md)
 - [External notification service](src/services/external-notification/README.md)

@@ -1,0 +1,63 @@
+mutation SignIn($email: String!, $password: String!) {
+  auth {
+    signIn(input: { email: $email, password: $password }) {
+      success
+      message
+      response {
+        user { id email roles }
+      }
+    }
+  }
+}
+
+mutation SignOut {
+  auth {
+    signOut { success message }
+  }
+}
+
+mutation StartApplicantSignup($email: String!) {
+  auth {
+    startApplicantSignup(input: { email: $email }) {
+      success
+      message
+      response { challengeToken expiresAt }
+    }
+  }
+}
+
+mutation VerifyApplicantSignup($challengeToken: String!, $otp: String!, $password: String!) {
+  auth {
+    verifyApplicantSignup(
+      input: { challengeToken: $challengeToken, otp: $otp, password: $password }
+    ) {
+      success
+      message
+      response { id email roles }
+    }
+  }
+}
+
+query Sessions {
+  auth {
+    sessions {
+      success
+      message
+      response {
+        sessions { id current createdAt updatedAt expiresAt ipAddress userAgent }
+      }
+    }
+  }
+}
+
+mutation RevokeSession($sessionId: ID!) {
+  auth { revokeSession(sessionId: $sessionId) { success message } }
+}
+
+mutation RevokeOtherSessions {
+  auth { revokeOtherSessions { success message } }
+}
+
+mutation RevokeAllSessions {
+  auth { revokeAllSessions { success message } }
+}

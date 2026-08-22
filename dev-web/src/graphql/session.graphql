@@ -1,0 +1,12 @@
+query CurrentSession {
+  auth {
+    currentSession {
+      success
+      message
+      response {
+        user { id email emailVerified roles createdAt }
+        session { id current createdAt expiresAt }
+      }
+    }
+  }
+}

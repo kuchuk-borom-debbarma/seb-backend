@@ -1,0 +1,161 @@
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: 100dvh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--hairline);
+  padding: var(--space-5) var(--space-3) var(--space-3);
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--space-3) var(--space-5);
+}
+
+.brandName {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-top: 2px;
+}
+
+.groups {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.groupTitle {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+.navLink {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.navLink:hover {
+  background: var(--surface-sunken);
+}
+
+/* The active marker is a solid left rule, not a filled pill: it reads as a
+   register entry rather than a product tab. */
+.navLinkActive {
+  background: var(--green-tint);
+  color: var(--green);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--green);
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  border-top: 1px solid var(--hairline);
+}
+
+.accountText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.accountEmail {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountRoles {
+  font-size: 0.6875rem;
+  color: var(--ink-faint);
+  text-transform: capitalize;
+}
+
+.signOut {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.signOut:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.main {
+  min-width: 0;
+}
+
+/* Below the sidebar breakpoint the navigation becomes a scrolling strip above
+   the content rather than disappearing behind a menu the demo cannot open. */
+@media (max-width: 60rem) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .groups {
+    flex-direction: row;
+    gap: var(--space-4);
+    overflow-x: auto;
+    padding-bottom: var(--space-2);
+  }
+
+  .group {
+    flex-direction: row;
+    gap: var(--space-1);
+  }
+
+  .groupTitle {
+    display: none;
+  }
+
+  .navLink {
+    white-space: nowrap;
+  }
+}

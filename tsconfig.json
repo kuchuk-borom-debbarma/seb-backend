@@ -12,4 +12,9 @@
     "jsxImportSource": "hono/jsx",
     "types": ["@cloudflare/vitest-pool-workers"]
   },
+  // The Worker only. `dev-web` is a separate package with its own TypeScript
+  // configuration, React JSX runtime and generated types; type-checking it from
+  // here would fail on all three.
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.mjs", "*.ts"],
+  "exclude": ["node_modules", "dev-web", "coverage"]
 }

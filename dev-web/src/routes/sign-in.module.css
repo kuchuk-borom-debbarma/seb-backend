@@ -1,0 +1,36 @@
+/* The unauthenticated screens are the only place the wordmark carries the page. */
+.page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+}
+
+.panel {
+  width: 100%;
+  max-width: 24rem;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-raised);
+  padding: var(--space-6);
+}
+
+.wordmark {
+  font-size: 1.875rem;
+  margin: var(--space-1) 0 0;
+}
+
+.intro {
+  color: var(--ink-muted);
+  font-size: 0.875rem;
+  margin: var(--space-2) 0 var(--space-5);
+}
+
+.footer {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--hairline);
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+}
