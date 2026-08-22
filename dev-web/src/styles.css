@@ -598,3 +598,135 @@ th.numeric {
 .disclosure::marker {
   color: var(--ink-faint);
 }
+
+/* ---- The intake console ------------------------------------------------ */
+
+/* A heading for a band of the page, quieter than the page title and louder
+   than a card's eyebrow. */
+.section-title {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  margin-bottom: var(--space-3);
+}
+
+/* The queues waiting on the office. Sized by the count, which is the thing
+   being read — a queue is scanned for "how many", not for its name. */
+.queue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--space-4);
+}
+
+.queue-card {
+  display: block;
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 120ms ease;
+}
+
+.queue-card:hover {
+  border-color: var(--green);
+}
+
+.queue-count {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  line-height: 1.1;
+  color: var(--green);
+}
+
+/* An empty queue is still shown, so it keeps its place — but it should not
+   read as work. */
+.queue-card[data-empty='true'] .queue-count {
+  color: var(--ink-faint);
+}
+
+.queue-name {
+  display: block;
+  margin-top: var(--space-2);
+  font-weight: 500;
+}
+
+.queue-note {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}
+
+/* Queue tabs. They scroll rather than wrap: nine queues on a narrow screen
+   would otherwise push the table off the fold. */
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: var(--space-5);
+  scrollbar-width: thin;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  white-space: nowrap;
+  color: var(--ink-muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tab:hover {
+  color: var(--ink);
+}
+
+.tab[aria-selected='true'] {
+  color: var(--green);
+  border-bottom-color: var(--green);
+  font-weight: 500;
+}
+
+.tab-count {
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
+
+.tab[aria-selected='true'] .tab-count {
+  color: var(--green);
+}
+
+/* A radio whose label is a heading plus an explanation — used where the choice
+   has consequences worth stating beside it rather than in a tooltip. */
+.choice-block {
+  display: flex;
+  align-items: start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.choice-block:has(input:checked) {
+  border-color: var(--green);
+  background: var(--green-tint);
+}
+
+.choice-block input {
+  margin-top: 0.2rem;
+}
+
+/* A column of counts reads as a column when the digits line up on the right.
+   Reference numbers and filenames are also tabular but are text, and stay
+   left-aligned — hence an explicit marker rather than styling .tabular. */
+.table th[data-numeric],
+.table td[data-numeric] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

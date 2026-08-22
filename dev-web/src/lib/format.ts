@@ -102,3 +102,16 @@ export const humanize = (value: string): string =>
       return index === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower
     })
     .join(' ')
+
+/**
+ * Shows a string that is sometimes a constant and sometimes a sentence.
+ *
+ * A role grant's reason is written by whoever made the grant — except for the
+ * grants the system makes itself, which carry a constant like
+ * `VERIFIED_APPLICANT_SIGNUP`. Humanizing everything would mangle real
+ * sentences; humanizing nothing leaves a constant on screen. So the shape
+ * decides: all upper case with no spaces is a constant, anything else is prose
+ * and is shown exactly as it was written.
+ */
+export const readableReason = (value: string): string =>
+  /^[A-Z][A-Z0-9_]*$/u.test(value) ? humanize(value) : value

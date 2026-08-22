@@ -112,6 +112,11 @@ rather than hidden:
 
   Everything else on that screen works without credentials — listing what is
   required, removing a document and putting it back.
+- **The workspace does not report its cycle's id**, only its code. Every write
+  that names a reason — releasing a claim, reassigning, requesting a correction
+  — needs a reason category defined by the programme cycle, so the client finds
+  the cycle by code before it can read the catalogue. That costs two extra
+  cached requests. `AdminWorkspace.programmeCycleId` would remove both.
 - **Scheduled work does not run.** Wrangler does not fire cron triggers in local
   development, so the session sweep and expired-upload cleanup need
   `wrangler dev --test-scheduled` and a request to `/__scheduled`.
@@ -128,13 +133,17 @@ Built:
   funding view, and the cycles an applicant can apply in.
 - **Programme cycle administration** — the list, the dense policy form, and
   every transition the API exposes.
+- **Intake** — the queue console with counts for every named queue, one queue
+  per page with the API's filters and ordering held in the address, reference
+  lookup, and the application workspace: assignment, internal notes, desk
+  review, and withdrawal of a correction request.
+- **Access** — exact-address lookup, the complete role history, and grant and
+  revoke with the operator's own password as a step-up.
 
 Not built yet:
 
-- **The administrative console** — intake queues, the application workspace,
-  assignment, internal notes, desk review, bank referral and outcomes, committee
-  meetings and decisions, awards, releases, assessments and recovery.
-- **Super-administrator access** — user lookup and role management.
+- **Decisions and funding** — bank referral and outcomes, committee meetings,
+  agenda and decisions, awards, releases, assessments and recovery.
 
 A screen that is not built is not in the navigation. There are no placeholder
 pages, and no control that does not do what it says.

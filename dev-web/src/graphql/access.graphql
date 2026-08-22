@@ -1,0 +1,64 @@
+# Role management.
+#
+# Lookup is exact-match by design — there is no listing and no prefix search,
+# so this namespace cannot be used to enumerate accounts. The interface offers
+# exactly what the API does: you must already know the address or the id.
+
+fragment ManagedUserRecord on ManagedUser {
+  id
+  email
+  emailVerified
+  deleted
+  createdAt
+  roles
+  grants {
+    id
+    role
+    grantReason
+    grantedAt
+    grantedByUserId
+    revokedByUserId
+    revokedAt
+    revocationReason
+  }
+}
+
+query ManagedUserByEmail($email: String!) {
+  access {
+    user: userByEmail(email: $email) {
+      success
+      message
+      response { ...ManagedUserRecord }
+    }
+  }
+}
+
+query ManagedUserById($id: ID!) {
+  access {
+    user: userById(id: $id) {
+      success
+      message
+      response { ...ManagedUserRecord }
+    }
+  }
+}
+
+mutation GrantRole($input: GrantRoleInput!) {
+  access {
+    grantRole(input: $input) {
+      success
+      message
+      response { ...ManagedUserRecord }
+    }
+  }
+}
+
+mutation RevokeRole($input: RevokeRoleInput!) {
+  access {
+    revokeRole(input: $input) {
+      success
+      message
+      response { ...ManagedUserRecord }
+    }
+  }
+}

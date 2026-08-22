@@ -1,9 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
+  CatchBoundary,
   Link,
   Outlet,
   createFileRoute,
   redirect,
+  useLocation,
   useRouter,
 } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
@@ -14,6 +16,7 @@ import {
   ensureSession,
   isAdministrator,
   isApplicant,
+  isSuperAdministrator,
   type SignedInUser,
 } from '#/lib/session'
 import styles from './_shell.module.css'
@@ -34,7 +37,6 @@ export const Route = createFileRoute('/_shell')({
     return { user: session.user }
   },
   component: Shell,
-  errorComponent: ShellError,
 })
 
 /**
@@ -59,12 +61,28 @@ function ShellError({ error }: { error: Error }) {
 
 function Shell() {
   const { user } = Route.useRouteContext()
+  const location = useLocation()
 
   return (
     <div className={styles.shell}>
       <Sidebar user={user} />
       <div className={styles.main}>
-        <Outlet />
+        {/*
+          The boundary is around the outlet rather than on the route, because a
+          route's error component replaces that route's whole output — which
+          would take the navigation with it and strand somebody on a dead page
+          with no way out but the back button. Here the failure is confined to
+          the screen that failed.
+
+          Reset on the address, so moving somewhere else clears the error rather
+          than carrying it to a page that would have loaded.
+        */}
+        <CatchBoundary
+          getResetKey={() => location.pathname + location.searchStr}
+          errorComponent={ShellError}
+        >
+          <Outlet />
+        </CatchBoundary>
       </div>
     </div>
   )
@@ -101,7 +119,16 @@ function Sidebar({ user }: { user: SignedInUser }) {
 
         {isAdministrator(user) ? (
           <NavGroup title="Programme office">
+            <NavLink to="/admin">Intake</NavLink>
             <NavLink to="/admin/cycles">Cycle administration</NavLink>
+          </NavGroup>
+        ) : null}
+
+        {/* Role management is a super-administrator power. An administrator
+            who cannot use it should not be shown it. */}
+        {isSuperAdministrator(user) ? (
+          <NavGroup title="Administration">
+            <NavLink to="/access">Access</NavLink>
           </NavGroup>
         ) : null}
 

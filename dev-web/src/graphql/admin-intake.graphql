@@ -1,0 +1,235 @@
+# Intake: the named work queues staff operate from, and one application's
+# workspace.
+#
+# The queue summary reports every queue including the empty ones, so the chips
+# on the console stay in the same place from day to day.
+
+query IntakeQueues($cycleId: ID) {
+  admin {
+    intake {
+      queues(cycleId: $cycleId) {
+        success
+        message
+        response {
+          queues { queue count }
+        }
+      }
+    }
+  }
+}
+
+query IntakeQueue($input: AdminIntakeQueueInput) {
+  admin {
+    intake {
+      queue(input: $input) {
+        success
+        message
+        response {
+          nodes {
+            id
+            referenceNumber
+            enterpriseName
+            cycleCode
+            sector
+            category
+            phaseNumber
+            applicationType
+            status
+            statusVersion
+            assignedToUserId
+            assignedAt
+            assignmentVersion
+            submissionNumber
+            submittedAt
+            statusChangedAt
+            updatedAt
+          }
+          pageInfo { endCursor hasNextPage }
+        }
+      }
+    }
+  }
+}
+
+# Looking an application up by the reference number an applicant quotes on the
+# phone. Exact match: there is no partial search, because a reference number is
+# either the one being asked about or it is not.
+query IntakeByReference($referenceNumber: String!) {
+  admin {
+    intake {
+      byReference(referenceNumber: $referenceNumber) {
+        success
+        message
+        response {
+          id
+          referenceNumber
+          status
+          statusVersion
+          assignedToUserId
+          assignedAt
+          assignmentVersion
+          updatedAt
+        }
+      }
+    }
+  }
+}
+
+# One application, as the programme office sees it.
+#
+# The API returns the whole workspace in one call — submissions, snapshots,
+# documents, revisions, assignments, notes, reviews and everything downstream —
+# so a screen assembled from a dozen small queries would be slower and could
+# show two moments at once. Fields not yet rendered are left out of the
+# selection set rather than fetched and ignored.
+query IntakeWorkspace($applicationId: ID!) {
+  admin {
+    intake {
+      workspace(applicationId: $applicationId) {
+        success
+        message
+        response {
+          application {
+            id
+            referenceNumber
+            status
+            statusVersion
+            assignedToUserId
+            assignedAt
+            assignmentVersion
+            updatedAt
+          }
+          enterpriseName
+          cycleCode
+          cycleDisplayName
+          submissions { id submissionNumber applicationVersion submittedAt }
+          submissionChanges { fromSubmissionNumber toSubmissionNumber sections }
+          documents {
+            id
+            submissionId
+            documentId
+            documentType
+            documentVersion
+            originalFilename
+            contentType
+            sizeBytes
+          }
+          revisions { id section note requestedAt resolvedAt cancelledAt }
+          assignments {
+            id
+            eventType
+            assignmentVersion
+            fromUserId
+            toUserId
+            reason
+            conflictAcknowledged
+            actorUserId
+            createdAt
+          }
+          notes { id correctionOfNoteId note authoredByUserId createdAt }
+          reviews { id submissionId outcome reviewedByUserId reviewedAt }
+          reviewChecks { id deskReviewId checkType result internalNote createdAt }
+        }
+      }
+    }
+  }
+}
+
+query AdminDocumentDownloadUrl($applicationId: ID!, $submissionDocumentId: ID!) {
+  admin {
+    intake {
+      documentDownloadUrl(
+        applicationId: $applicationId
+        submissionDocumentId: $submissionDocumentId
+      ) {
+        success
+        message
+        response { downloadUrl expiresAt }
+      }
+    }
+  }
+}
+
+mutation ClaimApplication($input: ClaimApplicationInput!) {
+  admin {
+    intake {
+      claim(input: $input) {
+        success
+        message
+        response { id status statusVersion assignedToUserId assignedAt assignmentVersion }
+      }
+    }
+  }
+}
+
+mutation ReleaseApplication($input: ReleaseApplicationInput!) {
+  admin {
+    intake {
+      release(input: $input) {
+        success
+        message
+        response { id status statusVersion assignedToUserId assignedAt assignmentVersion }
+      }
+    }
+  }
+}
+
+mutation ReassignApplication($input: ReassignApplicationInput!) {
+  admin {
+    intake {
+      reassign(input: $input) {
+        success
+        message
+        response { id status statusVersion assignedToUserId assignedAt assignmentVersion }
+      }
+    }
+  }
+}
+
+mutation AddInternalNote($input: InternalNoteInput!) {
+  admin {
+    intake {
+      addInternalNote(input: $input) {
+        success
+        message
+        response { notes { id correctionOfNoteId note authoredByUserId createdAt } }
+      }
+    }
+  }
+}
+
+mutation StartDeskReview($input: StartDeskReviewInput!) {
+  admin {
+    intake {
+      startDeskReview(input: $input) {
+        success
+        message
+        response { id status statusVersion assignedToUserId assignmentVersion }
+      }
+    }
+  }
+}
+
+mutation CompleteDeskReview($input: CompleteDeskReviewInput!) {
+  admin {
+    intake {
+      completeDeskReview(input: $input) {
+        success
+        message
+        response { application { id status statusVersion } }
+      }
+    }
+  }
+}
+
+mutation CancelRevision($input: CancelRevisionInput!) {
+  admin {
+    intake {
+      cancelRevision(input: $input) {
+        success
+        message
+        response { revisions { id section note requestedAt resolvedAt cancelledAt } }
+      }
+    }
+  }
+}
