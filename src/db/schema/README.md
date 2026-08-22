@@ -261,9 +261,9 @@ small allow-listed audit/event metadata.
   submission validation.
 - No programme cycle is seeded by the base schema.
 - Administrative cycle, intake, desk review, offline-bank, TTM, award, release,
-  assessment, and recovery services exist. Admin-only sign-in, MFA, role
-  management, a production scanner, notifications, and payment integration
-  remain public-launch blockers.
+  assessment, and recovery services exist. Role management, account recovery,
+  a production scanner, notifications, and payment integration remain
+  public-launch blockers.
 - The database is not deployed with production data, so `database/schema.sql`
   remains a replaceable canonical baseline rather than an incremental migration.
 
@@ -293,8 +293,8 @@ state synchronized whenever tables or application rules change.
 The schema foundation, applicant authentication/application flow, private R2
 uploads, programme-cycle governance, administrative intake/review, offline bank
 evidence, TTM decisions, awards, releases, assessments, and recovery exist.
-Admin-only authentication/MFA, a production malware scanner, notification
-delivery, and public-launch protections remain future work. See the
+Administrator role management and recovery, a production malware scanner,
+notification delivery, and public-launch protections remain future work. See the
 [combined application guide](../../../docs/application-guide.md)
 for the end-to-end business and API behavior, and the focused
 [application integrity guide](../../../docs/application-integrity.md) for the

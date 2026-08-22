@@ -13,8 +13,20 @@ Bootstrap is deliberately narrow:
 - it works only before any `SUPER_ADMIN` grant has ever existed; and
 - it creates `SUPER_ADMIN`, not a redundant `ADMIN` grant.
 
-The selected person keeps `APPLICANT`, so their final active roles are normally
-`APPLICANT` and `SUPER_ADMIN`.
+The promoted person's `APPLICANT` grant is revoked in the same transition, so
+their only active role afterwards is `SUPER_ADMIN`. Both role events are
+retained in grant history.
+
+Bootstrap therefore requires a dedicated account and enforces it: a candidate
+who owns any enterprise is refused, because losing `APPLICANT` would strand
+that enterprise and its applications with no operation able to grant the role
+back. The check counts soft-deleted enterprises too, since those are
+restorable.
+
+Bootstrap also deletes every session the promoted account already held. Those
+sessions were issued to an applicant; letting them survive would hand full
+administrative authority to an existing cookie without the holder re-proving
+their password. The new administrator signs in again.
 
 ## 1. Create and verify the applicant
 
@@ -100,7 +112,7 @@ A successful response is:
   "message": null,
   "response": {
     "userId": "public-user-id",
-    "roles": ["APPLICANT", "SUPER_ADMIN"]
+    "roles": ["SUPER_ADMIN"]
   }
 }
 ```
@@ -120,7 +132,30 @@ Malformed or non-JSON requests use HTTP `400` with the same body. Requests over
 1 KiB use HTTP `413`; the operation accepts only the current password and never
 needs a larger payload.
 
-## 4. Remove the temporary configuration
+## 4. Recovering a lost SUPER_ADMIN grant
+
+The promoted account holds exactly one grant. Sign-in requires at least one
+active role, and bootstrap stays permanently closed once any historical
+`SUPER_ADMIN` grant exists — including a revoked one — so this route cannot
+promote a replacement. Until section 9.3 of the [roadmap](ROADMAP.md) delivers
+role administration and its "prevent removal of the last usable `SUPER_ADMIN`"
+guard, restoring access requires direct database access:
+
+```sh
+npx wrangler d1 execute DB --command "
+  INSERT INTO core_user_role_grant (id, user_id, role, grant_reason, granted_at)
+  SELECT lower(hex(randomblob(16))), id, 'SUPER_ADMIN', 'MANUAL_RECOVERY',
+         unixepoch() * 1000
+  FROM core_user WHERE email = 'administrator@example.com'
+"
+```
+
+The partial unique index on active grants makes this a no-op if an active
+`SUPER_ADMIN` grant already exists, so it is safe to run when unsure. Record
+the recovery outside the portal: unlike every other role change, it leaves no
+audit event.
+
+## 5. Remove the temporary configuration
 
 After success, remove both lines from the local `.env`. For a deployed Worker:
 
@@ -140,9 +175,18 @@ Revoking the first administrator therefore does not reopen this route.
 - The temporary secret is checked before database lookup or password hashing.
 - The current password is verified against the configured active applicant.
 - The final write rechecks the email, password hash, verified/non-deleted user,
-  active `APPLICANT` grant, and absence of all historical `SUPER_ADMIN` grants.
+  active `APPLICANT` grant, absence of any owned enterprise, and absence of all
+  historical `SUPER_ADMIN` grants.
 - Concurrent requests are first-writer-wins and create only one grant.
-- Successful role and bootstrap audit events share the guarded transition.
+- The `SUPER_ADMIN` grant and the `APPLICANT` revocation share one guarded
+  transaction. A request that loses the race writes neither, so an account can
+  never be left holding no active role and therefore unable to sign in.
+- The revocation matches the person and role at write time rather than a grant
+  identifier read earlier, so a grant replaced mid-request is still revoked.
+- The promoted account's existing sessions are deleted in the same transaction,
+  so no cookie survives the privilege change.
+- Successful role-grant, role-revocation, and bootstrap audit events share the
+  guarded transition.
 - Bootstrap audit rows omit caller-controlled request IDs, IP labels, and user
   agents so credentials cannot be smuggled into retained history through HTTP
   headers.
@@ -155,9 +199,12 @@ Revoking the first administrator therefore does not reopen this route.
   curl user agent. User-Agent values are forgeable; the two credentials and
   one-time database rule provide authorization.
 
-This operation does not provide administrator-only sign-in, MFA, account
-recovery, or later administrator invitations. Those capabilities must be added
-before administrative business operations are publicly launched.
+Sign-in accepts any person holding at least one active role, so the promoted
+administrator can sign in normally with the same email and password.
+
+This operation does not provide account recovery or later administrator
+invitations. Those capabilities must be added before administrative business
+operations are publicly launched.
 
 ## Troubleshooting
 

@@ -10,12 +10,16 @@ import { createDatabase } from '../src/db'
 import { auditActions } from '../src/db/schema'
 import worker from '../src/index'
 import { createDigest, hashPassword } from '../src/services/auth/crypto'
-import { bootstrapFirstSuperAdmin } from '../src/services/auth'
+import {
+  authenticatedAdministrator,
+  authenticatedApplicant,
+  bootstrapFirstSuperAdmin,
+} from '../src/services/auth'
 import {
   consumeWrongOtpAttempt,
-  createApplicantSession,
+  createUserSession,
   createUserFromSignupChallenge,
-  findActiveApplicantByEmail,
+  findActiveUserByEmail,
   findSignupChallenge,
   grantFirstSuperAdmin,
   type AuditEventRecord,
@@ -26,6 +30,16 @@ import type { AuthOperationContext } from '../src/services/auth/types'
 type GraphQLResponse<T> = {
   data?: T
   errors?: Array<{ message: string }>
+}
+
+/** Shared shape for `auth.currentSession` assertions. */
+type CurrentSessionBody = {
+  auth: {
+    currentSession: {
+      success: boolean
+      response: { user: { roles: string[] } } | null
+    }
+  }
 }
 
 const testAuditEvent = (
@@ -128,7 +142,7 @@ const verifySignup = async (challengeToken: string, otp: string) => {
 const signInWithPassword = async (password: string) =>
   graphql<{
     auth: {
-      signInApplicant: {
+      signIn: {
         success: boolean
         response: { session: { id: string } }
       }
@@ -136,7 +150,7 @@ const signInWithPassword = async (password: string) =>
   }>(/* GraphQL */ `
     mutation {
       auth {
-          signInApplicant(input: {
+          signIn(input: {
             email: "applicant@example.com"
             password: "${password}"
         }) { success response { session { id } } }
@@ -144,7 +158,7 @@ const signInWithPassword = async (password: string) =>
     }
   `)
 
-const signIn = async () => signInWithPassword('correct horse battery staple')
+const signInDefault = async () => signInWithPassword('correct horse battery staple')
 
 type BootstrapResponse = {
   success: boolean
@@ -202,21 +216,44 @@ const directAuthContext = (
   responseHeaders: new Headers(),
 })
 
+/**
+ * Revokes every outstanding grant, deactivating each account in the fixture.
+ *
+ * Written directly because role revocation has no API yet; it arrives with the
+ * role administration in section 9.3 of the product roadmap.
+ */
+const revokeEveryRoleGrant = () => env.DB.prepare(
+  `UPDATE core_user_role_grant
+   SET revoked_at = ?, revocation_reason = 'TEST_REVOKED'
+   WHERE revoked_at IS NULL`,
+)
+  .bind(Date.now())
+  .run()
+
+/** Minimal service-layer context carrying one browser cookie. */
+const cookieAuthContext = (cookie: string): AuthOperationContext => ({
+  db: createDatabase(env.DB),
+  env,
+  requestHeaders: new Headers({ cookie }),
+  requestUrl: 'https://api.example.test/graphql',
+  responseHeaders: new Headers(),
+})
+
 const runScheduledCleanup = async () => {
   const context = createExecutionContext()
   worker.scheduled(createScheduledController(), env, context)
   await waitOnExecutionContext(context)
 }
 
-describe('applicant authentication', () => {
+describe('authentication', () => {
   afterEach(() => vi.restoreAllMocks())
 
   it('rejects more than one nested auth mutation before execution', async () => {
     const { body } = await graphql<unknown>(/* GraphQL */ `
       mutation {
         auth {
-          signOutApplicant { success }
-          revokeAllApplicantSessions { success }
+          signOut { success }
+          revokeAllSessions { success }
         }
       }
     `)
@@ -232,8 +269,8 @@ describe('applicant authentication', () => {
       }
       fragment RootMutation on Mutation {
         auth {
-          signOutApplicant { success }
-          revokeAllApplicantSessions { success }
+          signOut { success }
+          revokeAllSessions { success }
         }
       }
     `)
@@ -314,7 +351,7 @@ describe('applicant authentication', () => {
         verifyApplicantSignup: {
           success: boolean
           message: null
-          response: { email: string; emailVerified: boolean; role: string }
+          response: { email: string; emailVerified: boolean; roles: string[] }
         }
       }
     }>(/* GraphQL */ `
@@ -327,7 +364,7 @@ describe('applicant authentication', () => {
           }) {
             success
             message
-            response { email emailVerified role }
+            response { email emailVerified roles }
           }
         }
       }
@@ -339,7 +376,7 @@ describe('applicant authentication', () => {
       response: {
         email: 'applicant@example.com',
         emailVerified: true,
-        role: 'APPLICANT',
+        roles: ['APPLICANT'],
       },
     })
     expect(
@@ -408,7 +445,7 @@ describe('applicant authentication', () => {
 
     const signedIn = await graphql<{
       auth: {
-        signInApplicant: {
+        signIn: {
           success: boolean
           message: null
           response: { session: { id: string; current: boolean; expiresAt: string } }
@@ -417,7 +454,7 @@ describe('applicant authentication', () => {
     }>(/* GraphQL */ `
       mutation {
         auth {
-          signInApplicant(input: {
+          signIn(input: {
             email: "APPLICANT@example.com"
             password: "correct horse battery staple"
           }) {
@@ -429,7 +466,7 @@ describe('applicant authentication', () => {
       }
     `)
     expect(signedIn.body.errors).toBeUndefined()
-    expect(signedIn.body.data?.auth.signInApplicant.success).toBe(true)
+    expect(signedIn.body.data?.auth.signIn.success).toBe(true)
     expect(signedIn.response.headers.get('access-control-allow-credentials')).toBe('true')
     const cookies = signedIn.response.headers.get('set-cookie') ?? ''
     expect(cookies).toContain('HttpOnly')
@@ -437,7 +474,7 @@ describe('applicant authentication', () => {
     expect(cookies).toContain('Secure')
     expect(cookies).not.toMatch(/Max-Age=/iu)
 
-    const publicSessionId = signedIn.body.data?.auth.signInApplicant.response.session.id
+    const publicSessionId = signedIn.body.data?.auth.signIn.response.session.id
     expect(JSON.stringify(signedIn.body)).not.toContain('tokenDigest')
     const storedSession = await env.DB.prepare(
       'SELECT id, token_digest, expires_at FROM core_session WHERE id = ?',
@@ -450,12 +487,12 @@ describe('applicant authentication', () => {
     expect(storedSession?.expires_at).toBeGreaterThan(Date.now() + 6 * 24 * 60 * 60 * 1_000)
 
     const current = await graphql<{
-      auth: { currentApplicantSession: { success: boolean; response: { session: { id: string } } } }
+      auth: { currentSession: { success: boolean; response: { session: { id: string } } } }
     }>(
       /* GraphQL */ `
         query {
           auth {
-            currentApplicantSession {
+            currentSession {
               success
               response { session { id } }
             }
@@ -464,34 +501,34 @@ describe('applicant authentication', () => {
       `,
       cookieHeaderFrom(signedIn.response),
     )
-    expect(current.body.data?.auth.currentApplicantSession.response.session.id).toBe(publicSessionId)
+    expect(current.body.data?.auth.currentSession.response.session.id).toBe(publicSessionId)
 
     notificationLog.mockRestore()
   })
 
   it('returns a successful null response for a signed-out current session', async () => {
     const { body } = await graphql<{
-      auth: { currentApplicantSession: { success: boolean; message: null; response: null } }
+      auth: { currentSession: { success: boolean; message: null; response: null } }
     }>(/* GraphQL */ `
       query {
         auth {
-          currentApplicantSession { success message response { session { id } } }
+          currentSession { success message response { session { id } } }
         }
       }
     `)
     expect(body.errors).toBeUndefined()
-    expect(body.data?.auth.currentApplicantSession).toEqual({
+    expect(body.data?.auth.currentSession).toEqual({
       success: true,
       message: null,
       response: null,
     })
   })
 
-  it('loads multiple roles live and immediately stops applicant authorization after revocation', async () => {
+  it('loads roles live and keeps administrator access after applicant revocation', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const signup = await startSignup('applicant@example.com', notificationLog)
     expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
-    const signedIn = await signIn()
+    const signedIn = await signInDefault()
     const cookie = cookieHeaderFrom(signedIn.response)
     const user = await env.DB.prepare(
       `SELECT id FROM core_user WHERE email = 'applicant@example.com'`,
@@ -509,24 +546,17 @@ describe('applicant authentication', () => {
     const currentQuery = /* GraphQL */ `
       query {
         auth {
-          currentApplicantSession {
+          currentSession {
             success
-            response { applicant { role } }
+            response { user { roles } }
           }
         }
       }
     `
-    const multiRole = await graphql<{
-      auth: {
-        currentApplicantSession: {
-          success: boolean
-          response: { applicant: { role: string } } | null
-        }
-      }
-    }>(currentQuery, cookie)
-    expect(multiRole.body.data?.auth.currentApplicantSession).toMatchObject({
+    const multiRole = await graphql<CurrentSessionBody>(currentQuery, cookie)
+    expect(multiRole.body.data?.auth.currentSession).toMatchObject({
       success: true,
-      response: { applicant: { role: 'APPLICANT' } },
+      response: { user: { roles: ['APPLICANT', 'ADMIN'] } },
     })
 
     await env.DB.prepare(
@@ -537,22 +567,307 @@ describe('applicant authentication', () => {
       .bind(Date.now(), user.id)
       .run()
 
-    const revoked = await graphql<{
-      auth: {
-        currentApplicantSession: { success: boolean; message: null; response: null }
-      }
-    }>(currentQuery, cookie)
-    expect(revoked.body.data?.auth.currentApplicantSession).toEqual({
+    // The person is now administrator-only. The session stays usable and the
+    // payload reports the change on the very next request.
+    const revoked = await graphql<CurrentSessionBody>(currentQuery, cookie)
+    expect(revoked.body.data?.auth.currentSession).toMatchObject({
       success: true,
-      response: null,
+      response: { user: { roles: ['ADMIN'] } },
     })
-    // The identity session remains valid for future ADMIN operations; only the
-    // applicant capability disappears, so no browser cookie is cleared here.
     expect(revoked.response.headers.get('set-cookie')).toBeNull()
-    expect((await signIn()).body.data?.auth.signInApplicant).toMatchObject({
+
+    // Sign-in accepts the surviving ADMIN grant, but the applicant capability
+    // is gone from the same session.
+    expect((await signInDefault()).body.data?.auth.signIn).toMatchObject({
+      success: true,
+    })
+    const roleContext = cookieAuthContext(cookie)
+    expect(await authenticatedApplicant(roleContext)).toBeNull()
+    expect(await authenticatedAdministrator(roleContext)).not.toBeNull()
+  })
+
+  it('signs in an administrator holding no applicant grant and refuses applicant operations', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+
+    const bootstrapped = await bootstrapFirstAdmin()
+    expect(bootstrapped.body.response?.roles).toEqual(['SUPER_ADMIN'])
+
+    // The account now holds no APPLICANT grant at all. Before this change that
+    // made it impossible to sign in; it must now succeed.
+    const signedIn = await signInDefault()
+    expect(signedIn.body.data?.auth.signIn).toMatchObject({ success: true })
+    const cookie = cookieHeaderFrom(signedIn.response)
+
+    const current = await graphql<CurrentSessionBody>(/* GraphQL */ `
+      query {
+        auth { currentSession { success response { user { roles } } } }
+      }
+    `, cookie)
+    expect(current.body.data?.auth.currentSession).toMatchObject({
+      success: true,
+      response: { user: { roles: ['SUPER_ADMIN'] } },
+    })
+
+    // Session self-service is identity-scoped, so an administrator manages
+    // their own sessions exactly like an applicant does.
+    const listed = await graphql<{
+      auth: { sessions: { success: boolean; response: { sessions: unknown[] } } }
+    }>(/* GraphQL */ `
+      query {
+        auth { sessions { success response { sessions { id current } } } }
+      }
+    `, cookie)
+    expect(listed.body.data?.auth.sessions.success).toBe(true)
+    expect(listed.body.data?.auth.sessions.response.sessions).toHaveLength(1)
+
+    // Applicant business operations remain closed: sign-in proves identity,
+    // the APPLICANT grant proves capability, and only the former was widened.
+    const enterprise = await graphql<{
+      seb: { enterprise: { create: { success: boolean; message: string | null } } }
+    }>(/* GraphQL */ `
+      mutation {
+        seb {
+          enterprise {
+            create(input: { name: "Blocked Enterprise", registrationType: NONE }) {
+              success
+              message
+            }
+          }
+        }
+      }
+    `, cookie)
+    expect(enterprise.body.data?.seb.enterprise.create).toMatchObject({
       success: false,
+      message: 'Applicant authentication is required.',
+    })
+  })
+
+  it('refuses sign-in once every role grant has been revoked', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+    expect((await signInDefault()).body.data?.auth.signIn).toMatchObject({ success: true })
+
+    await revokeEveryRoleGrant()
+
+    // Widening sign-in to any active role must not widen it to no role.
+    const refused = await signInDefault()
+    expect(refused.body.data?.auth.signIn).toMatchObject({ success: false })
+    expect(refused.response.headers.get('set-cookie')).toBeNull()
+  })
+
+  it('stops authenticating an existing session once every role grant is revoked', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+    const signedIn = await signInDefault()
+    const cookie = cookieHeaderFrom(signedIn.response)
+
+    await revokeEveryRoleGrant()
+
+    // Holding no active role refuses sign-in, so a cookie issued earlier must
+    // not keep the account usable for the rest of the seven-day session.
+    const current = await graphql<CurrentSessionBody>(/* GraphQL */ `
+      query {
+        auth { currentSession { success response { user { roles } } } }
+      }
+    `, cookie)
+    expect(current.body.data?.auth.currentSession.response).toBeNull()
+    expect(current.response.headers.get('set-cookie')).toContain('Max-Age=0')
+
+    const listed = await graphql<{
+      auth: { sessions: { success: boolean; message: string | null } }
+    }>(/* GraphQL */ `
+      query {
+        auth { sessions { success message response { sessions { id } } } }
+      }
+    `, cookie)
+    expect(listed.body.data?.auth.sessions).toMatchObject({
+      success: false,
+      message: 'Authentication is required.',
+    })
+
+    // Refusal alone would leave the rows to authenticate again the moment any
+    // role is granted back, so presenting the cookie destroys them.
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first(),
+    ).toEqual({ count: 0 })
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_audit_event
+         WHERE action = ? AND actor_user_id IS NULL
+           AND metadata_json LIKE '%NO_ACTIVE_ROLE%'`,
+      )
+        .bind(auditActions.sessionsRevoked)
+        .first(),
+    ).toEqual({ count: 1 })
+
+    // The browser also loses the superseded cookie name, which it would
+    // otherwise keep sending forever.
+    const clearedCookies = current.response.headers.getSetCookie()
+    expect(clearedCookies.some((value) => value.startsWith('seb_session='))).toBe(true)
+    expect(
+      clearedCookies.some((value) => value.startsWith('seb_applicant_session=')),
+    ).toBe(true)
+  })
+
+  it('sweeps sessions of deactivated accounts that never present a cookie', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+    await signInDefault()
+    await revokeEveryRoleGrant()
+
+    // Nothing presented the cookie, so the request path never saw this account.
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first(),
+    ).toEqual({ count: 1 })
+
+    await runScheduledCleanup()
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first(),
+    ).toEqual({ count: 0 })
+  })
+
+  it('refuses to bootstrap an applicant who already owns an enterprise', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+    const signedIn = await signInDefault()
+    const cookie = cookieHeaderFrom(signedIn.response)
+
+    const created = await graphql<{
+      seb: { enterprise: { create: { success: boolean; message: string | null } } }
+    }>(/* GraphQL */ `
+      mutation {
+        seb {
+          enterprise {
+            create(input: {
+              name: "Owned Enterprise"
+              establishmentDate: "2026-01-15"
+              registrationType: UDYAM
+              registrationNumber: "UDYAM-BOOTSTRAP-1"
+              gstin: null
+              businessSector: FOOD_PROCESSING
+              otherBusinessSector: null
+              businessBlockOrVillage: "Khumulwng"
+              businessDistrict: "West Tripura"
+              businessPinCode: "799045"
+              contactNumber: "+919876543210"
+              contactEmail: "owner@example.test"
+            }) {
+              success
+              message
+            }
+          }
+        }
+      }
+    `, cookie)
+    expect(created.body.data?.seb.enterprise.create).toMatchObject({ success: true })
+
+    // Bootstrap revokes APPLICANT and nothing can grant it back yet, so
+    // promoting this owner would strand the enterprise permanently.
+    const refused = await bootstrapFirstAdmin()
+    expect(refused.response.status).toBe(403)
+    expect(refused.body).toEqual({
+      success: false,
+      message:
+        'First administrator bootstrap is unavailable or the supplied credentials are invalid.',
       response: null,
     })
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_user_role_grant WHERE role = 'SUPER_ADMIN'`,
+      ).first(),
+    ).toEqual({ count: 0 })
+
+    // The refusal must not have half-applied the swap: the applicant keeps
+    // working, which is the outcome the guard exists to protect.
+    const listed = await graphql<{
+      seb: {
+        enterprise: {
+          mine: {
+            success: boolean
+            response: { nodes: Array<{ name: string }> } | null
+          }
+        }
+      }
+    }>(/* GraphQL */ `
+      query {
+        seb { enterprise { mine { success response { nodes { name } } } } }
+      }
+    `, cookie)
+    expect(listed.body.data?.seb.enterprise.mine).toMatchObject({
+      success: true,
+      response: { nodes: [{ name: 'Owned Enterprise' }] },
+    })
+  })
+
+  it('destroys the promoted account\'s existing sessions during bootstrap', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+    await signInDefault()
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first(),
+    ).toEqual({ count: 1 })
+
+    // That session was issued to an applicant. Surviving the swap would upgrade
+    // it to full administrative authority without re-proving the password.
+    expect((await bootstrapFirstAdmin()).body.response?.roles).toEqual(['SUPER_ADMIN'])
+    expect(
+      await env.DB.prepare('SELECT count(*) AS count FROM core_session').first(),
+    ).toEqual({ count: 0 })
+  })
+
+  it('ignores the superseded session cookie name and digest label', async () => {
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const signup = await startSignup('applicant@example.com', notificationLog)
+    expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
+    const signedIn = await signInDefault()
+    const cookie = cookieHeaderFrom(signedIn.response)
+    const token = cookie.slice(cookie.indexOf('=') + 1)
+
+    const currentQuery = /* GraphQL */ `
+      query {
+        auth { currentSession { success response { session { id } } } }
+      }
+    `
+    // A live token presented under the pre-rename cookie name is not read at all.
+    const oldCookieName = await graphql<CurrentSessionBody>(
+      currentQuery,
+      `seb_applicant_session=${token}`,
+    )
+    expect(oldCookieName.body.data?.auth.currentSession.response).toBeNull()
+
+    // A session stored under the pre-rename purpose label no longer matches.
+    const legacyToken = crypto.randomUUID()
+    const user = await env.DB.prepare(
+      `SELECT id FROM core_user WHERE email = 'applicant@example.com'`,
+    ).first<{ id: string }>()
+    if (!user) throw new Error('Expected applicant user.')
+    const now = Date.now()
+    await env.DB.prepare(
+      `INSERT INTO core_session (
+        id, user_id, token_digest, expires_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        crypto.randomUUID(),
+        user.id,
+        await createDigest(env.AUTH_SECRET, 'applicant-session', legacyToken),
+        now + 60_000,
+        now,
+        now,
+      )
+      .run()
+    const legacyDigest = await graphql<CurrentSessionBody>(
+      currentQuery,
+      `seb_session=${legacyToken}`,
+    )
+    expect(legacyDigest.body.data?.auth.currentSession.response).toBeNull()
   })
 
   it('bootstraps the configured applicant through curl-only HTTP and never exposes GraphQL', async () => {
@@ -580,56 +895,83 @@ describe('applicant authentication', () => {
       message: null,
       response: {
         userId: expect.any(String),
-        roles: ['APPLICANT', 'SUPER_ADMIN'],
+        // Bootstrap swaps the role rather than adding to it.
+        roles: ['SUPER_ADMIN'],
       },
     })
 
     const grants = await env.DB.prepare(
-      `SELECT role, granted_by_user_id, grant_reason, revoked_at
+      `SELECT role, granted_by_user_id, grant_reason, revoked_by_user_id,
+              revocation_reason, revoked_at
        FROM core_user_role_grant ORDER BY granted_at`,
     ).all<{
       role: string
       granted_by_user_id: string | null
       grant_reason: string
+      revoked_by_user_id: string | null
+      revocation_reason: string | null
       revoked_at: number | null
     }>()
+    // The revoked APPLICANT row is retained, so role history stays complete.
     expect(grants.results).toEqual([
       {
         role: 'APPLICANT',
         granted_by_user_id: null,
         grant_reason: 'VERIFIED_APPLICANT_SIGNUP',
-        revoked_at: null,
+        revoked_by_user_id: null,
+        revocation_reason: 'FIRST_SUPER_ADMIN_BOOTSTRAP',
+        revoked_at: expect.any(Number),
       },
       {
         role: 'SUPER_ADMIN',
         granted_by_user_id: null,
         grant_reason: 'FIRST_SUPER_ADMIN_BOOTSTRAP',
+        revoked_by_user_id: null,
+        revocation_reason: null,
         revoked_at: null,
       },
     ])
     expect(grants.results.some(({ role }) => role === 'ADMIN')).toBe(false)
 
     const audits = await env.DB.prepare(
-      `SELECT action, outcome, request_id, ip_address, user_agent,
-              changes_json, metadata_json
+      `SELECT action, outcome, entity_type, entity_id, request_id, ip_address,
+              user_agent, changes_json, metadata_json
        FROM core_audit_event ORDER BY created_at`,
     ).all<{
       action: string
       outcome: string
+      entity_type: string
+      entity_id: string | null
       request_id: string | null
       ip_address: string | null
       user_agent: string | null
       changes_json: string | null
       metadata_json: string | null
     }>()
+    // The swap writes both role events; neither may carry caller-controlled
+    // request labels, because this endpoint receives two credentials.
     expect(audits.results).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           action: auditActions.firstSuperAdminBootstrap,
           outcome: 'SUCCESS',
         }),
+        expect.objectContaining({
+          action: auditActions.roleRevoked,
+          outcome: 'SUCCESS',
+          // Named so the revocation stays reachable through the audit entity
+          // index rather than only through a full-table action scan.
+          entity_type: 'CORE_USER',
+          entity_id: bootstrapped.body.response?.userId,
+          request_id: null,
+          ip_address: null,
+          user_agent: null,
+        }),
       ]),
     )
+    expect(
+      audits.results.filter(({ action }) => action === auditActions.roleGranted),
+    ).toHaveLength(2)
     const serializedAudit = JSON.stringify(audits.results)
     expect(serializedAudit).not.toContain(env.FIRST_SUPER_ADMIN_SECRET)
     expect(serializedAudit).not.toContain('correct horse battery staple')
@@ -879,7 +1221,7 @@ describe('applicant authentication', () => {
     expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
 
     const db = createDatabase(env.DB)
-    const candidate = await findActiveApplicantByEmail(db, 'applicant@example.com')
+    const candidate = await findActiveUserByEmail(db, 'applicant@example.com')
     if (!candidate) throw new Error('Expected bootstrap candidate.')
     await env.DB.prepare(
       `UPDATE core_user SET password_hash = ? WHERE id = ?`,
@@ -904,10 +1246,16 @@ describe('applicant authentication', () => {
         revokedAt: null,
         revocationReason: null,
       },
-      roleAuditEvent: testAuditEvent(
+      roleGrantAuditEvent: testAuditEvent(
         auditActions.roleGranted,
         'CORE_USER_ROLE_GRANT',
         grantId,
+        'SUCCESS',
+      ),
+      roleRevocationAuditEvent: testAuditEvent(
+        auditActions.roleRevoked,
+        'CORE_USER_ROLE_GRANT',
+        candidate.id,
         'SUCCESS',
       ),
       bootstrapAuditEvent: testAuditEvent(
@@ -923,6 +1271,14 @@ describe('applicant authentication', () => {
         `SELECT count(*) AS count FROM core_user_role_grant WHERE role = 'SUPER_ADMIN'`,
       ).first(),
     ).toEqual({ count: 0 })
+    // The swap is all-or-nothing: a losing write must not strip APPLICANT and
+    // leave the account with no active role at all.
+    expect(
+      await env.DB.prepare(
+        `SELECT count(*) AS count FROM core_user_role_grant
+         WHERE role = 'APPLICANT' AND revoked_at IS NULL`,
+      ).first(),
+    ).toEqual({ count: 1 })
     expect(
       await env.DB.prepare(
         `SELECT count(*) AS count FROM core_audit_event
@@ -941,7 +1297,7 @@ describe('applicant authentication', () => {
     const db = createDatabase(env.DB)
     // This is the credential lookup that happens before the intentionally slow
     // password hash. Revoking after it models the exact sign-in race.
-    const staleUser = await findActiveApplicantByEmail(db, 'applicant@example.com')
+    const staleUser = await findActiveUserByEmail(db, 'applicant@example.com')
     if (!staleUser) throw new Error('Expected applicant credential record.')
     await env.DB.prepare(
       `UPDATE core_user_role_grant
@@ -962,7 +1318,7 @@ describe('applicant authentication', () => {
       createdAt: now,
       updatedAt: now,
     }
-    const created = await createApplicantSession(
+    const created = await createUserSession(
       db,
       session,
       testAuditEvent(
@@ -1212,7 +1568,7 @@ describe('applicant authentication', () => {
   it('rejects passwords outside the signup policy before sign-in hashing', async () => {
     const { body } = await signInWithPassword('x'.repeat(129))
     expect(body.errors).toBeUndefined()
-    expect(body.data?.auth.signInApplicant).toMatchObject({ success: false, response: null })
+    expect(body.data?.auth.signIn).toMatchObject({ success: false, response: null })
     expect(
       await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
         count: number
@@ -1245,7 +1601,7 @@ describe('applicant authentication', () => {
       .bind(Date.now(), Date.now())
       .run()
 
-    expect((await signIn()).body.data?.auth.signInApplicant).toMatchObject({
+    expect((await signInDefault()).body.data?.auth.signIn).toMatchObject({
       success: false,
       response: null,
     })
@@ -1278,7 +1634,7 @@ describe('applicant authentication', () => {
     expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
 
     const failed = await signInWithPassword('incorrect password')
-    expect(failed.body.data?.auth.signInApplicant.success).toBe(false)
+    expect(failed.body.data?.auth.signIn.success).toBe(false)
     const failedAudit = await env.DB.prepare(
       `SELECT actor_user_id, entity_id FROM core_audit_event WHERE action = ?`,
     )
@@ -1287,18 +1643,18 @@ describe('applicant authentication', () => {
     expect(failedAudit?.actor_user_id).toBeNull()
     expect(failedAudit?.entity_id).toEqual(expect.any(String))
 
-    const signedIn = await signIn()
+    const signedIn = await signInDefault()
     const cookie = cookieHeaderFrom(signedIn.response)
     const rawToken = cookie.split('=', 2)[1]
-    const signedOut = await graphql<{ auth: { signOutApplicant: { success: boolean } } }>(
+    const signedOut = await graphql<{ auth: { signOut: { success: boolean } } }>(
       /* GraphQL */ `
         mutation {
-          auth { signOutApplicant { success } }
+          auth { signOut { success } }
         }
       `,
       cookie,
     )
-    expect(signedOut.body.data?.auth.signOutApplicant.success).toBe(true)
+    expect(signedOut.body.data?.auth.signOut.success).toBe(true)
     expect(signedOut.response.headers.get('set-cookie')).toMatch(/Max-Age=0/iu)
     expect(
       await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
@@ -1364,15 +1720,15 @@ describe('applicant authentication', () => {
     const signup = await startSignup('applicant@example.com', notificationLog)
     expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
 
-    const first = await signIn()
-    const second = await signIn()
-    const firstId = first.body.data?.auth.signInApplicant.response.session.id
-    const secondId = second.body.data?.auth.signInApplicant.response.session.id
+    const first = await signInDefault()
+    const second = await signInDefault()
+    const firstId = first.body.data?.auth.signIn.response.session.id
+    const secondId = second.body.data?.auth.signIn.response.session.id
     const secondCookie = cookieHeaderFrom(second.response)
 
     const listed = await graphql<{
       auth: {
-        applicantSessions: {
+        sessions: {
           success: boolean
           response: { sessions: Array<{ id: string; current: boolean }> }
         }
@@ -1381,7 +1737,7 @@ describe('applicant authentication', () => {
       /* GraphQL */ `
         query {
           auth {
-            applicantSessions {
+            sessions {
               success
               response { sessions { id current } }
             }
@@ -1390,7 +1746,7 @@ describe('applicant authentication', () => {
       `,
       secondCookie,
     )
-    expect(listed.body.data?.auth.applicantSessions.response.sessions).toEqual(
+    expect(listed.body.data?.auth.sessions.response.sessions).toEqual(
       expect.arrayContaining([
         { id: firstId, current: false },
         { id: secondId, current: true },
@@ -1398,16 +1754,16 @@ describe('applicant authentication', () => {
     )
 
     const revokedOther = await graphql<{
-      auth: { revokeOtherApplicantSessions: { success: boolean } }
+      auth: { revokeOtherSessions: { success: boolean } }
     }>(
       /* GraphQL */ `
         mutation {
-          auth { revokeOtherApplicantSessions { success } }
+          auth { revokeOtherSessions { success } }
         }
       `,
       secondCookie,
     )
-    expect(revokedOther.body.data?.auth.revokeOtherApplicantSessions.success).toBe(true)
+    expect(revokedOther.body.data?.auth.revokeOtherSessions.success).toBe(true)
     expect(revokedOther.response.headers.get('set-cookie')).toBeNull()
     expect(
       await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
@@ -1415,19 +1771,19 @@ describe('applicant authentication', () => {
       }>(),
     ).toEqual({ count: 1 })
 
-    const third = await signIn()
-    const thirdId = third.body.data?.auth.signInApplicant.response.session.id
+    const third = await signInDefault()
+    const thirdId = third.body.data?.auth.signIn.response.session.id
     const revokedCurrent = await graphql<{
-      auth: { revokeApplicantSession: { success: boolean } }
+      auth: { revokeSession: { success: boolean } }
     }>(
       /* GraphQL */ `
         mutation {
-          auth { revokeApplicantSession(sessionId: "${thirdId}") { success } }
+          auth { revokeSession(sessionId: "${thirdId}") { success } }
         }
       `,
       cookieHeaderFrom(third.response),
     )
-    expect(revokedCurrent.body.data?.auth.revokeApplicantSession.success).toBe(true)
+    expect(revokedCurrent.body.data?.auth.revokeSession.success).toBe(true)
     expect(revokedCurrent.response.headers.get('set-cookie')).toMatch(/Max-Age=0/iu)
     expect(
       await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
@@ -1436,16 +1792,16 @@ describe('applicant authentication', () => {
     ).toEqual({ count: 1 })
 
     const revokedAll = await graphql<{
-      auth: { revokeAllApplicantSessions: { success: boolean } }
+      auth: { revokeAllSessions: { success: boolean } }
     }>(
       /* GraphQL */ `
         mutation {
-          auth { revokeAllApplicantSessions { success } }
+          auth { revokeAllSessions { success } }
         }
       `,
       secondCookie,
     )
-    expect(revokedAll.body.data?.auth.revokeAllApplicantSessions.success).toBe(true)
+    expect(revokedAll.body.data?.auth.revokeAllSessions.success).toBe(true)
     expect(revokedAll.response.headers.get('set-cookie')).toMatch(/Max-Age=0/iu)
     expect(
       await env.DB.prepare('SELECT count(*) AS count FROM core_session').first<{
@@ -1469,21 +1825,21 @@ describe('applicant authentication', () => {
     const signup = await startSignup('applicant@example.com', notificationLog)
     expect((await verifySignup(signup.challengeToken, signup.otp))?.success).toBe(true)
 
-    const signedIn = await signIn()
+    const signedIn = await signInDefault()
     const cookie = cookieHeaderFrom(signedIn.response)
     await env.DB.prepare('UPDATE core_session SET expires_at = 0').run()
 
     const current = await graphql<{
-      auth: { currentApplicantSession: { success: boolean; response: null } }
+      auth: { currentSession: { success: boolean; response: null } }
     }>(
       /* GraphQL */ `
         query {
-          auth { currentApplicantSession { success response { session { id } } } }
+          auth { currentSession { success response { session { id } } } }
         }
       `,
       cookie,
     )
-    expect(current.body.data?.auth.currentApplicantSession).toEqual({
+    expect(current.body.data?.auth.currentSession).toEqual({
       success: true,
       response: null,
     })

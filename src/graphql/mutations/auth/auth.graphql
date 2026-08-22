@@ -13,7 +13,7 @@ input VerifyApplicantSignupInput {
   password: String!
 }
 
-input SignInApplicantInput {
+input SignInInput {
   email: String!
   password: String!
 }
@@ -22,10 +22,12 @@ type AuthMutation {
   # Creates an independent ten-minute challenge without revealing account existence.
   startApplicantSignup(input: StartApplicantSignupInput!): StartApplicantSignupResult!
   # Creates a verified applicant only; the caller signs in separately for a session.
-  verifyApplicantSignup(input: VerifyApplicantSignupInput!): ApplicantResult!
-  signInApplicant(input: SignInApplicantInput!): ApplicantAuthResult!
-  signOutApplicant: BooleanResult!
-  revokeApplicantSession(sessionId: ID!): BooleanResult!
-  revokeOtherApplicantSessions: BooleanResult!
-  revokeAllApplicantSessions: BooleanResult!
+  # Registration can never grant an administrative role.
+  verifyApplicantSignup(input: VerifyApplicantSignupInput!): UserResult!
+  # Accepts any person holding at least one active role, applicant or administrator.
+  signIn(input: SignInInput!): AuthResult!
+  signOut: BooleanResult!
+  revokeSession(sessionId: ID!): BooleanResult!
+  revokeOtherSessions: BooleanResult!
+  revokeAllSessions: BooleanResult!
 }

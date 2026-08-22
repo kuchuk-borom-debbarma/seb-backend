@@ -24,7 +24,7 @@ import type {
   ApplicationOperationContext,
   Connection,
   Enterprise,
-  EnterpriseProfileInput,
+  SuppliedEnterpriseProfile,
   SebResult,
 } from '../types'
 import { normalizeEnterpriseProfile } from '../validation'
@@ -59,7 +59,7 @@ export const enterpriseById = async (
 }
 
 export const createEnterprise = async (
-  input: EnterpriseProfileInput,
+  input: SuppliedEnterpriseProfile,
   context: ApplicationOperationContext,
 ): Promise<SebResult<Enterprise>> => {
   const applicant = await currentApplicant(context)
@@ -98,7 +98,7 @@ export const createEnterprise = async (
 }
 
 export const updateEnterprise = async (
-  input: { id: string; expectedVersion: number; profile: EnterpriseProfileInput },
+  input: { id: string; expectedVersion: number; profile: SuppliedEnterpriseProfile },
   context: ApplicationOperationContext,
 ): Promise<SebResult<Enterprise>> => {
   const applicant = await currentApplicant(context)

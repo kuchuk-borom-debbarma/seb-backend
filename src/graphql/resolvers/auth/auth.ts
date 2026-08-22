@@ -1,11 +1,11 @@
 import {
-  applicantSessions,
-  currentApplicantSession,
-  revokeAllApplicantSessions,
-  revokeApplicantSession,
-  revokeOtherApplicantSessions,
-  signInApplicant,
-  signOutApplicant,
+  currentSession,
+  revokeAllSessions,
+  revokeOtherSessions,
+  revokeSession,
+  sessions,
+  signIn,
+  signOut,
   startApplicantSignup,
   verifyApplicantSignup,
 } from '../../../services/auth'
@@ -23,10 +23,10 @@ export const authResolvers = {
     auth: () => ({}),
   },
   AuthQuery: {
-    currentApplicantSession: (_parent: unknown, _args: unknown, context: GraphQLContext) =>
-      currentApplicantSession(context),
-    applicantSessions: (_parent: unknown, _args: unknown, context: GraphQLContext) =>
-      applicantSessions(context),
+    currentSession: (_parent: unknown, _args: unknown, context: GraphQLContext) =>
+      currentSession(context),
+    sessions: (_parent: unknown, _args: unknown, context: GraphQLContext) =>
+      sessions(context),
   },
   AuthMutation: {
     startApplicantSignup: (
@@ -39,27 +39,27 @@ export const authResolvers = {
       args: { input: { challengeToken: string; otp: string; password: string } },
       context: GraphQLContext,
     ) => verifyApplicantSignup(args.input, context),
-    signInApplicant: (
+    signIn: (
       _parent: unknown,
       args: { input: { email: string; password: string } },
       context: GraphQLContext,
-    ) => signInApplicant(args.input, context),
-    signOutApplicant: (_parent: unknown, _args: unknown, context: GraphQLContext) =>
-      signOutApplicant(context),
-    revokeApplicantSession: (
+    ) => signIn(args.input, context),
+    signOut: (_parent: unknown, _args: unknown, context: GraphQLContext) =>
+      signOut(context),
+    revokeSession: (
       _parent: unknown,
       args: { sessionId: string },
       context: GraphQLContext,
-    ) => revokeApplicantSession(args.sessionId, context),
-    revokeOtherApplicantSessions: (
+    ) => revokeSession(args.sessionId, context),
+    revokeOtherSessions: (
       _parent: unknown,
       _args: unknown,
       context: GraphQLContext,
-    ) => revokeOtherApplicantSessions(context),
-    revokeAllApplicantSessions: (
+    ) => revokeOtherSessions(context),
+    revokeAllSessions: (
       _parent: unknown,
       _args: unknown,
       context: GraphQLContext,
-    ) => revokeAllApplicantSessions(context),
+    ) => revokeAllSessions(context),
   },
 }

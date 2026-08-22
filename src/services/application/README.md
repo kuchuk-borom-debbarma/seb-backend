@@ -80,7 +80,7 @@ the rest of the bounded batch and retries the failed intent on a later run.
 Programme-cycle administration, reviewer revisions, bank/TTM decisions,
 awards, disbursements, assessments, and recovery now live in the administrator
 service. Notifications, idempotency storage, rate limiting, production malware
-scanning, admin-only sign-in, and MFA remain excluded.
+scanning, and administrator role management remain excluded.
 
 See the [combined application guide](../../../docs/application-guide.md) for the
 business journey, examples, entity glossary, field rules, and GraphQL usage.

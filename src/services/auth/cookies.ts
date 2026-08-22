@@ -1,6 +1,10 @@
 import type { AuthOperationContext } from './types'
 
-const SESSION_COOKIE_NAME = 'seb_applicant_session'
+const SESSION_COOKIE_NAME = 'seb_session'
+// The applicant-era name is no longer written or read, but a browser that still
+// holds one would keep sending it forever. Clearing expires it alongside the
+// current cookie; remove this once no deployed environment can still have one.
+const SUPERSEDED_SESSION_COOKIE_NAMES = ['seb_applicant_session'] as const
 
 /** Builds attributes shared by cookie creation and deletion. */
 const cookieAttributes = (context: AuthOperationContext): string[] => {
@@ -42,15 +46,18 @@ export const setSessionCookie = (context: AuthOperationContext, token: string): 
 }
 
 export const clearSessionCookie = (context: AuthOperationContext): void => {
+  const attributes = cookieAttributes(context)
   // Deletion repeats Path, Secure, and SameSite so the browser targets exactly
   // the cookie created by `setSessionCookie`.
-  context.responseHeaders.append(
-    'set-cookie',
-    [
-      `${SESSION_COOKIE_NAME}=`,
-      ...cookieAttributes(context),
-      'Max-Age=0',
-      'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
-    ].join('; '),
-  )
+  for (const name of [SESSION_COOKIE_NAME, ...SUPERSEDED_SESSION_COOKIE_NAMES]) {
+    context.responseHeaders.append(
+      'set-cookie',
+      [
+        `${name}=`,
+        ...attributes,
+        'Max-Age=0',
+        'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+      ].join('; '),
+    )
+  }
 }

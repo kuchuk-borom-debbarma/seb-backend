@@ -22,7 +22,7 @@ import {
   normalizeRequiredText,
   success,
 } from '../src/services/admin/support'
-import { createDigest } from '../src/services/auth/crypto'
+import { sessionTokenDigest } from '../src/services/auth/crypto'
 import { findSubmissionPolicy } from '../src/services/application/queries/application'
 import { adminResolvers } from '../src/graphql/resolvers/admin/admin'
 
@@ -50,13 +50,13 @@ const adminSession = async (roles: Array<'APPLICANT' | 'ADMIN' | 'SUPER_ADMIN'>)
     ).bind(
       crypto.randomUUID(),
       userId,
-      await createDigest(env.AUTH_SECRET, 'applicant-session', token),
+      await sessionTokenDigest(env.AUTH_SECRET, token),
       now + 86_400_000,
       now,
       now,
     ),
   ])
-  return { userId, cookie: `seb_applicant_session=${token}` }
+  return { userId, cookie: `seb_session=${token}` }
 }
 
 const adminContext = (cookie: string) => ({

@@ -3,6 +3,6 @@ extend type Query {
 }
 
 type AuthQuery {
-  currentApplicantSession: ApplicantAuthResult!
-  applicantSessions: ApplicantSessionsResult!
+  currentSession: AuthResult!
+  sessions: SessionsResult!
 }

@@ -22,6 +22,7 @@ import type {
   ValidationIssue,
   ValidationReport,
   EnterpriseProfileInput,
+  SuppliedEnterpriseProfile,
 } from './types'
 
 export type SubmissionPolicy = {
@@ -113,13 +114,19 @@ const issue = (
   message: string,
 ): ValidationIssue => ({ section, field, code, message })
 
-const cleanText = (value: string | null): string | null => {
-  if (value === null) return null
+/**
+ * Accepts `undefined` as well as `null` because GraphQL omits absent nullable
+ * input fields entirely. Treating only `null` as empty would throw on every
+ * client that leaves an optional answer out instead of sending an explicit null.
+ */
+const cleanText = (value: string | null | undefined): string | null => {
+  if (value === null || value === undefined) return null
   const cleaned = value.trim().replace(/\s+/gu, ' ')
   return cleaned === '' ? null : cleaned
 }
 
-const cleanUpper = (value: string | null): string | null => cleanText(value)?.toUpperCase() ?? null
+const cleanUpper = (value: string | null | undefined): string | null =>
+  cleanText(value)?.toUpperCase() ?? null
 
 /** Returns a UTC date only when the input is an actual ISO calendar date. */
 export const parseDateOnly = (value: string): Date | null => {
@@ -395,7 +402,7 @@ export const normalizeDraftInput = (
 }
 
 export const normalizeEnterpriseProfile = (
-  input: EnterpriseProfileInput,
+  input: SuppliedEnterpriseProfile,
 ): { value: EnterpriseProfileInput | null; message: string | null } => {
   const value: EnterpriseProfileInput = {
     ...input,
@@ -403,6 +410,10 @@ export const normalizeEnterpriseProfile = (
     establishmentDate: cleanText(input.establishmentDate),
     registrationNumber: cleanUpper(input.registrationNumber),
     gstin: cleanUpper(input.gstin),
+    // Not a text field, so it needs the same absent-to-null collapse spelled
+    // out; leaving it undefined would fail the sector rule below with a message
+    // about an invalid sector rather than accepting an omitted optional answer.
+    businessSector: input.businessSector ?? null,
     otherBusinessSector: cleanText(input.otherBusinessSector),
     businessBlockOrVillage: cleanText(input.businessBlockOrVillage),
     businessDistrict: cleanText(input.businessDistrict),

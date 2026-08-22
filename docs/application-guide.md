@@ -282,8 +282,8 @@ The base schema is replaceable because no production database exists; no
 incremental migration is added. Programme-cycle administration, intake, desk
 review, bank evidence, TTM decisions, awards, payments, assessments, and
 recovery now exist under the administrator namespace. Notifications,
-idempotency, rate limiting, a production malware provider, admin-only sign-in,
-MFA, role management, and public deployment remain excluded. R2 CORS and
+idempotency, rate limiting, a production malware provider, role management,
+and public deployment remain excluded. R2 CORS and
 bucket-scoped credentials are required outside tests. Staff document downloads
 remain fail-closed until a production scanner records `ACCEPTED`.
 

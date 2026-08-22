@@ -27,7 +27,7 @@ import {
   type ApplicationDraftInput,
   type ApplicationStatus,
   type DocumentType,
-  type EnterpriseProfileInput,
+  type SuppliedEnterpriseProfile,
 } from '../../../services/application'
 import type { GraphQLContext } from '../../types'
 
@@ -54,12 +54,12 @@ export const sebResolvers = {
   SebEnterpriseMutation: {
     create: (
       _parent: unknown,
-      args: { input: EnterpriseProfileInput },
+      args: { input: SuppliedEnterpriseProfile },
       context: GraphQLContext,
     ) => createEnterprise(args.input, context),
     update: (
       _parent: unknown,
-      args: { input: { id: string; expectedVersion: number; profile: EnterpriseProfileInput } },
+      args: { input: { id: string; expectedVersion: number; profile: SuppliedEnterpriseProfile } },
       context: GraphQLContext,
     ) => updateEnterprise(args.input, context),
     softDelete: (

@@ -17,16 +17,18 @@ type StartApplicantSignupResponse {
   expiresAt: DateTime!
 }
 
-type Applicant {
+# Roles are the caller's live grants. A person may hold more than one, and an
+# administrator may hold none of APPLICANT.
+type User {
   id: ID!
   email: String!
   emailVerified: Boolean!
-  role: String!
+  roles: [UserRole!]!
   createdAt: DateTime!
 }
 
 # Public browser-safe session data. Raw tokens and token digests are absent.
-type ApplicantSession {
+type Session {
   id: ID!
   createdAt: DateTime!
   updatedAt: DateTime!
@@ -36,14 +38,13 @@ type ApplicantSession {
   current: Boolean!
 }
 
-type ApplicantAuthResponse {
-  applicant: Applicant!
-  session: ApplicantSession!
-  activeRoles: [UserRole!]!
+type AuthResponse {
+  user: User!
+  session: Session!
 }
 
-type ApplicantSessionsResponse {
-  sessions: [ApplicantSession!]!
+type SessionsResponse {
+  sessions: [Session!]!
 }
 
 type BooleanResponse {
@@ -56,22 +57,22 @@ type StartApplicantSignupResult implements BaseResponse {
   response: StartApplicantSignupResponse
 }
 
-type ApplicantResult implements BaseResponse {
+type UserResult implements BaseResponse {
   success: Boolean!
   message: String
-  response: Applicant
+  response: User
 }
 
-type ApplicantAuthResult implements BaseResponse {
+type AuthResult implements BaseResponse {
   success: Boolean!
   message: String
-  response: ApplicantAuthResponse
+  response: AuthResponse
 }
 
-type ApplicantSessionsResult implements BaseResponse {
+type SessionsResult implements BaseResponse {
   success: Boolean!
   message: String
-  response: ApplicantSessionsResponse
+  response: SessionsResponse
 }
 
 type BooleanResult implements BaseResponse {

@@ -9,10 +9,10 @@ the [policy crosswalk](policy-alignment.md), and the [RBAC guide](admin-rbac.md)
 Staff use the existing email/password sign-in. The portal reloads active roles
 from D1 on every request. A current `ADMIN` or `SUPER_ADMIN` grant opens the
 `admin` GraphQL namespace; revocation takes effect on the next request.
-`SUPER_ADMIN` includes ordinary administrative capability. For now, sign-in
-still requires `APPLICANT`, so the bootstrapped first administrator is
-intentionally a multi-role account. Admin-only sign-in and MFA remain launch
-blockers.
+`SUPER_ADMIN` includes ordinary administrative capability. Sign-in requires
+only one active role of any kind, so the bootstrapped first administrator holds
+`SUPER_ADMIN` alone and signs in normally. Role management and account recovery
+remain launch blockers.
 
 Every mutation uses one action below `mutation.admin`. Expected role loss,
 stale versions, invalid transitions, and policy failures return the normal
@@ -196,7 +196,7 @@ form contents, money, bank correspondence, notes, or credentials.
 
 ## Public-launch blockers
 
-Do not publicly launch administrative operations until admin-only sign-in,
-MFA, role management/recovery, a production malware scanner, rate limits,
-privacy/access approval, and the unresolved TTAADC policy decisions in the
+Do not publicly launch administrative operations until role
+management/recovery, a production malware scanner, rate limits, privacy/access
+approval, and the unresolved TTAADC policy decisions in the
 [policy alignment guide](policy-alignment.md) are complete.

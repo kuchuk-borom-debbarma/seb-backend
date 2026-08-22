@@ -83,7 +83,7 @@ business journey, API behavior, validation, R2 flow, assumptions, and examples.
 
 ## Applicant authentication
 
-Applicant signup and session operations are under the GraphQL `auth` namespace
+Signup and session operations are under the GraphQL `auth` namespace
 and return a typed envelope with `success`, optional `message`, and an
 operation-specific `response`. Expected authentication failures remain in that
 envelope; malformed GraphQL documents and unexpected faults use GraphQL errors.
@@ -104,13 +104,13 @@ mutation StartSignup {
 }
 ```
 
-The console external-notification service prints the six-digit OTP during development. Only HMAC digests of OTPs and challenge tokens are stored. Signup does not create a session; password sign-in creates an HttpOnly browser-session cookie while the D1 session expires after seven days.
+The console external-notification service prints the six-digit OTP during development. Only HMAC digests of OTPs and challenge tokens are stored. Signup grants `APPLICANT` and does not create a session. Password sign-in accepts any person holding at least one active role, so an administrator who is not an applicant signs in through the same operation; it creates an HttpOnly browser-session cookie while the D1 session expires after seven days.
 
 Focused implementation guides:
 
 - [Mission SEP product roadmap](docs/ROADMAP.md)
 - [First super administrator bootstrap](docs/first-super-admin-bootstrap.md)
-- [Applicant authentication service](src/services/auth/README.md)
+- [Authentication service](src/services/auth/README.md)
 - [External notification service](src/services/external-notification/README.md)
 - [Applicant application service](src/services/application/README.md)
 - [Mission SEP business and technical guide](docs/application-guide.md)

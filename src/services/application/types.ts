@@ -57,6 +57,18 @@ export type EnterpriseProfileInput = {
   contactEmail: string | null
 }
 
+/**
+ * The enterprise profile as it actually arrives from GraphQL.
+ *
+ * A nullable GraphQL input field that the client omits is absent from the
+ * arguments object rather than present as `null`, so every optional field can
+ * be `undefined` at this boundary. Normalization collapses both spellings to
+ * `null` before any rule runs.
+ */
+export type SuppliedEnterpriseProfile =
+  & Pick<EnterpriseProfileInput, 'name' | 'registrationType'>
+  & Partial<Omit<EnterpriseProfileInput, 'name' | 'registrationType'>>
+
 export type Enterprise = EnterpriseProfileInput & {
   id: string
   status: EnterpriseStatus

@@ -16,15 +16,16 @@ export type AuthOperationContext = {
   responseHeaders: Headers
 }
 
-export type Applicant = {
+/** Public identity payload. Roles are the live grants, never a fixed literal. */
+export type AuthUser = {
   id: string
   email: string
   emailVerified: boolean
-  role: 'APPLICANT'
+  roles: UserRole[]
   createdAt: Date
 }
 
-export type ApplicantSession = {
+export type AuthSession = {
   id: string
   createdAt: Date
   updatedAt: Date
@@ -34,10 +35,9 @@ export type ApplicantSession = {
   current: boolean
 }
 
-export type ApplicantAuthResponse = {
-  applicant: Applicant
-  session: ApplicantSession
-  activeRoles: UserRole[]
+export type AuthResponse = {
+  user: AuthUser
+  session: AuthSession
 }
 
 /** Internal session identity. Roles are loaded from active D1 grants per request. */

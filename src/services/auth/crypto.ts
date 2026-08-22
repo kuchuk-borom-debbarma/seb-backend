@@ -119,6 +119,17 @@ export const createDigest = async (
   return toBase64Url(new Uint8Array(digest))
 }
 
+/**
+ * Digests an opaque session token under one shared purpose label.
+ *
+ * Session creation, request authentication, and sign-out must all derive the
+ * same digest from the same token. Keeping the label in a single definition
+ * means those three paths cannot drift apart and silently stop recognizing
+ * each other's sessions.
+ */
+export const sessionTokenDigest = (secret: string, token: string): Promise<string> =>
+  createDigest(secret, 'user-session', token)
+
 export const hashPassword = async (password: string): Promise<string> => {
   const salt = crypto.getRandomValues(new Uint8Array(16))
   // Encoding the supplied string directly preserves the password byte-for-byte;

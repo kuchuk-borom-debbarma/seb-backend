@@ -36,7 +36,7 @@ import type {
   ApplicationDraftInput,
   EnterpriseProfileInput,
 } from '../src/services/application/types'
-import { createDigest } from '../src/services/auth/crypto'
+import { sessionTokenDigest } from '../src/services/auth/crypto'
 
 type GraphQLResponse<T> = { data?: T; errors?: Array<{ message: string }> }
 
@@ -62,7 +62,7 @@ const applicantSession = async () => {
   const userId = crypto.randomUUID()
   const token = crypto.randomUUID()
   const now = Date.now()
-  const digest = await createDigest(env.AUTH_SECRET, 'applicant-session', token)
+  const digest = await sessionTokenDigest(env.AUTH_SECRET, token)
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO core_user (
@@ -80,7 +80,7 @@ const applicantSession = async () => {
       ) VALUES (?, ?, ?, ?, ?, ?)`,
     ).bind(crypto.randomUUID(), userId, digest, now + 86_400_000, now, now),
   ])
-  return { userId, cookie: `seb_applicant_session=${token}` }
+  return { userId, cookie: `seb_session=${token}` }
 }
 
 const directContext = (cookie: string) => ({
@@ -715,6 +715,84 @@ describe('applicant application business service', () => {
         now,
       }),
     })).toBe(false)
+  })
+
+  it('accepts a profile that omits optional fields instead of sending explicit nulls', async () => {
+    const applicant = await applicantSession()
+
+    // GraphQL drops absent nullable inputs rather than passing null, so every
+    // optional field arrives here as undefined. Only name and registrationType
+    // are non-null in the schema.
+    const created = await graphql<{
+      seb: {
+        enterprise: {
+          create: {
+            success: boolean
+            message: string | null
+            response: {
+              id: string
+              businessSector: string | null
+              establishmentDate: string | null
+              contactEmail: string | null
+            } | null
+          }
+        }
+      }
+    }>(
+      `mutation Create($input: EnterpriseProfileInput!) {
+        seb { enterprise { create(input: $input) {
+          success message
+          response { id businessSector establishmentDate contactEmail }
+        } } }
+      }`,
+      { input: { name: 'Minimal Enterprise', registrationType: 'NONE' } },
+      applicant.cookie,
+    )
+
+    expect(created.errors).toBeUndefined()
+    expect(created.data?.seb.enterprise.create).toMatchObject({
+      success: true,
+      message: null,
+      response: {
+        businessSector: null,
+        establishmentDate: null,
+        contactEmail: null,
+      },
+    })
+
+    // The same omission must survive an update, which normalizes the profile
+    // through the identical path.
+    const enterpriseId = created.data?.seb.enterprise.create.response?.id
+    const updated = await graphql<{
+      seb: {
+        enterprise: {
+          update: {
+            success: boolean
+            message: string | null
+            response: { currentVersion: number; businessSector: string | null } | null
+          }
+        }
+      }
+    }>(
+      `mutation Update($input: UpdateEnterpriseInput!) {
+        seb { enterprise { update(input: $input) {
+          success message response { currentVersion businessSector }
+        } } }
+      }`,
+      {
+        input: {
+          id: enterpriseId,
+          expectedVersion: 1,
+          profile: { name: 'Minimal Enterprise Renamed', registrationType: 'NONE' },
+        },
+      },
+      applicant.cookie,
+    )
+    expect(updated.errors).toBeUndefined()
+    expect(updated.data?.seb.enterprise.update).toMatchObject({
+      success: true,
+      response: { currentVersion: 2, businessSector: null },
+    })
   })
 
   it('creates and versions a canonical enterprise without changing an application snapshot', async () => {

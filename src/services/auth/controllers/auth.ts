@@ -3,7 +3,7 @@
  * cryptographic primitives and SQL details remain in their focused modules.
  */
 import { z } from 'zod'
-import { auditActions } from '../../../db/schema'
+import { auditActions, type UserRole } from '../../../db/schema'
 import { sendEmail } from '../../external-notification'
 import { clearSessionCookie, readSessionToken, setSessionCookie } from '../cookies'
 import {
@@ -13,6 +13,7 @@ import {
   DUMMY_PASSWORD_HASH,
   hashPassword,
   isValidBootstrapSecret,
+  sessionTokenDigest,
   verifyConfiguredSecret,
   verifyPassword,
 } from '../crypto'
@@ -23,14 +24,14 @@ import {
   createAuditEvent,
   createSignupChallenge,
   createUserFromSignupChallenge,
-  createApplicantSession,
+  createUserSession,
   deleteAllUserSessions,
   deleteOtherUserSessions,
   deleteUserSession,
   deleteUserSessionByDigest,
-  findActiveApplicantByEmail,
-  findFirstSuperAdminCandidateByEmail,
+  findActiveUserByEmail,
   findActiveUserRoles,
+  findFirstSuperAdminCandidateByEmail,
   findSignupChallenge,
   findUserByEmail,
   findUserSessionByDigest,
@@ -46,14 +47,14 @@ import {
   type UserRoleGrantRecord,
 } from '../queries/auth'
 import type {
-  Applicant,
-  ApplicantAuthResponse,
-  ApplicantSession,
   AuthenticatedAdministratorRequest,
   AuthenticatedApplicantRequest,
   AuthenticatedUserRequest,
   AuthOperationContext,
+  AuthResponse,
   AuthResult,
+  AuthSession,
+  AuthUser,
   FirstSuperAdminBootstrapResponse,
   StartApplicantSignupResponse,
 } from '../types'
@@ -66,11 +67,13 @@ const APPLICANT_ROLE = 'APPLICANT' as const
 const START_SIGNUP_MESSAGE =
   'If this email can be registered, a verification code has been sent.'
 const INVALID_CHALLENGE_MESSAGE = 'The verification code is invalid or has expired.'
-const AUTH_REQUIRED_MESSAGE = 'Applicant authentication is required.'
+const AUTH_REQUIRED_MESSAGE = 'Authentication is required.'
 const FIRST_SUPER_ADMIN_BOOTSTRAP_FAILURE =
   'First administrator bootstrap is unavailable or the supplied credentials are invalid.'
 const FIRST_SUPER_ADMIN_ROLE = 'SUPER_ADMIN' as const
-const FIRST_SUPER_ADMIN_GRANT_REASON = 'FIRST_SUPER_ADMIN_BOOTSTRAP'
+// Names both sides of the swap: the SUPER_ADMIN grant reason and the paired
+// APPLICANT revocation reason.
+const FIRST_SUPER_ADMIN_BOOTSTRAP_REASON = 'FIRST_SUPER_ADMIN_BOOTSTRAP'
 
 const emailSchema = z.email()
 const challengeSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u)
@@ -126,18 +129,23 @@ const firstSuperAdminConfiguration = (
   return { email, secret }
 }
 
-const toApplicant = (value: PublicUserRecord): Applicant => ({
+/**
+ * Roles are supplied by the caller rather than read here so each response uses
+ * the grants it already resolved. Reporting a fixed role would misdescribe an
+ * administrator who holds no APPLICANT grant.
+ */
+const toAuthUser = (value: PublicUserRecord, roles: UserRole[]): AuthUser => ({
   id: value.id,
   email: value.email,
   emailVerified: value.emailVerifiedAt !== null,
-  role: APPLICANT_ROLE,
+  roles,
   createdAt: value.createdAt,
 })
 
-const toApplicantSession = (
+const toAuthSession = (
   value: PublicSessionRecord,
   currentSessionId: string,
-): ApplicantSession => ({
+): AuthSession => ({
   id: value.id,
   createdAt: value.createdAt,
   updatedAt: value.updatedAt,
@@ -153,26 +161,54 @@ const getCurrentSession = async (
   const token = readSessionToken(context.requestHeaders)
   if (!token) return null
 
-  const tokenDigest = await createDigest(requireSecret(context), 'applicant-session', token)
+  const tokenDigest = await sessionTokenDigest(requireSecret(context), token)
   const now = new Date()
-  // One joined query verifies expiry and returns public applicant/session data.
+  // One joined query verifies expiry and returns public user/session data.
   const current = await findUserSessionByDigest(context.db, tokenDigest, now)
   // A stale or forged cookie is actively expired in the browser.
-  if (!current) clearSessionCookie(context)
+  if (!current) {
+    clearSessionCookie(context)
+    return null
+  }
+  // Holding no active role is the same condition that refuses sign-in, so an
+  // existing cookie must not outlive it either. Roles are joined live, making
+  // this authoritative on the request after the final revocation.
+  if (current.roles.length === 0) {
+    // Refusing the request is not enough: the rows would survive until expiry
+    // and start authenticating again the moment any role is granted back. The
+    // scheduled cleanup sweeps accounts that never present a cookie at all.
+    await deleteAllUserSessions(
+      context.db,
+      current.user.id,
+      auditEvent(context, {
+        action: auditActions.sessionsRevoked,
+        entityType: 'CORE_USER',
+        entityId: current.user.id,
+        // The holder is deactivated, so they are the subject of this deletion
+        // rather than its authority.
+        actorUserId: null,
+        metadata: { scope: 'ALL', reason: 'NO_ACTIVE_ROLE' },
+      }),
+    )
+    clearSessionCookie(context)
+    return null
+  }
   return current
 }
 
-const getCurrentApplicantSession = async (
+/**
+ * Applicant primitive requiring a current, active APPLICANT role grant.
+ *
+ * Sign-in itself accepts any active role, so this narrower check is what keeps
+ * applicant enterprise and application operations closed to an administrator
+ * who holds no applicant grant.
+ */
+export const authenticatedApplicant = async (
   context: AuthOperationContext,
 ): Promise<AuthenticatedApplicantRequest | null> => {
   const current = await getCurrentSession(context)
   return current?.roles.includes(APPLICANT_ROLE) ? current : null
 }
-
-/** Applicant primitive requiring a current, active APPLICANT role grant. */
-export const authenticatedApplicant = (
-  context: AuthOperationContext,
-): Promise<AuthenticatedApplicantRequest | null> => getCurrentApplicantSession(context)
 
 /** ADMIN and SUPER_ADMIN share operational capabilities in this delivery. */
 export const authenticatedAdministrator = async (
@@ -327,7 +363,7 @@ const signupOtpDigest = (
 const unavailableSignup = async (
   context: AuthOperationContext,
   email: string,
-): Promise<AuthResult<Applicant>> => {
+): Promise<AuthResult<AuthUser>> => {
   await cancelSignupChallengesForEmail(context.db, email, new Date())
   return failure('This signup can no longer be completed.')
 }
@@ -336,7 +372,7 @@ const unavailableSignup = async (
 export const verifyApplicantSignup = async (
   input: { challengeToken: string; otp: string; password: string },
   context: AuthOperationContext,
-): Promise<AuthResult<Applicant>> => {
+): Promise<AuthResult<AuthUser>> => {
   // Invalid passwords never read or mutate the supplied challenge.
   if (!passwordSchema.safeParse(input.password).success) {
     return failure('Password must contain between 8 and 128 characters.')
@@ -424,7 +460,9 @@ export const verifyApplicantSignup = async (
     return failure(INVALID_CHALLENGE_MESSAGE)
   }
 
-  return success(toApplicant(newUser))
+  // APPLICANT is the only grant this transition creates, so the roles are known
+  // without querying them back.
+  return success(toAuthUser(newUser, [APPLICANT_ROLE]))
 }
 
 /** Records a credential or guarded-write failure without copying its cause. */
@@ -447,7 +485,7 @@ const recordFirstSuperAdminFailure = (
   }),
 )
 
-/** Builds the fixed grant and both success audits for the guarded D1 batch. */
+/** Builds the role swap and its three success audits for the guarded D1 batch. */
 const attemptFirstSuperAdminGrant = (
   candidate: UserRecord,
   configuredEmail: string,
@@ -461,7 +499,7 @@ const attemptFirstSuperAdminGrant = (
     // Authority comes from trusted bootstrap configuration rather than another
     // portal user; the audit event still identifies the authenticated candidate.
     grantedByUserId: null,
-    grantReason: FIRST_SUPER_ADMIN_GRANT_REASON,
+    grantReason: FIRST_SUPER_ADMIN_BOOTSTRAP_REASON,
     grantedAt: now,
     revokedByUserId: null,
     revokedAt: null,
@@ -472,12 +510,29 @@ const attemptFirstSuperAdminGrant = (
     email: configuredEmail,
     verifiedPasswordHash: candidate.passwordHash,
     roleGrant,
-    roleAuditEvent: auditEvent(context, {
+    roleGrantAuditEvent: auditEvent(context, {
       action: auditActions.roleGranted,
       entityType: 'CORE_USER_ROLE_GRANT',
       entityId: roleGrant.id,
       actorUserId: candidate.id,
       metadata: { userId: candidate.id, role: FIRST_SUPER_ADMIN_ROLE },
+      createdAt: now,
+      includeRequestMetadata: false,
+    }),
+    roleRevocationAuditEvent: auditEvent(context, {
+      action: auditActions.roleRevoked,
+      // The write matches the grant by user and role, so no grant ID exists to
+      // name here. Recording the user keeps the row reachable through the
+      // (entity_type, entity_id) audit index; a null entity ID would make this
+      // revocation invisible to every entity lookup.
+      entityType: 'CORE_USER',
+      entityId: candidate.id,
+      actorUserId: candidate.id,
+      metadata: {
+        userId: candidate.id,
+        role: APPLICANT_ROLE,
+        reason: FIRST_SUPER_ADMIN_BOOTSTRAP_REASON,
+      },
       createdAt: now,
       includeRequestMetadata: false,
     }),
@@ -489,7 +544,8 @@ const attemptFirstSuperAdminGrant = (
       metadata: {
         grantId: roleGrant.id,
         role: FIRST_SUPER_ADMIN_ROLE,
-        reason: FIRST_SUPER_ADMIN_GRANT_REASON,
+        revokedRole: APPLICANT_ROLE,
+        reason: FIRST_SUPER_ADMIN_BOOTSTRAP_REASON,
       },
       createdAt: now,
       includeRequestMetadata: false,
@@ -498,7 +554,9 @@ const attemptFirstSuperAdminGrant = (
 }
 
 /**
- * Promotes the configured, already-verified applicant exactly once.
+ * Promotes the configured, already-verified applicant exactly once, exchanging
+ * their APPLICANT grant for SUPER_ADMIN so the result is an administrator-only
+ * account. Both role events stay in retained grant history.
  *
  * This function is intentionally exposed only through the curl-oriented Hono
  * route. It is not part of the GraphQL schema. The high-entropy configuration
@@ -560,10 +618,10 @@ export const bootstrapFirstSuperAdmin = async (
 }
 
 /** Verifies a password and creates a seven-day opaque D1 session. */
-export const signInApplicant = async (
+export const signIn = async (
   input: { email: string; password: string },
   context: AuthOperationContext,
-): Promise<AuthResult<ApplicantAuthResponse>> => {
+): Promise<AuthResult<AuthResponse>> => {
   const email = normalizeEmail(input.email)
   if (!emailSchema.safeParse(email).success || !passwordSchema.safeParse(input.password).success) {
     // Validation failures are still authentication failures worth auditing. No
@@ -579,7 +637,7 @@ export const signInApplicant = async (
     return failure('Invalid email or password.')
   }
 
-  const user = await findActiveApplicantByEmail(context.db, email)
+  const user = await findActiveUserByEmail(context.db, email)
   // Unknown emails use the same scrypt work factor to reduce timing-based account
   // discovery. The final message is generic for every credential failure.
   const passwordMatches = await verifyPassword(
@@ -606,14 +664,14 @@ export const signInApplicant = async (
   const session: SessionRecord = {
     id: crypto.randomUUID(),
     userId: user.id,
-    tokenDigest: await createDigest(requireSecret(context), 'applicant-session', token),
+    tokenDigest: await sessionTokenDigest(requireSecret(context), token),
     expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
     createdAt: now,
     updatedAt: now,
     ipAddress: context.requestHeaders.get('CF-Connecting-IP'),
     userAgent: context.requestHeaders.get('User-Agent'),
   }
-  const sessionCreated = await createApplicantSession(
+  const sessionCreated = await createUserSession(
     context.db,
     session,
     auditEvent(context, {
@@ -641,47 +699,50 @@ export const signInApplicant = async (
   }
   setSessionCookie(context, token)
 
+  // One roles read serves both the identity payload and the caller's view of
+  // what this session may now do.
+  const roles = await findActiveUserRoles(context.db, user.id)
   return success({
-    applicant: toApplicant(user),
-    session: toApplicantSession(session, session.id),
-    activeRoles: await findActiveUserRoles(context.db, user.id),
+    user: toAuthUser(user, roles),
+    session: toAuthSession(session, session.id),
   })
 }
 
 /** Signed-out callers receive success with a nullable response. */
-export const currentApplicantSession = async (
+export const currentSession = async (
   context: AuthOperationContext,
-): Promise<AuthResult<ApplicantAuthResponse>> => {
-  const current = await getCurrentApplicantSession(context)
+): Promise<AuthResult<AuthResponse>> => {
+  const current = await getCurrentSession(context)
   if (!current) return { success: true, message: null, response: null }
 
+  // Roles already arrived live from the session lookup's grant join; re-reading
+  // them here would cost a second round trip for the same answer.
   return success({
-    applicant: toApplicant(current.user),
-    session: toApplicantSession(current.session, current.session.id),
-    activeRoles: current.roles,
+    user: toAuthUser(current.user, current.roles),
+    session: toAuthSession(current.session, current.session.id),
   })
 }
 
 /** Lists active sessions without ever selecting or exposing token digests. */
-export const applicantSessions = async (
+export const sessions = async (
   context: AuthOperationContext,
-): Promise<AuthResult<{ sessions: ApplicantSession[] }>> => {
-  const current = await getCurrentApplicantSession(context)
+): Promise<AuthResult<{ sessions: AuthSession[] }>> => {
+  const current = await getCurrentSession(context)
   if (!current) return failure(AUTH_REQUIRED_MESSAGE)
 
-  const sessions = await listUserSessions(context.db, current.user.id, new Date())
+  const records = await listUserSessions(context.db, current.user.id, new Date())
   return success({
-    sessions: sessions.map((session) => toApplicantSession(session, current.session.id)),
+    sessions: records.map((record) => toAuthSession(record, current.session.id)),
   })
 }
 
 /** Hard-deletes the current row and expires the browser cookie. */
-export const signOutApplicant = async (
+export const signOut = async (
   context: AuthOperationContext,
 ): Promise<AuthResult<{ value: boolean }>> => {
   const token = readSessionToken(context.requestHeaders)
   if (token) {
-    const digest = await createDigest(requireSecret(context), 'applicant-session', token)
+    const digest = await sessionTokenDigest(requireSecret(context), token)
     const current = await findUserSessionByDigest(context.db, digest, new Date())
     if (current) {
       await deleteUserSessionByDigest(
@@ -700,14 +761,14 @@ export const signOutApplicant = async (
   return success({ value: true })
 }
 
-export const revokeApplicantSession = async (
+export const revokeSession = async (
   sessionId: string,
   context: AuthOperationContext,
 ): Promise<AuthResult<{ value: boolean }>> => {
-  const current = await getCurrentApplicantSession(context)
+  const current = await getCurrentSession(context)
   if (!current) return failure(AUTH_REQUIRED_MESSAGE)
 
-  // Ownership is part of the DELETE predicate, so another applicant's public
+  // Ownership is part of the DELETE predicate, so another person's public
   // session ID can never be revoked through this operation.
   const deleted = await deleteUserSession(
     context.db,
@@ -725,10 +786,10 @@ export const revokeApplicantSession = async (
   return success({ value: true })
 }
 
-export const revokeOtherApplicantSessions = async (
+export const revokeOtherSessions = async (
   context: AuthOperationContext,
 ): Promise<AuthResult<{ value: boolean }>> => {
-  const current = await getCurrentApplicantSession(context)
+  const current = await getCurrentSession(context)
   if (!current) return failure(AUTH_REQUIRED_MESSAGE)
 
   await deleteOtherUserSessions(
@@ -746,10 +807,10 @@ export const revokeOtherApplicantSessions = async (
   return success({ value: true })
 }
 
-export const revokeAllApplicantSessions = async (
+export const revokeAllSessions = async (
   context: AuthOperationContext,
 ): Promise<AuthResult<{ value: boolean }>> => {
-  const current = await getCurrentApplicantSession(context)
+  const current = await getCurrentSession(context)
   if (!current) return failure(AUTH_REQUIRED_MESSAGE)
 
   await deleteAllUserSessions(

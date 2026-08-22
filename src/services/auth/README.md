@@ -1,8 +1,10 @@
-# Applicant authentication service
+# Authentication service
 
-This service implements the project's custom applicant authentication. It does
-not use Better Auth. Applicant operations are GraphQL-only; the single exception
-is the direct curl route used once to promote the first super administrator.
+This service implements the project's custom authentication. It does not use
+Better Auth. Signup grants `APPLICANT` only; sign-in and session management
+serve applicants and administrators alike. Operations are GraphQL-only; the
+single exception is the direct curl route used once to promote the first super
+administrator.
 
 ## Authentication flow
 
@@ -27,10 +29,14 @@ normalized email.
 
 ### Password sign-in
 
-`signInApplicant` requires an active `APPLICANT` role, normalizes the email,
-verifies the scrypt password hash, and creates a random session token. Only the
-token digest is stored in D1. The raw token is returned to the browser in an
-HttpOnly cookie and is never exposed in a GraphQL response.
+`signIn` requires at least one active role grant of any kind, normalizes the
+email, verifies the scrypt password hash, and creates a random session token.
+The role is deliberately not narrowed: an administrator who holds no
+`APPLICANT` grant must be able to sign in, while a person whose every grant has
+been revoked must not. Applicant capability is enforced separately, at the
+applicant guard. Only the token digest is stored in D1. The raw token is
+returned to the browser in an HttpOnly cookie and is never exposed in a GraphQL
+response.
 
 The browser cookie has no persistent `Max-Age`, while the D1 session has a
 seven-day server expiry. Current-session and session-list responses expose only
@@ -46,9 +52,45 @@ Sessions are intentionally hard-deleted:
 - Revoke-all removes every session and clears the current cookie.
 - The scheduled cleanup deletes expired sessions.
 - Soft-deleting a user must also hard-delete that user's sessions.
+- Deactivation (losing every active role) hard-deletes that user's sessions.
+- Promoting the first super administrator hard-deletes the promoted account's
+  sessions, so administrative authority requires a fresh sign-in.
 
 All other persistent authentication records retain lifecycle or soft-deletion
 history.
+
+### Deactivation
+
+Revoking a person's last active role deactivates them. Because roles are joined
+live, the very next request refuses the session — but refusal alone is not
+enough, since the rows would survive until expiry and authenticate again the
+moment any role is granted back. Deactivated sessions are therefore destroyed,
+by two paths that cover each other:
+
+- presenting the cookie deletes every session that account holds, audited as
+  `AUTH.SESSIONS_REVOKED` with `reason: NO_ACTIVE_ROLE` and no actor, because
+  the holder is the subject of the deletion rather than its authority; and
+- the scheduled cleanup deletes sessions belonging to any account with no
+  active grant, covering accounts that never present a cookie at all.
+
+The second path matters because a deactivated person cannot reach
+`revokeAllSessions` to clear their own sessions.
+
+### Deploying the session rename
+
+The session cookie (`seb_applicant_session` to `seb_session`) and the HMAC
+purpose label (`applicant-session` to `user-session`) both changed, so every
+`core_session` row predating the rename is unauthenticable. Browsers are
+handled automatically: `clearSessionCookie` expires the superseded cookie name
+alongside the current one. The stale rows are not, because a digest computed
+under the old label is indistinguishable from a valid one — their owners still
+hold active roles, so the deactivation sweep does not apply. Until they expire,
+`auth.sessions` lists them as apparently active. Run once when deploying to any
+environment that already has sessions:
+
+```sh
+npx wrangler d1 execute DB --command 'DELETE FROM core_session'
+```
 
 ## Module layout
 
@@ -133,7 +175,7 @@ production values are provisioned as Cloudflare secrets.
 
 ## Security invariants
 
-- Applicant role and verified-email time are server controlled.
+- Roles and verified-email time are server controlled.
 - Roles are retained grants, not a mutable field on the user. Public signup can
   create only `APPLICANT`.
 - Active roles are loaded from D1 on every request rather than cached in the
@@ -149,16 +191,19 @@ production values are provisioned as Cloudflare secrets.
 - First-super-administrator bootstrap is absent from GraphQL, cannot choose its
   target email or role, and permanently closes after the first historical
   `SUPER_ADMIN` grant.
+- Bootstrap exchanges `APPLICANT` for `SUPER_ADMIN` inside one guarded
+  transaction. A losing request writes neither, so an account is never stranded
+  with no active role and therefore no way to sign in.
 - Bootstrap audits omit caller-controlled request labels so a password, email,
   or temporary secret cannot be copied into retained history through headers.
 - Once bootstrap is permanently closed, requests fail before memory-hard
   password verification; the final D1 write still repeats the closure check to
   decide concurrent attempts atomically.
 
-Integration coverage lives in `test/applicant-auth.test.ts`. Run it with:
+Integration coverage lives in `test/auth.test.ts`. Run it with:
 
 ```sh
-npm test -- test/applicant-auth.test.ts
+npm test -- test/auth.test.ts
 ```
 
 See the [administrator RBAC guide](../../../docs/admin-rbac.md) for the fixed
@@ -167,7 +212,7 @@ role hierarchy, retained grant lifecycle, and future provisioning boundary.
 ## Known limitation
 
 Request, resend, and notification rate limiting are not implemented. CAPTCHA,
-password reset, MFA, account deletion APIs, administrator-only sign-in, and
+password reset, account deletion APIs, administrator account recovery, and
 production email delivery are also out of scope. Do not publicly deploy
 applicant signup with the current console notification transport or without
 rate limiting. See the

@@ -12,8 +12,10 @@ import {
   isNull,
   lte,
   ne,
+  not,
   notExists,
   sql,
+  type AnyColumn,
   type SQL,
 } from 'drizzle-orm'
 import type { Database } from '../../../db'
@@ -23,6 +25,8 @@ import {
   coreSignupChallenge,
   coreUser,
   coreUserRoleGrant,
+  sebEnterprise,
+  userRoles,
   type UserRole,
 } from '../../../db/schema'
 
@@ -79,34 +83,61 @@ export const findUserByEmail = async (
 }
 
 /**
- * Applicant credential authentication requires both a live identity and a
- * live APPLICANT grant. Looking up the grant for every sign-in means a revoked
- * role cannot be revived by an old session or a cached user row.
+ * True while the person still holds at least one unrevoked grant.
+ *
+ * Accepts either a literal user ID or the `core_user.id` column so the same
+ * rule can be correlated into an outer query or pinned to one known user.
  */
-export const findActiveApplicantByEmail = async (
+const hasActiveRoleGrant = (db: Database, userId: AnyColumn | string): SQL => exists(
+  db
+    .select({ id: coreUserRoleGrant.id })
+    .from(coreUserRoleGrant)
+    .where(
+      and(
+        eq(coreUserRoleGrant.userId, userId),
+        isNull(coreUserRoleGrant.revokedAt),
+      ),
+    ),
+)
+
+/**
+ * Credential authentication requires a live identity and at least one active
+ * role grant of any kind. The role is deliberately not narrowed here: an
+ * administrator who was never an applicant must be able to sign in, while a
+ * person whose every grant has been revoked must not.
+ *
+ * Resolving the grant on each sign-in rather than trusting a cached user row
+ * means a revocation cannot be outlived by stale state.
+ */
+export const findActiveUserByEmail = async (
   db: Database,
   email: string,
 ): Promise<UserRecord | null> => {
-  const applicantRoleExists = exists(
-    db
-      .select({ id: coreUserRoleGrant.id })
-      .from(coreUserRoleGrant)
-      .where(
-        and(
-          eq(coreUserRoleGrant.userId, coreUser.id),
-          eq(coreUserRoleGrant.role, 'APPLICANT'),
-          isNull(coreUserRoleGrant.revokedAt),
-        ),
-      ),
-  )
   const [record] = await db
     .select()
     .from(coreUser)
     .where(
-      and(eq(coreUser.email, email), isNull(coreUser.deletedAt), applicantRoleExists),
+      and(
+        eq(coreUser.email, email),
+        isNull(coreUser.deletedAt),
+        hasActiveRoleGrant(db, coreUser.id),
+      ),
     )
     .limit(1)
   return record ?? null
+}
+
+/**
+ * Deduplicates and orders roles by the schema's own role catalogue.
+ *
+ * Both role-reading paths run this so a public response never depends on the
+ * order D1 happened to return grant rows in. Filtering against `userRoles`
+ * rather than a local copy means a role added to the schema cannot be silently
+ * dropped from public responses.
+ */
+const orderedRoles = (roles: Iterable<UserRole>): UserRole[] => {
+  const active = new Set(roles)
+  return userRoles.filter((role) => active.has(role))
 }
 
 /** Returns active roles in the fixed catalogue order used by public responses. */
@@ -123,9 +154,7 @@ export const findActiveUserRoles = async (
         isNull(coreUserRoleGrant.revokedAt),
       ),
     )
-  const active = new Set(records.map(({ role }) => role))
-  const catalogue: readonly UserRole[] = ['APPLICANT', 'ADMIN', 'SUPER_ADMIN']
-  return catalogue.filter((role) => active.has(role))
+  return orderedRoles(records.map(({ role }) => role))
 }
 
 type FirstSuperAdminGrantInput = {
@@ -133,9 +162,38 @@ type FirstSuperAdminGrantInput = {
   email: string
   verifiedPasswordHash: string
   roleGrant: UserRoleGrantRecord
-  roleAuditEvent: AuditEventRecord
+  roleGrantAuditEvent: AuditEventRecord
+  roleRevocationAuditEvent: AuditEventRecord
   bootstrapAuditEvent: AuditEventRecord
 }
+
+/**
+ * True while the person owns no enterprise at all.
+ *
+ * Bootstrap revokes APPLICANT, and no operation can grant it back yet, so
+ * promoting an owner would orphan their enterprises and applications
+ * permanently. Soft-deleted enterprises count because they are restorable.
+ */
+const ownsNoEnterprise = (db: Database, userId: string): SQL => notExists(
+  db
+    .select({ id: sebEnterprise.id })
+    .from(sebEnterprise)
+    .where(eq(sebEnterprise.portalOwnerUserId, userId)),
+)
+
+/** True while the person holds an active grant of exactly this one role. */
+const hasActiveRole = (db: Database, userId: string, role: UserRole): SQL => exists(
+  db
+    .select({ id: coreUserRoleGrant.id })
+    .from(coreUserRoleGrant)
+    .where(
+      and(
+        eq(coreUserRoleGrant.userId, userId),
+        eq(coreUserRoleGrant.role, role),
+        isNull(coreUserRoleGrant.revokedAt),
+      ),
+    ),
+)
 
 /** Repeats every mutable candidate condition at the authoritative write. */
 const firstSuperAdminCandidateExists = (
@@ -152,18 +210,8 @@ const firstSuperAdminCandidateExists = (
         eq(coreUser.passwordHash, input.verifiedPasswordHash),
         isNotNull(coreUser.emailVerifiedAt),
         isNull(coreUser.deletedAt),
-        exists(
-          db
-            .select({ id: coreUserRoleGrant.id })
-            .from(coreUserRoleGrant)
-            .where(
-              and(
-                eq(coreUserRoleGrant.userId, input.userId),
-                eq(coreUserRoleGrant.role, 'APPLICANT'),
-                isNull(coreUserRoleGrant.revokedAt),
-              ),
-            ),
-        ),
+        hasActiveRole(db, input.userId, 'APPLICANT'),
+        ownsNoEnterprise(db, input.userId),
       ),
     ),
 )
@@ -199,6 +247,12 @@ export const findFirstSuperAdminCandidateByEmail = async (
         ),
       ),
   )
+  const ownsNoEnterpriseYet = notExists(
+    db
+      .select({ id: sebEnterprise.id })
+      .from(sebEnterprise)
+      .where(eq(sebEnterprise.portalOwnerUserId, coreUser.id)),
+  )
   const [record] = await db
     .select()
     .from(coreUser)
@@ -208,6 +262,7 @@ export const findFirstSuperAdminCandidateByEmail = async (
         isNotNull(coreUser.emailVerifiedAt),
         isNull(coreUser.deletedAt),
         activeApplicantGrant,
+        ownsNoEnterpriseYet,
         firstSuperAdminNeverGranted(db),
       ),
     )
@@ -217,6 +272,10 @@ export const findFirstSuperAdminCandidateByEmail = async (
 
 /**
  * Performs the only transition allowed to create the first SUPER_ADMIN grant.
+ *
+ * The promoted person's APPLICANT grant is revoked in the same transition, so
+ * bootstrap yields an administrator-only account rather than a dual-role one.
+ * Both role events are retained in grant history.
  *
  * The absence check intentionally includes revoked grants. Since grants are
  * retained forever, the first historical SUPER_ADMIN row doubles as the
@@ -252,9 +311,50 @@ export const grantFirstSuperAdmin = async (
       .where(eq(coreUserRoleGrant.id, input.roleGrant.id)),
   )
 
+  // Matching on user and role rather than on a grant ID read earlier. A grant
+  // revoked and re-created between that read and this write would leave a stale
+  // ID matching nothing, silently leaving the account with both roles.
+  //
+  // Sharing the SUPER_ADMIN insert's guard is what makes the swap safe: a
+  // request that loses the bootstrap race revokes nothing, instead of stranding
+  // the account with no active role and therefore no way to sign in.
+  const revokeApplicantGrant = db
+    .update(coreUserRoleGrant)
+    .set({
+      // Authority comes from trusted bootstrap configuration, not from another
+      // portal user, so the revocation has no actor for the same reason the
+      // grant has no granter.
+      revokedByUserId: null,
+      // Taking both values from the grant keeps the swap structurally one
+      // event: the pair cannot drift to different times or different reasons.
+      revokedAt: input.roleGrant.grantedAt,
+      revocationReason: input.roleGrant.grantReason,
+    })
+    .where(
+      and(
+        eq(coreUserRoleGrant.userId, input.userId),
+        eq(coreUserRoleGrant.role, 'APPLICANT'),
+        isNull(coreUserRoleGrant.revokedAt),
+        grantExists,
+      ),
+    )
+
+  // Every session this account already held was issued to an applicant. Leaving
+  // them alive would silently upgrade each one to full administrative authority
+  // without the holder re-proving the password, so the swap destroys them and
+  // the new administrator signs in again.
+  const destroyExistingSessions = db
+    .delete(coreSession)
+    .where(and(eq(coreSession.userId, input.userId), grantExists))
+
+  // One batch, one D1 transaction: the swap, the session purge, and all three
+  // audits are never observable half-applied.
   const [inserted] = await db.batch([
     insertGrant,
-    insertAuditEventWhere(db, input.roleAuditEvent, grantExists),
+    revokeApplicantGrant,
+    destroyExistingSessions,
+    insertAuditEventWhere(db, input.roleGrantAuditEvent, grantExists),
+    insertAuditEventWhere(db, input.roleRevocationAuditEvent, grantExists),
     insertAuditEventWhere(db, input.bootstrapAuditEvent, grantExists),
   ])
   return inserted.length === 1
@@ -533,17 +633,17 @@ export const consumeWrongOtpAttempt = async (
 }
 
 /**
- * Creates an applicant session only while the identity and APPLICANT grant are
+ * Creates a session only while the identity and at least one role grant are
  * still authoritative. Password verification is intentionally outside D1 and
  * may be slow, so the INSERT repeats those conditions at write time instead of
  * trusting the controller's earlier credential lookup.
  */
-export const createApplicantSession = async (
+export const createUserSession = async (
   db: Database,
   value: SessionRecord,
   auditEvent: AuditEventRecord,
 ): Promise<boolean> => {
-  const applicantIsStillActive = exists(
+  const userIsStillActive = exists(
     db
       .select({ id: coreUserRoleGrant.id })
       .from(coreUserRoleGrant)
@@ -551,7 +651,6 @@ export const createApplicantSession = async (
       .where(
         and(
           eq(coreUserRoleGrant.userId, value.userId),
-          eq(coreUserRoleGrant.role, 'APPLICANT'),
           isNull(coreUserRoleGrant.revokedAt),
           isNull(coreUser.deletedAt),
           sql`${coreUser.emailVerifiedAt} IS NOT NULL`,
@@ -571,7 +670,7 @@ export const createApplicantSession = async (
         ${value.userAgent},
         ${value.createdAt.getTime()},
         ${value.updatedAt.getTime()}
-      WHERE ${applicantIsStillActive}
+      WHERE ${userIsStillActive}
     `)
     .returning({ id: coreSession.id })
   const sessionExists = exists(
@@ -634,9 +733,9 @@ export const findUserSessionByDigest = async (
     )
   const first = records[0]
   if (!first) return null
-  const roles = [
-    ...new Set(records.flatMap(({ role }) => role === null ? [] : [role])),
-  ]
+  const roles = orderedRoles(
+    records.flatMap(({ role }) => role === null ? [] : [role]),
+  )
   return { user: first.user, session: first.session, roles }
 }
 
@@ -661,6 +760,10 @@ export const cleanupExpiredAuthenticationState = async (
         ),
       ),
     db.delete(coreSession).where(lte(coreSession.expiresAt, now)),
+    // A person holding no active role cannot authenticate, but their rows would
+    // otherwise survive until expiry and start working again the moment any
+    // role is granted back. Sweeping them makes deactivation durable.
+    db.delete(coreSession).where(not(hasActiveRoleGrant(db, coreSession.userId))),
   ])
 }
 

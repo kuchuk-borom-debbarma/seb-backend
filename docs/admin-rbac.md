@@ -61,13 +61,18 @@ Every authenticated request joins the session to current active grants. This
 means revocation takes effect on the next request without deleting or waiting
 for the session to expire.
 
-The same session mechanism supports administrative operations. Applicant
-operations additionally require an active `APPLICANT` grant. Therefore:
+Sign-in requires only that the person holds at least one active role of any
+kind. Applicant operations additionally require an active `APPLICANT` grant.
+Therefore:
 
-- an `ADMIN`-only user cannot sign in through applicant authentication;
-- an `APPLICANT` plus `ADMIN`/`SUPER_ADMIN` user can use both namespaces; and
+- an `ADMIN`/`SUPER_ADMIN` user who holds no `APPLICANT` grant signs in
+  normally and reaches administrative operations;
+- an `APPLICANT` plus `ADMIN`/`SUPER_ADMIN` user can use both namespaces;
 - revoking `APPLICANT` immediately stops applicant access while leaving the
-  underlying session available for future administrative authorization.
+  underlying session available for administrative authorization; and
+- a person whose every grant has been revoked cannot sign in, and the sessions
+  they already hold are destroyed rather than merely refused, so granting a
+  role back cannot revive an old token.
 
 ## Current authorization rules
 
@@ -84,7 +89,10 @@ role/account administration: SUPER_ADMIN
 The first super administrator begins as a normally verified applicant. A
 deployment operator temporarily configures that exact email and a random secret,
 then uses the direct curl endpoint with the applicant's current password. The
-resulting identity intentionally holds `APPLICANT` and `SUPER_ADMIN`.
+same guarded transition revokes that person's `APPLICANT` grant, so the
+resulting identity intentionally holds `SUPER_ADMIN` alone. Both role events
+stay in retained history, and a request that loses the bootstrap race writes
+neither, so the account is never left with no active role.
 
 No `ADMIN` row is added because `SUPER_ADMIN` implies its capabilities. The
 grant records null as its granting user because authority comes from trusted
@@ -121,11 +129,11 @@ tokens, cookie values, or document/form contents.
 
 The current workflow still does not provide:
 
-- an administrator signup or sign-in GraphQL API;
+- an administrator signup GraphQL API;
 - role grant/revoke GraphQL operations;
 - custom roles or permission sets;
 - staff profiles, departments, organizations, or partner-bank accounts;
-- MFA or separate privileged sessions; or
+- separate privileged sessions; or
 - a mandatory recusal/second-approval rule. Self-review is allowed only after
   explicit acknowledgement and remains visible in assignment history.
 

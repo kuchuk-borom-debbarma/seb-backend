@@ -95,9 +95,9 @@ belongs in the enforced Istanbul coverage set.
 
 ## Public-launch limitations
 
-The first administrator can use the existing multi-role applicant login, but
-admin-only login, MFA, invitations, recovery, and role management are not yet
-available. A production malware scanner, rate limits, approved privacy/access
+The first administrator signs in with the shared email/password login, which
+accepts any active role. Invitations, account recovery, and role management are
+not yet available. A production malware scanner, rate limits, approved privacy/access
 rules, and resolved TTAADC ceiling/jurisdiction decisions are also missing.
 Administrative operations must not be publicly launched until those roadmap
 blockers are complete.

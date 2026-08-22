@@ -428,8 +428,9 @@ The applicant response and the staff issuance/cancellation workflow both exist.
 
 ## 9. Administrator identity and access
 
-Administrative business operations use existing multi-role sessions. Admin-only
-sign-in, MFA, recovery, and later provisioning remain incomplete.
+Sign-in accepts any person holding at least one active role, so an
+administrator who is not also an applicant can reach administrative operations.
+Account recovery and super-administrator provisioning remain incomplete.
 
 ### 9.1 Role rules already established
 
@@ -452,14 +453,24 @@ sign-in, MFA, recovery, and later provisioning remain incomplete.
   bootstrap secret; the request cannot select a different email or role.
 - [x] Permanently close bootstrap after the first retained `SUPER_ADMIN` grant,
   including when that grant is later revoked.
-- [x] Record the promoted user, time, role grant, and fixed bootstrap reason
-  without retaining the password, configured email, or temporary secret.
-- [ ] Give administrators a sign-in journey that works for an `ADMIN` or
+- [x] Revoke the promoted person's `APPLICANT` grant in the same guarded
+  transition that grants `SUPER_ADMIN`, so bootstrap produces an
+  administrator-only account and a losing request changes neither role.
+- [x] Refuse to promote an applicant who owns any enterprise, because losing
+  `APPLICANT` would strand that enterprise until role administration exists.
+- [x] Delete the promoted account's existing sessions in the same transition, so
+  administrative authority requires a fresh sign-in.
+- [x] Record the promoted user, time, role grant, role revocation, and fixed
+  bootstrap reason without retaining the password, configured email, or
+  temporary secret.
+- [x] Give administrators a sign-in journey that works for an `ADMIN` or
   `SUPER_ADMIN` who is not also an applicant.
-- [ ] Require multi-factor authentication before any administrative operation.
-- [ ] Require fresh password confirmation or multi-factor verification before a
-  super administrator changes another person's roles.
-- [ ] Provide administrative session listing, sign-out, and revoke-all controls.
+- [x] Refuse sign-in for a person whose every role grant has been revoked, and
+  destroy their existing sessions rather than only refusing them, so restoring
+  a role cannot revive a previously issued token.
+- [ ] Require fresh password confirmation before a super administrator changes
+  another person's roles.
+- [x] Provide administrative session listing, sign-out, and revoke-all controls.
 - [ ] Define account recovery that requires verified organizational approval and
   cannot be completed by email access alone.
 
@@ -774,7 +785,6 @@ complete.
 - [ ] Replace console-only email delivery with the approved production provider.
 - [ ] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits.
 - [ ] Enable malware scanning before staff can open applicant documents.
-- [ ] Require administrator multi-factor authentication.
 - [ ] Complete administrator provisioning and recovery procedures.
 - [ ] Approve applicant privacy notice, consent text, retention schedule, and
   grievance/contact process.
@@ -837,9 +847,9 @@ their prerequisites.
    applicant-plus-administrator operational workflow.
 2. Complete intake, review, partner-bank, TTM, award, release, assessment, and
    recovery scenario testing with programme staff.
-3. Complete administrator-only sign-in, multi-factor authentication, role
-   management, and recovery before enabling the already implemented business
-   workflow publicly.
+3. Complete administrator role management and recovery before enabling the
+   already implemented business workflow publicly. Administrator-only sign-in
+   is delivered.
 4. Complete production applicant-account protections, email delivery, malware
    scanning, and abuse limits.
 5. Complete notifications, reports, privacy/access rules, and operational
