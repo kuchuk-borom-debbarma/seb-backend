@@ -20,12 +20,17 @@ import { coreUser } from '../core/auth'
 import { versionedSoftDeleteColumns } from '../shared'
 import { sebApplication } from './application'
 import { sebFundingCase } from './case'
+import { sebProgrammeCycleReason } from './programme'
 
 export const fundingAwardStatuses = [
   'ACTIVE',
   'SUSPENDED',
   'CANCELLED',
   'CLOSED',
+] as const
+export const fundingAwardClosureDispositions = [
+  'RELEASES_COMPLETE',
+  'REMAINDER_NOT_RELEASED',
 ] as const
 export const fundingAwardChangeTypes = [
   'CREATED',
@@ -65,7 +70,17 @@ export const sebFundingAward = sqliteTable(
     sanctionOrderNumber: text('sanction_order_number').notNull().unique(),
     sanctionDate: text('sanction_date').notNull(),
     sanctionedAmountPaise: integer('sanctioned_amount_paise').notNull(),
+    applicantConditions: text('applicant_conditions'),
     status: text('status', { enum: fundingAwardStatuses }).notNull().default('ACTIVE'),
+    // Closing must state whether the sanction was fully released or whether a
+    // deliberate remainder will never be paid; other states leave this null.
+    closureDisposition: text('closure_disposition', {
+      enum: fundingAwardClosureDispositions,
+    }),
+    // Ledger concurrency is operational rather than a change to the sanction;
+    // it increments for every release or reversal without manufacturing an
+    // award-policy version for an accounting entry.
+    ledgerVersion: integer('ledger_version').notNull().default(0),
     ...versionedSoftDeleteColumns(() => coreUser.id),
   },
   (table) => [
@@ -76,7 +91,9 @@ export const sebFundingAward = sqliteTable(
     }).onDelete('restrict'),
     // Qualifying-award links use this composite key to retain case scope.
     uniqueIndex('seb_funding_award_case_id_uq').on(table.fundingCaseId, table.id),
+    uniqueIndex('seb_funding_award_application_id_uq').on(table.applicationId, table.id),
     check('seb_funding_award_current_version_check', sql`${table.currentVersion} >= 1`),
+    check('seb_funding_award_ledger_version_check', sql`${table.ledgerVersion} >= 0`),
     check(
       'seb_funding_award_amount_check',
       sql`${table.sanctionedAmountPaise} > 0`,
@@ -84,6 +101,15 @@ export const sebFundingAward = sqliteTable(
     check(
       'seb_funding_award_status_check',
       sql`${table.status} IN ('ACTIVE', 'SUSPENDED', 'CANCELLED', 'CLOSED')`,
+    ),
+    check(
+      'seb_funding_award_closure_disposition_check',
+      // SQLite accepts a CHECK whose result is NULL. The explicit non-null
+      // predicate prevents a closed row with no disposition from slipping
+      // through that three-valued-logic rule.
+      sql`(${table.status} = 'CLOSED' AND ${table.closureDisposition} IS NOT NULL
+          AND ${table.closureDisposition} IN ('RELEASES_COMPLETE', 'REMAINDER_NOT_RELEASED'))
+        OR (${table.status} <> 'CLOSED' AND ${table.closureDisposition} IS NULL)`,
     ),
     index('seb_funding_award_case_idx').on(
       table.fundingCaseId,
@@ -106,8 +132,16 @@ export const sebFundingAwardVersion = sqliteTable(
     sanctionOrderNumber: text('sanction_order_number').notNull(),
     sanctionDate: text('sanction_date').notNull(),
     sanctionedAmountPaise: integer('sanctioned_amount_paise').notNull(),
+    applicantConditions: text('applicant_conditions'),
     status: text('status', { enum: fundingAwardStatuses }).notNull(),
+    closureDisposition: text('closure_disposition', {
+      enum: fundingAwardClosureDispositions,
+    }),
     changeType: text('change_type', { enum: fundingAwardChangeTypes }).notNull(),
+    reasonCategoryId: text('reason_category_id').references(
+      () => sebProgrammeCycleReason.id,
+      { onDelete: 'restrict' },
+    ),
     changeReason: text('change_reason'),
     changedByUserId: text('changed_by_user_id')
       .notNull()
@@ -129,8 +163,19 @@ export const sebFundingAwardVersion = sqliteTable(
       sql`${table.status} IN ('ACTIVE', 'SUSPENDED', 'CANCELLED', 'CLOSED')`,
     ),
     check(
+      'seb_funding_award_version_closure_disposition_check',
+      sql`(${table.status} = 'CLOSED' AND ${table.closureDisposition} IS NOT NULL
+          AND ${table.closureDisposition} IN ('RELEASES_COMPLETE', 'REMAINDER_NOT_RELEASED'))
+        OR (${table.status} <> 'CLOSED' AND ${table.closureDisposition} IS NULL)`,
+    ),
+    check(
       'seb_funding_award_version_change_type_check',
       sql`${table.changeType} IN ('CREATED', 'AMENDED', 'STATUS_CHANGED', 'CORRECTED')`,
+    ),
+    check(
+      'seb_funding_award_version_reason_check',
+      sql`(${table.changeType} = 'CREATED' AND ${table.reasonCategoryId} IS NULL)
+        OR (${table.changeType} <> 'CREATED' AND ${table.reasonCategoryId} IS NOT NULL)`,
     ),
   ],
 )
@@ -293,6 +338,28 @@ export const sebDisbursement = sqliteTable(
     amountPaise: integer('amount_paise').notNull(),
     occurredAt: integer('occurred_at', { mode: 'timestamp_ms' }).notNull(),
     externalReference: text('external_reference').unique(),
+    // A RELEASE combines the TTM authorization evidence and actual payment by
+    // product decision. REVERSAL rows keep these fields null and point to the
+    // release they correct.
+    ttmApprovalReference: text('ttm_approval_reference'),
+    ttmApprovalDate: text('ttm_approval_date'),
+    bankAccountVerifiedAt: integer('bank_account_verified_at', { mode: 'timestamp_ms' }),
+    performanceAgreementReference: text('performance_agreement_reference'),
+    performanceAgreementExecutedAt: integer('performance_agreement_executed_at', {
+      mode: 'timestamp_ms',
+    }),
+    physicalVerificationRequired: integer('physical_verification_required', {
+      mode: 'boolean',
+    }),
+    physicalVerificationReference: text('physical_verification_reference'),
+    physicalVerificationCompletedAt: integer('physical_verification_completed_at', {
+      mode: 'timestamp_ms',
+    }),
+    reasonCategoryId: text('reason_category_id').references(
+      () => sebProgrammeCycleReason.id,
+      { onDelete: 'restrict' },
+    ),
+    applicantMessage: text('applicant_message'),
     recordedByUserId: text('recorded_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
@@ -320,10 +387,64 @@ export const sebDisbursement = sqliteTable(
       sql`(${table.entryType} = 'RELEASE' AND ${table.relatedDisbursementId} IS NULL)
         OR (${table.entryType} = 'REVERSAL' AND ${table.relatedDisbursementId} IS NOT NULL)`,
     ),
+    check(
+      'seb_disbursement_release_evidence_check',
+      sql`(${table.entryType} = 'RELEASE'
+          AND ${table.ttmApprovalReference} IS NOT NULL
+          AND ${table.ttmApprovalDate} IS NOT NULL
+          AND ${table.bankAccountVerifiedAt} IS NOT NULL
+          AND ${table.performanceAgreementReference} IS NOT NULL
+          AND ${table.performanceAgreementExecutedAt} IS NOT NULL
+          AND ${table.physicalVerificationRequired} IN (0, 1)
+          AND ((${table.physicalVerificationRequired} = 0
+              AND ${table.physicalVerificationReference} IS NULL
+              AND ${table.physicalVerificationCompletedAt} IS NULL)
+            OR (${table.physicalVerificationRequired} = 1
+              AND ${table.physicalVerificationReference} IS NOT NULL
+              AND ${table.physicalVerificationCompletedAt} IS NOT NULL)))
+        OR (${table.entryType} = 'REVERSAL'
+          AND ${table.ttmApprovalReference} IS NULL
+          AND ${table.ttmApprovalDate} IS NULL
+          AND ${table.bankAccountVerifiedAt} IS NULL
+          AND ${table.performanceAgreementReference} IS NULL
+          AND ${table.performanceAgreementExecutedAt} IS NULL
+          AND ${table.physicalVerificationRequired} IS NULL
+          AND ${table.physicalVerificationReference} IS NULL
+          AND ${table.physicalVerificationCompletedAt} IS NULL
+          AND ${table.reasonCategoryId} IS NOT NULL
+          AND ${table.applicantMessage} IS NOT NULL)`,
+    ),
     index('seb_disbursement_award_occurred_idx').on(
       table.fundingAwardId,
       table.occurredAt,
     ),
+  ],
+)
+
+/**
+ * One immutable 180-day utilization obligation created with each release.
+ * Completion is derived from assessment history rather than updated here.
+ */
+export const sebUtilizationObligation = sqliteTable(
+  'seb_utilization_obligation',
+  {
+    id: text('id').primaryKey(),
+    fundingAwardId: text('funding_award_id').notNull(),
+    releaseDisbursementId: text('release_disbursement_id').notNull().unique(),
+    dueAt: integer('due_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.fundingAwardId, table.releaseDisbursementId],
+      foreignColumns: [sebDisbursement.fundingAwardId, sebDisbursement.id],
+      name: 'seb_utilization_obligation_release_fk',
+    }).onDelete('restrict'),
+    uniqueIndex('seb_utilization_obligation_award_id_uq').on(
+      table.fundingAwardId,
+      table.id,
+    ),
+    index('seb_utilization_obligation_due_idx').on(table.fundingAwardId, table.dueAt),
   ],
 )
 
@@ -341,7 +462,10 @@ export const sebAwardAssessment = sqliteTable(
     assessmentType: text('assessment_type', { enum: awardAssessmentTypes }).notNull(),
     assessmentNumber: integer('assessment_number').notNull(),
     outcome: text('outcome', { enum: awardAssessmentOutcomes }).notNull(),
-    note: text('note'),
+    utilizationObligationId: text('utilization_obligation_id'),
+    evidenceReference: text('evidence_reference').notNull(),
+    applicantSummary: text('applicant_summary').notNull(),
+    internalNote: text('internal_note'),
     assessedByUserId: text('assessed_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
@@ -349,11 +473,24 @@ export const sebAwardAssessment = sqliteTable(
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (table) => [
-    uniqueIndex('seb_award_assessment_number_uq').on(
-      table.fundingAwardId,
-      table.assessmentType,
-      table.assessmentNumber,
-    ),
+    foreignKey({
+      columns: [table.fundingAwardId, table.utilizationObligationId],
+      foreignColumns: [
+        sebUtilizationObligation.fundingAwardId,
+        sebUtilizationObligation.id,
+      ],
+      name: 'seb_award_assessment_utilization_obligation_fk',
+    }).onDelete('restrict'),
+    uniqueIndex('seb_award_assessment_award_number_uq')
+      .on(table.fundingAwardId, table.assessmentType, table.assessmentNumber)
+      .where(sql`${table.utilizationObligationId} IS NULL`),
+    uniqueIndex('seb_award_assessment_utilization_number_uq')
+      .on(
+        table.fundingAwardId,
+        table.utilizationObligationId,
+        table.assessmentNumber,
+      )
+      .where(sql`${table.utilizationObligationId} IS NOT NULL`),
     check('seb_award_assessment_number_check', sql`${table.assessmentNumber} >= 1`),
     check(
       'seb_award_assessment_type_check',
@@ -362,6 +499,17 @@ export const sebAwardAssessment = sqliteTable(
     check(
       'seb_award_assessment_outcome_check',
       sql`${table.outcome} IN ('PASSED', 'FAILED')`,
+    ),
+    check(
+      'seb_award_assessment_scope_check',
+      sql`(${table.assessmentType} = 'UTILIZATION' AND ${table.utilizationObligationId} IS NOT NULL)
+        OR (${table.assessmentType} IN ('PERFORMANCE', 'FINANCIAL_AUDIT') AND ${table.utilizationObligationId} IS NULL)`,
+    ),
+    index('seb_award_assessment_latest_idx').on(
+      table.fundingAwardId,
+      table.assessmentType,
+      table.utilizationObligationId,
+      table.assessmentNumber,
     ),
   ],
 )

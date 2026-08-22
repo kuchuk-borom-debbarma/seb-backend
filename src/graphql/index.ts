@@ -2,14 +2,17 @@ import { GraphQLScalarType, Kind } from 'graphql'
 import { createSchema, createYoga } from 'graphql-yoga'
 import type { AppBindings } from '../bindings'
 import authMutationTypeDefs from './mutations/auth/auth.graphql'
+import adminMutationTypeDefs from './mutations/admin/admin.graphql'
 import authQueryTypeDefs from './queries/auth/auth.graphql'
+import adminQueryTypeDefs from './queries/admin/admin.graphql'
 import sebMutationTypeDefs from './mutations/seb/seb.graphql'
 import sebQueryTypeDefs from './queries/seb/seb.graphql'
 import { authResolvers } from './resolvers/auth/auth'
+import { adminResolvers } from './resolvers/admin/admin'
 import { sebResolvers } from './resolvers/seb/seb'
 import baseTypeDefs from './schema.graphql'
 import type { GraphQLContext } from './types'
-import { singleAuthMutationRule, singleSebMutationRule } from './validation'
+import { singleAdminMutationRule, singleAuthMutationRule, singleSebMutationRule } from './validation'
 import { parseDateOnly } from '../services/application/validation'
 
 export type { AppBindings } from '../bindings'
@@ -92,6 +95,8 @@ const schema = createSchema<GraphQLContext>({
     baseTypeDefs,
     authQueryTypeDefs,
     authMutationTypeDefs,
+    adminQueryTypeDefs,
+    adminMutationTypeDefs,
     sebQueryTypeDefs,
     sebMutationTypeDefs,
   ],
@@ -109,6 +114,7 @@ const schema = createSchema<GraphQLContext>({
       },
     },
     authResolvers,
+    adminResolvers,
     sebResolvers,
   ],
 })
@@ -129,6 +135,7 @@ const graphqlServer = createYoga<GraphQLContext>({
       }) {
         addValidationRule(singleAuthMutationRule)
         addValidationRule(singleSebMutationRule)
+        addValidationRule(singleAdminMutationRule)
       },
     },
   ],

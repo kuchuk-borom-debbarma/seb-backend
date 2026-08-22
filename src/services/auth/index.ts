@@ -1,5 +1,6 @@
 export {
   authenticatedApplicant,
+  authenticatedAdministrator,
   applicantSessions,
   bootstrapFirstSuperAdmin,
   cleanupExpiredAuthentication,

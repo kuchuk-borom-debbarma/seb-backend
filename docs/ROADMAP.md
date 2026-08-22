@@ -51,8 +51,9 @@ These rules are already agreed and must remain true throughout the roadmap.
 - [x] The system does not enforce a seed-fund ceiling until the contradictory
   figures in the source documents are resolved by the policy owner.
 - [x] Financing components are not required to add up to the total project cost.
-- [x] Assessments are retained as programme history but do not currently decide
-  whether an applicant may start the next expansion phase.
+- [x] Expansion requires the latest performance and financial-audit results,
+  plus every retained release’s latest utilization result, to pass under the
+  target cycle’s pinned rules.
 - [x] A person may be both an applicant and an administrator. Administrative
   actions on that person's own application are allowed and must remain visible
   in the activity history.
@@ -402,8 +403,7 @@ submitted in an older cycle.
 
 ## 8. Revision and resubmission
 
-The applicant-side response to revisions exists. The staff action that creates
-a revision request is planned in section 12.
+The applicant response and the staff issuance/cancellation workflow both exist.
 
 - [x] A revision request identifies one form section and gives the applicant a
   readable correction note.
@@ -415,7 +415,7 @@ a revision request is planned in section 12.
 - [x] A successful resubmission resolves all open revision requests through that
   exact submission and returns the application to `SUBMITTED`.
 - [x] Resubmission remains available after the original programme cycle closes.
-- [ ] Let an administrator cancel an incorrect revision request with a reason
+- [x] Let an administrator cancel an incorrect revision request with a reason
   and issue a replacement without editing or hiding the original request.
 - [ ] Show revision requests grouped by section with their issue date, note, and
   current state.
@@ -428,8 +428,8 @@ a revision request is planned in section 12.
 
 ## 9. Administrator identity and access
 
-The roles and their meanings are established, but administrator accounts cannot
-yet be provisioned or used through a complete administrative journey.
+Administrative business operations use existing multi-role sessions. Admin-only
+sign-in, MFA, recovery, and later provisioning remain incomplete.
 
 ### 9.1 Role rules already established
 
@@ -486,27 +486,27 @@ yet be provisioned or used through a complete administrative journey.
 
 ## 10. Programme-cycle administration
 
-- [ ] Let an administrator create a cycle in `DRAFT` with a unique cycle code,
+- [x] Let an administrator create a cycle in `DRAFT` with a unique cycle code,
   display name, policy year, policy reference, opening time, and closing time.
-- [ ] Require the closing time to be later than the opening time.
-- [ ] Let an administrator revise a draft cycle while retaining who changed it,
+- [x] Require the closing time to be later than the opening time.
+- [x] Let an administrator revise a draft cycle while retaining who changed it,
   when, and why.
-- [ ] Let an administrator open a cycle only when its code, display name, policy
+- [x] Let an administrator open a cycle only when its code, display name, policy
   year, policy reference, opening/closing times, applicant guidance, required
   document list, eligibility rules, and every resolved cycle-specific funding
   limit are present.
-- [ ] Opening a cycle makes it visible and available for new applicant drafts at
+- [x] Opening a cycle makes it visible and available for new applicant drafts at
   the stated opening time.
-- [ ] Let an administrator close a cycle immediately with a required reason, or
+- [x] Let an administrator close a cycle immediately with a required reason, or
   allow it to close automatically at its stated closing time.
-- [ ] Closing a cycle blocks new applications but does not alter existing drafts,
+- [x] Closing a cycle blocks new applications but does not alter existing drafts,
   submissions, reviews, or requested resubmissions.
-- [ ] Let an administrator archive a closed cycle only after no active intake or
+- [x] Let an administrator archive a closed cycle only after no active intake or
   review action depends on changing that cycle.
-- [ ] Archived cycles remain readable in histories and reports.
-- [ ] Show the administrator counts of drafts, submitted applications, and
+- [x] Archived cycles remain readable in histories and reports.
+- [x] Show the administrator counts of drafts, submitted applications, and
   applications under review before closing or archiving.
-- [ ] Record a public timeline notice when a cycle's closing time changes after
+- [x] Record a public timeline notice when a cycle's closing time changes after
   it has opened.
 
 ---
@@ -518,64 +518,65 @@ yet be provisioned or used through a complete administrative journey.
 - [ ] Give administrators separate queues for newly submitted, desk review,
   revision responses, partner-bank evaluation, TTM review, approved, rejected,
   sanctioned, and disbursed applications.
-- [ ] Each queue item shows reference number, enterprise, applicant, phase,
+- [x] Each queue item shows reference number, enterprise, applicant, phase,
   programme cycle, current status, submission time, and last activity time.
-- [ ] Support filtering by cycle, status, phase, application type, sector,
+- [x] Support filtering by cycle, status, phase, application type, sector,
   category, and submission-date range.
-- [ ] Support exact lookup by application reference number.
-- [ ] Paginate every queue so large programme years remain usable.
-- [ ] Default ordering is oldest waiting item first; staff may choose newest
+- [x] Support exact lookup by application reference number.
+- [x] Paginate every queue so large programme years remain usable.
+- [x] Default ordering is oldest waiting item first; staff may choose newest
   first or last activity without changing other users' defaults.
-- [ ] Do not expose draft applications to reviewers before formal submission.
+- [x] Do not expose draft applications to reviewers before formal submission.
 
 ### 11.2 Assignment and conflict visibility
 
-- [ ] Let an administrator claim an unassigned application for review.
-- [ ] Show the current assignee and assignment time to all administrators.
-- [ ] Let the assignee release it back to the queue with a mandatory reason.
-- [ ] Let another administrator reassign it with a mandatory reason.
-- [ ] Warn when the reviewer is also the applicant or enterprise owner; allow the
+- [x] Let an administrator claim an unassigned application for review.
+- [x] Show the current assignee and assignment time to all administrators.
+- [x] Let the assignee release it back to the queue with a mandatory reason.
+- [x] Let another administrator reassign it with a mandatory reason.
+- [x] Warn when the reviewer is also the applicant or enterprise owner; allow the
   action under the selected policy and retain the acknowledgement.
-- [ ] Prevent two administrators from unknowingly completing the same review
+- [x] Prevent two administrators from unknowingly completing the same review
   transition from the same old status.
 
 ### 11.3 Review workspace
 
-- [ ] Show the exact submitted snapshot, not the applicant's later canonical
+- [x] Show the exact submitted snapshot, not the applicant's later canonical
   enterprise profile.
-- [ ] Show every submitted document version associated with that submission.
-- [ ] Show prior submissions and clearly highlight fields changed in a revision.
-- [ ] Separate applicant-visible timeline entries from staff-only notes.
-- [ ] Let staff add a dated internal note that cannot alter an applicant answer.
-- [ ] Internal notes identify their author and cannot be edited or deleted; a
+- [x] Show every submitted document version associated with that submission.
+- [x] Show prior submissions and clearly highlight sections changed in a revision.
+- [x] Separate applicant-visible timeline entries from staff-only notes.
+- [x] Let staff add a dated internal note that cannot alter an applicant answer.
+- [x] Internal notes identify their author and cannot be edited or deleted; a
   correction is a new note referring to the earlier one.
 
 ---
 
 ## 12. Desk review and revision requests
 
-- [ ] Starting desk review changes `SUBMITTED` to `DESK_REVIEW` and records the
+- [x] Starting desk review changes `SUBMITTED` to `DESK_REVIEW` and records the
   reviewer and time.
-- [ ] A reviewer checks completeness, eligibility declarations, required
+- [x] A reviewer checks completeness, eligibility declarations, required
   evidence, and consistency between answers and documents.
-- [ ] The reviewer records one outcome: request revision, advance to partner-bank
+- [x] The reviewer records one outcome: request revision, advance to partner-bank
   evaluation, or reject.
-- [ ] A revision request names exactly one editable section and contains a clear,
+- [x] A revision request names exactly one editable section and contains a clear,
   applicant-safe correction instruction.
-- [ ] Multiple sections require separate revision requests so each issue can be
+- [x] Multiple sections require separate revision requests so each issue can be
   tracked and resolved.
-- [ ] Issuing one or more requests changes the application to
-  `REVISION_REQUIRED` and notifies the applicant.
-- [ ] A reviewer cannot request edits to server-derived award or expansion facts.
-- [ ] A mistaken open request can be cancelled with a reason and replaced; its
+- [x] Issuing one or more requests changes the application to
+  `REVISION_REQUIRED` and exposes the requests in the applicant workflow.
+- [ ] Send a notification when one or more revision requests are issued.
+- [x] A reviewer cannot request edits to server-derived award or expansion facts.
+- [x] A mistaken open request can be cancelled with a reason and replaced; its
   original text remains in history.
-- [ ] A revision response returns to the submitted queue and may be reviewed by
+- [x] A revision response returns to the submitted queue and may be reviewed by
   the same or a different administrator.
-- [ ] Advancing the application requires all review checks and revision requests
+- [x] Advancing the application requires all review checks and revision requests
   to be resolved.
-- [ ] Rejection requires a standard reason category plus a plain-language reason
+- [x] Rejection requires a standard reason category plus a plain-language reason
   visible to the applicant.
-- [ ] Rejection is final for that cycle attempt but does not erase the
+- [x] Rejection is final for that cycle attempt but does not erase the
   application or prevent an eligible later-cycle retry.
 
 ---
@@ -585,112 +586,134 @@ yet be provisioned or used through a complete administrative journey.
 Partner-bank verification remains an offline programme activity for now. There
 is no separate bank user or bank portal in this roadmap.
 
-- [ ] An administrator sends an eligible application to partner-bank evaluation
+- [x] An administrator sends an eligible application to partner-bank evaluation
   and records the bank name, referral reference, and referral date.
-- [ ] The applicant sees that evaluation is in progress but does not see
+- [x] The applicant sees that evaluation is in progress but does not see
   staff-only bank correspondence.
-- [ ] An administrator records the offline bank outcome as recommended, not
+- [x] An administrator records the offline bank outcome as recommended, not
   recommended, or more information required.
-- [ ] A recorded outcome includes the decision date, decision reference, and a
+- [x] A recorded outcome includes the decision date, decision reference, and a
   safe summary.
-- [ ] “More information required” creates section-specific revision requests and
+- [x] “More information required” creates section-specific revision requests and
   returns the applicant to the normal revision flow.
-- [ ] “Recommended” advances the application to TTM review.
-- [ ] “Not recommended” does not automatically reject the application; an
-  authorized administrator must record the programme decision and applicant-safe
-  reason.
-- [ ] Replacement bank outcomes remain additional history entries; an earlier
+- [x] “Recommended” advances the application to TTM review.
+- [x] “Not recommended” also advances to TTM review; bank feedback is advisory
+  evidence and TTM records the programme decision and applicant-safe reason.
+- [x] Replacement bank outcomes remain additional history entries; an earlier
   outcome is never overwritten.
 
 ---
 
 ## 14. TTM review and programme decision
 
-- [ ] Administrators can place bank-recommended applications into a TTM meeting
+- [x] Administrators can place applications with either positive or negative
+  bank feedback into a TTM meeting
   agenda identified by meeting reference and date.
-- [ ] The agenda shows the exact submission and bank outcome being considered.
-- [ ] Each application receives one recorded meeting outcome: approved, rejected,
+- [x] The agenda shows the exact submission and bank outcome being considered.
+- [x] Each application receives one recorded meeting outcome: approved, rejected,
   deferred, or revision required.
-- [ ] Approval records the approved amount, decision reference, decision date,
+- [x] Approval records the approved amount, decision reference, decision date,
   conditions, and authorized actor.
-- [ ] Rejection records a standard category and applicant-safe reason.
-- [ ] Deferral records the next required programme action and does not pretend the
+- [x] Rejection records a standard category and applicant-safe reason.
+- [x] Deferral records the next required programme action and does not pretend the
   application is approved or rejected.
-- [ ] Revision required uses the existing section-specific applicant revision
+- [x] Revision required uses the existing section-specific applicant revision
   flow.
-- [ ] A decision correction creates a superseding decision with a mandatory
+- [x] A decision correction creates a superseding decision with a mandatory
   reason and identifies the administrator who made the correction; the original
   decision remains visible.
-- [ ] The applicant sees the final outcome and safe conditions, but not internal
+- [x] The applicant sees the final outcome and safe conditions, but not internal
   deliberations or staff-only notes.
 
 ---
 
 ## 15. Sanction and funding awards
 
-- [ ] An approved application may receive at most one active funding award.
-- [ ] Creating an award requires the sanctioned application, funding case,
+- [x] An approved application may receive at most one active funding award.
+- [x] Creating an award requires the sanctioned application, funding case,
   unique sanction order, sanction date, sanctioned amount, and administrator.
-- [ ] The award is tied to the exact application and phase that earned it.
-- [ ] The sanction amount must be positive and cannot be silently changed after
+- [x] The award is tied to the exact application and phase that earned it.
+- [x] The sanction amount must be positive and cannot be silently changed after
   publication.
-- [ ] Corrections create a new award version with a reason while preserving the
+- [x] Corrections create a new award version with a reason while preserving the
   prior values.
-- [ ] Award states are active, suspended, cancelled, and closed.
-- [ ] Suspending or cancelling an award requires a reason and immediately blocks
+- [x] Award states are active, suspended, cancelled, and closed.
+- [x] Suspending or cancelling an award requires a reason and immediately blocks
   new releases.
-- [ ] Closing an award requires the programme to state whether all planned
+- [x] Closing an award requires the programme to state whether all planned
   releases are complete or the remaining amount will not be released.
 - [ ] The applicant can see sanction order, sanction date, sanctioned amount,
   award status, and applicant-safe conditions.
 - [ ] The applicant can download an official sanction letter generated or
   uploaded by an administrator.
-- [ ] Award creation changes the application to `SANCTIONED` and records an
+- [x] Award creation changes the application to `SANCTIONED` and records an
   applicant-visible timeline event.
 
 ---
 
 ## 16. Disbursements and corrections
 
-- [ ] Administrators can record a positive release against an active
+- [x] Administrators can record a positive release against an active
   award with occurrence date, external payment reference, amount, and recorder.
-- [ ] External payment references are unique so the same payment is not recorded
+- [x] External payment references are unique so the same payment is not recorded
   twice.
-- [ ] Releases appear in chronological programme history with an unambiguous
+- [x] Releases appear in chronological programme history with an unambiguous
   sequence number.
-- [ ] A mistaken release is corrected by a positive reversal linked to that
+- [x] A mistaken release is corrected by a positive reversal linked to that
   release; the original release is never edited or deleted.
-- [ ] A reversal cannot exceed the unreversed amount of its related release.
-- [ ] A reversal must belong to the same award as its related release.
+- [x] A reversal cannot exceed the unreversed amount of its related release.
+- [x] A reversal must belong to the same award as its related release.
 - [ ] The award view shows sanctioned amount, gross releases, reversals, net
   released amount, and remaining planned amount.
-- [ ] Recording the first successful release changes the application to
+- [x] Recording the first successful release changes the application to
   `DISBURSED` and records an applicant-visible event.
-- [ ] Later releases keep the status `DISBURSED` and add separate timeline items.
+- [x] Later releases keep the status `DISBURSED` and add separate timeline items.
+- [x] Every release records its TTM approval reference/date, verified payment
+  prerequisites, and actual payment in one transition.
+- [x] Every release creates its own utilization obligation due 180 UTC calendar
+  days after that release.
 - [ ] The applicant sees payment date, amount, safe reference, and whether an
   amount was reversed; internal banking credentials are never shown.
-- [ ] Releasing more than the currently sanctioned amount requires an explicit
+- [x] Releasing more than the currently sanctioned amount requires an explicit
   corrected award amount before the release can be recorded.
 
 ---
 
 ## 17. Assessments and post-award monitoring
 
-- [ ] Administrators can record utilization, performance, and financial-audit
+- [x] Administrators can record utilization, performance, and financial-audit
   assessments against an award.
-- [ ] Each assessment has a type, assessment number, date, passed/failed outcome,
+- [x] Each assessment has a type, assessment number, date, passed/failed outcome,
   assessor, evidence reference, and applicant-safe summary.
-- [ ] A reassessment creates the next assessment number for that type and does
+- [x] A reassessment creates the next assessment number for that type and does
   not overwrite the earlier result.
 - [ ] The latest assessment of each type is clearly identified while the complete
   history remains readable.
-- [ ] Failed assessments can trigger award suspension only through a separate,
+- [x] Failed assessments can trigger award suspension only through a separate,
   reasoned administrative action; recording “failed” alone does not silently
   change the award.
 - [ ] The applicant can see the applicant-safe outcome and required follow-up but
   not internal reviewer notes.
-- [x] Assessments do not currently block expansion eligibility; changing this
-  rule requires an explicit policy decision and roadmap update.
+- [x] Expansion requires every positively retained release’s latest utilization
+  result and the latest performance and financial-audit results to pass.
+
+### 17.1 Support cancellation and recovery
+
+- [x] A cancelled award with net released funds may open one active recovery
+  case using an official decision reference.
+- [x] Staff record principal and penal-interest demands, receipts, waivers, and
+  compensating reversals without editing earlier entries.
+- [x] Penal interest is entered from an external official calculation; the
+  portal does not invent a rate.
+- [x] A reversal references a same-case, same-component original entry and
+  cannot exceed its unreversed amount.
+- [x] Recovery closes only when the guarded write observes a zero derived
+  balance.
+- [x] An erroneously opened recovery can be cancelled with a retained reason
+  only while its ledger is empty; cases with entries use compensating
+  corrections and zero-balance closure.
+- [ ] Add court proceedings, statutory notices, hearings, and payment-collection
+  integrations if TTAADC later requires them.
 
 ---
 
@@ -787,12 +810,9 @@ must be supplied before the affected feature can be completed.
 - [ ] **Administrative approval limits:** TTAADC must define which role may
   approve, reject, sanction, suspend, cancel, reverse, or correct each monetary
   range. Until defined, these actions must not be publicly enabled.
-- [ ] **Required assessment types:** TTAADC must decide whether any latest passed
-  assessment becomes mandatory for expansion. Until explicitly changed,
-  assessments remain informative and do not gate expansion.
-- [ ] **Partner-bank authority:** TTAADC must define whether a “not recommended”
-  bank outcome is advisory or automatically disqualifying. The planned workflow
-  treats it as advisory and requires a separate programme decision.
+- [ ] **Mission SEP 2026 jurisdiction:** TTAADC must resolve whether eligibility
+  is Tripura-wide with TTAADC preference or requires the enterprise to be within
+  TTAADC. Until selected explicitly in a cycle, that cycle cannot open.
 - [ ] **Award over-release handling:** TTAADC must confirm whether exceptional
   releases above the original sanction are ever legal. The planned rule blocks
   them until an authorized award correction raises the sanctioned amount.
@@ -813,14 +833,33 @@ must be supplied before the affected feature can be completed.
 The intended delivery order is explicit so later features do not launch without
 their prerequisites.
 
-1. Complete production applicant-account protections and email delivery.
-2. Complete administrator provisioning, sign-in, multi-factor authentication,
-   role management, and recovery.
-3. Complete programme-cycle administration.
-4. Complete intake queues, assignment, desk review, and revision issuance.
-5. Complete partner-bank recording and TTM programme decisions.
-6. Complete sanctions, awards, disbursements, reversals, and assessments.
-7. Complete notifications, reports, privacy/access rules, and operational
+1. Complete and harden programme-cycle administration and the current
+   applicant-plus-administrator operational workflow.
+2. Complete intake, review, partner-bank, TTM, award, release, assessment, and
+   recovery scenario testing with programme staff.
+3. Complete administrator-only sign-in, multi-factor authentication, role
+   management, and recovery before enabling the already implemented business
+   workflow publicly.
+4. Complete production applicant-account protections, email delivery, malware
+   scanning, and abuse limits.
+5. Complete notifications, reports, privacy/access rules, and operational
    procedures.
-8. Resolve every launch-blocking policy decision and finish the public-launch
+6. Resolve every launch-blocking policy decision and finish the public-launch
    checklist.
+
+## TTAADC policy alignment
+
+The detailed [policy alignment crosswalk](policy-alignment.md) identifies what
+comes directly from the PDF, what is a user-approved portal decision, and what
+is a conservative safeguard. Publication/public launch remains blocked by:
+
+- the contradictory seed-fund ceiling amount and scope;
+- the Tripura-versus-TTAADC jurisdiction rule for Mission SEP 2026;
+- administrative monetary authority and self-review oversight;
+- approved applicant-visible reason catalogues; and
+- privacy, retention, staff-access, and malware-scanning approval.
+
+The omission of the ST certificate number is an intentional user-approved
+portal decision differing from the paper form; the certificate file remains
+mandatory. Bank roster publication uses governed cycle free text, and both
+positive and negative bank feedback proceed to TTM.

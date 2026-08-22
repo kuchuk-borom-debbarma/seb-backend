@@ -37,6 +37,13 @@ R2, request headers/URL, and response headers.
   conditional on the guarded root write.
 - Applicants can change only `DRAFT` data, or sections named by unresolved
   revision requests while status is `REVISION_REQUIRED`.
+- Draft creation and validation use the immutable cycle version pinned at
+  start; later cycle guidance cannot rewrite older eligibility rules.
+- Formal submissions pin the exact form and logical-document file versions.
+  Replacing a current file cannot alter evidence already sent to staff.
+- Resubmission clears the former assignment and returns to intake.
+- Expansion applies target-cycle assessment rules to every retained release’s
+  utilization and to award-level performance and financial audit.
 - Audit metadata contains only public IDs and allow-listed lifecycle values. It
   never contains form data, filenames, R2 keys, URLs, or checksums.
 
@@ -52,13 +59,14 @@ headers `Content-Type`, `Content-Disposition`, `If-None-Match`, and
 `x-amz-checksum-sha256`. Do not make the bucket public. Download URLs last five
 minutes and force attachment disposition.
 
-Uploads are limited to PDF, JPEG, or PNG and 10 MB. The signed PUT binds content
+Uploads are limited to PDF, JPEG, or PNG and 10 MB. Finalization appends a
+`PENDING` scan result for the immutable file. The signed PUT binds content
 length, MIME, SHA-256, and `If-None-Match: *`; finalization independently verifies
 size, MIME, checksum, and file signature. Browsers generate `Content-Length`
 from the request body, so the frontend must upload a Blob of the declared size
-instead of attempting to set that forbidden header manually. Malware scanning
-is not implemented, so future administrator downloads must remain disabled
-until scanning is added.
+instead of attempting to set that forbidden header manually. A fail-closed
+administrator download guard exists, but a production scanner is not connected;
+staff access must remain disabled for public deployment until it is connected.
 
 Expired/invalid intents are first changed to `CLEANUP_PENDING`. That state
 prevents finalization while allowing cron to retry an R2 deletion that failed.
@@ -69,12 +77,16 @@ the rest of the bounded batch and retries the failed intent on a later run.
 
 ## Deliberate exclusions
 
-Programme-cycle administration, reviewer revision creation, awards,
-disbursements, assessments, notifications, idempotency storage, rate limiting,
-malware scanning, and administrator access are separate future services.
+Programme-cycle administration, reviewer revisions, bank/TTM decisions,
+awards, disbursements, assessments, and recovery now live in the administrator
+service. Notifications, idempotency storage, rate limiting, production malware
+scanning, admin-only sign-in, and MFA remain excluded.
 
 See the [combined application guide](../../../docs/application-guide.md) for the
 business journey, examples, entity glossary, field rules, and GraphQL usage.
+The [administrator workflow guide](../../../docs/admin-workflow-guide.md)
+explains what follows submission, while the
+[policy crosswalk](../../../docs/policy-alignment.md) records source differences.
 The focused [integrity guide](../../../docs/application-integrity.md) documents
 the guarded-write, restoration, expansion-evidence, signed-upload, and cleanup
 guarantees that must remain true during concurrent requests and R2 failures.

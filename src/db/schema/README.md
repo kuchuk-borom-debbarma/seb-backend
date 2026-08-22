@@ -50,16 +50,22 @@ The expected application lifecycle is:
    classification. Draft form fields remain nullable until submission validation runs.
 5. Documents occupy stable logical slots in `seb_application_document`.
    Replacements create new immutable file versions with new R2 object keys.
-6. Submission creates an append-only `seb_application_submission` pointing to
-   the exact application version reviewed by TTAADC.
+6. Submission creates an append-only `seb_application_submission` and
+   `seb_application_submission_document` rows pointing to the exact form and
+   file versions reviewed by TTAADC.
 7. Review transitions and applicant-visible messages are recorded in
    `seb_application_event`. A correction request is added as a
    `seb_revision_request`; an incorrect request is cancelled and replaced, not
    edited.
-8. A sanctioned application receives one `seb_funding_award`. Releases and
+8. Assignment, desk review, offline bank evidence, and TTM meeting/decision
+   records retain the complete administrative path without editing older facts.
+9. A sanctioned application receives one `seb_funding_award`. Releases and
    compensating reversals are recorded in the append-only disbursement ledger,
    while utilization, performance, and audit results accumulate as assessments.
-9. An expansion application links to one authoritative earlier award through
+10. Every release creates a separate 180-day utilization obligation. A
+   cancelled award with retained funds may open a versioned recovery case whose
+   entries remain append-only.
+11. An expansion application links to one authoritative earlier award through
    `seb_application_qualifying_award`. Corrections and cancellations create
    immutable `seb_application_qualifying_award_version` rows, so an incorrect
    association is never overwritten or deleted. The future application service
@@ -121,11 +127,25 @@ for optimistic concurrency.
   immutable copies of the application form.
 - `seb_application_submission`: formal submission/resubmission history tied to
   exact application versions.
+- `seb_application_submission_document`: exact logical slots and immutable file
+  versions frozen into each submission.
 - `seb_application_document` / `seb_application_document_version`: logical
   evidence slots and immutable R2 upload/replacement history.
+- `seb_application_document_scan`: append-only scanner outcomes; the latest
+  result must be accepted before staff download.
 - `seb_revision_request`: immutable reviewer correction requests and their
   resolution or cancellation metadata.
 - `seb_application_event`: append-only applicant-facing workflow timeline.
+- `seb_application_assignment_event`: claim/release/reassignment and explicit
+  self-review acknowledgement history; the application head keeps only the
+  current assignee for fast queues.
+- `seb_application_internal_note`: staff-only append-only notes and corrections.
+- `seb_desk_review` / `seb_desk_review_check`: frozen submission outcome and
+  fixed initial scrutiny checklist.
+- `seb_partner_bank_referral` / version / outcome: offline bank identity,
+  referral lifecycle, feedback, and superseding corrections.
+- `seb_ttm_meeting` / version / agenda / decision: formal meetings, pinned
+  evidence, agenda changes, and append-only programme decisions.
 
 ### `seb`: awards and derived expansion eligibility
 
@@ -136,8 +156,11 @@ for optimistic concurrency.
   immutable link/correction/cancellation history for an expansion application.
 - `seb_disbursement`: positive release and reversal ledger entries; corrections
   use compensating reversals, never updates.
+- `seb_utilization_obligation`: one 180-day evidence deadline per release.
 - `seb_award_assessment`: retained utilization, performance, and financial-audit
   results. The highest assessment number for each award and type is current.
+- `seb_recovery_case` / version / entry: current recovery state, immutable
+  lifecycle history, and append-only demands, receipts, waivers, and reversals.
 
 ## How the application form maps to snapshots
 
@@ -188,14 +211,22 @@ email, enterprise, application, document slot, sanction order, or historic link
 cannot silently be reused. Sessions are the deliberate exception and are
 physically removed to prevent unbounded accumulation.
 
-Some rules require an atomic multi-row decision and therefore belong to the
-application service, not a single-row check constraint. Expansion eligibility
-verifies the immediately preceding phase, same enterprise/case, a retained
-release at least 12 months earlier, and no competing active expansion
-application. Assessments are historical but do not currently gate applicant
-eligibility. Award creation will verify that the
-application is sanctioned. Ledger services will verify that reversals point to
-releases and do not over-reverse them.
+Some rules require an atomic multi-row decision and therefore belong to guarded
+services, not one row-level check. Expansion eligibility verifies the preceding
+phase, same enterprise/case, the target cycle’s calendar wait, every required
+latest utilization/performance/financial-audit result, and no competing active
+application. Award creation verifies the latest effective TTM approval. Ledger
+writes enforce sanction limits and prevent over-reversals; recovery balances
+and zero-balance closure are recalculated inside write predicates.
+Closed awards retain whether releases were complete or a remainder was
+deliberately not released. Recovery cases may be cancelled only while their
+append-only ledger is empty; after the first entry, corrections and zero-balance
+closure preserve the accounting trail.
+
+Cycle document, assessment, and reason rules are normalized rather than stored
+as arbitrary JSON. This makes each pinned policy version queryable and gives
+D1 explicit uniqueness and value constraints. JSON text remains reserved for
+small allow-listed audit/event metadata.
 
 ## D1 conventions
 
@@ -229,9 +260,10 @@ releases and do not over-reverse them.
   A resolved policy can later be represented in programme-cycle policy data and
   submission validation.
 - No programme cycle is seeded by the base schema.
-- The shared administrative identity and fixed-role grant foundation exists;
-  administrator provisioning, GraphQL operations, award services, payment
-  integrations, and reviewer workflows are not implemented yet.
+- Administrative cycle, intake, desk review, offline-bank, TTM, award, release,
+  assessment, and recovery services exist. Admin-only sign-in, MFA, role
+  management, a production scanner, notifications, and payment integration
+  remain public-launch blockers.
 - The database is not deployed with production data, so `database/schema.sql`
   remains a replaceable canonical baseline rather than an incremental migration.
 
@@ -258,13 +290,17 @@ state synchronized whenever tables or application rules change.
 
 ## Current state
 
-The schema foundation, applicant authentication, applicant enterprise and
-application GraphQL operations, validation, submission/resubmission, private R2
-upload finalization, and cleanup exist. Administrative review, award, ledger,
-assessment, malware-scanning, and production-notification services remain
-future work. See the [combined application guide](../../../docs/application-guide.md)
+The schema foundation, applicant authentication/application flow, private R2
+uploads, programme-cycle governance, administrative intake/review, offline bank
+evidence, TTM decisions, awards, releases, assessments, and recovery exist.
+Admin-only authentication/MFA, a production malware scanner, notification
+delivery, and public-launch protections remain future work. See the
+[combined application guide](../../../docs/application-guide.md)
 for the end-to-end business and API behavior, and the focused
 [application integrity guide](../../../docs/application-integrity.md) for the
 write-time race guards and failure-recovery rules built on this schema.
 Administrative authorization is documented separately in the
 [fixed-role RBAC guide](../../../docs/admin-rbac.md).
+The [administrator workflow guide](../../../docs/admin-workflow-guide.md)
+explains staff use, and the [policy crosswalk](../../../docs/policy-alignment.md)
+records authoritative-source differences.

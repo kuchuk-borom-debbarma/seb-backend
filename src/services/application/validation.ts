@@ -24,6 +24,31 @@ import type {
   EnterpriseProfileInput,
 } from './types'
 
+export type SubmissionPolicy = {
+  minimumApplicantAge: number
+  maximumApplicantAge: number
+  categoryAMaximumMonths: number
+  majorityOwnershipRequired: boolean
+  fundingCeilingState: 'UNRESOLVED' | 'RESOLVED'
+  fundingCeilingAmountPaise: number | null
+  fundingCeilingScope: 'APPLICATION' | 'PHASE' | 'ENTERPRISE' | 'FUNDING_CASE' | null
+  documentRules: Array<{
+    documentType: DocumentType
+    condition: 'ALWAYS' | 'WHEN_REGISTERED' | 'WHEN_GSTIN_PRESENT' | 'WHEN_NOC_REQUIRED' | 'OPTIONAL'
+  }>
+}
+
+const DEFAULT_SUBMISSION_POLICY: SubmissionPolicy = {
+  minimumApplicantAge: 18,
+  maximumApplicantAge: 60,
+  categoryAMaximumMonths: 24,
+  majorityOwnershipRequired: true,
+  fundingCeilingState: 'UNRESOLVED',
+  fundingCeilingAmountPaise: null,
+  fundingCeilingScope: null,
+  documentRules: [],
+}
+
 const MAX_MONEY_PAISE = Number.MAX_SAFE_INTEGER
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
 const PHONE_PATTERN = /^\+?[1-9]\d{7,14}$/u
@@ -445,6 +470,7 @@ const validateEnterpriseSubmission = (
   snapshot: ApplicationSnapshot,
   issues: ValidationIssue[],
   now: Date,
+  policy: SubmissionPolicy,
 ) => {
   const { enterprise } = snapshot
   for (const [field, value] of [
@@ -453,7 +479,7 @@ const validateEnterpriseSubmission = (
     ['businessSector', enterprise.businessSector],
     ['applicationCategory', enterprise.applicationCategory],
   ] as const) requireValue(issues, 'ENTERPRISE', field, value)
-  if (enterprise.majorityOwnershipConfirmed !== true) {
+  if (policy.majorityOwnershipRequired && enterprise.majorityOwnershipConfirmed !== true) {
     issues.push(issue('ENTERPRISE', 'majorityOwnershipConfirmed', 'MUST_CONFIRM', 'Majority ownership must be confirmed.'))
   }
   if (enterprise.registrationType === 'NONE' && enterprise.registrationNumber !== null) {
@@ -479,7 +505,7 @@ const validateEnterpriseSubmission = (
   }
   if (!establishment || !enterprise.applicationCategory) return
 
-  const ageBoundary = addUtcCalendarMonths(establishment, 24)
+  const ageBoundary = addUtcCalendarMonths(establishment, policy.categoryAMaximumMonths)
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
   const categoryMismatch =
     (enterprise.applicationCategory === 'CATEGORY_A' && today > ageBoundary.getTime()) ||
@@ -490,8 +516,8 @@ const validateEnterpriseSubmission = (
       'applicationCategory',
       'CATEGORY_MISMATCH',
       enterprise.applicationCategory === 'CATEGORY_A'
-        ? 'Category A enterprises must be proposed or at most 24 months old.'
-        : 'Category B enterprises must be older than 24 months.',
+        ? `Category A enterprises must be proposed or at most ${policy.categoryAMaximumMonths} months old.`
+        : `Category B enterprises must be older than ${policy.categoryAMaximumMonths} months.`,
     ))
   }
 }
@@ -500,6 +526,7 @@ const validateApplicantSubmission = (
   snapshot: ApplicationSnapshot,
   issues: ValidationIssue[],
   now: Date,
+  policy: SubmissionPolicy,
 ) => {
   for (const [field, value] of Object.entries(snapshot.applicantProfile)) {
     requireValue(issues, 'APPLICANT_PROFILE', field, value)
@@ -509,14 +536,15 @@ const validateApplicantSubmission = (
     : null
   if (!birthDate) return
   const age = fullCalendarYears(birthDate, now)
-  if (birthDate.getTime() > now.getTime() || age < 18 || age > 60) {
-    issues.push(issue('APPLICANT_PROFILE', 'dateOfBirth', 'AGE_INELIGIBLE', 'Applicant age must be from 18 through 60.'))
+  if (birthDate.getTime() > now.getTime() || age < policy.minimumApplicantAge || age > policy.maximumApplicantAge) {
+    issues.push(issue('APPLICANT_PROFILE', 'dateOfBirth', 'AGE_INELIGIBLE', `Applicant age must be from ${policy.minimumApplicantAge} through ${policy.maximumApplicantAge}.`))
   }
 }
 
 const validateFinancialSubmission = (
   snapshot: ApplicationSnapshot,
   issues: ValidationIssue[],
+  policy: SubmissionPolicy,
 ) => {
   const { financial } = snapshot
   if (financial.totalProjectCostPaise === null || financial.totalProjectCostPaise <= 0) {
@@ -527,6 +555,15 @@ const validateFinancialSubmission = (
   }
   requireValue(issues, 'FINANCIAL', 'bankLoanProposedPaise', financial.bankLoanProposedPaise)
   requireValue(issues, 'FINANCIAL', 'promoterContributionPaise', financial.promoterContributionPaise)
+  if (
+    policy.fundingCeilingState === 'RESOLVED' &&
+    policy.fundingCeilingScope === 'APPLICATION' &&
+    policy.fundingCeilingAmountPaise !== null &&
+    financial.seedFundRequestedPaise !== null &&
+    financial.seedFundRequestedPaise > policy.fundingCeilingAmountPaise
+  ) {
+    issues.push(issue('FINANCIAL', 'seedFundRequestedPaise', 'FUNDING_CEILING_EXCEEDED', 'The requested seed fund exceeds this cycle’s application ceiling.'))
+  }
 }
 
 const hasGovernmentDetails = (snapshot: ApplicationSnapshot): boolean => {
@@ -598,9 +635,17 @@ const validateDocumentSubmission = (
   snapshot: ApplicationSnapshot,
   activeDocumentTypes: ReadonlySet<DocumentType>,
   issues: ValidationIssue[],
+  policy: SubmissionPolicy,
 ) => {
   requireValue(issues, 'DOCUMENTS', 'nocRequired', snapshot.documents.nocRequired)
-  const requiredDocuments = requiredDocumentTypesForSnapshot(snapshot)
+  const requiredDocuments = policy.documentRules.length === 0
+    ? requiredDocumentTypesForSnapshot(snapshot)
+    : new Set(policy.documentRules.filter((rule) =>
+        rule.condition === 'ALWAYS' ||
+        (rule.condition === 'WHEN_REGISTERED' && snapshot.enterprise.registrationType !== 'NONE') ||
+        (rule.condition === 'WHEN_GSTIN_PRESENT' && snapshot.enterprise.gstin !== null) ||
+        (rule.condition === 'WHEN_NOC_REQUIRED' && snapshot.documents.nocRequired === true),
+      ).map((rule) => rule.documentType))
   for (const documentType of requiredDocuments) {
     if (!activeDocumentTypes.has(documentType)) {
       issues.push(issue('DOCUMENTS', documentType, 'DOCUMENT_REQUIRED', `Upload ${documentType.replaceAll('_', ' ').toLowerCase()}.`))
@@ -627,13 +672,15 @@ export const validateSubmissionSnapshot = (
   snapshot: ApplicationSnapshot,
   activeDocumentTypes: ReadonlySet<DocumentType>,
   now: Date,
+  configuredPolicy: SubmissionPolicy = DEFAULT_SUBMISSION_POLICY,
 ): ValidationReport => {
+  const policy = configuredPolicy
   const issues = validateOptionalFormats(snapshot)
-  validateEnterpriseSubmission(snapshot, issues, now)
-  validateApplicantSubmission(snapshot, issues, now)
-  validateFinancialSubmission(snapshot, issues)
+  validateEnterpriseSubmission(snapshot, issues, now, policy)
+  validateApplicantSubmission(snapshot, issues, now, policy)
+  validateFinancialSubmission(snapshot, issues, policy)
   validatePriorFundingSubmission(snapshot, issues)
-  validateDocumentSubmission(snapshot, activeDocumentTypes, issues)
+  validateDocumentSubmission(snapshot, activeDocumentTypes, issues, policy)
   validateDeclarationSubmission(snapshot, issues)
   return { valid: issues.length === 0, issues }
 }

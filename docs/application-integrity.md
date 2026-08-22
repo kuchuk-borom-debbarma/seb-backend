@@ -55,7 +55,7 @@ net disbursed = total RELEASE amounts - total REVERSAL amounts
 
 The relevant anniversary starts at the earliest release that still retains a
 positive amount after its reversals. Eligibility begins when that release's UTC
-calendar anniversary plus 12 months has passed. This is calendar arithmetic,
+calendar anniversary plus the target cycle’s pinned waiting period has passed. This is calendar arithmetic,
 not a fixed number of milliseconds.
 
 The atomic guard pins both the calculated net amount and that exact release
@@ -64,9 +64,11 @@ the same total while changing which release establishes the anniversary. Draft
 saves and formal submissions repeat this evidence check so a previously valid
 expansion cannot proceed on stale financial history.
 
-Assessments are retained for history but do not currently gate expansion. That
-is an explicit product decision and must not be inferred from the presence of
-assessment tables.
+Expansion loads the target cycle’s pinned assessment rules. Every positively
+retained release must have a latest passed utilization result, while the award
+must have latest passed performance and financial-audit results when required.
+Each unmet result is reported separately; a query refactor must not silently
+weaken these gates.
 
 ## Signed R2 uploads
 

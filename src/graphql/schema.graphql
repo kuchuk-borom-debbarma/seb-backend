@@ -6,6 +6,12 @@ interface BaseResponse {
   message: String
 }
 
+enum UserRole {
+  APPLICANT
+  ADMIN
+  SUPER_ADMIN
+}
+
 type StartApplicantSignupResponse {
   challengeToken: String!
   expiresAt: DateTime!
@@ -33,6 +39,7 @@ type ApplicantSession {
 type ApplicantAuthResponse {
   applicant: Applicant!
   session: ApplicantSession!
+  activeRoles: [UserRole!]!
 }
 
 type ApplicantSessionsResponse {

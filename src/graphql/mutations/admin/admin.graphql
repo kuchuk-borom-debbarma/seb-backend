@@ -1,0 +1,125 @@
+extend type Mutation { admin: AdminMutation! }
+
+type AdminMutation {
+  programmeCycle: AdminProgrammeCycleMutation!
+  intake: AdminIntakeMutation!
+  decision: AdminDecisionMutation!
+  funding: AdminFundingMutation!
+}
+
+input ProgrammeDocumentRuleInput { documentType: DocumentType!, condition: ProgrammeDocumentCondition! }
+input ProgrammeReasonInput { context: ProgrammeReasonContext!, code: String!, label: String!, applicantMessageTemplate: String }
+input ProgrammeCyclePolicyInput {
+  minimumApplicantAge: Int
+  maximumApplicantAge: Int
+  categoryAMaximumMonths: Int
+  expansionWaitMonths: Int
+  majorityOwnershipRequired: Boolean
+  jurisdiction: ProgrammeJurisdiction
+  fundingCeilingState: FundingCeilingState
+  fundingCeilingAmountPaise: Money
+  fundingCeilingScope: FundingCeilingScope
+  requiredAssessmentTypes: [AssessmentType!]!
+  documentRules: [ProgrammeDocumentRuleInput!]!
+  reasons: [ProgrammeReasonInput!]!
+}
+input ProgrammeCycleInput {
+  cycleCode: String!
+  displayName: String!
+  cycleYear: Int!
+  policyReference: String
+  applicantGuidance: String
+  partnerBankGuidance: String
+  opensAt: DateTime
+  closesAt: DateTime
+  policy: ProgrammeCyclePolicyInput!
+}
+input UpdateProgrammeCycleInput { id: ID!, expectedVersion: Int!, reason: String!, cycle: ProgrammeCycleInput! }
+input CycleTransitionInput { id: ID!, expectedVersion: Int!, reason: String! }
+input CycleGuidanceInput { id: ID!, expectedVersion: Int!, applicantGuidance: String!, partnerBankGuidance: String!, reason: String! }
+input CycleClosingInput { id: ID!, expectedVersion: Int!, closesAt: DateTime!, reason: String! }
+
+type AdminProgrammeCycleMutation {
+  create(input: ProgrammeCycleInput!): AdminCycleResult!
+  updateDraft(input: UpdateProgrammeCycleInput!): AdminCycleResult!
+  open(input: CycleTransitionInput!): AdminCycleResult!
+  updateOpenGuidance(input: CycleGuidanceInput!): AdminCycleResult!
+  changeClosingTime(input: CycleClosingInput!): AdminCycleResult!
+  close(input: CycleTransitionInput!): AdminCycleResult!
+  archive(input: CycleTransitionInput!): AdminCycleResult!
+  softDeleteDraft(input: CycleTransitionInput!): AdminCycleResult!
+  restoreDraft(id: ID!, expectedVersion: Int!): AdminCycleResult!
+}
+
+input ClaimApplicationInput { applicationId: ID!, expectedAssignmentVersion: Int!, conflictAcknowledged: Boolean! }
+input ReleaseApplicationInput { applicationId: ID!, expectedAssignmentVersion: Int!, reasonCategoryId: ID!, reason: String! }
+input ReassignApplicationInput { applicationId: ID!, expectedAssignmentVersion: Int!, toUserId: ID!, reasonCategoryId: ID!, reason: String!, conflictAcknowledged: Boolean! }
+input InternalNoteInput { applicationId: ID!, note: String!, correctionOfNoteId: ID }
+enum DeskReviewCheckType { IDENTITY_KYC ST_ELIGIBILITY MAJORITY_OWNERSHIP JURISDICTION FORM_COMPLETENESS DOCUMENT_COMPLETENESS ANSWER_DOCUMENT_CONSISTENCY DPR_FEASIBILITY EXPANSION_EVIDENCE }
+enum DeskReviewCheckResult { PASS FAIL NOT_APPLICABLE }
+enum DeskReviewOutcome { ADVANCE_TO_BANK REQUEST_REVISION REJECT }
+input DeskReviewCheckInput { checkType: DeskReviewCheckType!, result: DeskReviewCheckResult!, internalNote: String }
+input AdminRevisionInput { section: ApplicationSection!, reasonCategoryId: ID!, note: String! }
+input CompleteDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int!, outcome: DeskReviewOutcome!, checks: [DeskReviewCheckInput!]!, reasonCategoryId: ID, applicantMessage: String, revisions: [AdminRevisionInput!]! }
+input StartDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int! }
+input CancelRevisionInput { applicationId: ID!, revisionRequestId: ID!, expectedStatusVersion: Int!, reason: String! }
+type AdminIntakeMutation {
+  claim(input: ClaimApplicationInput!): AdminApplicationResult!
+  release(input: ReleaseApplicationInput!): AdminApplicationResult!
+  reassign(input: ReassignApplicationInput!): AdminApplicationResult!
+  addInternalNote(input: InternalNoteInput!): AdminWorkspaceResult!
+  startDeskReview(input: StartDeskReviewInput!): AdminApplicationResult!
+  completeDeskReview(input: CompleteDeskReviewInput!): AdminWorkspaceResult!
+  cancelRevision(input: CancelRevisionInput!): AdminWorkspaceResult!
+}
+
+input BankReferralInput { applicationId: ID!, submissionId: ID!, deskReviewId: ID!, expectedStatusVersion: Int!, bankName: String!, bankBranch: String, referralReference: String!, referralDate: Date!, applicantMessage: String!, internalNote: String }
+input BankOutcomeInput { applicationId: ID!, referralId: ID!, expectedStatusVersion: Int!, expectedReferralVersion: Int!, outcome: BankOutcome!, decisionReference: String!, decisionDate: Date!, availableLoanAmountPaise: Money, applicantSummary: String!, internalNote: String, revisions: [AdminRevisionInput!]! }
+input CancelBankReferralInput { applicationId: ID!, referralId: ID!, expectedReferralVersion: Int!, reasonCategoryId: ID!, reason: String!, applicantMessage: String! }
+input CorrectBankOutcomeInput { applicationId: ID!, referralId: ID!, supersedesOutcomeId: ID!, expectedStatusVersion: Int!, outcome: BankOutcome!, decisionReference: String!, decisionDate: Date!, availableLoanAmountPaise: Money, applicantSummary: String!, internalNote: String, correctionReasonCategoryId: ID!, correctionReason: String!, revisions: [AdminRevisionInput!]! }
+input CreateTtmMeetingInput { meetingReference: String!, scheduledAt: DateTime!, venue: String!, description: String }
+input UpdateTtmMeetingInput { meetingId: ID!, expectedVersion: Int!, meetingReference: String!, scheduledAt: DateTime!, venue: String!, description: String, reason: String! }
+input TtmMeetingTransitionInput { meetingId: ID!, expectedVersion: Int! }
+input CancelTtmMeetingInput { meetingId: ID!, expectedVersion: Int!, reason: String! }
+input AddAgendaItemInput { meetingId: ID!, applicationId: ID!, submissionId: ID!, bankOutcomeId: ID!, position: Int! }
+input ReorderAgendaItemInput { meetingId: ID!, agendaItemId: ID!, expectedVersion: Int!, position: Int!, reason: String! }
+input RemoveAgendaItemInput { meetingId: ID!, agendaItemId: ID!, expectedVersion: Int!, reason: String! }
+input TtmDecisionInput { applicationId: ID!, agendaItemId: ID!, expectedStatusVersion: Int!, outcome: TtmDecisionOutcome!, decisionReference: String!, decisionDate: Date!, approvedAmountPaise: Money, applicantConditions: String, reasonCategoryId: ID, applicantMessage: String!, nextAction: String, revisions: [AdminRevisionInput!]! }
+input CorrectTtmDecisionInput { applicationId: ID!, agendaItemId: ID!, supersedesDecisionId: ID!, expectedStatusVersion: Int!, outcome: TtmDecisionOutcome!, decisionReference: String!, decisionDate: Date!, approvedAmountPaise: Money, applicantConditions: String, reasonCategoryId: ID, correctionReasonCategoryId: ID!, correctionReason: String!, applicantMessage: String!, nextAction: String, revisions: [AdminRevisionInput!]! }
+type AdminDecisionMutation {
+  referToBank(input: BankReferralInput!): AdminWorkspaceResult!
+  cancelBankReferral(input: CancelBankReferralInput!): AdminWorkspaceResult!
+  recordBankOutcome(input: BankOutcomeInput!): AdminWorkspaceResult!
+  correctBankOutcome(input: CorrectBankOutcomeInput!): AdminWorkspaceResult!
+  createMeeting(input: CreateTtmMeetingInput!): AdminMeetingWorkspaceResult!
+  updateMeeting(input: UpdateTtmMeetingInput!): AdminMeetingWorkspaceResult!
+  cancelMeeting(input: CancelTtmMeetingInput!): AdminMeetingWorkspaceResult!
+  addAgendaItem(input: AddAgendaItemInput!): AdminMeetingWorkspaceResult!
+  reorderAgendaItem(input: ReorderAgendaItemInput!): AdminMeetingWorkspaceResult!
+  removeAgendaItem(input: RemoveAgendaItemInput!): AdminMeetingWorkspaceResult!
+  startMeeting(input: TtmMeetingTransitionInput!): AdminMeetingWorkspaceResult!
+  finalizeMeeting(input: TtmMeetingTransitionInput!): AdminMeetingWorkspaceResult!
+  recordDecision(input: TtmDecisionInput!): AdminWorkspaceResult!
+  correctDecision(input: CorrectTtmDecisionInput!): AdminWorkspaceResult!
+}
+
+input CreateAwardInput { applicationId: ID!, decisionId: ID!, expectedStatusVersion: Int!, sanctionOrderNumber: String!, sanctionDate: Date!, applicantConditions: String }
+enum AwardClosureDisposition { RELEASES_COMPLETE REMAINDER_NOT_RELEASED }
+input ChangeAwardInput { awardId: ID!, applicationId: ID!, expectedVersion: Int!, expectedStatusVersion: Int!, status: AwardStatus!, closureDisposition: AwardClosureDisposition, sanctionedAmountPaise: Money!, applicantConditions: String, reasonCategoryId: ID!, reason: String! }
+input RecordReleaseInput { awardId: ID!, applicationId: ID!, expectedLedgerVersion: Int!, amountPaise: Money!, occurredAt: DateTime!, externalReference: String!, ttmApprovalReference: String!, ttmApprovalDate: Date!, bankAccountVerifiedAt: DateTime!, performanceAgreementReference: String!, performanceAgreementExecutedAt: DateTime!, physicalVerificationRequired: Boolean!, physicalVerificationReference: String, physicalVerificationCompletedAt: DateTime, applicantMessage: String! }
+input ReverseReleaseInput { awardId: ID!, applicationId: ID!, releaseId: ID!, expectedLedgerVersion: Int!, amountPaise: Money!, occurredAt: DateTime!, externalReference: String!, reasonCategoryId: ID!, applicantMessage: String! }
+input RecordAssessmentInput { awardId: ID!, applicationId: ID!, assessmentType: AssessmentType!, utilizationObligationId: ID, outcome: AssessmentOutcome!, evidenceReference: String!, applicantSummary: String!, internalNote: String, assessedAt: DateTime! }
+input OpenRecoveryInput { awardId: ID!, officialDecisionReference: String!, officialDecisionDate: Date!, reasonCategoryId: ID!, applicantMessage: String! }
+input RecoveryEntryInput { recoveryCaseId: ID!, expectedLedgerVersion: Int!, entryType: RecoveryEntryType!, component: RecoveryComponent!, relatedEntryId: ID, amountPaise: Money!, externalReference: String!, occurredAt: DateTime!, reasonCategoryId: ID, applicantMessage: String! }
+input CloseRecoveryInput { recoveryCaseId: ID!, expectedVersion: Int!, reason: String! }
+type AdminFundingMutation {
+  createAward(input: CreateAwardInput!): AdminFundingWorkspaceResult!
+  changeAward(input: ChangeAwardInput!): AdminFundingWorkspaceResult!
+  recordRelease(input: RecordReleaseInput!): AdminFundingWorkspaceResult!
+  reverseRelease(input: ReverseReleaseInput!): AdminFundingWorkspaceResult!
+  recordAssessment(input: RecordAssessmentInput!): AdminFundingWorkspaceResult!
+  openRecovery(input: OpenRecoveryInput!): AdminRecoveryWorkspaceResult!
+  recordRecoveryEntry(input: RecoveryEntryInput!): AdminRecoveryWorkspaceResult!
+  cancelRecovery(input: CloseRecoveryInput!): AdminRecoveryWorkspaceResult!
+  closeRecovery(input: CloseRecoveryInput!): AdminRecoveryWorkspaceResult!
+}

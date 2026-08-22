@@ -27,6 +27,7 @@ enum ApplicationStatus {
   REJECTED
   SANCTIONED
   DISBURSED
+  CANCELLED
 }
 enum ApplicationType { INITIAL EXPANSION }
 enum ApplicationCategory { CATEGORY_A CATEGORY_B }

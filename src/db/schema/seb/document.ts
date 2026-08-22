@@ -10,7 +10,7 @@ import {
 } from 'drizzle-orm/sqlite-core'
 import { coreUser } from '../core/auth'
 import { versionedSoftDeleteColumns } from '../shared'
-import { sebApplication } from './application'
+import { sebApplication, sebApplicationSubmission } from './application'
 
 export const documentTypes = [
   'IDENTITY_AGE_PROOF',
@@ -31,6 +31,7 @@ export const documentUploadIntentStatuses = [
   'EXPIRED',
 ] as const
 export const documentUploadCleanupTargetStatuses = ['REJECTED', 'EXPIRED'] as const
+export const documentScanStatuses = ['PENDING', 'ACCEPTED', 'REJECTED', 'ERROR'] as const
 
 /** Stable logical slot for one kind of application evidence. */
 export const sebApplicationDocument = sqliteTable(
@@ -89,6 +90,97 @@ export const sebApplicationDocumentVersion = sqliteTable(
     check(
       'seb_application_document_operation_check',
       sql`${table.operation} IN ('UPLOAD', 'REPLACE')`,
+    ),
+  ],
+)
+
+/**
+ * Exact document evidence attached to one formal submission.
+ *
+ * The logical slot and immutable file version are both pinned. A later upload
+ * can therefore never make an old submission appear to contain a newer file.
+ */
+export const sebApplicationSubmissionDocument = sqliteTable(
+  'seb_application_submission_document',
+  {
+    id: text('id').primaryKey(),
+    applicationId: text('application_id').notNull(),
+    submissionId: text('submission_id').notNull(),
+    documentId: text('document_id').notNull(),
+    documentVersion: integer('document_version').notNull(),
+    documentType: text('document_type', { enum: documentTypes }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.applicationId, table.submissionId],
+      foreignColumns: [sebApplicationSubmission.applicationId, sebApplicationSubmission.id],
+      name: 'seb_application_submission_document_submission_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [table.documentId, table.documentVersion],
+      foreignColumns: [
+        sebApplicationDocumentVersion.documentId,
+        sebApplicationDocumentVersion.version,
+      ],
+      name: 'seb_application_submission_document_version_fk',
+    }).onDelete('restrict'),
+    uniqueIndex('seb_application_submission_document_type_uq').on(
+      table.submissionId,
+      table.documentType,
+    ),
+    check(
+      'seb_application_submission_document_type_check',
+      sql`${table.documentType} IN ('IDENTITY_AGE_PROOF', 'ST_CERTIFICATE', 'ADDRESS_PROOF', 'BUSINESS_REGISTRATION', 'GST_REGISTRATION', 'DPR', 'BANK_DETAILS', 'NOC')`,
+    ),
+    check(
+      'seb_application_submission_document_version_check',
+      sql`${table.documentVersion} >= 1`,
+    ),
+    index('seb_application_submission_document_submission_idx').on(
+      table.submissionId,
+      table.documentType,
+    ),
+  ],
+)
+
+/**
+ * Append-only malware scan history for an immutable R2 object.
+ * The latest sequence is authoritative; administrators fail closed unless it
+ * is ACCEPTED. No environment flag can bypass this evidence.
+ */
+export const sebApplicationDocumentScan = sqliteTable(
+  'seb_application_document_scan',
+  {
+    id: text('id').primaryKey(),
+    documentVersionId: text('document_version_id')
+      .notNull()
+      .references(() => sebApplicationDocumentVersion.id, { onDelete: 'restrict' }),
+    sequenceNumber: integer('sequence_number').notNull(),
+    status: text('status', { enum: documentScanStatuses }).notNull(),
+    scannerReference: text('scanner_reference'),
+    safeMessage: text('safe_message'),
+    scannedAt: integer('scanned_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    uniqueIndex('seb_application_document_scan_sequence_uq').on(
+      table.documentVersionId,
+      table.sequenceNumber,
+    ),
+    check('seb_application_document_scan_sequence_check', sql`${table.sequenceNumber} >= 1`),
+    check(
+      'seb_application_document_scan_status_check',
+      sql`${table.status} IN ('PENDING', 'ACCEPTED', 'REJECTED', 'ERROR')`,
+    ),
+    check(
+      'seb_application_document_scan_lifecycle_check',
+      sql`(${table.status} = 'PENDING' AND ${table.scannedAt} IS NULL)
+        OR (${table.status} <> 'PENDING' AND ${table.scannedAt} IS NOT NULL)`,
+    ),
+    index('seb_application_document_scan_latest_idx').on(
+      table.documentVersionId,
+      table.sequenceNumber,
     ),
   ],
 )

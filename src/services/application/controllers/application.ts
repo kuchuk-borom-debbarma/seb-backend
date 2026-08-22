@@ -9,6 +9,7 @@ import {
   findExpansionAwardForApplication,
   findLatestSubmittedVersion,
   findOpenProgrammeCycle,
+  findSubmissionPolicy,
   findOwnedApplicationHead,
   insertApplicationAggregate,
   listActiveDocumentTypes,
@@ -187,7 +188,13 @@ export const expansionEligibility = async (
   ])
   if (!source) return failure('The enterprise was not found or its funding case is not open.')
   if (!cycle) return failure('The programme cycle is not open.')
-  const evaluated = await evaluateExpansionEligibility(context.db, source.fundingCase.id, now)
+  const evaluated = await evaluateExpansionEligibility(
+    context.db,
+    source.fundingCase.id,
+    now,
+    undefined,
+    cycle.id,
+  )
   return success(evaluated.result)
 }
 
@@ -211,7 +218,13 @@ const startApplication = async (
   let qualifyingReleaseAt: Date | null = null
   let expansionClaim = EMPTY_EXPANSION_CLAIM
   if (expansion) {
-    const evaluated = await evaluateExpansionEligibility(context.db, source.fundingCase.id, now)
+    const evaluated = await evaluateExpansionEligibility(
+      context.db,
+      source.fundingCase.id,
+      now,
+      undefined,
+      cycle.id,
+    )
     if (!evaluated.result.eligible || !evaluated.award || !evaluated.result.nextPhaseNumber) {
       return failure('The enterprise is not currently eligible for an expansion application.')
     }
@@ -417,7 +430,17 @@ export const validateApplication = async (
   const application = await loadOwnedApplication(context.db, applicant.id, applicationId)
   if (!application) return failure('The application was not found.')
   const documentTypes = await listActiveDocumentTypes(context.db, applicationId)
-  return success(validateSubmissionSnapshot(application.snapshot, documentTypes, new Date()))
+  const policy = await findSubmissionPolicy(
+    context.db,
+    application.programmeCycleId,
+    application.snapshot.programmeCycleVersion,
+  )
+  return success(validateSubmissionSnapshot(
+    application.snapshot,
+    documentTypes,
+    new Date(),
+    policy ?? undefined,
+  ))
 }
 
 const changeApplicationDeletion = async (
@@ -451,6 +474,7 @@ const changeApplicationDeletion = async (
       head.fundingCaseId,
       new Date(),
       head.id,
+      head.programmeCycleId,
     )
     if (!evaluated.result.eligible || !evaluated.award) {
       return failure('The expansion draft is no longer eligible for restoration.')
@@ -544,6 +568,7 @@ const submit = async (
       application.fundingCaseId,
       now,
       application.id,
+      application.programmeCycleId,
     )
     if (!evaluated.result.eligible) return failure('The expansion application is no longer eligible.')
   }
@@ -566,6 +591,11 @@ const submit = async (
     formalSnapshot,
     await listActiveDocumentTypes(context.db, application.id),
     now,
+    await findSubmissionPolicy(
+      context.db,
+      application.programmeCycleId,
+      application.snapshot.programmeCycleVersion,
+    ) ?? undefined,
   )
   if (!report.valid) return failure('The application is incomplete. Run validation for details.')
   const currentVersionRecord = await findApplicationVersion(

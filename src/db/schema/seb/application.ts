@@ -38,6 +38,7 @@ export const applicationStatuses = [
   'REJECTED',
   'SANCTIONED',
   'DISBURSED',
+  'CANCELLED',
 ] as const
 
 export const applicationChangeTypes = [
@@ -78,6 +79,14 @@ export const sebApplication = sqliteTable(
     ...versionedSoftDeleteColumns(() => coreUser.id),
     status: text('status', { enum: applicationStatuses }).notNull().default('DRAFT'),
     statusVersion: integer('status_version').notNull().default(1),
+    statusChangedAt: integer('status_changed_at', { mode: 'timestamp_ms' }).notNull(),
+    // Assignment is duplicated on the head for fast work queues. Immutable
+    // assignment events retain how and why the pointer changed.
+    assignedToUserId: text('assigned_to_user_id').references(() => coreUser.id, {
+      onDelete: 'restrict',
+    }),
+    assignedAt: integer('assigned_at', { mode: 'timestamp_ms' }),
+    assignmentVersion: integer('assignment_version').notNull().default(0),
     firstSubmittedAt: integer('first_submitted_at', { mode: 'timestamp_ms' }),
   },
   (table) => [
@@ -107,9 +116,15 @@ export const sebApplication = sqliteTable(
     ),
     check('seb_application_current_version_check', sql`${table.currentVersion} >= 1`),
     check('seb_application_status_version_check', sql`${table.statusVersion} >= 1`),
+    check('seb_application_assignment_version_check', sql`${table.assignmentVersion} >= 0`),
+    check(
+      'seb_application_assignment_group_check',
+      sql`(${table.assignedToUserId} IS NULL AND ${table.assignedAt} IS NULL)
+        OR (${table.assignedToUserId} IS NOT NULL AND ${table.assignedAt} IS NOT NULL)`,
+    ),
     check(
       'seb_application_status_check',
-      sql`${table.status} IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED')`,
+      sql`${table.status} IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED')`,
     ),
     check(
       'seb_application_type_check',
@@ -137,6 +152,16 @@ export const sebApplication = sqliteTable(
       table.updatedAt,
     ),
     index('seb_application_status_idx').on(table.status, table.deletedAt, table.updatedAt),
+    index('seb_application_assignment_idx').on(
+      table.assignedToUserId,
+      table.status,
+      table.statusChangedAt,
+    ),
+    index('seb_application_cycle_status_idx').on(
+      table.programmeCycleId,
+      table.status,
+      table.statusChangedAt,
+    ),
   ],
 )
 

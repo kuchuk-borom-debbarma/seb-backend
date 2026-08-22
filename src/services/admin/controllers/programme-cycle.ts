@@ -1,0 +1,407 @@
+import { programmeReasonContexts, documentTypes } from '../../../db/schema'
+import { decodeAdminCursor, adminPageSize } from '../pagination'
+import {
+  findExpiredOpenCycles,
+  insertProgrammeCycle,
+  listProgrammeCycleEvents,
+  listProgrammeCycles,
+  loadProgrammeCycle,
+  programmeCycleCounts,
+  reviseOpenProgrammeCycle,
+  setDraftCycleDeleted,
+  transitionProgrammeCycle,
+  updateDraftProgrammeCycle,
+} from '../queries/programme-cycle'
+import {
+  ADMIN_REQUIRED_MESSAGE,
+  constraintSafe,
+  currentAdministrator,
+  failure,
+  normalizeRequiredText,
+  STALE_MESSAGE,
+  success,
+} from '../support'
+import type {
+  AdminOperationContext,
+  AdminResult,
+  ProgrammeCycleInput,
+} from '../types'
+
+const uniqueBy = <T, K>(values: T[], key: (value: T) => K): boolean =>
+  new Set(values.map(key)).size === values.length
+
+const validateCycleIdentity = (input: ProgrammeCycleInput): string | null => {
+  if (!/^[A-Z0-9][A-Z0-9-]{2,31}$/u.test(input.cycleCode)) {
+    return 'Cycle code must contain 3–32 uppercase letters, numbers, or hyphens.'
+  }
+  if (!normalizeRequiredText(input.displayName, 120)) return 'Enter a cycle display name.'
+  if (!Number.isInteger(input.cycleYear) || input.cycleYear < 2000 || input.cycleYear > 9999) {
+    return 'Enter a valid policy year.'
+  }
+  if (input.opensAt && input.closesAt && input.closesAt <= input.opensAt) {
+    return 'The closing time must be later than the opening time.'
+  }
+  return null
+}
+
+const validatePolicyCollections = (input: ProgrammeCycleInput): string | null => {
+  const policy = input.policy
+  if (
+    !uniqueBy(policy.documentRules, (rule) => rule.documentType) ||
+    !uniqueBy(policy.requiredAssessmentTypes, (type) => type) ||
+    !uniqueBy(policy.reasons, (reason) => `${reason.context}:${reason.code}`)
+  ) return 'Cycle policy entries must be unique.'
+  if (policy.documentRules.some((rule) => !documentTypes.includes(rule.documentType))) {
+    return 'The cycle contains an unknown document rule.'
+  }
+  if (policy.reasons.length > 50) return 'A cycle may contain at most 50 reason categories.'
+  if (policy.reasons.some((reason) =>
+    !/^[A-Z0-9_]{2,64}$/u.test(reason.code) ||
+    !normalizeRequiredText(reason.label, 120) ||
+    (reason.applicantMessageTemplate?.trim().length ?? 0) > 500,
+  )) return 'One or more reason categories are invalid.'
+  return null
+}
+
+const validatePolicyNumbers = (input: ProgrammeCycleInput): string | null => {
+  const policy = input.policy
+  if (
+    policy.minimumApplicantAge !== null &&
+    (!Number.isInteger(policy.minimumApplicantAge) || policy.minimumApplicantAge < 0)
+  ) return 'Minimum age must be a non-negative whole number.'
+  if (
+    policy.maximumApplicantAge !== null &&
+    (!Number.isInteger(policy.maximumApplicantAge) || policy.maximumApplicantAge < 0)
+  ) return 'Maximum age must be a non-negative whole number.'
+  if (
+    policy.minimumApplicantAge !== null &&
+    policy.maximumApplicantAge !== null &&
+    policy.maximumApplicantAge < policy.minimumApplicantAge
+  ) return 'Maximum age cannot be lower than minimum age.'
+  if (policy.categoryAMaximumMonths !== null &&
+      (!Number.isInteger(policy.categoryAMaximumMonths) || policy.categoryAMaximumMonths < 0)) {
+    return 'Category A month limit must be a non-negative whole number.'
+  }
+  if (policy.expansionWaitMonths !== null &&
+      (!Number.isInteger(policy.expansionWaitMonths) || policy.expansionWaitMonths < 1)) {
+    return 'Expansion waiting time must be a positive whole number of months.'
+  }
+  return null
+}
+
+const validateFundingCeiling = (input: ProgrammeCycleInput): string | null => {
+  const policy = input.policy
+  if (
+    policy.fundingCeilingState === 'UNRESOLVED' &&
+    (policy.fundingCeilingAmountPaise !== null || policy.fundingCeilingScope !== null)
+  ) return 'An unresolved funding ceiling cannot contain an amount or scope.'
+  if (
+    policy.fundingCeilingState === 'RESOLVED' &&
+    (!Number.isSafeInteger(policy.fundingCeilingAmountPaise) ||
+      policy.fundingCeilingAmountPaise! <= 0 ||
+      policy.fundingCeilingScope === null)
+  ) return 'A resolved funding ceiling requires a positive amount and scope.'
+  return null
+}
+
+const validateCycleInput = (input: ProgrammeCycleInput): string | null =>
+  validateCycleIdentity(input) ??
+  validatePolicyCollections(input) ??
+  validatePolicyNumbers(input) ??
+  validateFundingCeiling(input)
+
+const openingProblem = (cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>): string | null => {
+  if (!cycle) return 'The programme cycle was not found.'
+  const version = cycle.version
+  if (
+    !version.policyReference?.trim() ||
+    !version.applicantGuidance?.trim() ||
+    !version.opensAt ||
+    !version.closesAt ||
+    version.minimumApplicantAge === null ||
+    version.maximumApplicantAge === null ||
+    version.categoryAMaximumMonths === null ||
+    version.expansionWaitMonths === null ||
+    version.majorityOwnershipRequired === null ||
+    version.jurisdiction === null ||
+    version.fundingCeilingState === null
+  ) return 'Complete every cycle policy field before opening the cycle.'
+  if (cycle.documentRules.length !== documentTypes.length) {
+    return 'Define exactly one rule for every supported document type.'
+  }
+  if (cycle.assessmentRules.length === 0) {
+    return 'Define the assessment requirements before opening the cycle.'
+  }
+  const contexts = new Set(cycle.reasons.map((reason) => reason.context))
+  if (programmeReasonContexts.some((context) => !contexts.has(context))) {
+    return 'Define at least one approved reason for every administrative action.'
+  }
+  return null
+}
+
+export const createProgrammeCycle = async (
+  input: ProgrammeCycleInput,
+  context: AdminOperationContext,
+): Promise<AdminResult<unknown>> => {
+  const administrator = await currentAdministrator(context)
+  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
+  const problem = validateCycleInput(input)
+  if (problem) return failure(problem)
+  const id = await constraintSafe(() =>
+    insertProgrammeCycle(context, input, administrator.id, new Date()),
+  )
+  if (!id) return failure('The cycle code is already in use or the policy is invalid.')
+  // The guarded insert and read use the same D1 request. A successfully
+  // returned ID therefore identifies a row that cannot disappear: programme
+  // cycles are never hard-deleted.
+  return success((await loadProgrammeCycle(context.db, id))!)
+}
+
+export const updateDraftProgrammeCycleController = async (
+  input: ProgrammeCycleInput & { id: string; expectedVersion: number; reason: string },
+  context: AdminOperationContext,
+): Promise<AdminResult<unknown>> => {
+  const administrator = await currentAdministrator(context)
+  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
+  const problem = validateCycleInput(input)
+  if (problem) return failure(problem)
+  if (!normalizeRequiredText(input.reason, 500)) return failure('Enter a change reason.')
+  const changed = await constraintSafe(() =>
+    updateDraftProgrammeCycle(context, input, administrator.id, new Date()),
+  )
+  if (!changed) return failure(STALE_MESSAGE)
+  return success((await loadProgrammeCycle(context.db, input.id))!)
+}
+
+export const openProgrammeCycle = async (
+  input: { id: string; expectedVersion: number; reason: string },
+  context: AdminOperationContext,
+): Promise<AdminResult<unknown>> => {
+  const administrator = await currentAdministrator(context)
+  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
+  const aggregate = await loadProgrammeCycle(context.db, input.id)
+  const problem = openingProblem(aggregate)
+  if (problem) return failure(problem)
+  if (!aggregate || aggregate.head.status !== 'DRAFT' || aggregate.head.deletedAt) {
+    return failure('Only an active draft cycle can be opened.')
+  }
+  const reason = normalizeRequiredText(input.reason, 500)
+  if (!reason) return failure('Enter an opening reason.')
+  const changed = await constraintSafe(() => transitionProgrammeCycle(context, {
+    aggregate,
+    expectedVersion: input.expectedVersion,
+    toStatus: 'OPEN',
+    changeType: 'OPENED',
+    reason,
+    message: 'This programme cycle is now published.',
+    action: 'SEB.CYCLE_OPENED',
+    actorUserId: administrator.id,
+    now: new Date(),
+  }))
+  if (!changed) return failure(STALE_MESSAGE)
+  return success(await loadProgrammeCycle(context.db, input.id))
+}
+
+export const updateOpenCycleGuidance = async (
+  input: {
+    id: string
+    expectedVersion: number
+    applicantGuidance: string
+    partnerBankGuidance: string
+    reason: string
+  },
+  context: AdminOperationContext,
+): Promise<AdminResult<unknown>> => {
+  const administrator = await currentAdministrator(context)
+  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
+  const [guidance, bankGuidance, reason] = [
+    normalizeRequiredText(input.applicantGuidance, 5_000),
+    normalizeRequiredText(input.partnerBankGuidance, 5_000),
+    normalizeRequiredText(input.reason, 500),
+  ]
+  if (!guidance || !bankGuidance || !reason) {
+    return failure('Enter applicant guidance, partner-bank guidance, and a change reason.')
+  }
+  const aggregate = await loadProgrammeCycle(context.db, input.id)
+  if (!aggregate || aggregate.head.status !== 'OPEN') return failure('The cycle is not open.')
+  const changed = await constraintSafe(() => reviseOpenProgrammeCycle(context, {
+    aggregate,
+    expectedVersion: input.expectedVersion,
+    applicantGuidance: guidance,
+    partnerBankGuidance: bankGuidance,
+    changeType: 'GUIDANCE_CHANGED',
+    reason,
+    message: 'Applicant guidance for this cycle changed.',
+    action: 'SEB.CYCLE_GUIDANCE_CHANGED',
+    actorUserId: administrator.id,
+    now: new Date(),
+  }))
+  if (!changed) return failure(STALE_MESSAGE)
+  return success(await loadProgrammeCycle(context.db, input.id))
+}
+
+export const changeOpenCycleClosingTime = async (
+  input: { id: string; expectedVersion: number; closesAt: Date; reason: string },
+  context: AdminOperationContext,
+): Promise<AdminResult<unknown>> => {
+  const administrator = await currentAdministrator(context)
+  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
+  const reason = normalizeRequiredText(input.reason, 500)
+  const now = new Date()
+  if (!reason || input.closesAt <= now) return failure('Enter a future closing time and reason.')
+  const aggregate = await loadProgrammeCycle(context.db, input.id)
+  if (
+    !aggregate ||
+    aggregate.head.status !== 'OPEN' ||
+    !aggregate.head.opensAt ||
+    input.closesAt <= aggregate.head.opensAt
+  ) return failure('The cycle is not open or the closing time is invalid.')
+  const changed = await constraintSafe(() => reviseOpenProgrammeCycle(context, {
+    aggregate,
+    expectedVersion: input.expectedVersion,
+    closesAt: input.closesAt,
+    changeType: 'CLOSING_CHANGED',
+    reason,
+    message: `The application closing time changed to ${input.closesAt.toISOString()}.`,
+    action: 'SEB.CYCLE_CLOSING_CHANGED',
+    actorUserId: administrator.id,
+    now,
+  }))
+  if (!changed) return failure(STALE_MESSAGE)
+  return success(await loadProgrammeCycle(context.db, input.id))
+}
+
+const cycleTransition = async (
+  input: { id: string; expectedVersion: number; reason: string },
+  context: AdminOperationContext,
+  toStatus: 'CLOSED' | 'ARCHIVED',
+): Promise<AdminResult<unknown>> => {
+  const administrator = await currentAdministrator(context)
+  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
+  const reason = normalizeRequiredText(input.reason, 500)
+  if (!reason) return failure('Enter a transition reason.')
+  const aggregate = await loadProgrammeCycle(context.db, input.id)
+  if (!aggregate) return failure('The programme cycle was not found.')
+  if (toStatus === 'CLOSED' && aggregate.head.status !== 'OPEN') {
+    return failure('Only an open cycle can be closed.')
+  }
+  if (toStatus === 'ARCHIVED') {
+    if (aggregate.head.status !== 'CLOSED') return failure('Only a closed cycle can be archived.')
+    const counts = await programmeCycleCounts(context.db, input.id)
+    const unfinished = new Set([
+      'DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED',
+      'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED',
+      'SANCTIONED',
+    ])
+    if (counts.some(({ status, count }) => count > 0 && unfinished.has(status))) {
+      return failure('Finish the cycle’s active applications before archiving it.')
+    }
+  }
+  const changed = await constraintSafe(() => transitionProgrammeCycle(context, {
+    aggregate,
+    expectedVersion: input.expectedVersion,
+    toStatus,
+    changeType: toStatus === 'CLOSED' ? 'CLOSED' : 'ARCHIVED',
+    reason,
+    message: toStatus === 'CLOSED'
+      ? 'This programme cycle is closed to new applications.'
+      : 'This programme cycle was archived.',
+    action: toStatus === 'CLOSED' ? 'SEB.CYCLE_CLOSED' : 'SEB.CYCLE_ARCHIVED',
+    actorUserId: administrator.id,
+    now: new Date(),
+  }))
+  if (!changed) return failure(STALE_MESSAGE)
+  return success(await loadProgrammeCycle(context.db, input.id))
+}
+
+export const closeProgrammeCycle = (
+  input: { id: string; expectedVersion: number; reason: string },
+  context: AdminOperationContext,
+) => cycleTransition(input, context, 'CLOSED')
+
+export const archiveProgrammeCycle = (
+  input: { id: string; expectedVersion: number; reason: string },
+  context: AdminOperationContext,
+) => cycleTransition(input, context, 'ARCHIVED')
+
+export const setProgrammeCycleDeleted = async (
+  input: { id: string; expectedVersion: number; reason: string },
+  context: AdminOperationContext,
+  deleted: boolean,
+): Promise<AdminResult<unknown>> => {
+  const administrator = await currentAdministrator(context)
+  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
+  const reason = deleted ? normalizeRequiredText(input.reason, 500) : null
+  if (deleted && !reason) return failure('Enter a deletion reason.')
+  const changed = await constraintSafe(() => setDraftCycleDeleted(context, {
+    ...input,
+    reason,
+    deleted,
+    actorUserId: administrator.id,
+    now: new Date(),
+  }))
+  if (!changed) return failure('Only an unused draft cycle can be changed this way.')
+  return success(await loadProgrammeCycle(context.db, input.id))
+}
+
+export const programmeCycles = async (
+  input: { first?: number | null; after?: string | null; includeDeleted?: boolean | null },
+  context: AdminOperationContext,
+): Promise<AdminResult<unknown>> => {
+  if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  const first = adminPageSize(input.first)
+  const after = decodeAdminCursor(input.after)
+  if (!first || after === 'INVALID') return failure('Invalid pagination arguments.')
+  return success(await listProgrammeCycles(context.db, {
+    first,
+    after,
+    includeDeleted: input.includeDeleted === true,
+  }))
+}
+
+export const programmeCycleById = async (id: string, context: AdminOperationContext) => {
+  if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  const cycle = await loadProgrammeCycle(context.db, id)
+  return cycle ? success(cycle) : failure('The programme cycle was not found.')
+}
+
+export const programmeCycleApplicationCounts = async (
+  id: string,
+  context: AdminOperationContext,
+) => {
+  if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  return success({ counts: await programmeCycleCounts(context.db, id) })
+}
+
+export const programmeCycleEvents = async (
+  input: { id: string; first?: number | null },
+  context: AdminOperationContext,
+) => {
+  if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  const first = adminPageSize(input.first)
+  if (!first) return failure('Invalid pagination arguments.')
+  return success({ events: await listProgrammeCycleEvents(context.db, input.id, first) })
+}
+
+/** Cron closes only a bounded set; no request actor is invented. */
+export const closeExpiredProgrammeCycles = async (
+  context: AdminOperationContext,
+): Promise<void> => {
+  const expired = await findExpiredOpenCycles(context.db, new Date())
+  for (const { id } of expired) {
+    // Programme cycles are never hard-deleted, so every ID selected above is
+    // still loadable inside this maintenance request.
+    const aggregate = (await loadProgrammeCycle(context.db, id))!
+    await constraintSafe(() => transitionProgrammeCycle(context, {
+      aggregate,
+      expectedVersion: aggregate.head.currentVersion,
+      toStatus: 'CLOSED',
+      changeType: 'CLOSED',
+      reason: 'SCHEDULED_CLOSING_TIME_REACHED',
+      message: 'This programme cycle is closed to new applications.',
+      action: 'SEB.CYCLE_CLOSED',
+      actorUserId: null,
+      now: new Date(),
+    }))
+  }
+}

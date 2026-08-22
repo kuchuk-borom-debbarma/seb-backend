@@ -1,0 +1,206 @@
+extend type Query { admin: AdminQuery! }
+
+type AdminQuery {
+  programmeCycle: AdminProgrammeCycleQuery!
+  intake: AdminIntakeQuery!
+  decision: AdminDecisionQuery!
+  funding: AdminFundingQuery!
+}
+
+type AdminProgrammeCycleQuery {
+  list(first: Int, after: String, includeDeleted: Boolean): AdminCycleConnectionResult!
+  byId(id: ID!): AdminCycleResult!
+  counts(id: ID!): AdminCycleCountsResult!
+  events(id: ID!, first: Int): AdminCycleEventsResult!
+}
+
+type AdminIntakeQuery {
+  queue(input: AdminIntakeQueueInput): AdminApplicationConnectionResult!
+  byReference(referenceNumber: String!): AdminApplicationResult!
+  workspace(applicationId: ID!): AdminWorkspaceResult!
+  documentDownloadUrl(applicationId: ID!, submissionDocumentId: ID!): DocumentDownloadResult!
+}
+
+type AdminDecisionQuery {
+  meetings: AdminMeetingsResult!
+  meetingById(meetingId: ID!): AdminMeetingWorkspaceResult!
+}
+
+type AdminFundingQuery {
+  byApplication(applicationId: ID!): AdminFundingWorkspaceResult!
+  recoveryById(recoveryCaseId: ID!): AdminRecoveryWorkspaceResult!
+}
+
+input AdminIntakeQueueInput {
+  first: Int
+  after: String
+  cycleId: ID
+  status: ApplicationStatus
+  phaseNumber: Int
+  applicationType: ApplicationType
+  assigneeUserId: ID
+  referenceNumber: String
+  sector: BusinessSector
+  category: ApplicationCategory
+  submittedFrom: DateTime
+  submittedTo: DateTime
+  order: AdminIntakeOrder
+}
+
+enum AdminIntakeOrder { OLDEST_WAITING NEWEST_SUBMISSION LAST_ACTIVITY }
+
+enum ProgrammeCycleStatus { DRAFT OPEN CLOSED ARCHIVED }
+enum FundingCeilingState { UNRESOLVED RESOLVED }
+enum FundingCeilingScope { APPLICATION PHASE ENTERPRISE FUNDING_CASE }
+enum ProgrammeJurisdiction { TRIPURA TTAADC }
+enum ProgrammeDocumentCondition { ALWAYS WHEN_REGISTERED WHEN_GSTIN_PRESENT WHEN_NOC_REQUIRED OPTIONAL }
+enum ProgrammeReasonContext {
+  CYCLE_CLOSE ASSIGNMENT_RELEASE ASSIGNMENT_REASSIGN REVISION REJECTION
+  BANK_REFERRAL_CANCEL BANK_OUTCOME_CORRECTION TTM_DEFERRAL TTM_DECISION_CORRECTION
+  AWARD_AMENDMENT AWARD_SUSPENSION AWARD_CANCELLATION AWARD_CLOSURE
+  RELEASE_REVERSAL RECOVERY RECOVERY_WAIVER
+}
+enum AssessmentType { UTILIZATION PERFORMANCE FINANCIAL_AUDIT }
+enum AssessmentOutcome { PASSED FAILED }
+enum BankOutcome { RECOMMENDED NOT_RECOMMENDED MORE_INFORMATION_REQUIRED }
+enum TtmDecisionOutcome { APPROVED REJECTED DEFERRED REVISION_REQUIRED }
+enum AwardStatus { ACTIVE SUSPENDED CANCELLED CLOSED }
+enum RecoveryEntryType { DEMAND RECEIPT WAIVER REVERSAL }
+enum RecoveryComponent { PRINCIPAL PENAL_INTEREST }
+
+type AdminProgrammeCycle {
+  id: ID!
+  cycleCode: String!
+  displayName: String!
+  cycleYear: Int!
+  policyReference: String
+  applicantGuidance: String
+  partnerBankGuidance: String
+  status: ProgrammeCycleStatus!
+  opensAt: DateTime
+  closesAt: DateTime
+  currentVersion: Int!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  deletedAt: DateTime
+}
+
+type AdminCycleAggregate {
+  head: AdminProgrammeCycle!
+  documentRules: [AdminDocumentRule!]!
+  assessmentRules: [AdminAssessmentRule!]!
+  reasons: [AdminReasonCategory!]!
+}
+type AdminDocumentRule { id: ID!, documentType: DocumentType!, condition: ProgrammeDocumentCondition! }
+type AdminAssessmentRule { id: ID!, assessmentType: AssessmentType!, requiredOutcome: AssessmentOutcome! }
+type AdminReasonCategory { id: ID!, context: ProgrammeReasonContext!, code: String!, label: String!, applicantMessageTemplate: String }
+type AdminCycleConnection { nodes: [AdminProgrammeCycle!]!, pageInfo: PageInfo! }
+type AdminCycleCount { status: ApplicationStatus!, count: Int! }
+type AdminCycleCounts { counts: [AdminCycleCount!]! }
+type AdminCycleEvent { id: ID!, eventType: String!, message: String!, createdAt: DateTime! }
+type AdminCycleEventList { events: [AdminCycleEvent!]! }
+
+type AdminApplicationQueueItem {
+  id: ID!
+  referenceNumber: String
+  enterpriseId: ID!
+  enterpriseName: String!
+  applicantUserId: ID!
+  programmeCycleId: ID!
+  cycleCode: String!
+  sector: BusinessSector
+  category: ApplicationCategory
+  phaseNumber: Int!
+  applicationType: ApplicationType!
+  status: ApplicationStatus!
+  statusVersion: Int!
+  assignedToUserId: ID
+  assignedAt: DateTime
+  assignmentVersion: Int!
+  firstSubmittedAt: DateTime
+  submissionNumber: Int!
+  submittedAt: DateTime!
+  statusChangedAt: DateTime!
+  updatedAt: DateTime!
+}
+type AdminApplicationState {
+  id: ID!
+  referenceNumber: String
+  status: ApplicationStatus!
+  statusVersion: Int!
+  assignedToUserId: ID
+  assignedAt: DateTime
+  assignmentVersion: Int!
+  updatedAt: DateTime!
+}
+type AdminApplicationConnection { nodes: [AdminApplicationQueueItem!]!, pageInfo: PageInfo! }
+
+# Workspaces deliberately expose fixed, non-sensitive operational summaries.
+# Internal notes are returned only through the administrator namespace.
+type AdminWorkspace {
+  application: AdminApplicationState
+  enterpriseName: String
+  cycleCode: String
+  cycleDisplayName: String
+  submissions: [AdminSubmission!]!
+  snapshots: [ApplicationSnapshot!]!
+  documents: [AdminSubmittedDocument!]!
+  submissionChanges: [AdminSubmissionChange!]!
+  revisions: [AdminRevision!]!
+  assignments: [AdminAssignmentEvent!]!
+  notes: [AdminInternalNote!]!
+  reviews: [AdminReview!]!
+  reviewChecks: [AdminReviewCheck!]!
+  referrals: [AdminBankReferral!]!
+  bankOutcomes: [AdminBankOutcomeRecord!]!
+  agenda: [AdminAgendaItem!]!
+  decisions: [AdminDecisionRecord!]!
+  awards: [AdminAward!]!
+  releases: [AdminDisbursement!]!
+  assessments: [AdminAssessment!]!
+  recoveries: [AdminRecoveryCase!]!
+}
+type AdminSubmission { id: ID!, submissionNumber: Int!, applicationVersion: Int!, submittedAt: DateTime! }
+type AdminSubmittedDocument { id: ID!, submissionId: ID!, documentId: ID!, documentType: DocumentType!, documentVersion: Int!, originalFilename: String!, contentType: String!, sizeBytes: Int! }
+type AdminSubmissionChange { fromSubmissionNumber: Int!, toSubmissionNumber: Int!, sections: [ApplicationSection!]! }
+type AdminRevision { id: ID!, section: ApplicationSection!, note: String!, requestedAt: DateTime!, resolvedAt: DateTime, cancelledAt: DateTime }
+type AdminAssignmentEvent { id: ID!, eventType: String!, assignmentVersion: Int!, fromUserId: ID, toUserId: ID, reason: String, conflictAcknowledged: Boolean!, actorUserId: ID!, createdAt: DateTime! }
+type AdminInternalNote { id: ID!, correctionOfNoteId: ID, note: String!, authoredByUserId: ID!, createdAt: DateTime! }
+type AdminReview { id: ID!, submissionId: ID!, outcome: String!, reviewedByUserId: ID!, reviewedAt: DateTime! }
+type AdminReviewCheck { id: ID!, deskReviewId: ID!, checkType: String!, result: String!, internalNote: String, createdAt: DateTime! }
+type AdminBankReferral { id: ID!, bankName: String!, bankBranch: String, referralReference: String!, referralDate: Date!, status: String!, currentVersion: Int! }
+type AdminBankOutcomeRecord { id: ID!, outcome: BankOutcome!, decisionReference: String!, decisionDate: Date!, applicantSummary: String!, createdAt: DateTime! }
+type AdminDecisionRecord { id: ID!, outcome: TtmDecisionOutcome!, decisionReference: String!, decisionDate: Date!, approvedAmountPaise: Money, applicantMessage: String!, createdAt: DateTime! }
+
+type AdminTtmMeeting { id: ID!, meetingReference: String!, scheduledAt: DateTime!, venue: String!, description: String, status: String!, currentVersion: Int! }
+type AdminAgendaItem { id: ID!, applicationId: ID!, submissionId: ID!, bankOutcomeId: ID!, position: Int!, status: String!, currentVersion: Int! }
+type AdminMeetingWorkspace { meeting: AdminTtmMeeting!, agenda: [AdminAgendaItem!]!, decisions: [AdminDecisionRecord!]! }
+
+type AdminFundingWorkspace {
+  award: AdminAward!
+  ledger: [AdminDisbursement!]!
+  obligations: [AdminUtilizationObligation!]!
+  assessments: [AdminAssessment!]!
+  recovery: [AdminRecoveryCase!]!
+}
+type AdminAward { id: ID!, applicationId: ID!, sanctionOrderNumber: String!, sanctionDate: Date!, sanctionedAmountPaise: Money!, applicantConditions: String, status: AwardStatus!, closureDisposition: AwardClosureDisposition, currentVersion: Int!, ledgerVersion: Int! }
+type AdminDisbursement { id: ID!, sequenceNumber: Int!, entryType: String!, relatedDisbursementId: ID, amountPaise: Money!, occurredAt: DateTime!, externalReference: String }
+type AdminUtilizationObligation { id: ID!, releaseDisbursementId: ID!, dueAt: DateTime! }
+type AdminAssessment { id: ID!, assessmentType: AssessmentType!, assessmentNumber: Int!, outcome: AssessmentOutcome!, utilizationObligationId: ID, evidenceReference: String!, applicantSummary: String!, assessedAt: DateTime! }
+type AdminRecoveryCase { id: ID!, fundingAwardId: ID!, status: String!, currentVersion: Int!, ledgerVersion: Int! }
+type AdminRecoveryEntry { id: ID!, sequenceNumber: Int!, entryType: RecoveryEntryType!, component: RecoveryComponent!, amountPaise: Money!, externalReference: String!, occurredAt: DateTime! }
+type AdminRecoveryBalance { principalDemanded: Money!, interestDemanded: Money!, receipts: Money!, waivers: Money!, outstanding: Money! }
+type AdminRecoveryWorkspace { recoveryCase: AdminRecoveryCase!, entries: [AdminRecoveryEntry!]!, balance: AdminRecoveryBalance! }
+
+type AdminCycleResult implements BaseResponse { success: Boolean!, message: String, response: AdminCycleAggregate }
+type AdminCycleConnectionResult implements BaseResponse { success: Boolean!, message: String, response: AdminCycleConnection }
+type AdminCycleCountsResult implements BaseResponse { success: Boolean!, message: String, response: AdminCycleCounts }
+type AdminCycleEventsResult implements BaseResponse { success: Boolean!, message: String, response: AdminCycleEventList }
+type AdminApplicationResult implements BaseResponse { success: Boolean!, message: String, response: AdminApplicationState }
+type AdminApplicationConnectionResult implements BaseResponse { success: Boolean!, message: String, response: AdminApplicationConnection }
+type AdminWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminWorkspace }
+type AdminMeetingsResponse { meetings: [AdminTtmMeeting!]! }
+type AdminMeetingsResult implements BaseResponse { success: Boolean!, message: String, response: AdminMeetingsResponse }
+type AdminMeetingWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminMeetingWorkspace }
+type AdminFundingWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminFundingWorkspace }
+type AdminRecoveryWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminRecoveryWorkspace }

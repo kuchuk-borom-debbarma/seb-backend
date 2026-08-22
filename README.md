@@ -69,7 +69,9 @@ The D1, R2, and Queue bindings in `wrangler.jsonc` use Cloudflare automatic prov
 Drizzle tables are grouped by responsibility under `src/db/schema`:
 
 - `core` owns reusable users, transient sessions, signup challenges, and the shared audit trail.
-- `seb` owns enterprises, programme cycles, long-lived funding cases, versioned applications, submissions, documents, workflow history, awards, disbursements, and assessments.
+- `seb` owns enterprises, programme cycles, funding cases, versioned
+  applications/submissions/documents, administrative review and decisions,
+  awards, releases, assessments, and recovery.
 
 Physical SQLite table names use the same `core_` and `seb_` prefixes. Business records and signup challenges are retained through lifecycle or soft-deletion fields; sessions are deliberately hard-deleted on sign-out, revocation, and expiry. Version rows, submissions, audit/workflow events, disbursements, and assessments are append-only service contracts.
 
@@ -114,5 +116,9 @@ Focused implementation guides:
 - [Mission SEP business and technical guide](docs/application-guide.md)
 - [Application integrity and failure recovery](docs/application-integrity.md)
 - [Administrator identity and fixed-role RBAC](docs/admin-rbac.md)
+- [Administrator workflow](docs/admin-workflow-guide.md)
+- [TTAADC policy alignment](docs/policy-alignment.md)
+- [Administrative service](src/services/admin/README.md)
+- [Database schema](src/db/schema/README.md)
 
 Do not expose this version publicly until request and notification rate limiting is implemented.

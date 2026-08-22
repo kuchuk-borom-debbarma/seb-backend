@@ -9,6 +9,7 @@ import {
   isValidBootstrapSecret,
 } from './services/auth'
 import { cleanupExpiredDocumentUploads } from './services/application'
+import { closeExpiredProgrammeCycles } from './services/admin'
 
 const app = new Hono<{ Bindings: AppBindings }>()
 
@@ -208,6 +209,13 @@ export default {
       Promise.all([
         cleanupExpiredAuthentication(db),
         cleanupExpiredDocumentUploads({ db, env }),
+        closeExpiredProgrammeCycles({
+          db,
+          env,
+          requestHeaders: new Headers(),
+          requestUrl: 'https://scheduled.internal/',
+          responseHeaders: new Headers(),
+        }),
       ]).then(() => undefined),
     )
   },

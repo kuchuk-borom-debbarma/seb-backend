@@ -42,6 +42,41 @@ flowchart LR
   E2 --> C2["Separate funding case"]
 ```
 
+Rina’s 2026 phase-1 draft pins the 2026 rule version. She later updates Tribal
+Foods’ current address, but the submitted address stays frozen. Administrator
+Meera claims the application and requests a financial-section correction; the
+new submission freezes only the corrected form plus its exact files. The bank
+records “not recommended” with a safe summary, yet the application still goes
+to TTM because bank feedback is advisory evidence. TTM approves ₹10 lakh.
+
+The award is paid in two releases, so two independent 180-day utilization
+obligations exist. Before Rina starts phase 2 in the 2027 cycle, both retained
+releases must have passed utilization results and the award must have passed
+performance and financial audit. If the first release is fully reversed, its
+date and utilization obligation stop gating expansion; a partial reversal keeps
+both. If the award is later cancelled with net funds, staff open recovery,
+record an official principal demand and externally calculated penal interest,
+then append receipts or waivers until the derived balance reaches zero.
+Award closure records whether every planned release was completed or a
+remaining sanction will not be released. A recovery opened by mistake may be
+cancelled only before its first ledger entry; later corrections use
+compensating entries and the case closes only at zero balance.
+
+```mermaid
+flowchart LR
+  C["2026 cycle rules"] -->|"pinned"| S["Submission + exact files"]
+  S --> D["Desk review"]
+  D --> B["Offline bank feedback"]
+  B --> T["TTM decision"]
+  T --> W["Award"]
+  W --> R1["Release 1 + UC due"]
+  W --> R2["Release 2 + UC due"]
+  W --> X["Performance + financial audit"]
+  R1 --> P2["2027 phase 2 eligibility"]
+  R2 --> P2
+  X --> P2
+```
+
 ## Entity glossary
 
 | Entity | Meaning and owner | Storage behavior | Example |
@@ -52,14 +87,22 @@ flowchart LR
 | Programme cycle | Versioned policy/application window | Administrator-managed versioned root | `SEP-2026` |
 | Application | One phase attempt in one cycle | Versioned workflow head + soft delete while draft | Initial phase 1 |
 | Application version | Complete form snapshot | Append-only | Draft v3 / submission v4 |
-| Submission | Formal pointer to one exact version | Append-only | Submission 1 → v4 |
+| Submission | Formal version plus the exact document versions sent for review | Append-only | Submission 1 → v4 + DPR v2 |
+| Assignment | Administrator who owns the next action | Current pointer + append-only history | Meera claims desk review |
+| Desk review | TTAADC’s KYC, evidence, completeness, and DPR scrutiny | Append-only checklist/outcome | All applicable checks pass |
 | Document slot | Current logical evidence type | Versioned head + soft delete | Current DPR |
 | Document version | One finalized private R2 object | Append-only | DPR replacement v2 |
 | Revision request | Reviewer request for one section | Immutable request with resolution/cancellation lifecycle | Correct financial data |
+| Bank referral | Exact submission sent to a named offline partner bank | Versioned operational root | Tripura Gramin Bank referral 18 |
+| Bank outcome | Bank feedback considered by TTM | Append-only and superseding corrections | Recommended |
+| TTM meeting | Formal meeting and pinned application agenda | Versioned root and agenda history | TTM/2026/07 |
+| TTM decision | Programme approval, rejection, deferral, or revision | Append-only and superseding corrections | Approved ₹10 lakh |
 | Award | Authoritative sanction for one application | Versioned, soft-deleted root | `SEP/2026/0042` |
 | Disbursement | Release or compensating reversal | Append-only ledger | ₹5 lakh release |
-| Assessment | Numbered review result by type | Append-only; latest number is current | Utilization passed #2 |
+| Utilization obligation | Evidence deadline for one release | Append-only | Release 2 due in 180 days |
+| Assessment | Numbered result by award or release obligation | Append-only; latest scoped number is current | Utilization passed #2 |
 | Qualifying award | Earlier award selected for one expansion attempt | Versioned link; cancelled when released/retried | Phase 1 award → phase 2 |
+| Recovery case | Official demands and settlements after award cancellation | Versioned root + append-only ledger | Principal demand and receipt |
 
 ## Canonical profile and frozen snapshots
 
@@ -91,8 +134,9 @@ stateDiagram-v2
   SANCTIONED --> DISBURSED
 ```
 
-Applicants currently perform only draft, submit, and resubmit transitions.
-Administrative transitions are deliberately not exposed by this service.
+Applicants perform draft, submit, and resubmit transitions. Authorized staff
+continue through the separate `admin` namespace; see the
+[administrator workflow guide](admin-workflow-guide.md).
 
 ## Form-to-schema mapping
 
@@ -142,9 +186,11 @@ seed-fund ceiling from the source documents is hard-coded.
 The service selects an active award from the immediately preceding phase in the
 same enterprise/funding case. For each release, related reversals are subtracted.
 At least one release must retain a positive amount, total net disbursement must
-be positive, and the UTC calendar anniversary 12 months after the first retained
-release must have arrived. Assessments remain visible history but do not gate
-eligibility in the current agreed rule.
+be positive, and the target cycle’s UTC calendar waiting period after the first
+retained release must have arrived. Every retained release’s latest utilization
+assessment plus the latest performance and financial-audit assessments must
+meet the target cycle’s required outcomes. Eligibility reports each unmet gate
+separately.
 
 Example: a release on 2024-02-29 reaches its 12-month calendar anniversary on
 2025-02-28. A full reversal removes that release from eligibility; a partial
@@ -233,8 +279,13 @@ local D1, `npm test` for Worker integration tests, `npm run test:coverage` for
 the application coverage gate, and `npm run check` for the complete gate.
 
 The base schema is replaceable because no production database exists; no
-incremental migration is added. Programme-cycle provisioning, review actions,
-award/payment administration, notifications, idempotency, rate limiting,
-malware scanning, and public deployment are excluded. R2 CORS and bucket-scoped
-credentials are required outside tests. Do not enable administrator document
-access until malware scanning exists.
+incremental migration is added. Programme-cycle administration, intake, desk
+review, bank evidence, TTM decisions, awards, payments, assessments, and
+recovery now exist under the administrator namespace. Notifications,
+idempotency, rate limiting, a production malware provider, admin-only sign-in,
+MFA, role management, and public deployment remain excluded. R2 CORS and
+bucket-scoped credentials are required outside tests. Staff document downloads
+remain fail-closed until a production scanner records `ACCEPTED`.
+
+The authoritative-policy differences and unresolved ceiling/jurisdiction
+questions are tracked in the [policy alignment crosswalk](policy-alignment.md).

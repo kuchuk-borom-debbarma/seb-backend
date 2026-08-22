@@ -4,17 +4,32 @@
   "duplicates": {
     "ignore": [
       "src/db/schema/**",
-      "src/services/application/queries/**"
+      "src/services/application/queries/**",
+      "src/services/admin/queries/**"
     ],
     "ignoredClones": [
-      "dup:c77b3abb6f87acd9-3:2",
-      "dup:d814a3ce:2",
-      "dup:c77b3abb6f87acd9-1:2",
-      "dup:b8c53c63:2",
       "dup:02287fb3:2",
-      "dup:c77b3abb6f87acd9-4:2",
+      "dup:3130f9e5:2",
+      "dup:b8c53c63:2",
+      "dup:c77b3abb6f87acd9-1:2",
       "dup:c77b3abb6f87acd9-2:2",
-      "dup:c77b3abb6f87acd9-5:2"
+      "dup:c77b3abb6f87acd9-3:2",
+      "dup:c77b3abb6f87acd9-4:2",
+      "dup:c77b3abb6f87acd9-5:2",
+      "dup:c77b3abb6f87acd9-6:2",
+      "dup:c77b3abb6f87acd9-7:2",
+      "dup:c77b3abb6f87acd9-8:3",
+      "dup:c77b3abb6f87acd9-9:2",
+      "dup:c77b3abb6f87acd9-10:3",
+      "dup:c77b3abb6f87acd9-11:2",
+      "dup:c77b3abb6f87acd9-12:2",
+      "dup:c77b3abb6f87acd9-13:2",
+      "dup:c77b3abb6f87acd9-14:2",
+      "dup:c77b3abb6f87acd9-15:2",
+      "dup:c77b3abb6f87acd9-16:2",
+      "dup:c77b3abb6f87acd9-17:2",
+      "dup:c77b3abb6f87acd9-18:2",
+      "dup:d814a3ce:2"
     ]
   },
   "health": {
@@ -52,6 +67,22 @@
         "maxCrap": 30,
         "maxUnitSize": 100,
         "reason": "Upload authorization and finalization deliberately keep every security check visible in execution order."
+      },
+      {
+        "files": ["src/services/admin/controllers/**"],
+        "maxCyclomatic": 35,
+        "maxCognitive": 30,
+        "maxCrap": 40,
+        "maxUnitSize": 80,
+        "reason": "Administrative controllers keep lifecycle and authorization guards together so reviewers can audit the exact order before a bounded transition runs."
+      },
+      {
+        "files": ["src/services/admin/queries/**"],
+        "maxCyclomatic": 25,
+        "maxCognitive": 30,
+        "maxCrap": 35,
+        "maxUnitSize": 130,
+        "reason": "Administrative query functions assemble bounded D1 batches and stable queue predicates whose explicit SQL conditions are intentionally visible and fully covered."
       }
     ]
   }

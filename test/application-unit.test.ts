@@ -274,6 +274,53 @@ describe('application pure business rules', () => {
     expect(report).toEqual({ valid: true, issues: [] })
   })
 
+  it('applies a resolved application ceiling and every normalized cycle document condition', () => {
+    const snapshot = completeSnapshot()
+    snapshot.enterprise.gstin = '16ABCDE1234F1Z5'
+    snapshot.documents.nocRequired = true
+    const policy = {
+      minimumApplicantAge: 18, maximumApplicantAge: 60,
+      categoryAMaximumMonths: 24, majorityOwnershipRequired: true,
+      fundingCeilingState: 'RESOLVED' as const,
+      fundingCeilingAmountPaise: 9_000_000,
+      fundingCeilingScope: 'APPLICATION' as const,
+      documentRules: [
+        { documentType: 'IDENTITY_AGE_PROOF' as const, condition: 'ALWAYS' as const },
+        { documentType: 'BUSINESS_REGISTRATION' as const, condition: 'WHEN_REGISTERED' as const },
+        { documentType: 'GST_REGISTRATION' as const, condition: 'WHEN_GSTIN_PRESENT' as const },
+        { documentType: 'NOC' as const, condition: 'WHEN_NOC_REQUIRED' as const },
+        { documentType: 'DPR' as const, condition: 'OPTIONAL' as const },
+      ],
+    }
+    const report = validateSubmissionSnapshot(snapshot, new Set(), new Date('2026-08-22Z'), policy)
+    expect(report.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'FUNDING_CEILING_EXCEEDED' }),
+      expect.objectContaining({ field: 'IDENTITY_AGE_PROOF', code: 'DOCUMENT_REQUIRED' }),
+      expect.objectContaining({ field: 'BUSINESS_REGISTRATION', code: 'DOCUMENT_REQUIRED' }),
+      expect.objectContaining({ field: 'GST_REGISTRATION', code: 'DOCUMENT_REQUIRED' }),
+      expect.objectContaining({ field: 'NOC', code: 'DOCUMENT_REQUIRED' }),
+    ]))
+    expect(report.issues).not.toContainEqual(expect.objectContaining({ field: 'DPR' }))
+
+    const conditionalFalse = completeSnapshot()
+    conditionalFalse.enterprise.registrationType = 'NONE'
+    conditionalFalse.enterprise.registrationNumber = null
+    conditionalFalse.documents.nocRequired = false
+    conditionalFalse.financial.seedFundRequestedPaise = 1
+    const falseReport = validateSubmissionSnapshot(
+      conditionalFalse,
+      new Set(['IDENTITY_AGE_PROOF']),
+      new Date('2026-08-22Z'),
+      { ...policy, fundingCeilingScope: 'PHASE' },
+    )
+    expect(falseReport.issues).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'FUNDING_CEILING_EXCEEDED' }),
+      expect.objectContaining({ field: 'BUSINESS_REGISTRATION' }),
+      expect.objectContaining({ field: 'GST_REGISTRATION' }),
+      expect.objectContaining({ field: 'NOC' }),
+    ]))
+  })
+
   it('applies age, category, conditional-data, declaration, and document rules', () => {
     const snapshot = completeSnapshot()
     snapshot.enterprise.applicationCategory = 'CATEGORY_B'

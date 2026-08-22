@@ -2,6 +2,9 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
 export default defineWorkersConfig({
   test: {
+    // Istanbul instrumentation makes the intentionally end-to-end
+    // administration journey slower than Vitest's five-second default.
+    testTimeout: 30_000,
     coverage: {
       provider: 'istanbul',
       all: true,
@@ -12,6 +15,12 @@ export default defineWorkersConfig({
         'src/services/application/uploads.ts',
         'src/services/application/validation.ts',
         'src/graphql/resolvers/seb/**/*.ts',
+        'src/services/admin/controllers/**/*.ts',
+        'src/services/admin/queries/**/*.ts',
+        'src/services/admin/pagination.ts',
+        'src/services/admin/support.ts',
+        'src/services/admin/document-scanner.ts',
+        'src/graphql/resolvers/admin/**/*.ts',
         'src/graphql/validation.ts',
       ],
       reporter: ['text', 'json'],

@@ -49,6 +49,7 @@ import type {
   Applicant,
   ApplicantAuthResponse,
   ApplicantSession,
+  AuthenticatedAdministratorRequest,
   AuthenticatedApplicantRequest,
   AuthenticatedUserRequest,
   AuthOperationContext,
@@ -172,6 +173,16 @@ const getCurrentApplicantSession = async (
 export const authenticatedApplicant = (
   context: AuthOperationContext,
 ): Promise<AuthenticatedApplicantRequest | null> => getCurrentApplicantSession(context)
+
+/** ADMIN and SUPER_ADMIN share operational capabilities in this delivery. */
+export const authenticatedAdministrator = async (
+  context: AuthOperationContext,
+): Promise<AuthenticatedAdministratorRequest | null> => {
+  const current = await getCurrentSession(context)
+  return current?.roles.some((role) => role === 'ADMIN' || role === 'SUPER_ADMIN')
+    ? current
+    : null
+}
 
 /**
  * Builds one allow-listed audit record. Callers provide only public IDs and
@@ -633,6 +644,7 @@ export const signInApplicant = async (
   return success({
     applicant: toApplicant(user),
     session: toApplicantSession(session, session.id),
+    activeRoles: await findActiveUserRoles(context.db, user.id),
   })
 }
 
@@ -646,6 +658,7 @@ export const currentApplicantSession = async (
   return success({
     applicant: toApplicant(current.user),
     session: toApplicantSession(current.session, current.session.id),
+    activeRoles: current.roles,
   })
 }
 

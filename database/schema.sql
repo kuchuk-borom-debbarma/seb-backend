@@ -115,14 +115,22 @@ CREATE TABLE `seb_application` (
 	`delete_reason` text,
 	`status` text DEFAULT 'DRAFT' NOT NULL,
 	`status_version` integer DEFAULT 1 NOT NULL,
+	`status_changed_at` integer NOT NULL,
+	`assigned_to_user_id` text,
+	`assigned_at` integer,
+	`assignment_version` integer DEFAULT 0 NOT NULL,
 	`first_submitted_at` integer,
 	FOREIGN KEY (`programme_cycle_id`) REFERENCES `seb_programme_cycle`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`deleted_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`assigned_to_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`applicant_user_id`,`enterprise_id`) REFERENCES `seb_enterprise`(`portal_owner_user_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`enterprise_id`,`funding_case_id`) REFERENCES `seb_funding_case`(`enterprise_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "seb_application_current_version_check" CHECK("seb_application"."current_version" >= 1),
 	CONSTRAINT "seb_application_status_version_check" CHECK("seb_application"."status_version" >= 1),
-	CONSTRAINT "seb_application_status_check" CHECK("seb_application"."status" IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED')),
+	CONSTRAINT "seb_application_assignment_version_check" CHECK("seb_application"."assignment_version" >= 0),
+	CONSTRAINT "seb_application_assignment_group_check" CHECK(("seb_application"."assigned_to_user_id" IS NULL AND "seb_application"."assigned_at" IS NULL)
+        OR ("seb_application"."assigned_to_user_id" IS NOT NULL AND "seb_application"."assigned_at" IS NOT NULL)),
+	CONSTRAINT "seb_application_status_check" CHECK("seb_application"."status" IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED')),
 	CONSTRAINT "seb_application_type_check" CHECK("seb_application"."application_type" IN ('INITIAL', 'EXPANSION')),
 	CONSTRAINT "seb_application_phase_check" CHECK(("seb_application"."application_type" = 'INITIAL' AND "seb_application"."phase_number" = 1)
         OR ("seb_application"."application_type" = 'EXPANSION' AND "seb_application"."phase_number" >= 2))
@@ -138,6 +146,8 @@ CREATE INDEX `seb_application_enterprise_idx` ON `seb_application` (`enterprise_
 CREATE INDEX `seb_application_case_phase_idx` ON `seb_application` (`funding_case_id`,`phase_number`);
 CREATE INDEX `seb_application_cycle_idx` ON `seb_application` (`programme_cycle_id`,`deleted_at`,`updated_at`);
 CREATE INDEX `seb_application_status_idx` ON `seb_application` (`status`,`deleted_at`,`updated_at`);
+CREATE INDEX `seb_application_assignment_idx` ON `seb_application` (`assigned_to_user_id`,`status`,`status_changed_at`);
+CREATE INDEX `seb_application_cycle_status_idx` ON `seb_application` (`programme_cycle_id`,`status`,`status_changed_at`);
 CREATE TABLE `seb_application_submission` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
@@ -290,6 +300,24 @@ CREATE TABLE `seb_application_document` (
 );
 
 CREATE UNIQUE INDEX `seb_application_document_type_uq` ON `seb_application_document` (`application_id`,`document_type`);
+CREATE TABLE `seb_application_document_scan` (
+	`id` text PRIMARY KEY NOT NULL,
+	`document_version_id` text NOT NULL,
+	`sequence_number` integer NOT NULL,
+	`status` text NOT NULL,
+	`scanner_reference` text,
+	`safe_message` text,
+	`scanned_at` integer,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`document_version_id`) REFERENCES `seb_application_document_version`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_application_document_scan_sequence_check" CHECK("seb_application_document_scan"."sequence_number" >= 1),
+	CONSTRAINT "seb_application_document_scan_status_check" CHECK("seb_application_document_scan"."status" IN ('PENDING', 'ACCEPTED', 'REJECTED', 'ERROR')),
+	CONSTRAINT "seb_application_document_scan_lifecycle_check" CHECK(("seb_application_document_scan"."status" = 'PENDING' AND "seb_application_document_scan"."scanned_at" IS NULL)
+        OR ("seb_application_document_scan"."status" <> 'PENDING' AND "seb_application_document_scan"."scanned_at" IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX `seb_application_document_scan_sequence_uq` ON `seb_application_document_scan` (`document_version_id`,`sequence_number`);
+CREATE INDEX `seb_application_document_scan_latest_idx` ON `seb_application_document_scan` (`document_version_id`,`sequence_number`);
 CREATE TABLE `seb_application_document_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`document_id` text NOT NULL,
@@ -311,6 +339,22 @@ CREATE TABLE `seb_application_document_version` (
 
 CREATE UNIQUE INDEX `seb_application_document_version_r2_object_key_unique` ON `seb_application_document_version` (`r2_object_key`);
 CREATE UNIQUE INDEX `seb_application_document_version_number_uq` ON `seb_application_document_version` (`document_id`,`version`);
+CREATE TABLE `seb_application_submission_document` (
+	`id` text PRIMARY KEY NOT NULL,
+	`application_id` text NOT NULL,
+	`submission_id` text NOT NULL,
+	`document_id` text NOT NULL,
+	`document_version` integer NOT NULL,
+	`document_type` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`application_id`,`submission_id`) REFERENCES `seb_application_submission`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`document_id`,`document_version`) REFERENCES `seb_application_document_version`(`document_id`,`version`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_application_submission_document_type_check" CHECK("seb_application_submission_document"."document_type" IN ('IDENTITY_AGE_PROOF', 'ST_CERTIFICATE', 'ADDRESS_PROOF', 'BUSINESS_REGISTRATION', 'GST_REGISTRATION', 'DPR', 'BANK_DETAILS', 'NOC')),
+	CONSTRAINT "seb_application_submission_document_version_check" CHECK("seb_application_submission_document"."document_version" >= 1)
+);
+
+CREATE UNIQUE INDEX `seb_application_submission_document_type_uq` ON `seb_application_submission_document` (`submission_id`,`document_type`);
+CREATE INDEX `seb_application_submission_document_submission_idx` ON `seb_application_submission_document` (`submission_id`,`document_type`);
 CREATE TABLE `seb_document_upload_intent` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
@@ -350,6 +394,218 @@ CREATE TABLE `seb_document_upload_intent` (
 CREATE UNIQUE INDEX `seb_document_upload_intent_object_key_unique` ON `seb_document_upload_intent` (`object_key`);
 CREATE INDEX `seb_document_upload_intent_cleanup_idx` ON `seb_document_upload_intent` (`status`,`expires_at`);
 CREATE INDEX `seb_document_upload_intent_owner_idx` ON `seb_document_upload_intent` (`applicant_user_id`,`application_id`,`created_at`);
+CREATE TABLE `seb_partner_bank_outcome` (
+	`id` text PRIMARY KEY NOT NULL,
+	`application_id` text NOT NULL,
+	`referral_id` text NOT NULL,
+	`outcome_number` integer NOT NULL,
+	`outcome` text NOT NULL,
+	`decision_reference` text NOT NULL,
+	`decision_date` text NOT NULL,
+	`available_loan_amount_paise` integer,
+	`applicant_summary` text NOT NULL,
+	`internal_note` text,
+	`supersedes_outcome_id` text,
+	`correction_reason_category_id` text,
+	`correction_reason` text,
+	`recorded_by_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`correction_reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`recorded_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`application_id`,`referral_id`) REFERENCES `seb_partner_bank_referral`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`referral_id`,`supersedes_outcome_id`) REFERENCES `seb_partner_bank_outcome`(`referral_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_partner_bank_outcome_number_check" CHECK("seb_partner_bank_outcome"."outcome_number" >= 1),
+	CONSTRAINT "seb_partner_bank_outcome_type_check" CHECK("seb_partner_bank_outcome"."outcome" IN ('RECOMMENDED', 'NOT_RECOMMENDED', 'MORE_INFORMATION_REQUIRED')),
+	CONSTRAINT "seb_partner_bank_outcome_amount_check" CHECK("seb_partner_bank_outcome"."available_loan_amount_paise" IS NULL OR "seb_partner_bank_outcome"."available_loan_amount_paise" >= 0),
+	CONSTRAINT "seb_partner_bank_outcome_correction_check" CHECK(("seb_partner_bank_outcome"."supersedes_outcome_id" IS NULL
+          AND "seb_partner_bank_outcome"."correction_reason_category_id" IS NULL
+          AND "seb_partner_bank_outcome"."correction_reason" IS NULL)
+        OR ("seb_partner_bank_outcome"."supersedes_outcome_id" IS NOT NULL
+          AND "seb_partner_bank_outcome"."correction_reason_category_id" IS NOT NULL
+          AND "seb_partner_bank_outcome"."correction_reason" IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX `seb_partner_bank_outcome_number_uq` ON `seb_partner_bank_outcome` (`referral_id`,`outcome_number`);
+CREATE UNIQUE INDEX `seb_partner_bank_outcome_referral_id_uq` ON `seb_partner_bank_outcome` (`referral_id`,`id`);
+CREATE UNIQUE INDEX `seb_partner_bank_outcome_application_id_uq` ON `seb_partner_bank_outcome` (`application_id`,`id`);
+CREATE UNIQUE INDEX `seb_partner_bank_outcome_one_correction_uq` ON `seb_partner_bank_outcome` (`supersedes_outcome_id`);
+CREATE INDEX `seb_partner_bank_outcome_application_idx` ON `seb_partner_bank_outcome` (`application_id`,`created_at`);
+CREATE TABLE `seb_partner_bank_referral` (
+	`id` text PRIMARY KEY NOT NULL,
+	`application_id` text NOT NULL,
+	`submission_id` text NOT NULL,
+	`desk_review_id` text NOT NULL,
+	`bank_name` text NOT NULL,
+	`bank_branch` text,
+	`referral_reference` text NOT NULL,
+	`referral_date` text NOT NULL,
+	`status` text DEFAULT 'OPEN' NOT NULL,
+	`internal_note` text,
+	`referred_by_user_id` text NOT NULL,
+	`current_version` integer NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	`deleted_at` integer,
+	`deleted_by_user_id` text,
+	`delete_reason` text,
+	FOREIGN KEY (`referred_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`deleted_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`application_id`,`submission_id`) REFERENCES `seb_application_submission`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`application_id`,`desk_review_id`) REFERENCES `seb_desk_review`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_partner_bank_referral_version_check" CHECK("seb_partner_bank_referral"."current_version" >= 1),
+	CONSTRAINT "seb_partner_bank_referral_status_check" CHECK("seb_partner_bank_referral"."status" IN ('OPEN', 'RESPONDED', 'CANCELLED'))
+);
+
+CREATE UNIQUE INDEX `seb_partner_bank_referral_referral_reference_unique` ON `seb_partner_bank_referral` (`referral_reference`);
+CREATE UNIQUE INDEX `seb_partner_bank_referral_application_id_uq` ON `seb_partner_bank_referral` (`application_id`,`id`);
+CREATE UNIQUE INDEX `seb_partner_bank_referral_active_application_uq` ON `seb_partner_bank_referral` (`application_id`) WHERE "seb_partner_bank_referral"."status" = 'OPEN' AND "seb_partner_bank_referral"."deleted_at" IS NULL;
+CREATE INDEX `seb_partner_bank_referral_application_idx` ON `seb_partner_bank_referral` (`application_id`,`created_at`);
+CREATE TABLE `seb_partner_bank_referral_version` (
+	`id` text PRIMARY KEY NOT NULL,
+	`referral_id` text NOT NULL,
+	`version` integer NOT NULL,
+	`status` text NOT NULL,
+	`change_type` text NOT NULL,
+	`reason` text,
+	`changed_by_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`referral_id`) REFERENCES `seb_partner_bank_referral`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`changed_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_partner_bank_referral_version_check" CHECK("seb_partner_bank_referral_version"."version" >= 1),
+	CONSTRAINT "seb_partner_bank_referral_version_status_check" CHECK("seb_partner_bank_referral_version"."status" IN ('OPEN', 'RESPONDED', 'CANCELLED')),
+	CONSTRAINT "seb_partner_bank_referral_version_change_type_check" CHECK("seb_partner_bank_referral_version"."change_type" IN ('REFERRED', 'RESPONDED', 'CANCELLED'))
+);
+
+CREATE UNIQUE INDEX `seb_partner_bank_referral_version_number_uq` ON `seb_partner_bank_referral_version` (`referral_id`,`version`);
+CREATE TABLE `seb_ttm_agenda_item` (
+	`id` text PRIMARY KEY NOT NULL,
+	`meeting_id` text NOT NULL,
+	`application_id` text NOT NULL,
+	`submission_id` text NOT NULL,
+	`bank_outcome_id` text NOT NULL,
+	`position` integer NOT NULL,
+	`status` text DEFAULT 'ACTIVE' NOT NULL,
+	`current_version` integer NOT NULL,
+	`created_by_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`meeting_id`) REFERENCES `seb_ttm_meeting`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`application_id`,`submission_id`) REFERENCES `seb_application_submission`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`application_id`,`bank_outcome_id`) REFERENCES `seb_partner_bank_outcome`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_ttm_agenda_item_position_check" CHECK("seb_ttm_agenda_item"."position" >= 1),
+	CONSTRAINT "seb_ttm_agenda_item_version_check" CHECK("seb_ttm_agenda_item"."current_version" >= 1),
+	CONSTRAINT "seb_ttm_agenda_item_status_check" CHECK("seb_ttm_agenda_item"."status" IN ('ACTIVE', 'REMOVED', 'DECIDED'))
+);
+
+CREATE UNIQUE INDEX `seb_ttm_agenda_item_meeting_position_uq` ON `seb_ttm_agenda_item` (`meeting_id`,`position`);
+CREATE UNIQUE INDEX `seb_ttm_agenda_item_application_id_uq` ON `seb_ttm_agenda_item` (`application_id`,`id`);
+CREATE UNIQUE INDEX `seb_ttm_agenda_item_active_application_uq` ON `seb_ttm_agenda_item` (`application_id`) WHERE "seb_ttm_agenda_item"."status" = 'ACTIVE';
+CREATE INDEX `seb_ttm_agenda_item_meeting_idx` ON `seb_ttm_agenda_item` (`meeting_id`,`position`);
+CREATE TABLE `seb_ttm_agenda_item_version` (
+	`id` text PRIMARY KEY NOT NULL,
+	`agenda_item_id` text NOT NULL,
+	`version` integer NOT NULL,
+	`position` integer NOT NULL,
+	`status` text NOT NULL,
+	`change_type` text NOT NULL,
+	`reason` text,
+	`changed_by_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`agenda_item_id`) REFERENCES `seb_ttm_agenda_item`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`changed_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_ttm_agenda_item_version_number_check" CHECK("seb_ttm_agenda_item_version"."version" >= 1),
+	CONSTRAINT "seb_ttm_agenda_item_version_position_check" CHECK("seb_ttm_agenda_item_version"."position" >= 1),
+	CONSTRAINT "seb_ttm_agenda_item_version_status_check" CHECK("seb_ttm_agenda_item_version"."status" IN ('ACTIVE', 'REMOVED', 'DECIDED')),
+	CONSTRAINT "seb_ttm_agenda_item_version_change_type_check" CHECK("seb_ttm_agenda_item_version"."change_type" IN ('ADDED', 'REORDERED', 'REMOVED', 'DECIDED'))
+);
+
+CREATE UNIQUE INDEX `seb_ttm_agenda_item_version_number_uq` ON `seb_ttm_agenda_item_version` (`agenda_item_id`,`version`);
+CREATE TABLE `seb_ttm_decision` (
+	`id` text PRIMARY KEY NOT NULL,
+	`application_id` text NOT NULL,
+	`agenda_item_id` text NOT NULL,
+	`decision_number` integer NOT NULL,
+	`outcome` text NOT NULL,
+	`decision_reference` text NOT NULL,
+	`decision_date` text NOT NULL,
+	`approved_amount_paise` integer,
+	`applicant_conditions` text,
+	`reason_category_id` text,
+	`applicant_message` text NOT NULL,
+	`next_action` text,
+	`supersedes_decision_id` text,
+	`correction_reason_category_id` text,
+	`correction_reason` text,
+	`recorded_by_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`correction_reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`recorded_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`application_id`,`agenda_item_id`) REFERENCES `seb_ttm_agenda_item`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`agenda_item_id`,`supersedes_decision_id`) REFERENCES `seb_ttm_decision`(`agenda_item_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_ttm_decision_number_check" CHECK("seb_ttm_decision"."decision_number" >= 1),
+	CONSTRAINT "seb_ttm_decision_outcome_check" CHECK("seb_ttm_decision"."outcome" IN ('APPROVED', 'REJECTED', 'DEFERRED', 'REVISION_REQUIRED')),
+	CONSTRAINT "seb_ttm_decision_amount_check" CHECK(("seb_ttm_decision"."outcome" = 'APPROVED' AND "seb_ttm_decision"."approved_amount_paise" > 0)
+        OR ("seb_ttm_decision"."outcome" <> 'APPROVED' AND "seb_ttm_decision"."approved_amount_paise" IS NULL)),
+	CONSTRAINT "seb_ttm_decision_deferral_check" CHECK(("seb_ttm_decision"."outcome" = 'DEFERRED' AND "seb_ttm_decision"."next_action" IS NOT NULL)
+        OR ("seb_ttm_decision"."outcome" <> 'DEFERRED' AND "seb_ttm_decision"."next_action" IS NULL)),
+	CONSTRAINT "seb_ttm_decision_reason_check" CHECK(("seb_ttm_decision"."outcome" = 'APPROVED' AND "seb_ttm_decision"."reason_category_id" IS NULL)
+        OR ("seb_ttm_decision"."outcome" <> 'APPROVED' AND "seb_ttm_decision"."reason_category_id" IS NOT NULL)),
+	CONSTRAINT "seb_ttm_decision_correction_check" CHECK(("seb_ttm_decision"."supersedes_decision_id" IS NULL
+          AND "seb_ttm_decision"."correction_reason_category_id" IS NULL
+          AND "seb_ttm_decision"."correction_reason" IS NULL)
+        OR ("seb_ttm_decision"."supersedes_decision_id" IS NOT NULL
+          AND "seb_ttm_decision"."correction_reason_category_id" IS NOT NULL
+          AND "seb_ttm_decision"."correction_reason" IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX `seb_ttm_decision_decision_reference_unique` ON `seb_ttm_decision` (`decision_reference`);
+CREATE UNIQUE INDEX `seb_ttm_decision_number_uq` ON `seb_ttm_decision` (`agenda_item_id`,`decision_number`);
+CREATE UNIQUE INDEX `seb_ttm_decision_agenda_id_uq` ON `seb_ttm_decision` (`agenda_item_id`,`id`);
+CREATE UNIQUE INDEX `seb_ttm_decision_one_correction_uq` ON `seb_ttm_decision` (`supersedes_decision_id`);
+CREATE INDEX `seb_ttm_decision_application_idx` ON `seb_ttm_decision` (`application_id`,`created_at`);
+CREATE TABLE `seb_ttm_meeting` (
+	`id` text PRIMARY KEY NOT NULL,
+	`meeting_reference` text NOT NULL,
+	`scheduled_at` integer NOT NULL,
+	`venue` text NOT NULL,
+	`description` text,
+	`status` text DEFAULT 'DRAFT' NOT NULL,
+	`current_version` integer NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	`deleted_at` integer,
+	`deleted_by_user_id` text,
+	`delete_reason` text,
+	FOREIGN KEY (`deleted_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_ttm_meeting_version_check" CHECK("seb_ttm_meeting"."current_version" >= 1),
+	CONSTRAINT "seb_ttm_meeting_status_check" CHECK("seb_ttm_meeting"."status" IN ('DRAFT', 'IN_SESSION', 'FINALIZED', 'CANCELLED'))
+);
+
+CREATE UNIQUE INDEX `seb_ttm_meeting_meeting_reference_unique` ON `seb_ttm_meeting` (`meeting_reference`);
+CREATE INDEX `seb_ttm_meeting_schedule_idx` ON `seb_ttm_meeting` (`status`,`scheduled_at`);
+CREATE TABLE `seb_ttm_meeting_version` (
+	`id` text PRIMARY KEY NOT NULL,
+	`meeting_id` text NOT NULL,
+	`version` integer NOT NULL,
+	`meeting_reference` text NOT NULL,
+	`scheduled_at` integer NOT NULL,
+	`venue` text NOT NULL,
+	`description` text,
+	`status` text NOT NULL,
+	`change_type` text NOT NULL,
+	`reason` text,
+	`changed_by_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`meeting_id`) REFERENCES `seb_ttm_meeting`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`changed_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_ttm_meeting_version_number_check" CHECK("seb_ttm_meeting_version"."version" >= 1),
+	CONSTRAINT "seb_ttm_meeting_version_status_check" CHECK("seb_ttm_meeting_version"."status" IN ('DRAFT', 'IN_SESSION', 'FINALIZED', 'CANCELLED')),
+	CONSTRAINT "seb_ttm_meeting_version_change_type_check" CHECK("seb_ttm_meeting_version"."change_type" IN ('CREATED', 'UPDATED', 'STARTED', 'FINALIZED', 'CANCELLED'))
+);
+
+CREATE UNIQUE INDEX `seb_ttm_meeting_version_number_uq` ON `seb_ttm_meeting_version` (`meeting_id`,`version`);
 CREATE TABLE `seb_enterprise` (
 	`id` text PRIMARY KEY NOT NULL,
 	`portal_owner_user_id` text NOT NULL,
@@ -471,18 +727,26 @@ CREATE TABLE `seb_award_assessment` (
 	`assessment_type` text NOT NULL,
 	`assessment_number` integer NOT NULL,
 	`outcome` text NOT NULL,
-	`note` text,
+	`utilization_obligation_id` text,
+	`evidence_reference` text NOT NULL,
+	`applicant_summary` text NOT NULL,
+	`internal_note` text,
 	`assessed_by_user_id` text NOT NULL,
 	`assessed_at` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`funding_award_id`) REFERENCES `seb_funding_award`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`assessed_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`funding_award_id`,`utilization_obligation_id`) REFERENCES `seb_utilization_obligation`(`funding_award_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "seb_award_assessment_number_check" CHECK("seb_award_assessment"."assessment_number" >= 1),
 	CONSTRAINT "seb_award_assessment_type_check" CHECK("seb_award_assessment"."assessment_type" IN ('UTILIZATION', 'PERFORMANCE', 'FINANCIAL_AUDIT')),
-	CONSTRAINT "seb_award_assessment_outcome_check" CHECK("seb_award_assessment"."outcome" IN ('PASSED', 'FAILED'))
+	CONSTRAINT "seb_award_assessment_outcome_check" CHECK("seb_award_assessment"."outcome" IN ('PASSED', 'FAILED')),
+	CONSTRAINT "seb_award_assessment_scope_check" CHECK(("seb_award_assessment"."assessment_type" = 'UTILIZATION' AND "seb_award_assessment"."utilization_obligation_id" IS NOT NULL)
+        OR ("seb_award_assessment"."assessment_type" IN ('PERFORMANCE', 'FINANCIAL_AUDIT') AND "seb_award_assessment"."utilization_obligation_id" IS NULL))
 );
 
-CREATE UNIQUE INDEX `seb_award_assessment_number_uq` ON `seb_award_assessment` (`funding_award_id`,`assessment_type`,`assessment_number`);
+CREATE UNIQUE INDEX `seb_award_assessment_award_number_uq` ON `seb_award_assessment` (`funding_award_id`,`assessment_type`,`assessment_number`) WHERE "seb_award_assessment"."utilization_obligation_id" IS NULL;
+CREATE UNIQUE INDEX `seb_award_assessment_utilization_number_uq` ON `seb_award_assessment` (`funding_award_id`,`utilization_obligation_id`,`assessment_number`) WHERE "seb_award_assessment"."utilization_obligation_id" IS NOT NULL;
+CREATE INDEX `seb_award_assessment_latest_idx` ON `seb_award_assessment` (`funding_award_id`,`assessment_type`,`utilization_obligation_id`,`assessment_number`);
 CREATE TABLE `seb_disbursement` (
 	`id` text PRIMARY KEY NOT NULL,
 	`funding_award_id` text NOT NULL,
@@ -492,16 +756,51 @@ CREATE TABLE `seb_disbursement` (
 	`amount_paise` integer NOT NULL,
 	`occurred_at` integer NOT NULL,
 	`external_reference` text,
+	`ttm_approval_reference` text,
+	`ttm_approval_date` text,
+	`bank_account_verified_at` integer,
+	`performance_agreement_reference` text,
+	`performance_agreement_executed_at` integer,
+	`physical_verification_required` integer,
+	`physical_verification_reference` text,
+	`physical_verification_completed_at` integer,
+	`reason_category_id` text,
+	`applicant_message` text,
 	`recorded_by_user_id` text NOT NULL,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`funding_award_id`) REFERENCES `seb_funding_award`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`recorded_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`funding_award_id`,`related_disbursement_id`) REFERENCES `seb_disbursement`(`funding_award_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "seb_disbursement_sequence_check" CHECK("seb_disbursement"."sequence_number" >= 1),
 	CONSTRAINT "seb_disbursement_amount_check" CHECK("seb_disbursement"."amount_paise" > 0),
 	CONSTRAINT "seb_disbursement_entry_type_check" CHECK("seb_disbursement"."entry_type" IN ('RELEASE', 'REVERSAL')),
 	CONSTRAINT "seb_disbursement_relation_check" CHECK(("seb_disbursement"."entry_type" = 'RELEASE' AND "seb_disbursement"."related_disbursement_id" IS NULL)
-        OR ("seb_disbursement"."entry_type" = 'REVERSAL' AND "seb_disbursement"."related_disbursement_id" IS NOT NULL))
+        OR ("seb_disbursement"."entry_type" = 'REVERSAL' AND "seb_disbursement"."related_disbursement_id" IS NOT NULL)),
+	CONSTRAINT "seb_disbursement_release_evidence_check" CHECK(("seb_disbursement"."entry_type" = 'RELEASE'
+          AND "seb_disbursement"."ttm_approval_reference" IS NOT NULL
+          AND "seb_disbursement"."ttm_approval_date" IS NOT NULL
+          AND "seb_disbursement"."bank_account_verified_at" IS NOT NULL
+          AND "seb_disbursement"."performance_agreement_reference" IS NOT NULL
+          AND "seb_disbursement"."performance_agreement_executed_at" IS NOT NULL
+          AND "seb_disbursement"."physical_verification_required" IN (0, 1)
+          AND (("seb_disbursement"."physical_verification_required" = 0
+              AND "seb_disbursement"."physical_verification_reference" IS NULL
+              AND "seb_disbursement"."physical_verification_completed_at" IS NULL)
+            OR ("seb_disbursement"."physical_verification_required" = 1
+              AND "seb_disbursement"."physical_verification_reference" IS NOT NULL
+              AND "seb_disbursement"."physical_verification_completed_at" IS NOT NULL)))
+        OR ("seb_disbursement"."entry_type" = 'REVERSAL'
+          AND "seb_disbursement"."ttm_approval_reference" IS NULL
+          AND "seb_disbursement"."ttm_approval_date" IS NULL
+          AND "seb_disbursement"."bank_account_verified_at" IS NULL
+          AND "seb_disbursement"."performance_agreement_reference" IS NULL
+          AND "seb_disbursement"."performance_agreement_executed_at" IS NULL
+          AND "seb_disbursement"."physical_verification_required" IS NULL
+          AND "seb_disbursement"."physical_verification_reference" IS NULL
+          AND "seb_disbursement"."physical_verification_completed_at" IS NULL
+          AND "seb_disbursement"."reason_category_id" IS NOT NULL
+          AND "seb_disbursement"."applicant_message" IS NOT NULL))
 );
 
 CREATE UNIQUE INDEX `seb_disbursement_external_reference_unique` ON `seb_disbursement` (`external_reference`);
@@ -515,7 +814,10 @@ CREATE TABLE `seb_funding_award` (
 	`sanction_order_number` text NOT NULL,
 	`sanction_date` text NOT NULL,
 	`sanctioned_amount_paise` integer NOT NULL,
+	`applicant_conditions` text,
 	`status` text DEFAULT 'ACTIVE' NOT NULL,
+	`closure_disposition` text,
+	`ledger_version` integer DEFAULT 0 NOT NULL,
 	`current_version` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
@@ -526,13 +828,18 @@ CREATE TABLE `seb_funding_award` (
 	FOREIGN KEY (`deleted_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`funding_case_id`,`application_id`) REFERENCES `seb_application`(`funding_case_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "seb_funding_award_current_version_check" CHECK("seb_funding_award"."current_version" >= 1),
+	CONSTRAINT "seb_funding_award_ledger_version_check" CHECK("seb_funding_award"."ledger_version" >= 0),
 	CONSTRAINT "seb_funding_award_amount_check" CHECK("seb_funding_award"."sanctioned_amount_paise" > 0),
-	CONSTRAINT "seb_funding_award_status_check" CHECK("seb_funding_award"."status" IN ('ACTIVE', 'SUSPENDED', 'CANCELLED', 'CLOSED'))
+	CONSTRAINT "seb_funding_award_status_check" CHECK("seb_funding_award"."status" IN ('ACTIVE', 'SUSPENDED', 'CANCELLED', 'CLOSED')),
+	CONSTRAINT "seb_funding_award_closure_disposition_check" CHECK(("seb_funding_award"."status" = 'CLOSED' AND "seb_funding_award"."closure_disposition" IS NOT NULL
+          AND "seb_funding_award"."closure_disposition" IN ('RELEASES_COMPLETE', 'REMAINDER_NOT_RELEASED'))
+        OR ("seb_funding_award"."status" <> 'CLOSED' AND "seb_funding_award"."closure_disposition" IS NULL))
 );
 
 CREATE UNIQUE INDEX `seb_funding_award_application_id_unique` ON `seb_funding_award` (`application_id`);
 CREATE UNIQUE INDEX `seb_funding_award_sanction_order_number_unique` ON `seb_funding_award` (`sanction_order_number`);
 CREATE UNIQUE INDEX `seb_funding_award_case_id_uq` ON `seb_funding_award` (`funding_case_id`,`id`);
+CREATE UNIQUE INDEX `seb_funding_award_application_id_uq` ON `seb_funding_award` (`application_id`,`id`);
 CREATE INDEX `seb_funding_award_case_idx` ON `seb_funding_award` (`funding_case_id`,`deleted_at`,`sanction_date`);
 CREATE INDEX `seb_funding_award_status_idx` ON `seb_funding_award` (`status`,`deleted_at`,`updated_at`);
 CREATE TABLE `seb_funding_award_version` (
@@ -542,25 +849,49 @@ CREATE TABLE `seb_funding_award_version` (
 	`sanction_order_number` text NOT NULL,
 	`sanction_date` text NOT NULL,
 	`sanctioned_amount_paise` integer NOT NULL,
+	`applicant_conditions` text,
 	`status` text NOT NULL,
+	`closure_disposition` text,
 	`change_type` text NOT NULL,
+	`reason_category_id` text,
 	`change_reason` text,
 	`changed_by_user_id` text NOT NULL,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`funding_award_id`) REFERENCES `seb_funding_award`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`changed_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "seb_funding_award_version_number_check" CHECK("seb_funding_award_version"."version" >= 1),
 	CONSTRAINT "seb_funding_award_version_amount_check" CHECK("seb_funding_award_version"."sanctioned_amount_paise" > 0),
 	CONSTRAINT "seb_funding_award_version_status_check" CHECK("seb_funding_award_version"."status" IN ('ACTIVE', 'SUSPENDED', 'CANCELLED', 'CLOSED')),
-	CONSTRAINT "seb_funding_award_version_change_type_check" CHECK("seb_funding_award_version"."change_type" IN ('CREATED', 'AMENDED', 'STATUS_CHANGED', 'CORRECTED'))
+	CONSTRAINT "seb_funding_award_version_closure_disposition_check" CHECK(("seb_funding_award_version"."status" = 'CLOSED' AND "seb_funding_award_version"."closure_disposition" IS NOT NULL
+          AND "seb_funding_award_version"."closure_disposition" IN ('RELEASES_COMPLETE', 'REMAINDER_NOT_RELEASED'))
+        OR ("seb_funding_award_version"."status" <> 'CLOSED' AND "seb_funding_award_version"."closure_disposition" IS NULL)),
+	CONSTRAINT "seb_funding_award_version_change_type_check" CHECK("seb_funding_award_version"."change_type" IN ('CREATED', 'AMENDED', 'STATUS_CHANGED', 'CORRECTED')),
+	CONSTRAINT "seb_funding_award_version_reason_check" CHECK(("seb_funding_award_version"."change_type" = 'CREATED' AND "seb_funding_award_version"."reason_category_id" IS NULL)
+        OR ("seb_funding_award_version"."change_type" <> 'CREATED' AND "seb_funding_award_version"."reason_category_id" IS NOT NULL))
 );
 
 CREATE UNIQUE INDEX `seb_funding_award_version_number_uq` ON `seb_funding_award_version` (`funding_award_id`,`version`);
+CREATE TABLE `seb_utilization_obligation` (
+	`id` text PRIMARY KEY NOT NULL,
+	`funding_award_id` text NOT NULL,
+	`release_disbursement_id` text NOT NULL,
+	`due_at` integer NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`funding_award_id`,`release_disbursement_id`) REFERENCES `seb_disbursement`(`funding_award_id`,`id`) ON UPDATE no action ON DELETE restrict
+);
+
+CREATE UNIQUE INDEX `seb_utilization_obligation_release_disbursement_id_unique` ON `seb_utilization_obligation` (`release_disbursement_id`);
+CREATE UNIQUE INDEX `seb_utilization_obligation_award_id_uq` ON `seb_utilization_obligation` (`funding_award_id`,`id`);
+CREATE INDEX `seb_utilization_obligation_due_idx` ON `seb_utilization_obligation` (`funding_award_id`,`due_at`);
 CREATE TABLE `seb_programme_cycle` (
 	`id` text PRIMARY KEY NOT NULL,
 	`cycle_code` text NOT NULL,
+	`display_name` text NOT NULL,
 	`cycle_year` integer NOT NULL,
 	`policy_reference` text,
+	`applicant_guidance` text,
+	`partner_bank_guidance` text,
 	`status` text DEFAULT 'DRAFT' NOT NULL,
 	`opens_at` integer,
 	`closes_at` integer,
@@ -578,31 +909,272 @@ CREATE TABLE `seb_programme_cycle` (
 );
 
 CREATE UNIQUE INDEX `seb_programme_cycle_cycle_code_unique` ON `seb_programme_cycle` (`cycle_code`);
-CREATE INDEX `seb_programme_cycle_status_idx` ON `seb_programme_cycle` (`status`,`deleted_at`,`opens_at`);
+CREATE INDEX `seb_programme_cycle_status_idx` ON `seb_programme_cycle` (`status`,`deleted_at`,`opens_at`,`closes_at`);
+CREATE TABLE `seb_programme_cycle_assessment_rule` (
+	`id` text PRIMARY KEY NOT NULL,
+	`programme_cycle_id` text NOT NULL,
+	`programme_cycle_version` integer NOT NULL,
+	`assessment_type` text NOT NULL,
+	`required_outcome` text DEFAULT 'PASSED' NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`programme_cycle_id`,`programme_cycle_version`) REFERENCES `seb_programme_cycle_version`(`programme_cycle_id`,`version`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_programme_cycle_assessment_rule_type_check" CHECK("seb_programme_cycle_assessment_rule"."assessment_type" IN ('UTILIZATION', 'PERFORMANCE', 'FINANCIAL_AUDIT')),
+	CONSTRAINT "seb_programme_cycle_assessment_rule_outcome_check" CHECK("seb_programme_cycle_assessment_rule"."required_outcome" = 'PASSED')
+);
+
+CREATE UNIQUE INDEX `seb_programme_cycle_assessment_rule_type_uq` ON `seb_programme_cycle_assessment_rule` (`programme_cycle_id`,`programme_cycle_version`,`assessment_type`);
+CREATE TABLE `seb_programme_cycle_document_rule` (
+	`id` text PRIMARY KEY NOT NULL,
+	`programme_cycle_id` text NOT NULL,
+	`programme_cycle_version` integer NOT NULL,
+	`document_type` text NOT NULL,
+	`condition` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`programme_cycle_id`,`programme_cycle_version`) REFERENCES `seb_programme_cycle_version`(`programme_cycle_id`,`version`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_programme_cycle_document_rule_type_check" CHECK("seb_programme_cycle_document_rule"."document_type" IN ('IDENTITY_AGE_PROOF', 'ST_CERTIFICATE', 'ADDRESS_PROOF', 'BUSINESS_REGISTRATION', 'GST_REGISTRATION', 'DPR', 'BANK_DETAILS', 'NOC')),
+	CONSTRAINT "seb_programme_cycle_document_rule_condition_check" CHECK("seb_programme_cycle_document_rule"."condition" IN ('ALWAYS', 'WHEN_REGISTERED', 'WHEN_GSTIN_PRESENT', 'WHEN_NOC_REQUIRED', 'OPTIONAL'))
+);
+
+CREATE UNIQUE INDEX `seb_programme_cycle_document_rule_type_uq` ON `seb_programme_cycle_document_rule` (`programme_cycle_id`,`programme_cycle_version`,`document_type`);
+CREATE TABLE `seb_programme_cycle_event` (
+	`id` text PRIMARY KEY NOT NULL,
+	`programme_cycle_id` text NOT NULL,
+	`event_type` text NOT NULL,
+	`actor_user_id` text,
+	`message` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`programme_cycle_id`) REFERENCES `seb_programme_cycle`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`actor_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_programme_cycle_event_type_check" CHECK("seb_programme_cycle_event"."event_type" IN ('OPENED', 'GUIDANCE_CHANGED', 'CLOSING_CHANGED', 'CLOSED', 'ARCHIVED'))
+);
+
+CREATE INDEX `seb_programme_cycle_event_cycle_idx` ON `seb_programme_cycle_event` (`programme_cycle_id`,`created_at`);
+CREATE TABLE `seb_programme_cycle_reason` (
+	`id` text PRIMARY KEY NOT NULL,
+	`programme_cycle_id` text NOT NULL,
+	`programme_cycle_version` integer NOT NULL,
+	`context` text NOT NULL,
+	`code` text NOT NULL,
+	`label` text NOT NULL,
+	`applicant_message_template` text,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`programme_cycle_id`,`programme_cycle_version`) REFERENCES `seb_programme_cycle_version`(`programme_cycle_id`,`version`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_programme_cycle_reason_context_check" CHECK("seb_programme_cycle_reason"."context" IN ('CYCLE_CLOSE', 'ASSIGNMENT_RELEASE', 'ASSIGNMENT_REASSIGN', 'REVISION', 'REJECTION', 'BANK_REFERRAL_CANCEL', 'BANK_OUTCOME_CORRECTION', 'TTM_DEFERRAL', 'TTM_DECISION_CORRECTION', 'AWARD_AMENDMENT', 'AWARD_SUSPENSION', 'AWARD_CANCELLATION', 'AWARD_CLOSURE', 'RELEASE_REVERSAL', 'RECOVERY', 'RECOVERY_WAIVER'))
+);
+
+CREATE UNIQUE INDEX `seb_programme_cycle_reason_code_uq` ON `seb_programme_cycle_reason` (`programme_cycle_id`,`programme_cycle_version`,`context`,`code`);
+CREATE UNIQUE INDEX `seb_programme_cycle_reason_cycle_id_uq` ON `seb_programme_cycle_reason` (`programme_cycle_id`,`id`);
 CREATE TABLE `seb_programme_cycle_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`programme_cycle_id` text NOT NULL,
 	`version` integer NOT NULL,
 	`cycle_code` text NOT NULL,
+	`display_name` text NOT NULL,
 	`cycle_year` integer NOT NULL,
 	`policy_reference` text,
+	`applicant_guidance` text,
+	`partner_bank_guidance` text,
 	`status` text NOT NULL,
 	`opens_at` integer,
 	`closes_at` integer,
+	`minimum_applicant_age` integer,
+	`maximum_applicant_age` integer,
+	`category_a_maximum_months` integer,
+	`expansion_wait_months` integer,
+	`majority_ownership_required` integer,
+	`jurisdiction` text,
+	`funding_ceiling_state` text,
+	`funding_ceiling_amount_paise` integer,
+	`funding_ceiling_scope` text,
 	`change_type` text NOT NULL,
 	`change_reason` text,
-	`changed_by_user_id` text NOT NULL,
+	`changed_by_user_id` text,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`programme_cycle_id`) REFERENCES `seb_programme_cycle`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`changed_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "seb_programme_cycle_version_number_check" CHECK("seb_programme_cycle_version"."version" >= 1),
 	CONSTRAINT "seb_programme_cycle_version_year_check" CHECK("seb_programme_cycle_version"."cycle_year" >= 1),
 	CONSTRAINT "seb_programme_cycle_version_status_check" CHECK("seb_programme_cycle_version"."status" IN ('DRAFT', 'OPEN', 'CLOSED', 'ARCHIVED')),
-	CONSTRAINT "seb_programme_cycle_version_change_type_check" CHECK("seb_programme_cycle_version"."change_type" IN ('CREATED', 'UPDATED', 'CORRECTED')),
-	CONSTRAINT "seb_programme_cycle_version_window_check" CHECK("seb_programme_cycle_version"."opens_at" IS NULL OR "seb_programme_cycle_version"."closes_at" IS NULL OR "seb_programme_cycle_version"."closes_at" > "seb_programme_cycle_version"."opens_at")
+	CONSTRAINT "seb_programme_cycle_version_change_type_check" CHECK("seb_programme_cycle_version"."change_type" IN ('CREATED', 'UPDATED', 'OPENED', 'GUIDANCE_CHANGED', 'CLOSING_CHANGED', 'CLOSED', 'ARCHIVED')),
+	CONSTRAINT "seb_programme_cycle_version_window_check" CHECK("seb_programme_cycle_version"."opens_at" IS NULL OR "seb_programme_cycle_version"."closes_at" IS NULL OR "seb_programme_cycle_version"."closes_at" > "seb_programme_cycle_version"."opens_at"),
+	CONSTRAINT "seb_programme_cycle_version_age_check" CHECK(("seb_programme_cycle_version"."minimum_applicant_age" IS NULL AND "seb_programme_cycle_version"."maximum_applicant_age" IS NULL)
+        OR ("seb_programme_cycle_version"."minimum_applicant_age" >= 0
+          AND "seb_programme_cycle_version"."maximum_applicant_age" >= "seb_programme_cycle_version"."minimum_applicant_age")),
+	CONSTRAINT "seb_programme_cycle_version_months_check" CHECK(("seb_programme_cycle_version"."category_a_maximum_months" IS NULL OR "seb_programme_cycle_version"."category_a_maximum_months" >= 0)
+        AND ("seb_programme_cycle_version"."expansion_wait_months" IS NULL OR "seb_programme_cycle_version"."expansion_wait_months" >= 1)),
+	CONSTRAINT "seb_programme_cycle_version_majority_check" CHECK("seb_programme_cycle_version"."majority_ownership_required" IS NULL OR "seb_programme_cycle_version"."majority_ownership_required" IN (0, 1)),
+	CONSTRAINT "seb_programme_cycle_version_jurisdiction_check" CHECK("seb_programme_cycle_version"."jurisdiction" IS NULL OR "seb_programme_cycle_version"."jurisdiction" IN ('TRIPURA', 'TTAADC')),
+	CONSTRAINT "seb_programme_cycle_version_ceiling_check" CHECK(("seb_programme_cycle_version"."funding_ceiling_state" IS NULL
+          AND "seb_programme_cycle_version"."funding_ceiling_amount_paise" IS NULL
+          AND "seb_programme_cycle_version"."funding_ceiling_scope" IS NULL)
+        OR ("seb_programme_cycle_version"."funding_ceiling_state" = 'UNRESOLVED'
+          AND "seb_programme_cycle_version"."funding_ceiling_amount_paise" IS NULL
+          AND "seb_programme_cycle_version"."funding_ceiling_scope" IS NULL)
+        OR ("seb_programme_cycle_version"."funding_ceiling_state" = 'RESOLVED'
+          AND "seb_programme_cycle_version"."funding_ceiling_amount_paise" > 0
+          AND "seb_programme_cycle_version"."funding_ceiling_scope" IN ('APPLICATION', 'PHASE', 'ENTERPRISE', 'FUNDING_CASE')))
 );
 
 CREATE UNIQUE INDEX `seb_programme_cycle_version_number_uq` ON `seb_programme_cycle_version` (`programme_cycle_id`,`version`);
+CREATE TABLE `seb_recovery_case` (
+	`id` text PRIMARY KEY NOT NULL,
+	`application_id` text NOT NULL,
+	`funding_award_id` text NOT NULL,
+	`status` text DEFAULT 'OPEN' NOT NULL,
+	`ledger_version` integer DEFAULT 0 NOT NULL,
+	`official_decision_reference` text NOT NULL,
+	`official_decision_date` text NOT NULL,
+	`reason_category_id` text NOT NULL,
+	`applicant_message` text NOT NULL,
+	`opened_by_user_id` text NOT NULL,
+	`current_version` integer NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	`deleted_at` integer,
+	`deleted_by_user_id` text,
+	`delete_reason` text,
+	FOREIGN KEY (`application_id`) REFERENCES `seb_application`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`opened_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`deleted_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`application_id`,`funding_award_id`) REFERENCES `seb_funding_award`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_recovery_case_version_check" CHECK("seb_recovery_case"."current_version" >= 1),
+	CONSTRAINT "seb_recovery_case_ledger_version_check" CHECK("seb_recovery_case"."ledger_version" >= 0),
+	CONSTRAINT "seb_recovery_case_status_check" CHECK("seb_recovery_case"."status" IN ('OPEN', 'DEMANDED', 'PARTIALLY_SETTLED', 'SETTLED', 'CANCELLED', 'CLOSED'))
+);
+
+CREATE UNIQUE INDEX `seb_recovery_case_award_id_uq` ON `seb_recovery_case` (`funding_award_id`,`id`);
+CREATE UNIQUE INDEX `seb_recovery_case_active_award_uq` ON `seb_recovery_case` (`funding_award_id`) WHERE "seb_recovery_case"."status" IN ('OPEN', 'DEMANDED', 'PARTIALLY_SETTLED') AND "seb_recovery_case"."deleted_at" IS NULL;
+CREATE INDEX `seb_recovery_case_status_idx` ON `seb_recovery_case` (`status`,`updated_at`);
+CREATE INDEX `seb_recovery_case_award_idx` ON `seb_recovery_case` (`funding_award_id`,`created_at`);
+CREATE TABLE `seb_recovery_case_version` (
+	`id` text PRIMARY KEY NOT NULL,
+	`recovery_case_id` text NOT NULL,
+	`version` integer NOT NULL,
+	`status` text NOT NULL,
+	`change_type` text NOT NULL,
+	`reason` text,
+	`changed_by_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`recovery_case_id`) REFERENCES `seb_recovery_case`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`changed_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_recovery_case_version_number_check" CHECK("seb_recovery_case_version"."version" >= 1),
+	CONSTRAINT "seb_recovery_case_version_status_check" CHECK("seb_recovery_case_version"."status" IN ('OPEN', 'DEMANDED', 'PARTIALLY_SETTLED', 'SETTLED', 'CANCELLED', 'CLOSED')),
+	CONSTRAINT "seb_recovery_case_version_change_type_check" CHECK("seb_recovery_case_version"."change_type" IN ('OPENED', 'STATUS_CHANGED', 'CANCELLED', 'CLOSED'))
+);
+
+CREATE UNIQUE INDEX `seb_recovery_case_version_number_uq` ON `seb_recovery_case_version` (`recovery_case_id`,`version`);
+CREATE TABLE `seb_recovery_entry` (
+	`id` text PRIMARY KEY NOT NULL,
+	`recovery_case_id` text NOT NULL,
+	`sequence_number` integer NOT NULL,
+	`entry_type` text NOT NULL,
+	`component` text NOT NULL,
+	`related_entry_id` text,
+	`amount_paise` integer NOT NULL,
+	`external_reference` text NOT NULL,
+	`occurred_at` integer NOT NULL,
+	`reason_category_id` text,
+	`applicant_message` text NOT NULL,
+	`recorded_by_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`recovery_case_id`) REFERENCES `seb_recovery_case`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`recorded_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`recovery_case_id`,`related_entry_id`) REFERENCES `seb_recovery_entry`(`recovery_case_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_recovery_entry_sequence_check" CHECK("seb_recovery_entry"."sequence_number" >= 1),
+	CONSTRAINT "seb_recovery_entry_amount_check" CHECK("seb_recovery_entry"."amount_paise" > 0),
+	CONSTRAINT "seb_recovery_entry_type_check" CHECK("seb_recovery_entry"."entry_type" IN ('DEMAND', 'RECEIPT', 'WAIVER', 'REVERSAL')),
+	CONSTRAINT "seb_recovery_entry_component_check" CHECK("seb_recovery_entry"."component" IN ('PRINCIPAL', 'PENAL_INTEREST')),
+	CONSTRAINT "seb_recovery_entry_relation_check" CHECK(("seb_recovery_entry"."entry_type" = 'REVERSAL' AND "seb_recovery_entry"."related_entry_id" IS NOT NULL)
+        OR ("seb_recovery_entry"."entry_type" <> 'REVERSAL' AND "seb_recovery_entry"."related_entry_id" IS NULL)),
+	CONSTRAINT "seb_recovery_entry_reason_check" CHECK(("seb_recovery_entry"."entry_type" IN ('WAIVER', 'REVERSAL') AND "seb_recovery_entry"."reason_category_id" IS NOT NULL)
+        OR ("seb_recovery_entry"."entry_type" IN ('DEMAND', 'RECEIPT')))
+);
+
+CREATE UNIQUE INDEX `seb_recovery_entry_external_reference_unique` ON `seb_recovery_entry` (`external_reference`);
+CREATE UNIQUE INDEX `seb_recovery_entry_sequence_uq` ON `seb_recovery_entry` (`recovery_case_id`,`sequence_number`);
+CREATE UNIQUE INDEX `seb_recovery_entry_case_id_uq` ON `seb_recovery_entry` (`recovery_case_id`,`id`);
+CREATE INDEX `seb_recovery_entry_case_occurred_idx` ON `seb_recovery_entry` (`recovery_case_id`,`occurred_at`);
+CREATE TABLE `seb_application_assignment_event` (
+	`id` text PRIMARY KEY NOT NULL,
+	`application_id` text NOT NULL,
+	`event_type` text NOT NULL,
+	`assignment_version` integer NOT NULL,
+	`from_user_id` text,
+	`to_user_id` text,
+	`reason_category_id` text,
+	`reason` text,
+	`conflict_acknowledged` integer DEFAULT false NOT NULL,
+	`actor_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`application_id`) REFERENCES `seb_application`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`from_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`to_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`actor_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_application_assignment_event_type_check" CHECK("seb_application_assignment_event"."event_type" IN ('CLAIMED', 'RELEASED', 'REASSIGNED')),
+	CONSTRAINT "seb_application_assignment_event_version_check" CHECK("seb_application_assignment_event"."assignment_version" >= 1),
+	CONSTRAINT "seb_application_assignment_event_conflict_check" CHECK("seb_application_assignment_event"."conflict_acknowledged" IN (0, 1)),
+	CONSTRAINT "seb_application_assignment_event_state_check" CHECK(("seb_application_assignment_event"."event_type" = 'CLAIMED' AND "seb_application_assignment_event"."from_user_id" IS NULL AND "seb_application_assignment_event"."to_user_id" IS NOT NULL)
+        OR ("seb_application_assignment_event"."event_type" = 'RELEASED' AND "seb_application_assignment_event"."from_user_id" IS NOT NULL AND "seb_application_assignment_event"."to_user_id" IS NULL)
+        OR ("seb_application_assignment_event"."event_type" = 'REASSIGNED' AND "seb_application_assignment_event"."from_user_id" IS NOT NULL AND "seb_application_assignment_event"."to_user_id" IS NOT NULL AND "seb_application_assignment_event"."from_user_id" <> "seb_application_assignment_event"."to_user_id"))
+);
+
+CREATE UNIQUE INDEX `seb_application_assignment_event_version_uq` ON `seb_application_assignment_event` (`application_id`,`assignment_version`);
+CREATE INDEX `seb_application_assignment_event_application_idx` ON `seb_application_assignment_event` (`application_id`,`created_at`);
+CREATE TABLE `seb_application_internal_note` (
+	`id` text PRIMARY KEY NOT NULL,
+	`application_id` text NOT NULL,
+	`correction_of_note_id` text,
+	`note` text NOT NULL,
+	`authored_by_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`application_id`) REFERENCES `seb_application`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`authored_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`application_id`,`correction_of_note_id`) REFERENCES `seb_application_internal_note`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict
+);
+
+CREATE UNIQUE INDEX `seb_application_internal_note_application_id_uq` ON `seb_application_internal_note` (`application_id`,`id`);
+CREATE UNIQUE INDEX `seb_application_internal_note_one_correction_uq` ON `seb_application_internal_note` (`correction_of_note_id`);
+CREATE INDEX `seb_application_internal_note_application_idx` ON `seb_application_internal_note` (`application_id`,`created_at`);
+CREATE TABLE `seb_desk_review` (
+	`id` text PRIMARY KEY NOT NULL,
+	`application_id` text NOT NULL,
+	`submission_id` text NOT NULL,
+	`outcome` text NOT NULL,
+	`reason_category_id` text,
+	`applicant_message` text,
+	`reviewed_by_user_id` text NOT NULL,
+	`reviewed_at` integer NOT NULL,
+	FOREIGN KEY (`reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`reviewed_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`application_id`,`submission_id`) REFERENCES `seb_application_submission`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_desk_review_outcome_check" CHECK("seb_desk_review"."outcome" IN ('ADVANCE_TO_BANK', 'REQUEST_REVISION', 'REJECT')),
+	CONSTRAINT "seb_desk_review_reason_check" CHECK(("seb_desk_review"."outcome" = 'ADVANCE_TO_BANK'
+          AND "seb_desk_review"."reason_category_id" IS NULL
+          AND "seb_desk_review"."applicant_message" IS NULL)
+        OR ("seb_desk_review"."outcome" IN ('REQUEST_REVISION', 'REJECT')
+          AND "seb_desk_review"."reason_category_id" IS NOT NULL
+          AND "seb_desk_review"."applicant_message" IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX `seb_desk_review_submission_uq` ON `seb_desk_review` (`submission_id`);
+CREATE UNIQUE INDEX `seb_desk_review_application_id_uq` ON `seb_desk_review` (`application_id`,`id`);
+CREATE INDEX `seb_desk_review_application_idx` ON `seb_desk_review` (`application_id`,`reviewed_at`);
+CREATE TABLE `seb_desk_review_check` (
+	`id` text PRIMARY KEY NOT NULL,
+	`desk_review_id` text NOT NULL,
+	`check_type` text NOT NULL,
+	`result` text NOT NULL,
+	`internal_note` text,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`desk_review_id`) REFERENCES `seb_desk_review`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_desk_review_check_type_check" CHECK("seb_desk_review_check"."check_type" IN ('IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION', 'FORM_COMPLETENESS', 'DOCUMENT_COMPLETENESS', 'ANSWER_DOCUMENT_CONSISTENCY', 'DPR_FEASIBILITY', 'EXPANSION_EVIDENCE')),
+	CONSTRAINT "seb_desk_review_check_result_check" CHECK("seb_desk_review_check"."result" IN ('PASS', 'FAIL', 'NOT_APPLICABLE'))
+);
+
+CREATE UNIQUE INDEX `seb_desk_review_check_type_uq` ON `seb_desk_review_check` (`desk_review_id`,`check_type`);
 CREATE TABLE `seb_application_event` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
@@ -623,8 +1195,8 @@ CREATE TABLE `seb_application_event` (
 	FOREIGN KEY (`application_id`,`submission_id`) REFERENCES `seb_application_submission`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`application_id`,`revision_request_id`) REFERENCES `seb_revision_request`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "seb_application_event_section_check" CHECK("seb_application_event"."section" IS NULL OR "seb_application_event"."section" IN ('ENTERPRISE', 'APPLICANT_PROFILE', 'FINANCIAL', 'PRIOR_FUNDING', 'EXPANSION', 'DOCUMENTS', 'DECLARATION')),
-	CONSTRAINT "seb_application_event_from_status_check" CHECK("seb_application_event"."from_status" IS NULL OR "seb_application_event"."from_status" IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED')),
-	CONSTRAINT "seb_application_event_to_status_check" CHECK("seb_application_event"."to_status" IS NULL OR "seb_application_event"."to_status" IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED'))
+	CONSTRAINT "seb_application_event_from_status_check" CHECK("seb_application_event"."from_status" IS NULL OR "seb_application_event"."from_status" IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED')),
+	CONSTRAINT "seb_application_event_to_status_check" CHECK("seb_application_event"."to_status" IS NULL OR "seb_application_event"."to_status" IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED'))
 );
 
 CREATE INDEX `seb_application_event_application_idx` ON `seb_application_event` (`application_id`,`created_at`);
@@ -633,6 +1205,7 @@ CREATE TABLE `seb_revision_request` (
 	`application_id` text NOT NULL,
 	`submission_id` text NOT NULL,
 	`section` text NOT NULL,
+	`reason_category_id` text,
 	`note` text NOT NULL,
 	`requested_by_user_id` text NOT NULL,
 	`requested_at` integer NOT NULL,
@@ -642,6 +1215,7 @@ CREATE TABLE `seb_revision_request` (
 	`cancelled_by_user_id` text,
 	`cancellation_reason` text,
 	FOREIGN KEY (`application_id`) REFERENCES `seb_application`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`requested_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`cancelled_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`application_id`,`submission_id`) REFERENCES `seb_application_submission`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
@@ -656,3 +1230,4 @@ CREATE TABLE `seb_revision_request` (
 
 CREATE INDEX `seb_revision_request_application_idx` ON `seb_revision_request` (`application_id`,`resolved_at`,`cancelled_at`,`requested_at`);
 CREATE UNIQUE INDEX `seb_revision_request_application_id_uq` ON `seb_revision_request` (`application_id`,`id`);
+CREATE UNIQUE INDEX `seb_revision_request_open_section_uq` ON `seb_revision_request` (`application_id`,`section`) WHERE "seb_revision_request"."resolved_at" IS NULL AND "seb_revision_request"."cancelled_at" IS NULL;

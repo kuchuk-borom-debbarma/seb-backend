@@ -98,16 +98,21 @@ const insertOpenCycle = async (actorUserId: string) => {
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO seb_programme_cycle (
-        id, cycle_code, cycle_year, status, current_version, opens_at, closes_at,
+        id, cycle_code, display_name, cycle_year, status, current_version, opens_at, closes_at,
         created_at, updated_at
-      ) VALUES (?, ?, 2026, 'OPEN', 1, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, 'Mission SEP Test Cycle', 2026, 'OPEN', 1, ?, ?, ?, ?)`,
     ).bind(id, code, now - 1_000, now + 86_400_000, now, now),
     env.DB.prepare(
       `INSERT INTO seb_programme_cycle_version (
-        id, programme_cycle_id, version, cycle_code, cycle_year, status,
+        id, programme_cycle_id, version, cycle_code, display_name, cycle_year, status,
         opens_at, closes_at, change_type, changed_by_user_id, created_at
-      ) VALUES (?, ?, 1, ?, 2026, 'OPEN', ?, ?, 'CREATED', ?, ?)`,
+      ) VALUES (?, ?, 1, ?, 'Mission SEP Test Cycle', 2026, 'OPEN', ?, ?, 'CREATED', ?, ?)`,
     ).bind(crypto.randomUUID(), id, code, now - 1_000, now + 86_400_000, actorUserId, now),
+    env.DB.prepare(
+      `INSERT INTO seb_programme_cycle_reason (
+        id, programme_cycle_id, programme_cycle_version, context, code, label, created_at
+      ) VALUES (?, ?, 1, 'RELEASE_REVERSAL', 'TEST_REVERSAL', 'Test reversal', ?)`,
+    ).bind(`reversal-${id}`, id, now),
   ])
   return id
 }
@@ -323,13 +328,19 @@ const insertActiveAward = async (
     env.DB.prepare(
       `INSERT INTO seb_disbursement (
         id, funding_award_id, sequence_number, entry_type, amount_paise,
-        occurred_at, external_reference, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 1, 'RELEASE', 10000000, ?, ?, ?, ?)`,
+        occurred_at, external_reference, ttm_approval_reference, ttm_approval_date,
+        bank_account_verified_at, performance_agreement_reference,
+        performance_agreement_executed_at, physical_verification_required,
+        applicant_message, recorded_by_user_id, created_at
+      ) VALUES (?, ?, 1, 'RELEASE', 10000000, ?, ?, 'TTM-TEST', '2025-01-01',
+        ?, 'AGREEMENT-TEST', ?, 0, 'Test release.', ?, ?)`,
     ).bind(
       crypto.randomUUID(),
       awardId,
       releaseAt,
       `RELEASE-${awardId}`,
+      now,
+      now,
       userId,
       now,
     ),
@@ -1438,6 +1449,14 @@ describe('applicant application business service', () => {
       submissions: 1,
       events: 3,
     })
+    const sameTime = await env.DB.prepare(
+      'SELECT created_at AS createdAt FROM seb_application_event WHERE application_id = ? LIMIT 1',
+    ).bind(application.id).first<{ createdAt: number }>()
+    if (!sameTime) throw new Error('application timeline event missing')
+    await env.DB.prepare(`INSERT INTO seb_programme_cycle_event (
+      id, programme_cycle_id, event_type, actor_user_id, message, created_at
+    ) VALUES (?, ?, 'GUIDANCE_CHANGED', ?, 'Shared cycle guidance changed.', ?)`)
+      .bind(crypto.randomUUID(), cycleId, applicant.userId, sameTime.createdAt).run()
 
     const postSubmissionOperations = [
       `mutation Save($input: SaveApplicationDraftInput!) {
@@ -1497,12 +1516,20 @@ describe('applicant application business service', () => {
     }
 
     const timeline = await graphql<{
-      seb: { application: { timeline: { success: boolean; response: { nodes: Array<{ eventType: string }> } } } }
+      seb: { application: { timeline: { success: boolean; response: { nodes: Array<{ id: string; eventType: string; createdAt: string }> } } } }
     }>(`query { seb { application { timeline(applicationId: "${application.id}") {
-      success response { nodes { eventType } }
+      success response { nodes { id eventType createdAt } }
     } } } }`, {}, applicant.cookie)
     expect(timeline.data?.seb.application.timeline.response.nodes.map((item) => item.eventType))
-      .toEqual(['APPLICATION_STARTED', 'APPLICATION_SAVED', 'APPLICATION_SUBMITTED'])
+      .toEqual(expect.arrayContaining([
+        'APPLICATION_STARTED', 'APPLICATION_SAVED', 'APPLICATION_SUBMITTED',
+        'CYCLE_GUIDANCE_CHANGED',
+      ]))
+    const tied = timeline.data?.seb.application.timeline.response.nodes
+      .filter((item) => Date.parse(item.createdAt) === sameTime.createdAt)
+    expect(tied?.map((item) => item.id)).toEqual(
+      tied?.map((item) => item.id).toSorted((left, right) => left.localeCompare(right)),
+    )
 
     const recordedMetadata = JSON.stringify({
       audit: (await env.DB.prepare(
@@ -1983,13 +2010,19 @@ describe('applicant application business service', () => {
     await env.DB.prepare(
       `INSERT INTO seb_disbursement (
         id, funding_award_id, sequence_number, entry_type, amount_paise,
-        occurred_at, external_reference, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 2, 'RELEASE', 100, ?, ?, ?, ?)`,
+        occurred_at, external_reference, ttm_approval_reference, ttm_approval_date,
+        bank_account_verified_at, performance_agreement_reference,
+        performance_agreement_executed_at, physical_verification_required,
+        applicant_message, recorded_by_user_id, created_at
+      ) VALUES (?, ?, 2, 'RELEASE', 100, ?, ?, 'TTM-TEST', '2025-01-01',
+        ?, 'AGREEMENT-TEST', ?, 0, 'Test release.', ?, ?)`,
     ).bind(
       secondReleaseId,
       awardId,
       oldReleaseAt,
       `SECOND-${awardId}`,
+      Date.now(),
+      Date.now(),
       applicant.userId,
       Date.now(),
     ).run()
@@ -2011,8 +2044,11 @@ describe('applicant application business service', () => {
     await env.DB.prepare(
       `INSERT INTO seb_disbursement (
         id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-        amount_paise, occurred_at, external_reference, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 3, 'REVERSAL', ?, 10000100, ?, ?, ?, ?)`,
+        amount_paise, occurred_at, external_reference, reason_category_id,
+        applicant_message, recorded_by_user_id, created_at
+      ) VALUES (?, ?, 3, 'REVERSAL', ?, 10000100, ?, ?,
+        (SELECT id FROM seb_programme_cycle_reason WHERE context = 'RELEASE_REVERSAL' LIMIT 1),
+        'Test reversal.', ?, ?)`,
     ).bind(
       crypto.randomUUID(),
       awardId,
@@ -2077,8 +2113,11 @@ describe('applicant application business service', () => {
     await env.DB.prepare(
       `INSERT INTO seb_disbursement (
         id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-        amount_paise, occurred_at, external_reference, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 2, 'REVERSAL', ?, 1000000, ?, ?, ?, ?)`,
+        amount_paise, occurred_at, external_reference, reason_category_id,
+        applicant_message, recorded_by_user_id, created_at
+      ) VALUES (?, ?, 2, 'REVERSAL', ?, 1000000, ?, ?,
+        (SELECT id FROM seb_programme_cycle_reason WHERE context = 'RELEASE_REVERSAL' LIMIT 1),
+        'Test reversal.', ?, ?)`,
     ).bind(
       crypto.randomUUID(),
       awardId,
@@ -2089,6 +2128,40 @@ describe('applicant application business service', () => {
       Date.now(),
     ).run()
     const expansionCycle = await insertOpenCycle(applicant.userId)
+    const obligationId = crypto.randomUUID()
+    const assessmentTime = Date.now()
+    await env.DB.batch([
+      ...(['UTILIZATION', 'PERFORMANCE', 'FINANCIAL_AUDIT'] as const).map((type) =>
+        env.DB.prepare(`INSERT INTO seb_programme_cycle_assessment_rule (
+          id, programme_cycle_id, programme_cycle_version, assessment_type,
+          required_outcome, created_at
+        ) VALUES (?, ?, 1, ?, 'PASSED', ?)`).bind(
+          crypto.randomUUID(), expansionCycle, type, assessmentTime,
+        )),
+      env.DB.prepare(`INSERT INTO seb_utilization_obligation (
+        id, funding_award_id, release_disbursement_id, due_at, created_at
+      ) VALUES (?, ?, ?, ?, ?)`).bind(
+        obligationId, awardId, release.id, assessmentTime, assessmentTime,
+      ),
+      env.DB.prepare(`INSERT INTO seb_award_assessment (
+        id, funding_award_id, assessment_type, assessment_number, outcome,
+        utilization_obligation_id, evidence_reference, applicant_summary,
+        assessed_by_user_id, assessed_at, created_at
+      ) VALUES (?, ?, 'UTILIZATION', 1, 'PASSED', ?, 'UC-TEST',
+        'Utilization passed.', ?, ?, ?)`).bind(
+        crypto.randomUUID(), awardId, obligationId, applicant.userId,
+        assessmentTime, assessmentTime,
+      ),
+      ...(['PERFORMANCE', 'FINANCIAL_AUDIT'] as const).map((type) =>
+        env.DB.prepare(`INSERT INTO seb_award_assessment (
+          id, funding_award_id, assessment_type, assessment_number, outcome,
+          evidence_reference, applicant_summary, assessed_by_user_id,
+          assessed_at, created_at
+        ) VALUES (?, ?, ?, 1, 'PASSED', ?, 'Assessment passed.', ?, ?, ?)`).bind(
+          crypto.randomUUID(), awardId, type, `${type}-TEST`, applicant.userId,
+          assessmentTime, assessmentTime,
+        )),
+    ])
     const eligibility = await graphql<{
       seb: { application: { expansionEligibility: { success: boolean; response: { eligible: boolean; nextPhaseNumber: number; qualifyingAwardId: string } } } }
     }>(`query { seb { application { expansionEligibility(
@@ -2099,6 +2172,33 @@ describe('applicant application business service', () => {
       nextPhaseNumber: 2,
       qualifyingAwardId: awardId,
     })
+    await env.DB.prepare(`INSERT INTO seb_award_assessment (
+      id, funding_award_id, assessment_type, assessment_number, outcome,
+      utilization_obligation_id, evidence_reference, applicant_summary,
+      assessed_by_user_id, assessed_at, created_at
+    ) VALUES (?, ?, 'UTILIZATION', 2, 'FAILED', ?, 'UC-REASSESS-FAILED',
+      'Utilization reassessment failed.', ?, ?, ?)`).bind(
+      crypto.randomUUID(), awardId, obligationId, applicant.userId,
+      assessmentTime + 1, assessmentTime + 1,
+    ).run()
+    const failedUtilization = await graphql<{
+      seb: { application: { expansionEligibility: { response: { eligible: boolean; reasons: string[] } } } }
+    }>(`query { seb { application { expansionEligibility(
+      enterpriseId: "${enterprise.id}", programmeCycleId: "${expansionCycle}"
+    ) { response { eligible reasons } } } } }`, {}, applicant.cookie)
+    expect(failedUtilization.data?.seb.application.expansionEligibility.response).toEqual({
+      eligible: false,
+      reasons: [`UTILIZATION_NOT_PASSED:${obligationId}`],
+    })
+    await env.DB.prepare(`INSERT INTO seb_award_assessment (
+      id, funding_award_id, assessment_type, assessment_number, outcome,
+      utilization_obligation_id, evidence_reference, applicant_summary,
+      assessed_by_user_id, assessed_at, created_at
+    ) VALUES (?, ?, 'UTILIZATION', 3, 'PASSED', ?, 'UC-REASSESS-PASSED',
+      'Utilization reassessment passed.', ?, ?, ?)`).bind(
+      crypto.randomUUID(), awardId, obligationId, applicant.userId,
+      assessmentTime + 2, assessmentTime + 2,
+    ).run()
 
     const started = await graphql<{
       seb: { application: { startExpansion: { success: boolean; response: { id: string; applicationType: string; phaseNumber: number; currentVersion: number; statusVersion: number } | null } } }
@@ -2248,8 +2348,11 @@ describe('applicant application business service', () => {
       env.DB.prepare(
         `INSERT INTO seb_disbursement (
           id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-          amount_paise, occurred_at, external_reference, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 3, 'REVERSAL', ?, 9000000, ?, ?, ?, ?)`,
+          amount_paise, occurred_at, external_reference, reason_category_id,
+          applicant_message, recorded_by_user_id, created_at
+        ) VALUES (?, ?, 3, 'REVERSAL', ?, 9000000, ?, ?,
+          (SELECT id FROM seb_programme_cycle_reason WHERE context = 'RELEASE_REVERSAL' LIMIT 1),
+          'Test reversal.', ?, ?)`,
       ).bind(
         crypto.randomUUID(),
         awardId,
@@ -2262,13 +2365,19 @@ describe('applicant application business service', () => {
       env.DB.prepare(
         `INSERT INTO seb_disbursement (
           id, funding_award_id, sequence_number, entry_type, amount_paise,
-          occurred_at, external_reference, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 4, 'RELEASE', 1000000, ?, ?, ?, ?)`,
+          occurred_at, external_reference, ttm_approval_reference, ttm_approval_date,
+          bank_account_verified_at, performance_agreement_reference,
+          performance_agreement_executed_at, physical_verification_required,
+          applicant_message, recorded_by_user_id, created_at
+        ) VALUES (?, ?, 4, 'RELEASE', 1000000, ?, ?, 'TTM-TEST', '2025-01-01',
+          ?, 'AGREEMENT-TEST', ?, 0, 'Test release.', ?, ?)`,
       ).bind(
         crypto.randomUUID(),
         awardId,
         transitionTime,
         `SECOND-RELEASE-${awardId}`,
+        transitionTime,
+        transitionTime,
         applicant.userId,
         transitionTime,
       ),
@@ -2320,8 +2429,11 @@ describe('applicant application business service', () => {
     await env.DB.prepare(
       `INSERT INTO seb_disbursement (
         id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-        amount_paise, occurred_at, external_reference, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 2, 'REVERSAL', ?, 10000000, ?, ?, ?, ?)`,
+        amount_paise, occurred_at, external_reference, reason_category_id,
+        applicant_message, recorded_by_user_id, created_at
+      ) VALUES (?, ?, 2, 'REVERSAL', ?, 10000000, ?, ?,
+        (SELECT id FROM seb_programme_cycle_reason WHERE context = 'RELEASE_REVERSAL' LIMIT 1),
+        'Test reversal.', ?, ?)`,
     ).bind(
       crypto.randomUUID(),
       awardId,
@@ -2341,34 +2453,49 @@ describe('applicant application business service', () => {
       env.DB.prepare(
         `INSERT INTO seb_disbursement (
           id, funding_award_id, sequence_number, entry_type, amount_paise,
-          occurred_at, external_reference, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 3, 'RELEASE', 100, ?, ?, ?, ?)`,
+          occurred_at, external_reference, ttm_approval_reference, ttm_approval_date,
+          bank_account_verified_at, performance_agreement_reference,
+          performance_agreement_executed_at, physical_verification_required,
+          applicant_message, recorded_by_user_id, created_at
+        ) VALUES (?, ?, 3, 'RELEASE', 100, ?, ?, 'TTM-TEST', '2025-01-01',
+          ?, 'AGREEMENT-TEST', ?, 0, 'Test release.', ?, ?)`,
       ).bind(
         retainedReleaseId,
         awardId,
         ledgerTime,
         `SMALL-RELEASE-${awardId}`,
+        ledgerTime,
+        ledgerTime,
         applicant.userId,
         ledgerTime,
       ),
       env.DB.prepare(
         `INSERT INTO seb_disbursement (
           id, funding_award_id, sequence_number, entry_type, amount_paise,
-          occurred_at, external_reference, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 4, 'RELEASE', 100, ?, ?, ?, ?)`,
+          occurred_at, external_reference, ttm_approval_reference, ttm_approval_date,
+          bank_account_verified_at, performance_agreement_reference,
+          performance_agreement_executed_at, physical_verification_required,
+          applicant_message, recorded_by_user_id, created_at
+        ) VALUES (?, ?, 4, 'RELEASE', 100, ?, ?, 'TTM-TEST', '2025-01-01',
+          ?, 'AGREEMENT-TEST', ?, 0, 'Test release.', ?, ?)`,
       ).bind(
         overReversedReleaseId,
         awardId,
         ledgerTime,
         `OVER-REVERSED-RELEASE-${awardId}`,
+        ledgerTime,
+        ledgerTime,
         applicant.userId,
         ledgerTime,
       ),
       env.DB.prepare(
         `INSERT INTO seb_disbursement (
           id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-          amount_paise, occurred_at, external_reference, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 5, 'REVERSAL', ?, 300, ?, ?, ?, ?)`,
+          amount_paise, occurred_at, external_reference, reason_category_id,
+          applicant_message, recorded_by_user_id, created_at
+        ) VALUES (?, ?, 5, 'REVERSAL', ?, 300, ?, ?,
+          (SELECT id FROM seb_programme_cycle_reason WHERE context = 'RELEASE_REVERSAL' LIMIT 1),
+          'Test reversal.', ?, ?)`,
       ).bind(
         crypto.randomUUID(),
         awardId,
@@ -2381,5 +2508,37 @@ describe('applicant application business service', () => {
     ])
     expect((await eligibility()).data?.seb.application.expansionEligibility.response)
       .toEqual({ eligible: false, reasons: ['NO_QUALIFYING_AWARD_OR_RELEASE'] })
+
+    // A later release restores a positive award-wide balance, while the
+    // over-reversed release remains non-qualifying. Its own utilization
+    // obligation must therefore be skipped rather than gate the application.
+    const restoringReleaseId = crypto.randomUUID()
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO seb_disbursement (
+        id, funding_award_id, sequence_number, entry_type, amount_paise,
+        occurred_at, external_reference, ttm_approval_reference, ttm_approval_date,
+        bank_account_verified_at, performance_agreement_reference,
+        performance_agreement_executed_at, physical_verification_required,
+        applicant_message, recorded_by_user_id, created_at
+      ) VALUES (?, ?, 6, 'RELEASE', 300, ?, ?, 'TTM-RESTORE', '2025-01-01',
+        ?, 'AGREEMENT-RESTORE', ?, 0, 'Restoring release.', ?, ?)`)
+        .bind(
+          restoringReleaseId, awardId, ledgerTime, `RESTORING-RELEASE-${awardId}`,
+          ledgerTime, ledgerTime, applicant.userId, ledgerTime,
+        ),
+      env.DB.prepare(`INSERT INTO seb_utilization_obligation (
+        id, funding_award_id, release_disbursement_id, due_at, created_at
+      ) VALUES (?, ?, ?, ?, ?)`).bind(
+        crypto.randomUUID(), awardId, overReversedReleaseId,
+        ledgerTime + 180 * 86_400_000, ledgerTime,
+      ),
+      env.DB.prepare(`INSERT INTO seb_programme_cycle_assessment_rule (
+        id, programme_cycle_id, programme_cycle_version, assessment_type,
+        required_outcome, created_at
+      ) VALUES (?, ?, 1, 'UTILIZATION', 'PASSED', ?)`)
+        .bind(crypto.randomUUID(), cycleId, ledgerTime),
+    ])
+    expect((await eligibility()).data?.seb.application.expansionEligibility.response)
+      .toEqual({ eligible: false, reasons: ['TWELVE_MONTH_WAIT_NOT_COMPLETE'] })
   })
 })

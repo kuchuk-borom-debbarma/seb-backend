@@ -15,6 +15,7 @@ import {
   sebApplicationSubmission,
   sebApplicationVersion,
 } from './application'
+import { sebProgrammeCycleReason } from './programme'
 
 export const applicationSections = [
   'ENTERPRISE',
@@ -36,6 +37,10 @@ export const sebRevisionRequest = sqliteTable(
       .references(() => sebApplication.id, { onDelete: 'restrict' }),
     submissionId: text('submission_id').notNull(),
     section: text('section', { enum: applicationSections }).notNull(),
+    reasonCategoryId: text('reason_category_id').references(
+      () => sebProgrammeCycleReason.id,
+      { onDelete: 'restrict' },
+    ),
     note: text('note').notNull(),
     requestedByUserId: text('requested_by_user_id')
       .notNull()
@@ -96,6 +101,12 @@ export const sebRevisionRequest = sqliteTable(
     // Events use this key to ensure a referenced revision belongs to the event's
     // application rather than merely checking that the revision ID exists.
     uniqueIndex('seb_revision_request_application_id_uq').on(table.applicationId, table.id),
+    // SQLite partial uniqueness allows a cancelled or resolved request to stay
+    // in history while preventing two simultaneous instructions for one form
+    // section.
+    uniqueIndex('seb_revision_request_open_section_uq')
+      .on(table.applicationId, table.section)
+      .where(sql`${table.resolvedAt} IS NULL AND ${table.cancelledAt} IS NULL`),
   ],
 )
 
@@ -148,11 +159,11 @@ export const sebApplicationEvent = sqliteTable(
     // protection for dynamic inputs and administrative SQL.
     check(
       'seb_application_event_from_status_check',
-      sql`${table.fromStatus} IS NULL OR ${table.fromStatus} IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED')`,
+      sql`${table.fromStatus} IS NULL OR ${table.fromStatus} IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED')`,
     ),
     check(
       'seb_application_event_to_status_check',
-      sql`${table.toStatus} IS NULL OR ${table.toStatus} IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED')`,
+      sql`${table.toStatus} IS NULL OR ${table.toStatus} IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED')`,
     ),
     index('seb_application_event_application_idx').on(table.applicationId, table.createdAt),
   ],

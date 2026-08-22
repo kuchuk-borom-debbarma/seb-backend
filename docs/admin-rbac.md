@@ -1,9 +1,9 @@
 # Administrator identity and fixed-role RBAC
 
 This guide describes the authorization foundation shared by applicant and
-future administrative services. The first super administrator can now be
-promoted through a one-time curl operation; administrator GraphQL operations
-and later account provisioning do not exist yet.
+current administrative services. The first super administrator is promoted
+through a one-time curl operation. Cycle, intake, decision, funding, and
+recovery operations use live roles; later account provisioning is separate.
 
 ## One identity, several roles
 
@@ -13,7 +13,7 @@ three fixed roles:
 | Role | Meaning |
 | --- | --- |
 | `APPLICANT` | May use applicant-owned enterprise and application operations. |
-| `ADMIN` | May use future operational review, award, and finance operations. |
+| `ADMIN` | May use operational review, award, and finance operations. |
 | `SUPER_ADMIN` | Has all `ADMIN` authority and may manage users and role grants. |
 
 There is no permission registry or role table. The role vocabulary is defined
@@ -61,19 +61,17 @@ Every authenticated request joins the session to current active grants. This
 means revocation takes effect on the next request without deleting or waiting
 for the session to expire.
 
-The same session mechanism will support administrative operations. Applicant
+The same session mechanism supports administrative operations. Applicant
 operations additionally require an active `APPLICANT` grant. Therefore:
 
 - an `ADMIN`-only user cannot sign in through applicant authentication;
-- an `APPLICANT` plus `ADMIN` user can continue using applicant operations; and
+- an `APPLICANT` plus `ADMIN`/`SUPER_ADMIN` user can use both namespaces; and
 - revoking `APPLICANT` immediately stops applicant access while leaving the
   underlying session available for future administrative authorization.
 
-## Future authorization rules
+## Current authorization rules
 
-Future admin services should expose the internal authenticated-user session
-resolution through their own guard, load roles on every request, and apply
-these checks:
+The shared guards load roles on every request and apply these checks:
 
 ```text
 applicant action: APPLICANT
@@ -121,14 +119,15 @@ tokens, cookie values, or document/form contents.
 
 ## Deliberate exclusions
 
-The current foundation does not provide:
+The current workflow still does not provide:
 
 - an administrator signup or sign-in GraphQL API;
 - role grant/revoke GraphQL operations;
 - custom roles or permission sets;
 - staff profiles, departments, organizations, or partner-bank accounts;
 - MFA or separate privileged sessions; or
-- conflict-of-interest restrictions for an administrator's own applications.
+- a mandatory recusal/second-approval rule. Self-review is allowed only after
+  explicit acknowledgement and remains visible in assignment history.
 
 The base schema never contains an account, email, password, bootstrap secret,
 or other administrator credential.

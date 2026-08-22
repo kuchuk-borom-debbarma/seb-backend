@@ -5,6 +5,7 @@ import {
   coreAuditEvent,
   sebApplication,
   sebApplicationDocument,
+  sebApplicationDocumentScan,
   sebApplicationDocumentVersion,
   sebApplicationEvent,
   sebRevisionRequest,
@@ -213,6 +214,18 @@ export const finalizeUploadIntent = async (
         )`,
       ),
     )
+  // Finalization never makes a file staff-readable. It merely queues the
+  // immutable object for the future malware scanner; administrative download
+  // authorization fails closed until an ACCEPTED result is appended.
+  const pendingScan = db.insert(sebApplicationDocumentScan).select(sql`
+    SELECT ${crypto.randomUUID()}, ${input.documentVersionId}, 1, 'PENDING',
+      NULL, NULL, NULL, ${input.now.getTime()}
+    WHERE EXISTS (
+      SELECT 1 FROM ${sebDocumentUploadIntent}
+      WHERE ${sebDocumentUploadIntent.id} = ${input.intent.id}
+        AND ${sebDocumentUploadIntent.status} = 'FINALIZED'
+    )
+  `)
   const event = db.insert(sebApplicationEvent).select(sql`
     SELECT ${crypto.randomUUID()}, ${input.intent.applicationId}, 'DOCUMENT_FINALIZED',
       ${input.userId}, NULL, NULL, NULL, NULL, NULL, 'DOCUMENTS',
@@ -239,6 +252,7 @@ export const finalizeUploadIntent = async (
     createOrAdvance,
     insertVersion,
     finalizeIntent,
+    pendingScan,
     event,
     audit,
   ])

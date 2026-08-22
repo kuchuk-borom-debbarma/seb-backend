@@ -37,6 +37,7 @@ export type ApplicantSession = {
 export type ApplicantAuthResponse = {
   applicant: Applicant
   session: ApplicantSession
+  activeRoles: UserRole[]
 }
 
 /** Internal session identity. Roles are loaded from active D1 grants per request. */
@@ -62,6 +63,9 @@ export type AuthenticatedUserRequest = {
 
 /** Applicant guards return this only after confirming an active APPLICANT grant. */
 export type AuthenticatedApplicantRequest = AuthenticatedUserRequest
+
+/** Administrative guards accept ADMIN directly or SUPER_ADMIN by implication. */
+export type AuthenticatedAdministratorRequest = AuthenticatedUserRequest
 
 export type StartApplicantSignupResponse = {
   challengeToken: string

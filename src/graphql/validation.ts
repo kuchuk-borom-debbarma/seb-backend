@@ -58,7 +58,7 @@ const actionFields = (fields: FieldNode[]): FieldNode[] =>
 /** Builds the shared one-action rule used by the auth and SEB namespaces. */
 const singleMutationNamespaceRule = (
   context: ValidationContext,
-  namespaceName: 'auth' | 'seb',
+  namespaceName: 'auth' | 'seb' | 'admin',
   nestedNamespaces: boolean,
   message: string,
 ): ASTVisitor => ({
@@ -126,4 +126,13 @@ export const singleSebMutationRule = (context: ValidationContext): ASTVisitor =>
     'seb',
     true,
     'Only one action may be selected beneath mutation.seb.',
+  )
+
+/** Allows exactly one action across the four administrative subdomains. */
+export const singleAdminMutationRule = (context: ValidationContext): ASTVisitor =>
+  singleMutationNamespaceRule(
+    context,
+    'admin',
+    true,
+    'Only one action may be selected beneath mutation.admin.',
   )

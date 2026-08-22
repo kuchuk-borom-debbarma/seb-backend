@@ -19,8 +19,10 @@ import {
 import type { Database } from '../../../db'
 import {
   coreAuditEvent,
+  sebAwardAssessment,
   sebApplication,
   sebApplicationDocument,
+  sebApplicationSubmissionDocument,
   sebApplicationDocumentVersion,
   sebApplicationEvent,
   sebApplicationQualifyingAward,
@@ -33,6 +35,11 @@ import {
   sebFundingAward,
   sebFundingCase,
   sebProgrammeCycle,
+  sebProgrammeCycleAssessmentRule,
+  sebProgrammeCycleDocumentRule,
+  sebProgrammeCycleEvent,
+  sebProgrammeCycleVersion,
+  sebUtilizationObligation,
   sebRevisionRequest,
 } from '../../../db/schema'
 import { encodeCursor } from '../pagination'
@@ -63,6 +70,7 @@ import {
   addUtcCalendarMonths,
   fullUtcCalendarMonths,
   requiredDocumentTypesForSnapshot,
+  type SubmissionPolicy,
 } from '../validation'
 
 export type ApplicationHeadRecord = typeof sebApplication.$inferSelect
@@ -428,6 +436,40 @@ export const findOpenProgrammeCycle = async (
   return cycle ?? null
 }
 
+/** Loads the exact immutable rules pinned by an application snapshot. */
+export const findSubmissionPolicy = async (
+  db: Database,
+  cycleId: string,
+  cycleVersion: number,
+): Promise<SubmissionPolicy | null> => {
+  const [version, documentRules] = await Promise.all([
+    db.select().from(sebProgrammeCycleVersion).where(and(
+      eq(sebProgrammeCycleVersion.programmeCycleId, cycleId),
+      eq(sebProgrammeCycleVersion.version, cycleVersion),
+    )).limit(1).then((rows) => rows[0]),
+    db.select({
+      documentType: sebProgrammeCycleDocumentRule.documentType,
+      condition: sebProgrammeCycleDocumentRule.condition,
+    }).from(sebProgrammeCycleDocumentRule).where(and(
+      eq(sebProgrammeCycleDocumentRule.programmeCycleId, cycleId),
+      eq(sebProgrammeCycleDocumentRule.programmeCycleVersion, cycleVersion),
+    )),
+  ])
+  if (!version || version.minimumApplicantAge === null ||
+      version.maximumApplicantAge === null || version.categoryAMaximumMonths === null ||
+      version.majorityOwnershipRequired === null || version.fundingCeilingState === null) return null
+  return {
+    minimumApplicantAge: version.minimumApplicantAge,
+    maximumApplicantAge: version.maximumApplicantAge,
+    categoryAMaximumMonths: version.categoryAMaximumMonths,
+    majorityOwnershipRequired: version.majorityOwnershipRequired,
+    fundingCeilingState: version.fundingCeilingState,
+    fundingCeilingAmountPaise: version.fundingCeilingAmountPaise,
+    fundingCeilingScope: version.fundingCeilingScope,
+    documentRules: documentRules as SubmissionPolicy['documentRules'],
+  }
+}
+
 export const findEnterpriseApplicationSource = async (
   db: Database,
   userId: string,
@@ -575,6 +617,7 @@ export const evaluateExpansionEligibility = async (
   fundingCaseId: string,
   now: Date,
   excludeApplicationId?: string,
+  targetCycleId?: string,
 ): Promise<{ result: ExpansionEligibility; award: EligibleAward | null }> => {
   const award = await eligibleAwardForCase(db, fundingCaseId)
   if (!award) {
@@ -593,6 +636,85 @@ export const evaluateExpansionEligibility = async (
   const eligibleAt = addUtcCalendarMonths(award.firstReleaseAt, 12)
   const reasons: string[] = []
   if (now.getTime() < eligibleAt.getTime()) reasons.push('TWELVE_MONTH_WAIT_NOT_COMPLETE')
+
+  // The target cycle owns expansion policy. Each positively retained release
+  // must have its own passing utilization result, while performance and
+  // financial audit apply once to the award. We intentionally report every
+  // unmet gate so the applicant can understand what remains outstanding.
+  const requiredAssessments = targetCycleId
+    ? await db
+        .select({ type: sebProgrammeCycleAssessmentRule.assessmentType })
+        .from(sebProgrammeCycleAssessmentRule)
+        .innerJoin(
+          sebProgrammeCycle,
+          and(
+            eq(sebProgrammeCycle.id, sebProgrammeCycleAssessmentRule.programmeCycleId),
+            eq(
+              sebProgrammeCycle.currentVersion,
+              sebProgrammeCycleAssessmentRule.programmeCycleVersion,
+            ),
+          ),
+        )
+        .where(eq(sebProgrammeCycleAssessmentRule.programmeCycleId, targetCycleId))
+    : [
+        { type: 'UTILIZATION' as const },
+        { type: 'PERFORMANCE' as const },
+        { type: 'FINANCIAL_AUDIT' as const },
+      ]
+  const required = new Set(requiredAssessments.map((rule) => rule.type))
+  if (required.has('UTILIZATION')) {
+    const obligations = await db
+      .select({
+        id: sebUtilizationObligation.id,
+        releaseId: sebUtilizationObligation.releaseDisbursementId,
+      })
+      .from(sebUtilizationObligation)
+      .where(eq(sebUtilizationObligation.fundingAwardId, award.awardId))
+    const entries = await db
+      .select()
+      .from(sebDisbursement)
+      .where(eq(sebDisbursement.fundingAwardId, award.awardId))
+    for (const obligation of obligations) {
+      // The obligation has a restrictive composite foreign key to this exact
+      // award/release pair, so a matching immutable release always exists.
+      const release = entries.find((entry) => entry.id === obligation.releaseId)!
+      const reversed = entries
+        .filter((entry) => entry.relatedDisbursementId === obligation.releaseId)
+        .reduce((sum, entry) => sum + entry.amountPaise, 0)
+      if (release.amountPaise - reversed <= 0) continue
+      const [latest] = await db
+        .select({ outcome: sebAwardAssessment.outcome })
+        .from(sebAwardAssessment)
+        .where(
+          and(
+            eq(sebAwardAssessment.fundingAwardId, award.awardId),
+            eq(sebAwardAssessment.assessmentType, 'UTILIZATION'),
+            eq(sebAwardAssessment.utilizationObligationId, obligation.id),
+          ),
+        )
+        .orderBy(desc(sebAwardAssessment.assessmentNumber))
+        .limit(1)
+      if (latest?.outcome !== 'PASSED') {
+        reasons.push(`UTILIZATION_NOT_PASSED:${obligation.id}`)
+      }
+    }
+  }
+  for (const assessmentType of ['PERFORMANCE', 'FINANCIAL_AUDIT'] as const) {
+    if (!required.has(assessmentType)) continue
+    const [latest] = await db
+      .select({ outcome: sebAwardAssessment.outcome })
+      .from(sebAwardAssessment)
+      .where(
+        and(
+          eq(sebAwardAssessment.fundingAwardId, award.awardId),
+          eq(sebAwardAssessment.assessmentType, assessmentType),
+          isNull(sebAwardAssessment.utilizationObligationId),
+        ),
+      )
+      .orderBy(desc(sebAwardAssessment.assessmentNumber))
+      .limit(1)
+    if (latest?.outcome !== 'PASSED') reasons.push(`${assessmentType}_NOT_PASSED`)
+  }
   if (await hasCompetingPhase(db, fundingCaseId, nextPhaseNumber, excludeApplicationId)) {
     reasons.push('COMPETING_PHASE_APPLICATION')
   }
@@ -971,7 +1093,7 @@ export const insertApplicationAggregate = async (
       SELECT ${input.applicationId}, ${input.applicantUserId}, ${input.enterpriseId},
         ${input.fundingCaseId}, ${input.programmeCycleId}, ${input.applicationType},
         ${input.phaseNumber}, NULL, 1, ${input.now.getTime()}, ${input.now.getTime()},
-        NULL, NULL, NULL, 'DRAFT', 1, NULL
+        NULL, NULL, NULL, 'DRAFT', 1, ${input.now.getTime()}, NULL, NULL, 0, NULL
       WHERE NOT EXISTS (
         SELECT 1 FROM ${sebApplication}
         WHERE ${sebApplication.fundingCaseId} = ${input.fundingCaseId}
@@ -1504,6 +1626,23 @@ export const submitApplicationSnapshot = async (
     ).value
   }
   const submissionId = crypto.randomUUID()
+  // Read the logical document heads once and pin the exact versions observed.
+  // Each insert below repeats the current-version predicate inside the batch,
+  // so a concurrent replacement makes the entire submission fail instead of
+  // silently attaching a different file from the one validated here.
+  const submittedDocuments = await db
+    .select({
+      documentId: sebApplicationDocument.id,
+      documentType: sebApplicationDocument.documentType,
+      documentVersion: sebApplicationDocument.currentVersion,
+    })
+    .from(sebApplicationDocument)
+    .where(
+      and(
+        eq(sebApplicationDocument.applicationId, input.head.id),
+        isNull(sebApplicationDocument.deletedAt),
+      ),
+    )
   const cycleStillOpen = input.resubmission
     ? undefined
     : sql`EXISTS (
@@ -1527,6 +1666,13 @@ export const submitApplicationSnapshot = async (
       statusVersion: nextStatusVersion,
       referenceNumber: input.head.referenceNumber ?? input.referenceNumber,
       firstSubmittedAt: input.head.firstSubmittedAt ?? input.now,
+      // A resubmission is fresh intake work. The prior reviewer remains in
+      // immutable assignment history, but no longer owns the next action.
+      assignedToUserId: input.resubmission ? null : undefined,
+      assignedAt: input.resubmission ? null : undefined,
+      assignmentVersion: input.resubmission
+        ? sql`${sebApplication.assignmentVersion} + 1`
+        : undefined,
       updatedAt: input.now,
     })
     .where(
@@ -1576,6 +1722,23 @@ export const submitApplicationSnapshot = async (
         AND ${sebApplicationVersion.version} = ${nextVersion}
     )
   `)
+  const submittedDocumentPins = submittedDocuments.map((document) =>
+    db.insert(sebApplicationSubmissionDocument).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.head.id}, ${submissionId},
+        ${document.documentId}, ${document.documentVersion},
+        ${document.documentType}, ${input.now.getTime()}
+      WHERE EXISTS (
+        SELECT 1 FROM ${sebApplicationSubmission}
+        WHERE ${sebApplicationSubmission.id} = ${submissionId}
+      ) AND EXISTS (
+        SELECT 1 FROM ${sebApplicationDocument}
+        WHERE ${sebApplicationDocument.id} = ${document.documentId}
+          AND ${sebApplicationDocument.applicationId} = ${input.head.id}
+          AND ${sebApplicationDocument.currentVersion} = ${document.documentVersion}
+          AND ${sebApplicationDocument.deletedAt} IS NULL
+      )
+    `),
+  )
   const resolveRevisions = db
     .update(sebRevisionRequest)
     .set({ resolvedBySubmissionId: submissionId, resolvedAt: input.now })
@@ -1614,8 +1777,16 @@ export const submitApplicationSnapshot = async (
     )
   `)
   const statements = input.resubmission
-    ? [updateHead, formalVersion, submission, resolveRevisions, event, audit] as const
-    : [updateHead, formalVersion, submission, event, audit] as const
+    ? [
+        updateHead,
+        formalVersion,
+        submission,
+        ...submittedDocumentPins,
+        resolveRevisions,
+        event,
+        audit,
+      ] as const
+    : [updateHead, formalVersion, submission, ...submittedDocumentPins, event, audit] as const
   const [updated] = await db.batch(statements)
   return d1ChangedExactlyOne(updated)
 }
@@ -1637,25 +1808,48 @@ export const listApplicationTimeline = async (
         ),
       )
     : undefined
+  const [head] = await db.select({ cycleId: sebApplication.programmeCycleId })
+    .from(sebApplication).where(eq(sebApplication.id, input.applicationId)).limit(1)
   const rows = await db
     .select()
     .from(sebApplicationEvent)
     .where(and(eq(sebApplicationEvent.applicationId, input.applicationId), cursorPredicate))
     .orderBy(asc(sebApplicationEvent.createdAt), asc(sebApplicationEvent.id))
     .limit(input.first + 1)
-  const hasNextPage = rows.length > input.first
-  const selected = rows.slice(0, input.first)
-  const last = selected.at(-1)
-  return {
-    nodes: selected.map((row) => ({
-      id: row.id,
-      eventType: row.eventType,
-      fromStatus: row.fromStatus,
-      toStatus: row.toStatus,
-      section: row.section,
-      message: row.message,
+  const cycleCursor = input.cursor
+    ? or(
+        gt(sebProgrammeCycleEvent.createdAt, input.cursor.timestamp),
+        and(
+          eq(sebProgrammeCycleEvent.createdAt, input.cursor.timestamp),
+          gt(sebProgrammeCycleEvent.id, input.cursor.id),
+        ),
+      )
+    : undefined
+  const cycleRows = head ? await db.select().from(sebProgrammeCycleEvent)
+    .where(and(eq(sebProgrammeCycleEvent.programmeCycleId, head.cycleId), cycleCursor))
+    .orderBy(asc(sebProgrammeCycleEvent.createdAt), asc(sebProgrammeCycleEvent.id))
+    .limit(input.first + 1) : []
+  // Shared notices are merged at read time so a guidance/closing update creates
+  // one authoritative event rather than thousands of duplicated application
+  // rows. The composite timestamp/ID order preserves stable pagination.
+  const merged = [
+    ...rows.map((row) => ({
+      id: row.id, eventType: row.eventType, fromStatus: row.fromStatus,
+      toStatus: row.toStatus, section: row.section, message: row.message,
       createdAt: row.createdAt,
     })),
+    ...cycleRows.map((row) => ({
+      id: row.id, eventType: `CYCLE_${row.eventType}`,
+      fromStatus: null, toStatus: null, section: null,
+      message: row.message, createdAt: row.createdAt,
+    })),
+  ].sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() ||
+    left.id.localeCompare(right.id))
+  const hasNextPage = merged.length > input.first
+  const selected = merged.slice(0, input.first)
+  const last = selected.at(-1)
+  return {
+    nodes: selected,
     pageInfo: {
       hasNextPage,
       endCursor: last ? encodeCursor(last.createdAt, last.id) : null,
