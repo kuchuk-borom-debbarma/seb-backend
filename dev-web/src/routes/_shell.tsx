@@ -86,7 +86,11 @@ function Sidebar({ user }: { user: SignedInUser }) {
               grant, so offering them to an administrator-only account would be
               advertising a page that cannot load. */}
           {isApplicant(user) ? (
-            <NavLink to="/app/enterprises">Enterprises</NavLink>
+            <>
+              <NavLink to="/app/enterprises">Enterprises</NavLink>
+              <NavLink to="/app/applications">Applications</NavLink>
+              <NavLink to="/app/cycles">Programme cycles</NavLink>
+            </>
           ) : null}
         </NavGroup>
 

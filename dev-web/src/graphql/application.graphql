@@ -1,0 +1,196 @@
+fragment ApplicationSummaryFields on ApplicationSummary {
+  id
+  enterpriseId
+  programmeCycleId
+  applicationType
+  phaseNumber
+  referenceNumber
+  currentVersion
+  status
+  statusVersion
+  firstSubmittedAt
+  createdAt
+  updatedAt
+  deletedAt
+  businessName
+  cycleCode
+  cycleYear
+}
+
+fragment CycleFields on ProgrammeCycle {
+  id
+  cycleCode
+  displayName
+  cycleYear
+  policyReference
+  applicantGuidance
+  status
+  opensAt
+  closesAt
+}
+
+query MyApplications(
+  $first: Int
+  $after: String
+  $enterpriseId: ID
+  $status: ApplicationStatus
+  $includeDeleted: Boolean
+) {
+  seb {
+    application {
+      mine(
+        first: $first
+        after: $after
+        enterpriseId: $enterpriseId
+        status: $status
+        includeDeleted: $includeDeleted
+      ) {
+        success
+        message
+        response {
+          nodes { ...ApplicationSummaryFields }
+          pageInfo { endCursor hasNextPage }
+        }
+      }
+    }
+  }
+}
+
+query ProgrammeCycles {
+  seb {
+    application {
+      availableProgrammeCycles {
+        success
+        message
+        response { cycles { ...CycleFields } }
+      }
+      myProgrammeCycles {
+        success
+        message
+        response { cycles { ...CycleFields } }
+      }
+    }
+  }
+}
+
+query StatusGuide {
+  seb {
+    application {
+      statusGuide {
+        success
+        message
+        response {
+          statuses { status label explanation nextActor nextAction }
+        }
+      }
+    }
+  }
+}
+
+query ExpansionEligibility($enterpriseId: ID!, $programmeCycleId: ID!) {
+  seb {
+    application {
+      expansionEligibility(
+        enterpriseId: $enterpriseId
+        programmeCycleId: $programmeCycleId
+      ) {
+        success
+        message
+        response {
+          eligible
+          nextPhaseNumber
+          eligibleAt
+          reasons { code message obligationId }
+        }
+      }
+    }
+  }
+}
+
+mutation StartInitialApplication($enterpriseId: ID!, $programmeCycleId: ID!) {
+  seb {
+    application {
+      startInitial(
+        input: { enterpriseId: $enterpriseId, programmeCycleId: $programmeCycleId }
+      ) {
+        success
+        message
+        response { id }
+      }
+    }
+  }
+}
+
+mutation StartExpansionApplication($enterpriseId: ID!, $programmeCycleId: ID!) {
+  seb {
+    application {
+      startExpansion(
+        input: { enterpriseId: $enterpriseId, programmeCycleId: $programmeCycleId }
+      ) {
+        success
+        message
+        response { id }
+      }
+    }
+  }
+}
+
+query ApplicationById($id: ID!) {
+  seb {
+    application {
+      byId(id: $id) {
+        success
+        message
+        response {
+          id
+          enterpriseId
+          programmeCycleId
+          applicationType
+          phaseNumber
+          referenceNumber
+          currentVersion
+          status
+          statusVersion
+          firstSubmittedAt
+          createdAt
+          updatedAt
+          deletedAt
+          editableSections
+          revisionRequests {
+            id
+            section
+            note
+            requestedAt
+            resolvedAt
+            cancelledAt
+          }
+          documents {
+            id
+            documentType
+            currentVersion
+            originalFilename
+            contentType
+            sizeBytes
+            createdAt
+            deletedAt
+          }
+        }
+      }
+    }
+  }
+}
+
+query ApplicationTimeline($applicationId: ID!, $first: Int) {
+  seb {
+    application {
+      timeline(applicationId: $applicationId, first: $first) {
+        success
+        message
+        response {
+          nodes { id eventType fromStatus toStatus section message createdAt }
+          pageInfo { endCursor hasNextPage }
+        }
+      }
+    }
+  }
+}

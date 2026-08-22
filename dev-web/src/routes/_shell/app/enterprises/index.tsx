@@ -70,10 +70,11 @@ function EnterprisesPage() {
               navigate({
                 // Changing a filter invalidates the cursor: it points into a
                 // differently-filtered result set.
-                search: {
+                search: (previous) => ({
+                  ...previous,
                   includeDeleted: event.target.checked ? true : undefined,
                   after: undefined,
-                },
+                }),
               })
             }
           />
@@ -164,7 +165,7 @@ function EnterprisesPage() {
                 type="button"
                 className="button"
                 disabled={!search.after}
-                onClick={() => navigate({ search: { ...search, after: undefined } })}
+                onClick={() => navigate({ search: (previous) => ({ ...previous, after: undefined }) })}
               >
                 Start again
               </button>
@@ -174,7 +175,10 @@ function EnterprisesPage() {
                 disabled={!data?.pageInfo.hasNextPage}
                 onClick={() =>
                   navigate({
-                    search: { ...search, after: data?.pageInfo.endCursor ?? undefined },
+                    search: (previous) => ({
+                      ...previous,
+                      after: data?.pageInfo.endCursor ?? undefined,
+                    }),
                   })
                 }
               >

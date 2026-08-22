@@ -1,0 +1,118 @@
+.rail {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: var(--space-5);
+}
+
+/* The track is a list, not a decoration: each stage is a real workflow state. */
+.track {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  overflow-x: auto;
+}
+
+.stage {
+  flex: 1 1 0;
+  min-width: 4.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  position: relative;
+  text-align: center;
+}
+
+/* The connector is drawn behind each marker rather than between elements, so a
+   stage can be added or removed without re-tuning the geometry. */
+.stage::before {
+  content: '';
+  position: absolute;
+  top: 0.3125rem;
+  left: calc(-50% + 0.4375rem);
+  width: calc(100% - 0.875rem);
+  height: 2px;
+  background: var(--hairline);
+}
+
+.stage:first-child::before {
+  display: none;
+}
+
+.stage[data-state='done']::before,
+.stage[data-state='current']::before {
+  background: var(--green);
+}
+
+.marker {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  border: 2px solid var(--hairline-strong);
+  background: var(--surface);
+  position: relative;
+  z-index: 1;
+}
+
+.stage[data-state='done'] .marker {
+  background: var(--green);
+  border-color: var(--green);
+}
+
+/* The live stage is a ring rather than a filled dot: it reads as "here", not
+   "finished". */
+.stage[data-state='current'] .marker {
+  border-color: var(--green);
+  box-shadow: inset 0 0 0 2px var(--surface), inset 0 0 0 4px var(--green);
+}
+
+.stageLabel {
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  color: var(--ink-faint);
+}
+
+.stage[data-state='done'] .stageLabel {
+  color: var(--ink-muted);
+}
+
+.stage[data-state='current'] .stageLabel {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.summary {
+  border-left: 3px solid var(--hairline-strong);
+  padding-left: var(--space-4);
+}
+
+.summary[data-actor='applicant'] {
+  border-left-color: var(--clay);
+}
+
+.summaryTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.summaryText {
+  margin-top: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+  max-width: 46rem;
+}
+
+.summaryAction {
+  margin-top: var(--space-2);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
