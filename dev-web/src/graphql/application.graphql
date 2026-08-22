@@ -287,3 +287,114 @@ mutation ResubmitApplication($input: ApplicationVersionInput!) {
     }
   }
 }
+
+# --- Evidence -------------------------------------------------------------
+#
+# Uploading is three steps and all three belong to the applicant's browser: the
+# Worker authorizes a single object, the browser puts the bytes straight into
+# the bucket, and the Worker then verifies what actually landed there before it
+# records a document version. The bytes never pass through the Worker.
+
+mutation IssueDocumentUpload($input: IssueDocumentUploadInput!) {
+  seb {
+    application {
+      issueDocumentUpload(input: $input) {
+        success
+        message
+        response {
+          uploadId
+          uploadUrl
+          expiresAt
+          requiredHeaders { name value }
+        }
+      }
+    }
+  }
+}
+
+mutation FinalizeDocumentUpload($uploadId: ID!) {
+  seb {
+    application {
+      finalizeDocumentUpload(uploadId: $uploadId) {
+        success
+        message
+        response { documentId version }
+      }
+    }
+  }
+}
+
+mutation SoftDeleteDocument($input: ApplicationDocumentVersionInput!) {
+  seb {
+    application {
+      softDeleteDocument(input: $input) { success message response { value } }
+    }
+  }
+}
+
+mutation RestoreDocument($input: ApplicationDocumentVersionInput!) {
+  seb {
+    application {
+      restoreDocument(input: $input) { success message response { value } }
+    }
+  }
+}
+
+query DocumentDownloadUrl($documentId: ID!) {
+  seb {
+    application {
+      documentDownloadUrl(documentId: $documentId) {
+        success
+        message
+        response { downloadUrl expiresAt }
+      }
+    }
+  }
+}
+
+# --- Funding --------------------------------------------------------------
+#
+# What the applicant is allowed to know about their own award. The server picks
+# the fields: internal banking prerequisites, reviewer evidence and assessment
+# notes are absent from this type by design, so the shape of the query is the
+# whole of what can be shown.
+
+query ApplicationFunding($applicationId: ID!) {
+  seb {
+    application {
+      funding(applicationId: $applicationId) {
+        success
+        message
+        response {
+          award {
+            sanctionOrderNumber
+            sanctionDate
+            sanctionedAmountPaise
+            applicantConditions
+            status
+            closureDisposition
+            grossReleasedPaise
+            reversedPaise
+            netReleasedPaise
+            remainingPlannedPaise
+          }
+          releases {
+            sequenceNumber
+            occurredAt
+            amountPaise
+            paymentReference
+            reversedAmountPaise
+          }
+          assessments {
+            assessmentType
+            assessmentNumber
+            outcome
+            assessedAt
+            summary
+            latest
+          }
+        }
+      }
+    }
+  }
+}

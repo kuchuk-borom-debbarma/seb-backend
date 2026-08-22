@@ -18,6 +18,9 @@ import { formatDate, formatDateTime, humanize } from '#/lib/format'
  * would have shown above every child screen. Naming it `.index` makes it a
  * sibling instead, which is what it actually is.
  */
+/** The statuses in which a sanction order can exist. */
+const FUNDED_STATUSES = new Set<string>(['SANCTIONED', 'DISBURSED'])
+
 export const Route = createFileRoute('/_shell/app/applications/$id/')({
   // All three start together: one round of requests, no waterfall.
   loader: async ({ context, params }) => {
@@ -43,6 +46,13 @@ function ApplicationPage() {
   )
 
   /*
+   * An award exists only once the application has been sanctioned, and it
+   * survives everything after that. Before then the funding screen would have
+   * nothing to say, so it is not offered.
+   */
+  const funded = FUNDED_STATUSES.has(application.status)
+
+  /*
    * A draft unlocks every section, EXPANSION included, but expansion values are
    * derived by the server from the qualifying award and are rejected if a client
    * sends them. Listing a section nobody can type would send an applicant
@@ -63,7 +73,18 @@ function ApplicationPage() {
         }
         actions={
           // Offered only while something can actually be changed or sent.
-          application.editableSections.length > 0 ? (
+          // Money is separate: it outlives editing, and appears the moment a
+          // sanction order can exist.
+          funded ? (
+            <Link
+              to="/app/applications/$id/funding"
+              params={{ id }}
+              className="button"
+              data-variant="primary"
+            >
+              Funding
+            </Link>
+          ) : application.editableSections.length > 0 ? (
             <>
               <Link
                 to="/app/applications/$id/form"
@@ -74,6 +95,9 @@ function ApplicationPage() {
                 {application.status === 'REVISION_REQUIRED'
                   ? 'Make the corrections'
                   : 'Fill in the form'}
+              </Link>
+              <Link to="/app/applications/$id/documents" params={{ id }} className="button">
+                Evidence
               </Link>
               <Link to="/app/applications/$id/review" params={{ id }} className="button">
                 Check and submit

@@ -8,6 +8,7 @@
 import { queryOptions } from '@tanstack/react-query'
 import {
   ApplicationByIdDocument,
+  ApplicationFundingDocument,
   ApplicationTimelineDocument,
   DraftChangesDocument,
   ValidateApplicationDocument,
@@ -58,4 +59,22 @@ export const draftChangesQuery = (id: string) =>
       return data.seb.application.draftChanges
     },
     staleTime: 0,
+  })
+
+/**
+ * The award, its payments and its assessments.
+ *
+ * Refuses when nothing has been sanctioned, which is the ordinary state for
+ * most applications rather than an error, so the caller reads the message
+ * instead of unwrapping. Money moves only when the programme office moves it,
+ * so this is safe to serve from cache for a short while.
+ */
+export const fundingQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['funding', id],
+    queryFn: async () => {
+      const data = await gql(ApplicationFundingDocument, { applicationId: id })
+      return data.seb.application.funding
+    },
+    staleTime: 30_000,
   })

@@ -96,13 +96,48 @@ rather than hidden:
   `console.log` transport until roadmap §18 is built, so the verify screen says
   to read the code from the Wrangler output. It does not claim an email was
   sent.
-- **Documents need R2 credentials.** `services/application/uploads.ts` requires
-  `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID` and
-  `R2_SECRET_ACCESS_KEY`. Without them the document screens surface the server's
-  actual error.
+- **Uploading evidence needs R2 credentials.** `services/application/uploads.ts`
+  requires `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID` and
+  `R2_SECRET_ACCESS_KEY`. The evidence screen is built for the real flow and
+  performs it: it checksums the file, asks the Worker to authorize an object,
+  and would put the bytes straight into the bucket. Without credentials the
+  Worker refuses at the signing step, and the screen shows what it answered.
+  Note that the Worker masks that particular error — a missing configuration is
+  an operator's problem and is not described to an applicant — so the message
+  is the generic one, and the specific cause is in the Worker's own output.
+
+  With a bucket configured, it must also allow `PUT` from the client's origin:
+  the browser uploads directly to the presigned URL, which is the one request
+  in the whole client that does not go through the backend-for-frontend.
+
+  Everything else on that screen works without credentials — listing what is
+  required, removing a document and putting it back.
 - **Scheduled work does not run.** Wrangler does not fire cron triggers in local
   development, so the session sweep and expired-upload cleanup need
   `wrangler dev --test-scheduled` and a request to `/__scheduled`.
+
+## What is built
+
+Built:
+
+- **Authentication** — sign in, sign up with the console code, sign out, and
+  signed-in devices with per-session and bulk revocation.
+- **The applicant portal** — enterprises, starting an initial or expansion
+  application, the six-section draft form with autosave, the evidence screen,
+  the validation report and submission or resubmission, the timeline, the
+  funding view, and the cycles an applicant can apply in.
+- **Programme cycle administration** — the list, the dense policy form, and
+  every transition the API exposes.
+
+Not built yet:
+
+- **The administrative console** — intake queues, the application workspace,
+  assignment, internal notes, desk review, bank referral and outcomes, committee
+  meetings and decisions, awards, releases, assessments and recovery.
+- **Super-administrator access** — user lookup and role management.
+
+A screen that is not built is not in the navigation. There are no placeholder
+pages, and no control that does not do what it says.
 
 ## End-to-end tests
 

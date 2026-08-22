@@ -110,17 +110,22 @@ const requiredKeys = {
 /**
  * Names a document the way the person holding it would.
  *
- * Lower-casing the whole enum turned ST_CERTIFICATE into "st certificate" and
- * DPR into "dpr", which read as typos in a message asking somebody to go and
- * find that exact document.
+ * Written out rather than derived from the enum. Splitting the constant gave
+ * "st certificate", "dpr" and "identity age proof" — the first two read as
+ * typos and the third is not a phrase anybody uses. This is the name that
+ * appears in a sentence asking somebody to go and find that exact document, so
+ * it is worth spelling.
  */
-const DOCUMENT_ACRONYMS = new Set(['ST', 'GST', 'DPR', 'NOC'])
-
-const readableDocumentType = (documentType: string): string =>
-  documentType
-    .split('_')
-    .map((word) => (DOCUMENT_ACRONYMS.has(word) ? word : word.toLowerCase()))
-    .join(' ')
+const DOCUMENT_NAMES: Record<DocumentType, string> = {
+  IDENTITY_AGE_PROOF: 'proof of identity and age',
+  ST_CERTIFICATE: 'Scheduled Tribe certificate',
+  ADDRESS_PROOF: 'proof of address',
+  BUSINESS_REGISTRATION: 'business registration',
+  GST_REGISTRATION: 'GST registration',
+  DPR: 'detailed project report',
+  BANK_DETAILS: 'bank account details',
+  NOC: 'no-objection certificate',
+}
 
 const issue = (
   section: ApplicationSection,
@@ -674,7 +679,7 @@ const validateDocumentSubmission = (
       ).map((rule) => rule.documentType))
   for (const documentType of requiredDocuments) {
     if (!activeDocumentTypes.has(documentType)) {
-      issues.push(issue('DOCUMENTS', documentType, 'DOCUMENT_REQUIRED', `Upload the ${readableDocumentType(documentType)}.`))
+      issues.push(issue('DOCUMENTS', documentType, 'DOCUMENT_REQUIRED', `Upload the ${DOCUMENT_NAMES[documentType]}.`))
     }
   }
 }

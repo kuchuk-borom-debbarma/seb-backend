@@ -223,11 +223,14 @@ function DraftFormPage() {
 
       <div className="row" style={{ marginTop: '1.5rem' }}>
         <Link
-          to="/app/applications/$id/review"
+          to="/app/applications/$id/documents"
           params={{ id }}
           className="button"
           data-variant="primary"
         >
+          Attach evidence
+        </Link>
+        <Link to="/app/applications/$id/review" params={{ id }} className="button">
           Check and submit
         </Link>
         <Link to="/app/applications/$id" params={{ id }} className="button">

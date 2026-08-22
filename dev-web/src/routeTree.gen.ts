@@ -25,7 +25,9 @@ import { Route as ShellAppEnterprisesIndexRouteImport } from './routes/_shell/ap
 import { Route as ShellAppEnterprisesIdRouteImport } from './routes/_shell/app/enterprises/$id'
 import { Route as ShellAppEnterprisesNewRouteImport } from './routes/_shell/app/enterprises/new'
 import { Route as ShellAppApplicationsIdIndexRouteImport } from './routes/_shell/app/applications/$id.index'
+import { Route as ShellAppApplicationsIdDocumentsRouteImport } from './routes/_shell/app/applications/$id.documents'
 import { Route as ShellAppApplicationsIdFormRouteImport } from './routes/_shell/app/applications/$id.form'
+import { Route as ShellAppApplicationsIdFundingRouteImport } from './routes/_shell/app/applications/$id.funding'
 import { Route as ShellAppApplicationsIdReviewRouteImport } from './routes/_shell/app/applications/$id.review'
 
 const IndexRoute = IndexRouteImport.update({
@@ -110,10 +112,22 @@ const ShellAppApplicationsIdIndexRoute =
     path: '/app/applications/$id/',
     getParentRoute: () => ShellRoute,
   } as any)
+const ShellAppApplicationsIdDocumentsRoute =
+  ShellAppApplicationsIdDocumentsRouteImport.update({
+    id: '/app/applications/$id/documents',
+    path: '/app/applications/$id/documents',
+    getParentRoute: () => ShellRoute,
+  } as any)
 const ShellAppApplicationsIdFormRoute =
   ShellAppApplicationsIdFormRouteImport.update({
     id: '/app/applications/$id/form',
     path: '/app/applications/$id/form',
+    getParentRoute: () => ShellRoute,
+  } as any)
+const ShellAppApplicationsIdFundingRoute =
+  ShellAppApplicationsIdFundingRouteImport.update({
+    id: '/app/applications/$id/funding',
+    path: '/app/applications/$id/funding',
     getParentRoute: () => ShellRoute,
   } as any)
 const ShellAppApplicationsIdReviewRoute =
@@ -138,7 +152,9 @@ export interface FileRoutesByFullPath {
   '/admin/cycles/': typeof ShellAdminCyclesIndexRoute
   '/app/applications/': typeof ShellAppApplicationsIndexRoute
   '/app/enterprises/': typeof ShellAppEnterprisesIndexRoute
+  '/app/applications/$id/documents': typeof ShellAppApplicationsIdDocumentsRoute
   '/app/applications/$id/form': typeof ShellAppApplicationsIdFormRoute
+  '/app/applications/$id/funding': typeof ShellAppApplicationsIdFundingRoute
   '/app/applications/$id/review': typeof ShellAppApplicationsIdReviewRoute
   '/app/applications/$id/': typeof ShellAppApplicationsIdIndexRoute
 }
@@ -157,7 +173,9 @@ export interface FileRoutesByTo {
   '/admin/cycles': typeof ShellAdminCyclesIndexRoute
   '/app/applications': typeof ShellAppApplicationsIndexRoute
   '/app/enterprises': typeof ShellAppEnterprisesIndexRoute
+  '/app/applications/$id/documents': typeof ShellAppApplicationsIdDocumentsRoute
   '/app/applications/$id/form': typeof ShellAppApplicationsIdFormRoute
+  '/app/applications/$id/funding': typeof ShellAppApplicationsIdFundingRoute
   '/app/applications/$id/review': typeof ShellAppApplicationsIdReviewRoute
   '/app/applications/$id': typeof ShellAppApplicationsIdIndexRoute
 }
@@ -178,7 +196,9 @@ export interface FileRoutesById {
   '/_shell/admin/cycles/': typeof ShellAdminCyclesIndexRoute
   '/_shell/app/applications/': typeof ShellAppApplicationsIndexRoute
   '/_shell/app/enterprises/': typeof ShellAppEnterprisesIndexRoute
+  '/_shell/app/applications/$id/documents': typeof ShellAppApplicationsIdDocumentsRoute
   '/_shell/app/applications/$id/form': typeof ShellAppApplicationsIdFormRoute
+  '/_shell/app/applications/$id/funding': typeof ShellAppApplicationsIdFundingRoute
   '/_shell/app/applications/$id/review': typeof ShellAppApplicationsIdReviewRoute
   '/_shell/app/applications/$id/': typeof ShellAppApplicationsIdIndexRoute
 }
@@ -199,7 +219,9 @@ export interface FileRouteTypes {
     | '/admin/cycles/'
     | '/app/applications/'
     | '/app/enterprises/'
+    | '/app/applications/$id/documents'
     | '/app/applications/$id/form'
+    | '/app/applications/$id/funding'
     | '/app/applications/$id/review'
     | '/app/applications/$id/'
   fileRoutesByTo: FileRoutesByTo
@@ -218,7 +240,9 @@ export interface FileRouteTypes {
     | '/admin/cycles'
     | '/app/applications'
     | '/app/enterprises'
+    | '/app/applications/$id/documents'
     | '/app/applications/$id/form'
+    | '/app/applications/$id/funding'
     | '/app/applications/$id/review'
     | '/app/applications/$id'
   id:
@@ -238,7 +262,9 @@ export interface FileRouteTypes {
     | '/_shell/admin/cycles/'
     | '/_shell/app/applications/'
     | '/_shell/app/enterprises/'
+    | '/_shell/app/applications/$id/documents'
     | '/_shell/app/applications/$id/form'
+    | '/_shell/app/applications/$id/funding'
     | '/_shell/app/applications/$id/review'
     | '/_shell/app/applications/$id/'
   fileRoutesById: FileRoutesById
@@ -364,11 +390,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAppApplicationsIdIndexRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/app/applications/$id/documents': {
+      id: '/_shell/app/applications/$id/documents'
+      path: '/app/applications/$id/documents'
+      fullPath: '/app/applications/$id/documents'
+      preLoaderRoute: typeof ShellAppApplicationsIdDocumentsRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/app/applications/$id/form': {
       id: '/_shell/app/applications/$id/form'
       path: '/app/applications/$id/form'
       fullPath: '/app/applications/$id/form'
       preLoaderRoute: typeof ShellAppApplicationsIdFormRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/app/applications/$id/funding': {
+      id: '/_shell/app/applications/$id/funding'
+      path: '/app/applications/$id/funding'
+      fullPath: '/app/applications/$id/funding'
+      preLoaderRoute: typeof ShellAppApplicationsIdFundingRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/app/applications/$id/review': {
@@ -393,7 +433,9 @@ interface ShellRouteChildren {
   ShellAdminCyclesIndexRoute: typeof ShellAdminCyclesIndexRoute
   ShellAppApplicationsIndexRoute: typeof ShellAppApplicationsIndexRoute
   ShellAppEnterprisesIndexRoute: typeof ShellAppEnterprisesIndexRoute
+  ShellAppApplicationsIdDocumentsRoute: typeof ShellAppApplicationsIdDocumentsRoute
   ShellAppApplicationsIdFormRoute: typeof ShellAppApplicationsIdFormRoute
+  ShellAppApplicationsIdFundingRoute: typeof ShellAppApplicationsIdFundingRoute
   ShellAppApplicationsIdReviewRoute: typeof ShellAppApplicationsIdReviewRoute
   ShellAppApplicationsIdIndexRoute: typeof ShellAppApplicationsIdIndexRoute
 }
@@ -410,7 +452,9 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellAdminCyclesIndexRoute: ShellAdminCyclesIndexRoute,
   ShellAppApplicationsIndexRoute: ShellAppApplicationsIndexRoute,
   ShellAppEnterprisesIndexRoute: ShellAppEnterprisesIndexRoute,
+  ShellAppApplicationsIdDocumentsRoute: ShellAppApplicationsIdDocumentsRoute,
   ShellAppApplicationsIdFormRoute: ShellAppApplicationsIdFormRoute,
+  ShellAppApplicationsIdFundingRoute: ShellAppApplicationsIdFundingRoute,
   ShellAppApplicationsIdReviewRoute: ShellAppApplicationsIdReviewRoute,
   ShellAppApplicationsIdIndexRoute: ShellAppApplicationsIdIndexRoute,
 }

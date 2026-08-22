@@ -6,11 +6,13 @@ import {
   draftChangesQuery,
   validationQuery,
 } from '#/features/application/applicationQueries'
+import { DOCUMENT_TITLES } from '#/features/application/documents'
 import { SECTION_TITLES } from '#/features/application/draft'
 import {
   ResubmitApplicationDocument,
   SubmitApplicationDocument,
 } from '#/graphql/generated/operations'
+import type { DocumentType } from '#/graphql/generated/schema'
 import { humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
@@ -92,9 +94,14 @@ function ReviewPage() {
                   {issues.length} {issues.length === 1 ? 'thing' : 'things'} to fix
                 </h2>
               </div>
-              <Link to="/app/applications/$id/form" params={{ id }} className="button">
-                Go to the form
-              </Link>
+              <div className="row">
+                <Link to="/app/applications/$id/form" params={{ id }} className="button">
+                  Go to the form
+                </Link>
+                <Link to="/app/applications/$id/documents" params={{ id }} className="button">
+                  Evidence
+                </Link>
+              </div>
             </div>
             <div className="table-wrap">
               <table className="table">
@@ -109,8 +116,30 @@ function ReviewPage() {
                 <tbody>
                   {issues.map((issue) => (
                     <tr key={`${issue.section}-${issue.field}-${issue.code}`}>
-                      <td>{SECTION_TITLES[issue.section] ?? humanize(issue.section)}</td>
-                      <td className="muted">{humanize(issue.field)}</td>
+                      {/*
+                        Each issue links to the screen that fixes it. Missing
+                        evidence is not fixed on the form: the files live on the
+                        evidence screen, and sending someone to the wrong one is
+                        worse than not linking at all.
+                      */}
+                      <td>
+                        <Link
+                          to={
+                            issue.section === 'DOCUMENTS'
+                              ? '/app/applications/$id/documents'
+                              : '/app/applications/$id/form'
+                          }
+                          params={{ id }}
+                        >
+                          {SECTION_TITLES[issue.section] ?? humanize(issue.section)}
+                        </Link>
+                      </td>
+                      <td className="muted">
+                        {issue.section === 'DOCUMENTS'
+                          ? (DOCUMENT_TITLES[issue.field as DocumentType] ??
+                            humanize(issue.field))
+                          : humanize(issue.field)}
+                      </td>
                       <td>{issue.message}</td>
                     </tr>
                   ))}
