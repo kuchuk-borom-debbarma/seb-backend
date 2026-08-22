@@ -15,6 +15,9 @@ import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as ShellAccountSessionsRouteImport } from './routes/_shell/account/sessions'
 import { Route as ShellAppIndexRouteImport } from './routes/_shell/app/index'
+import { Route as ShellAppEnterprisesIndexRouteImport } from './routes/_shell/app/enterprises/index'
+import { Route as ShellAppEnterprisesIdRouteImport } from './routes/_shell/app/enterprises/$id'
+import { Route as ShellAppEnterprisesNewRouteImport } from './routes/_shell/app/enterprises/new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -45,6 +48,22 @@ const ShellAppIndexRoute = ShellAppIndexRouteImport.update({
   path: '/app/',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellAppEnterprisesIndexRoute =
+  ShellAppEnterprisesIndexRouteImport.update({
+    id: '/app/enterprises/',
+    path: '/app/enterprises/',
+    getParentRoute: () => ShellRoute,
+  } as any)
+const ShellAppEnterprisesIdRoute = ShellAppEnterprisesIdRouteImport.update({
+  id: '/app/enterprises/$id',
+  path: '/app/enterprises/$id',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellAppEnterprisesNewRoute = ShellAppEnterprisesNewRouteImport.update({
+  id: '/app/enterprises/new',
+  path: '/app/enterprises/new',
+  getParentRoute: () => ShellRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -52,6 +71,9 @@ export interface FileRoutesByFullPath {
   '/sign-up': typeof SignUpRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
   '/app/': typeof ShellAppIndexRoute
+  '/app/enterprises/$id': typeof ShellAppEnterprisesIdRoute
+  '/app/enterprises/new': typeof ShellAppEnterprisesNewRoute
+  '/app/enterprises/': typeof ShellAppEnterprisesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -59,6 +81,9 @@ export interface FileRoutesByTo {
   '/sign-up': typeof SignUpRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
   '/app': typeof ShellAppIndexRoute
+  '/app/enterprises/$id': typeof ShellAppEnterprisesIdRoute
+  '/app/enterprises/new': typeof ShellAppEnterprisesNewRoute
+  '/app/enterprises': typeof ShellAppEnterprisesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -68,12 +93,31 @@ export interface FileRoutesById {
   '/sign-up': typeof SignUpRoute
   '/_shell/account/sessions': typeof ShellAccountSessionsRoute
   '/_shell/app/': typeof ShellAppIndexRoute
+  '/_shell/app/enterprises/$id': typeof ShellAppEnterprisesIdRoute
+  '/_shell/app/enterprises/new': typeof ShellAppEnterprisesNewRoute
+  '/_shell/app/enterprises/': typeof ShellAppEnterprisesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/sign-in' | '/sign-up' | '/account/sessions' | '/app/'
+  fullPaths:
+    | '/'
+    | '/sign-in'
+    | '/sign-up'
+    | '/account/sessions'
+    | '/app/'
+    | '/app/enterprises/$id'
+    | '/app/enterprises/new'
+    | '/app/enterprises/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/sign-in' | '/sign-up' | '/account/sessions' | '/app'
+  to:
+    | '/'
+    | '/sign-in'
+    | '/sign-up'
+    | '/account/sessions'
+    | '/app'
+    | '/app/enterprises/$id'
+    | '/app/enterprises/new'
+    | '/app/enterprises'
   id:
     | '__root__'
     | '/'
@@ -82,6 +126,9 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/_shell/account/sessions'
     | '/_shell/app/'
+    | '/_shell/app/enterprises/$id'
+    | '/_shell/app/enterprises/new'
+    | '/_shell/app/enterprises/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -135,17 +182,44 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAppIndexRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/app/enterprises/': {
+      id: '/_shell/app/enterprises/'
+      path: '/app/enterprises'
+      fullPath: '/app/enterprises/'
+      preLoaderRoute: typeof ShellAppEnterprisesIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/app/enterprises/$id': {
+      id: '/_shell/app/enterprises/$id'
+      path: '/app/enterprises/$id'
+      fullPath: '/app/enterprises/$id'
+      preLoaderRoute: typeof ShellAppEnterprisesIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/app/enterprises/new': {
+      id: '/_shell/app/enterprises/new'
+      path: '/app/enterprises/new'
+      fullPath: '/app/enterprises/new'
+      preLoaderRoute: typeof ShellAppEnterprisesNewRouteImport
+      parentRoute: typeof ShellRoute
+    }
   }
 }
 
 interface ShellRouteChildren {
   ShellAccountSessionsRoute: typeof ShellAccountSessionsRoute
   ShellAppIndexRoute: typeof ShellAppIndexRoute
+  ShellAppEnterprisesIdRoute: typeof ShellAppEnterprisesIdRoute
+  ShellAppEnterprisesNewRoute: typeof ShellAppEnterprisesNewRoute
+  ShellAppEnterprisesIndexRoute: typeof ShellAppEnterprisesIndexRoute
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
   ShellAccountSessionsRoute: ShellAccountSessionsRoute,
   ShellAppIndexRoute: ShellAppIndexRoute,
+  ShellAppEnterprisesIdRoute: ShellAppEnterprisesIdRoute,
+  ShellAppEnterprisesNewRoute: ShellAppEnterprisesNewRoute,
+  ShellAppEnterprisesIndexRoute: ShellAppEnterprisesIndexRoute,
 }
 
 const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)

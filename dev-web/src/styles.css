@@ -315,6 +315,9 @@ th.numeric {
 }
 
 .notice-title {
+  /* Block, because these are spans: an inline element ignores the margin and
+     the title would run straight into the sentence after it. */
+  display: block;
   font-weight: 600;
   margin-bottom: var(--space-1);
 }
@@ -450,4 +453,62 @@ th.numeric {
   .page {
     padding: var(--space-4);
   }
+}
+
+/* ---- Forms ------------------------------------------------------------- */
+
+.fieldset {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: var(--space-5);
+  margin: 0;
+}
+
+.fieldset legend {
+  padding: 0 var(--space-2);
+}
+
+.field-hint {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
+
+/* ---- Pagination -------------------------------------------------------- */
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--hairline);
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}
+
+/* ---- Filter bar -------------------------------------------------------- */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.filters .input,
+.filters .select {
+  min-width: 11rem;
+  width: auto;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.875rem;
+  min-height: 2.25rem;
 }

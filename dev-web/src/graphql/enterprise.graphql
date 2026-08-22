@@ -1,0 +1,97 @@
+fragment EnterpriseFields on Enterprise {
+  id
+  name
+  establishmentDate
+  registrationType
+  registrationNumber
+  gstin
+  businessSector
+  otherBusinessSector
+  businessBlockOrVillage
+  businessDistrict
+  businessPinCode
+  contactNumber
+  contactEmail
+  status
+  currentVersion
+  createdAt
+  updatedAt
+  deletedAt
+}
+
+query MyEnterprises($first: Int, $after: String, $includeDeleted: Boolean) {
+  seb {
+    enterprise {
+      mine(first: $first, after: $after, includeDeleted: $includeDeleted) {
+        success
+        message
+        response {
+          nodes { ...EnterpriseFields }
+          pageInfo { endCursor hasNextPage }
+        }
+      }
+    }
+  }
+}
+
+query EnterpriseById($id: ID!) {
+  seb {
+    enterprise {
+      byId(id: $id) {
+        success
+        message
+        response { ...EnterpriseFields }
+      }
+    }
+  }
+}
+
+mutation CreateEnterprise($input: EnterpriseProfileInput!) {
+  seb {
+    enterprise {
+      create(input: $input) {
+        success
+        message
+        response { ...EnterpriseFields }
+      }
+    }
+  }
+}
+
+mutation UpdateEnterprise($input: UpdateEnterpriseInput!) {
+  seb {
+    enterprise {
+      update(input: $input) {
+        success
+        message
+        response { ...EnterpriseFields }
+      }
+    }
+  }
+}
+
+mutation SoftDeleteEnterprise($input: EnterpriseDeletionInput!) {
+  seb {
+    enterprise {
+      softDelete(input: $input) {
+        success
+        message
+        response { ...EnterpriseFields }
+        blockers { applicationId referenceNumber status hasAward }
+      }
+    }
+  }
+}
+
+mutation RestoreEnterprise($id: ID!, $expectedVersion: Int!) {
+  seb {
+    enterprise {
+      restore(id: $id, expectedVersion: $expectedVersion) {
+        success
+        message
+        response { ...EnterpriseFields }
+        blockers { applicationId referenceNumber status hasAward }
+      }
+    }
+  }
+}

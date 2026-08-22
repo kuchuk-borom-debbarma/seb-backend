@@ -6,9 +6,11 @@ import {
   redirect,
   useRouter,
 } from '@tanstack/react-router'
+import { PageHeader } from '#/components/PageHeader'
 import { SignOutDocument } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
-import { ensureSession, type SignedInUser } from '#/lib/session'
+import { messageFor } from '#/lib/result'
+import { ensureSession, isApplicant, type SignedInUser } from '#/lib/session'
 import styles from './_shell.module.css'
 
 /**
@@ -27,7 +29,28 @@ export const Route = createFileRoute('/_shell')({
     return { user: session.user }
   },
   component: Shell,
+  errorComponent: ShellError,
 })
+
+/**
+ * Keeps a failed screen inside the shell.
+ *
+ * Expected refusals normally arrive inside a result envelope and are rendered
+ * in place. One that surfaces here came from a route loader, where there is no
+ * component yet to show it — most often an operation this account's roles do
+ * not allow. Rendering it with the navigation intact lets the person go
+ * somewhere else instead of meeting a blank error page.
+ */
+function ShellError({ error }: { error: Error }) {
+  return (
+    <main className="page">
+      <PageHeader title="This page could not be loaded" />
+      <p className="notice" data-tone="error" role="alert">
+        {messageFor(error)}
+      </p>
+    </main>
+  )
+}
 
 function Shell() {
   const { user } = Route.useRouteContext()
@@ -59,6 +82,12 @@ function Sidebar({ user }: { user: SignedInUser }) {
       <div className={styles.groups}>
         <NavGroup title="Portal">
           <NavLink to="/app">Overview</NavLink>
+          {/* Applicant screens are refused by the API without an APPLICANT
+              grant, so offering them to an administrator-only account would be
+              advertising a page that cannot load. */}
+          {isApplicant(user) ? (
+            <NavLink to="/app/enterprises">Enterprises</NavLink>
+          ) : null}
         </NavGroup>
 
         <NavGroup title="Account">
