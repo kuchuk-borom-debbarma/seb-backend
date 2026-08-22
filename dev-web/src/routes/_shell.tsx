@@ -10,7 +10,12 @@ import { PageHeader } from '#/components/PageHeader'
 import { SignOutDocument } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
 import { messageFor } from '#/lib/result'
-import { ensureSession, isApplicant, type SignedInUser } from '#/lib/session'
+import {
+  ensureSession,
+  isAdministrator,
+  isApplicant,
+  type SignedInUser,
+} from '#/lib/session'
 import styles from './_shell.module.css'
 
 /**
@@ -93,6 +98,12 @@ function Sidebar({ user }: { user: SignedInUser }) {
             </>
           ) : null}
         </NavGroup>
+
+        {isAdministrator(user) ? (
+          <NavGroup title="Programme office">
+            <NavLink to="/admin/cycles">Cycle administration</NavLink>
+          </NavGroup>
+        ) : null}
 
         <NavGroup title="Account">
           <NavLink to="/account/sessions">Signed-in devices</NavLink>

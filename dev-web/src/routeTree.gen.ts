@@ -16,6 +16,9 @@ import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as ShellAccountSessionsRouteImport } from './routes/_shell/account/sessions'
 import { Route as ShellAppIndexRouteImport } from './routes/_shell/app/index'
 import { Route as ShellAppCyclesRouteImport } from './routes/_shell/app/cycles'
+import { Route as ShellAdminCyclesIndexRouteImport } from './routes/_shell/admin/cycles/index'
+import { Route as ShellAdminCyclesIdRouteImport } from './routes/_shell/admin/cycles/$id'
+import { Route as ShellAdminCyclesNewRouteImport } from './routes/_shell/admin/cycles/new'
 import { Route as ShellAppApplicationsIndexRouteImport } from './routes/_shell/app/applications/index'
 import { Route as ShellAppApplicationsIdRouteImport } from './routes/_shell/app/applications/$id'
 import { Route as ShellAppApplicationsNewRouteImport } from './routes/_shell/app/applications/new'
@@ -55,6 +58,21 @@ const ShellAppIndexRoute = ShellAppIndexRouteImport.update({
 const ShellAppCyclesRoute = ShellAppCyclesRouteImport.update({
   id: '/app/cycles',
   path: '/app/cycles',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellAdminCyclesIndexRoute = ShellAdminCyclesIndexRouteImport.update({
+  id: '/admin/cycles/',
+  path: '/admin/cycles/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellAdminCyclesIdRoute = ShellAdminCyclesIdRouteImport.update({
+  id: '/admin/cycles/$id',
+  path: '/admin/cycles/$id',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellAdminCyclesNewRoute = ShellAdminCyclesNewRouteImport.update({
+  id: '/admin/cycles/new',
+  path: '/admin/cycles/new',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellAppApplicationsIndexRoute =
@@ -97,10 +115,13 @@ export interface FileRoutesByFullPath {
   '/account/sessions': typeof ShellAccountSessionsRoute
   '/app/cycles': typeof ShellAppCyclesRoute
   '/app/': typeof ShellAppIndexRoute
+  '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
+  '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
   '/app/applications/$id': typeof ShellAppApplicationsIdRoute
   '/app/applications/new': typeof ShellAppApplicationsNewRoute
   '/app/enterprises/$id': typeof ShellAppEnterprisesIdRoute
   '/app/enterprises/new': typeof ShellAppEnterprisesNewRoute
+  '/admin/cycles/': typeof ShellAdminCyclesIndexRoute
   '/app/applications/': typeof ShellAppApplicationsIndexRoute
   '/app/enterprises/': typeof ShellAppEnterprisesIndexRoute
 }
@@ -111,10 +132,13 @@ export interface FileRoutesByTo {
   '/account/sessions': typeof ShellAccountSessionsRoute
   '/app/cycles': typeof ShellAppCyclesRoute
   '/app': typeof ShellAppIndexRoute
+  '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
+  '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
   '/app/applications/$id': typeof ShellAppApplicationsIdRoute
   '/app/applications/new': typeof ShellAppApplicationsNewRoute
   '/app/enterprises/$id': typeof ShellAppEnterprisesIdRoute
   '/app/enterprises/new': typeof ShellAppEnterprisesNewRoute
+  '/admin/cycles': typeof ShellAdminCyclesIndexRoute
   '/app/applications': typeof ShellAppApplicationsIndexRoute
   '/app/enterprises': typeof ShellAppEnterprisesIndexRoute
 }
@@ -127,10 +151,13 @@ export interface FileRoutesById {
   '/_shell/account/sessions': typeof ShellAccountSessionsRoute
   '/_shell/app/cycles': typeof ShellAppCyclesRoute
   '/_shell/app/': typeof ShellAppIndexRoute
+  '/_shell/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
+  '/_shell/admin/cycles/new': typeof ShellAdminCyclesNewRoute
   '/_shell/app/applications/$id': typeof ShellAppApplicationsIdRoute
   '/_shell/app/applications/new': typeof ShellAppApplicationsNewRoute
   '/_shell/app/enterprises/$id': typeof ShellAppEnterprisesIdRoute
   '/_shell/app/enterprises/new': typeof ShellAppEnterprisesNewRoute
+  '/_shell/admin/cycles/': typeof ShellAdminCyclesIndexRoute
   '/_shell/app/applications/': typeof ShellAppApplicationsIndexRoute
   '/_shell/app/enterprises/': typeof ShellAppEnterprisesIndexRoute
 }
@@ -143,10 +170,13 @@ export interface FileRouteTypes {
     | '/account/sessions'
     | '/app/cycles'
     | '/app/'
+    | '/admin/cycles/$id'
+    | '/admin/cycles/new'
     | '/app/applications/$id'
     | '/app/applications/new'
     | '/app/enterprises/$id'
     | '/app/enterprises/new'
+    | '/admin/cycles/'
     | '/app/applications/'
     | '/app/enterprises/'
   fileRoutesByTo: FileRoutesByTo
@@ -157,10 +187,13 @@ export interface FileRouteTypes {
     | '/account/sessions'
     | '/app/cycles'
     | '/app'
+    | '/admin/cycles/$id'
+    | '/admin/cycles/new'
     | '/app/applications/$id'
     | '/app/applications/new'
     | '/app/enterprises/$id'
     | '/app/enterprises/new'
+    | '/admin/cycles'
     | '/app/applications'
     | '/app/enterprises'
   id:
@@ -172,10 +205,13 @@ export interface FileRouteTypes {
     | '/_shell/account/sessions'
     | '/_shell/app/cycles'
     | '/_shell/app/'
+    | '/_shell/admin/cycles/$id'
+    | '/_shell/admin/cycles/new'
     | '/_shell/app/applications/$id'
     | '/_shell/app/applications/new'
     | '/_shell/app/enterprises/$id'
     | '/_shell/app/enterprises/new'
+    | '/_shell/admin/cycles/'
     | '/_shell/app/applications/'
     | '/_shell/app/enterprises/'
   fileRoutesById: FileRoutesById
@@ -238,6 +274,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAppCyclesRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/admin/cycles/': {
+      id: '/_shell/admin/cycles/'
+      path: '/admin/cycles'
+      fullPath: '/admin/cycles/'
+      preLoaderRoute: typeof ShellAdminCyclesIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/admin/cycles/$id': {
+      id: '/_shell/admin/cycles/$id'
+      path: '/admin/cycles/$id'
+      fullPath: '/admin/cycles/$id'
+      preLoaderRoute: typeof ShellAdminCyclesIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/admin/cycles/new': {
+      id: '/_shell/admin/cycles/new'
+      path: '/admin/cycles/new'
+      fullPath: '/admin/cycles/new'
+      preLoaderRoute: typeof ShellAdminCyclesNewRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/app/applications/': {
       id: '/_shell/app/applications/'
       path: '/app/applications'
@@ -287,10 +344,13 @@ interface ShellRouteChildren {
   ShellAccountSessionsRoute: typeof ShellAccountSessionsRoute
   ShellAppCyclesRoute: typeof ShellAppCyclesRoute
   ShellAppIndexRoute: typeof ShellAppIndexRoute
+  ShellAdminCyclesIdRoute: typeof ShellAdminCyclesIdRoute
+  ShellAdminCyclesNewRoute: typeof ShellAdminCyclesNewRoute
   ShellAppApplicationsIdRoute: typeof ShellAppApplicationsIdRoute
   ShellAppApplicationsNewRoute: typeof ShellAppApplicationsNewRoute
   ShellAppEnterprisesIdRoute: typeof ShellAppEnterprisesIdRoute
   ShellAppEnterprisesNewRoute: typeof ShellAppEnterprisesNewRoute
+  ShellAdminCyclesIndexRoute: typeof ShellAdminCyclesIndexRoute
   ShellAppApplicationsIndexRoute: typeof ShellAppApplicationsIndexRoute
   ShellAppEnterprisesIndexRoute: typeof ShellAppEnterprisesIndexRoute
 }
@@ -299,10 +359,13 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellAccountSessionsRoute: ShellAccountSessionsRoute,
   ShellAppCyclesRoute: ShellAppCyclesRoute,
   ShellAppIndexRoute: ShellAppIndexRoute,
+  ShellAdminCyclesIdRoute: ShellAdminCyclesIdRoute,
+  ShellAdminCyclesNewRoute: ShellAdminCyclesNewRoute,
   ShellAppApplicationsIdRoute: ShellAppApplicationsIdRoute,
   ShellAppApplicationsNewRoute: ShellAppApplicationsNewRoute,
   ShellAppEnterprisesIdRoute: ShellAppEnterprisesIdRoute,
   ShellAppEnterprisesNewRoute: ShellAppEnterprisesNewRoute,
+  ShellAdminCyclesIndexRoute: ShellAdminCyclesIndexRoute,
   ShellAppApplicationsIndexRoute: ShellAppApplicationsIndexRoute,
   ShellAppEnterprisesIndexRoute: ShellAppEnterprisesIndexRoute,
 }

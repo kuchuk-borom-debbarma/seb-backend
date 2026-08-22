@@ -362,6 +362,20 @@ th.numeric {
   gap: var(--space-5) var(--space-6);
 }
 
+/* Inside a form, a field is a column whose control sits at the bottom, so a
+   label that wraps to two lines does not push its own input below the rest of
+   the row. */
+.fieldset .detail-grid > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.fieldset .detail-grid > div > .input,
+.fieldset .detail-grid > div > .select,
+.fieldset .detail-grid > div > .textarea {
+  margin-top: auto;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -511,4 +525,19 @@ th.numeric {
   gap: var(--space-2);
   font-size: 0.875rem;
   min-height: 2.25rem;
+}
+
+/* A disclosure summary is a control: it needs a pointer, a focus ring and
+   enough of a target to hit comfortably. */
+.disclosure {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  cursor: pointer;
+  padding: var(--space-1) 0;
+  font-size: 0.875rem;
+}
+
+.disclosure::marker {
+  color: var(--ink-faint);
 }

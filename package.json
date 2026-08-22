@@ -15,7 +15,8 @@
     "db:schema:print": "drizzle-kit export --config drizzle.config.ts",
     "db:schema:generate": "node scripts/check-schema.mjs --write",
     "db:schema:check": "node scripts/check-schema.mjs",
-    "db:setup:local": "wrangler d1 execute DB --local --file=database/schema.sql"
+    "db:setup:local": "wrangler d1 execute DB --local --file=database/schema.sql",
+    "seed:super-admin": "node scripts/seed-super-admin.mjs"
   },
   "dependencies": {
     "@noble/hashes": "^2.3.0",

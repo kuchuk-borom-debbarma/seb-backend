@@ -1,0 +1,128 @@
+fragment AdminCycleHead on AdminProgrammeCycle {
+  id
+  cycleCode
+  displayName
+  cycleYear
+  policyReference
+  applicantGuidance
+  partnerBankGuidance
+  status
+  opensAt
+  closesAt
+  currentVersion
+  createdAt
+  updatedAt
+  deletedAt
+}
+
+query AdminCycles($first: Int, $after: String, $includeDeleted: Boolean) {
+  admin {
+    programmeCycle {
+      list(first: $first, after: $after, includeDeleted: $includeDeleted) {
+        success
+        message
+        response {
+          nodes { ...AdminCycleHead }
+          pageInfo { endCursor hasNextPage }
+        }
+      }
+    }
+  }
+}
+
+query AdminCycleById($id: ID!) {
+  admin {
+    programmeCycle {
+      byId(id: $id) {
+        success
+        message
+        response {
+          head { ...AdminCycleHead }
+          documentRules { id documentType condition }
+          assessmentRules { id assessmentType requiredOutcome }
+          reasons { id context code label applicantMessageTemplate }
+        }
+      }
+      counts(id: $id) {
+        success
+        response { counts { status count } }
+      }
+      events(id: $id, first: 20) {
+        success
+        response { events { id eventType message createdAt } }
+      }
+    }
+  }
+}
+
+mutation CreateCycle($input: ProgrammeCycleInput!) {
+  admin {
+    programmeCycle {
+      create(input: $input) {
+        success
+        message
+        response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}
+
+mutation OpenCycle($input: CycleTransitionInput!) {
+  admin {
+    programmeCycle {
+      open(input: $input) {
+        success
+        message
+        response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}
+
+mutation CloseCycle($input: CycleTransitionInput!) {
+  admin {
+    programmeCycle {
+      close(input: $input) {
+        success
+        message
+        response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}
+
+mutation ArchiveCycle($input: CycleTransitionInput!) {
+  admin {
+    programmeCycle {
+      archive(input: $input) {
+        success
+        message
+        response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}
+
+mutation ChangeCycleClosing($input: CycleClosingInput!) {
+  admin {
+    programmeCycle {
+      changeClosingTime(input: $input) {
+        success
+        message
+        response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}
+
+mutation UpdateCycleGuidance($input: CycleGuidanceInput!) {
+  admin {
+    programmeCycle {
+      updateOpenGuidance(input: $input) {
+        success
+        message
+        response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}

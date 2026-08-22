@@ -73,8 +73,28 @@ export const formatRelative = (value: string | null | undefined): string => {
   return relative.format(0, 'minute')
 }
 
-/** Turns a screaming-snake enum into a readable phrase: DESK_REVIEW -> Desk review. */
-export const humanize = (value: string): string => {
-  const spaced = value.replace(/_/gu, ' ').toLowerCase()
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
-}
+/**
+ * Acronyms this programme uses, which must not be sentence-cased.
+ *
+ * Without this, `humanize` produces "St certificate", "Dpr" and "Ttm deferral"
+ * — which look like typos to the people who work with these documents daily.
+ */
+const ACRONYMS = new Set([
+  'ST', 'DPR', 'GST', 'GSTIN', 'NOC', 'TTM', 'TTAADC', 'SEP', 'IT', 'PIN', 'ID', 'A', 'B',
+])
+
+/**
+ * Turns a screaming-snake enum into a readable phrase.
+ *
+ * DESK_REVIEW becomes "Desk review", and ST_CERTIFICATE becomes
+ * "ST certificate" rather than "St certificate".
+ */
+export const humanize = (value: string): string =>
+  value
+    .split('_')
+    .map((word, index) => {
+      if (ACRONYMS.has(word)) return word
+      const lower = word.toLowerCase()
+      return index === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower
+    })
+    .join(' ')
