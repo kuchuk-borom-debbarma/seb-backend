@@ -2,16 +2,24 @@ import { expect, test } from '@playwright/test'
 import { SUPER_ADMIN_EMAIL, signIn, signUpApplicant, uniqueEmail } from './support'
 
 test.describe('the signed-in shell', () => {
-  test('shows the account and the roles it actually holds', async ({ page }) => {
+  test('shows the account, the roles it holds, and only its own portal', async ({
+    page,
+  }) => {
     await signIn(page, SUPER_ADMIN_EMAIL)
 
     const sidebar = page.getByRole('navigation', { name: 'Portal sections' })
     await expect(sidebar.getByText(SUPER_ADMIN_EMAIL)).toBeVisible()
     await expect(sidebar.getByText('super admin')).toBeVisible()
 
-    // Bootstrap swaps APPLICANT for SUPER_ADMIN, so this account holds one role.
-    await expect(page.getByText('Super administrator')).toBeVisible()
-    await expect(page.getByText('Applicant', { exact: true })).toBeHidden()
+    /*
+     * Bootstrap swaps APPLICANT for SUPER_ADMIN, so this account holds one role
+     * and belongs in one portal. The office masthead names it, and none of the
+     * applicant sections are offered.
+     */
+    await expect(sidebar.getByText('Programme office', { exact: true })).toBeVisible()
+    await expect(sidebar.getByRole('link', { name: 'Intake' })).toBeVisible()
+    await expect(sidebar.getByRole('link', { name: 'Enterprises' })).toHaveCount(0)
+    await expect(sidebar.getByRole('link', { name: 'Applicant portal' })).toHaveCount(0)
   })
 
   test('an applicant sees the applicant capability and not the administrative one', async ({
@@ -97,7 +105,7 @@ test.describe('signed-in devices', () => {
     await expect(page.getByRole('row')).toHaveCount(2) // header + this device
 
     // The other device is genuinely signed out, not just hidden from the list.
-    await secondPage.goto('/app')
+    await secondPage.goto('/')
     await expect(secondPage).toHaveURL(/\/sign-in/u)
     await second.close()
   })
@@ -109,8 +117,8 @@ test.describe('signed-in devices', () => {
     await page.getByRole('button', { name: 'Sign out everywhere' }).click()
     await expect(page).toHaveURL(/\/sign-in/u)
 
-    await page.goto('/app')
-    await expect(page).toHaveURL('/sign-in?next=%2Fapp')
+    await page.goto('/')
+    await expect(page).toHaveURL('/sign-in?next=%2F')
   })
 })
 

@@ -9,16 +9,16 @@ const asNewApplicant = async (page: Page) => {
 }
 
 const registerEnterprise = async (page: Page, name: string) => {
-  await page.goto('/app/enterprises/new')
+  await page.goto('/enterprises/new')
   await page.getByLabel('Registered or trading name').fill(name)
   await page.getByRole('button', { name: 'Register enterprise' }).click()
-  await expect(page).toHaveURL(/\/app\/enterprises\/[0-9a-f-]{36}$/u)
+  await expect(page).toHaveURL(/\/enterprises\/[0-9a-f-]{36}$/u)
 }
 
 test.describe('applications', () => {
   test('says what to do first when there is nothing yet', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/app/applications')
+    await page.goto('/applications')
     await expect(page.getByText('Nothing here yet')).toBeVisible()
   })
 
@@ -26,7 +26,7 @@ test.describe('applications', () => {
     page,
   }) => {
     await asNewApplicant(page)
-    await page.goto('/app/applications/new')
+    await page.goto('/applications/new')
 
     // An application is always made on behalf of an enterprise, so this is the
     // real prerequisite rather than a disabled button.
@@ -36,7 +36,7 @@ test.describe('applications', () => {
   test('reports honestly when no cycle is open', async ({ page }) => {
     await asNewApplicant(page)
     await registerEnterprise(page, 'Cycleless Works')
-    await page.goto('/app/applications/new')
+    await page.goto('/applications/new')
 
     // The test database has no open cycle until an administrator opens one, and
     // the screen must say so rather than offering an action that would fail.
@@ -45,7 +45,7 @@ test.describe('applications', () => {
 
   test('programme cycles page distinguishes open from history', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/app/cycles')
+    await page.goto('/cycles')
 
     await expect(
       page.getByRole('heading', { name: 'Open for new applications' }),
@@ -62,7 +62,7 @@ test.describe('applications', () => {
   test('filters are carried in the address so a view can be shared', async ({ page }) => {
     await asNewApplicant(page)
     await registerEnterprise(page, 'Filterable Works')
-    await page.goto('/app/applications')
+    await page.goto('/applications')
 
     await page.getByLabel('Status').selectOption('DRAFT')
     await expect(page).toHaveURL(/status=DRAFT/u)

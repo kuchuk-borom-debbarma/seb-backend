@@ -55,15 +55,24 @@ export const ensureSession = (queryClient: QueryClient) =>
 export const forgetSession = (queryClient: QueryClient) =>
   queryClient.resetQueries({ queryKey: sessionQuery.queryKey })
 
-export const hasRole = (user: SignedInUser | undefined, ...roles: UserRole[]): boolean =>
+/**
+ * These read nothing but the roles, so they ask for nothing but the roles.
+ *
+ * The sign-in response carries a narrower user than the session query does;
+ * demanding the full record here would have forced a cast at the one call site
+ * that decides which portal to open.
+ */
+type RoleBearer = { roles: readonly UserRole[] }
+
+export const hasRole = (user: RoleBearer | undefined, ...roles: UserRole[]): boolean =>
   Boolean(user && roles.some((role) => user.roles.includes(role)))
 
 /** `SUPER_ADMIN` carries every administrative capability; it needs no ADMIN grant. */
-export const isAdministrator = (user: SignedInUser | undefined): boolean =>
+export const isAdministrator = (user: RoleBearer | undefined): boolean =>
   hasRole(user, 'ADMIN', 'SUPER_ADMIN')
 
-export const isSuperAdministrator = (user: SignedInUser | undefined): boolean =>
+export const isSuperAdministrator = (user: RoleBearer | undefined): boolean =>
   hasRole(user, 'SUPER_ADMIN')
 
-export const isApplicant = (user: SignedInUser | undefined): boolean =>
+export const isApplicant = (user: RoleBearer | undefined): boolean =>
   hasRole(user, 'APPLICANT')

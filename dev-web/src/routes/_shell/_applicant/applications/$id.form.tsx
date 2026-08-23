@@ -33,7 +33,7 @@ import { messageFor, unwrap } from '#/lib/result'
 /** Long enough that typing a sentence is one save, short enough to feel safe. */
 const AUTOSAVE_DELAY_MS = 900
 
-export const Route = createFileRoute('/_shell/app/applications/$id/form')({
+export const Route = createFileRoute('/_shell/_applicant/applications/$id/form')({
   loader: ({ context, params }) => loadApplication(context.queryClient, params.id),
   component: DraftFormPage,
 })
@@ -278,17 +278,17 @@ function DraftFormPage() {
 
       <div className="row" style={{ marginTop: '1.5rem' }}>
         <Link
-          to="/app/applications/$id/documents"
+          to="/applications/$id/documents"
           params={{ id }}
           className="button"
           data-variant="primary"
         >
           Attach evidence
         </Link>
-        <Link to="/app/applications/$id/review" params={{ id }} className="button">
+        <Link to="/applications/$id/review" params={{ id }} className="button">
           Check and submit
         </Link>
-        <Link to="/app/applications/$id" params={{ id }} className="button">
+        <Link to="/applications/$id" params={{ id }} className="button">
           Back to the application
         </Link>
       </div>

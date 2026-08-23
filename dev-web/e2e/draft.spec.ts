@@ -19,7 +19,7 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/app/applications/${id}/form`)
+    await page.goto(`/applications/${id}/form`)
 
     await page.getByLabel('Business name').fill('Draft Works Foods')
     // Autosave is debounced, so the indicator is the honest signal that the
@@ -35,7 +35,7 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/app/applications/${id}/form`)
+    await page.goto(`/applications/${id}/form`)
 
     for (const title of [
       'The enterprise',
@@ -54,7 +54,7 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/app/applications/${id}/form`)
+    await page.goto(`/applications/${id}/form`)
 
     // The API refuses details for support that was not received, so the fields
     // are not offered until the answer calls for them.
@@ -85,7 +85,7 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/app/applications/${id}/review`)
+    await page.goto(`/applications/${id}/review`)
 
     await expect(page.getByText('Not ready yet')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Submit application' })).toBeDisabled()
@@ -101,7 +101,7 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/app/applications/${id}/form`)
+    await page.goto(`/applications/${id}/form`)
 
     await page.getByLabel('Total project cost (₹)').fill('500000')
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
@@ -128,12 +128,12 @@ test.describe('the closing date', () => {
 
     // On the form, because a date seen on the cycles screen three weeks ago is
     // no help to somebody halfway through the questions.
-    await page.goto(`/app/applications/${id}/form`)
+    await page.goto(`/applications/${id}/form`)
     await expect(page.getByText('When applications close')).toBeVisible()
     await expect(page.getByText(/closes in \d+ (day|month)/u)).toBeVisible()
 
     // And on the screen where somebody decides whether to send it now.
-    await page.goto(`/app/applications/${id}/review`)
+    await page.goto(`/applications/${id}/review`)
     await expect(page.getByText('When applications close')).toBeVisible()
   })
 })
@@ -150,13 +150,13 @@ test.describe('the validation report', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/app/applications/${id}/review`)
+    await page.goto(`/applications/${id}/review`)
 
     const row = page.getByRole('row').filter({ hasText: 'Your full name' }).first()
     await row.getByRole('link').click()
 
     await expect(page).toHaveURL(
-      new RegExp(`/app/applications/${id}/form#primaryApplicantName$`, 'u'),
+      new RegExp(`/applications/${id}/form#primaryApplicantName$`, 'u'),
     )
     // Focused, not merely scrolled into view — a keyboard or screen reader user
     // has to land on the control too.

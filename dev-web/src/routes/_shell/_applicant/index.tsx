@@ -3,7 +3,7 @@ import { PageHeader } from '#/components/PageHeader'
 import { formatDate } from '#/lib/format'
 import { isAdministrator, isApplicant, isSuperAdministrator } from '#/lib/session'
 
-export const Route = createFileRoute('/_shell/app/')({
+export const Route = createFileRoute('/_shell/_applicant/')({
   component: OverviewPage,
 })
 

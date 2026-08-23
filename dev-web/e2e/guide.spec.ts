@@ -33,7 +33,7 @@ test.describe('how this works', () => {
   })
 
   test('is the first thing in the navigation', async ({ page }) => {
-    await page.goto('/app')
+    await page.goto('/')
     const navigation = page.getByRole('navigation', { name: 'Portal sections' })
     const links = await navigation.getByRole('link').allInnerTexts()
     expect(links[0]).toBe('How this works')
@@ -311,7 +311,7 @@ test.describe('a question that explains itself', () => {
       prefix: 'guide',
       businessName: 'Guide Works',
     })
-    await page.goto(`/app/applications/${id}/form`)
+    await page.goto(`/applications/${id}/form`)
 
     /*
      * The control must still be named by its own label. Putting the explanation
@@ -338,7 +338,7 @@ test.describe('a question that explains itself', () => {
       prefix: 'guide',
       businessName: 'Guide Works',
     })
-    await page.goto(`/app/applications/${id}/form`)
+    await page.goto(`/applications/${id}/form`)
 
     // One explanation on a form of forty questions. An icon beside every label
     // teaches nothing and doubles the reading.

@@ -29,7 +29,7 @@ test.describe('funding', () => {
       prefix: 'funding',
       businessName: 'Funding Works',
     })
-    await page.goto(`/app/applications/${id}/funding`)
+    await page.goto(`/applications/${id}/funding`)
 
     await expect(page.getByText('Nothing has been sanctioned yet')).toBeVisible()
 
@@ -44,7 +44,7 @@ test.describe('funding', () => {
       prefix: 'funding',
       businessName: 'Funding Works',
     })
-    await page.goto(`/app/applications/${id}`)
+    await page.goto(`/applications/${id}`)
 
     // A draft is offered the form and the check, not a funding screen that
     // could only say "nothing yet".
@@ -57,9 +57,9 @@ test.describe('funding', () => {
       prefix: 'funding',
       businessName: 'Funding Works',
     })
-    await page.goto(`/app/applications/${id}/funding`)
+    await page.goto(`/applications/${id}/funding`)
 
     await page.getByRole('link', { name: 'Back to the application' }).click()
-    await expect(page).toHaveURL(new RegExp(`/app/applications/${id}$`, 'u'))
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}$`, 'u'))
   })
 })

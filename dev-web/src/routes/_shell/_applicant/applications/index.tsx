@@ -72,7 +72,7 @@ const enterpriseNamesQuery = queryOptions({
   staleTime: 60_000,
 })
 
-export const Route = createFileRoute('/_shell/app/applications/')({
+export const Route = createFileRoute('/_shell/_applicant/applications/')({
   validateSearch: (search: Record<string, unknown>): Search => ({
     after: typeof search.after === 'string' ? search.after : undefined,
     enterpriseId:
@@ -113,7 +113,7 @@ function ApplicationsPage() {
         title="Applications"
         description="Every application you have started, in any programme cycle."
         actions={
-          <Link to="/app/applications/new" className="button" data-variant="primary">
+          <Link to="/applications/new" className="button" data-variant="primary">
             Start an application
           </Link>
         }
@@ -227,7 +227,7 @@ function ApplicationsPage() {
                   <tr key={application.id}>
                     <td>
                       <Link
-                        to="/app/applications/$id"
+                        to="/applications/$id"
                         params={{ id: application.id }}
                         className="tabular"
                       >

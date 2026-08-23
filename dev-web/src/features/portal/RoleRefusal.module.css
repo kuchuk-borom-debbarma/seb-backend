@@ -1,0 +1,48 @@
+/* A statement, not an alarm. It uses the ordinary card surface rather than the
+   error tone, because nothing has gone wrong — this is what this account is. */
+.panel {
+  max-width: 34rem;
+  padding: var(--space-6);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+}
+
+.holding {
+  font-size: 0.9375rem;
+  color: var(--ink);
+}
+
+.holding strong {
+  font-weight: 600;
+  color: var(--green);
+}
+
+.body {
+  margin-top: var(--space-4);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--ink-muted);
+}
+
+/* The exact words to send somebody. Set as a quotation so it is obvious it is
+   text to copy rather than a message from the system. */
+.quote {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface-sunken);
+  border-left: 2px solid var(--green);
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.panel > .button {
+  margin-top: var(--space-4);
+}
+
+.aside {
+  margin-top: var(--space-5);
+  font-size: 0.8125rem;
+  color: var(--ink-faint);
+}

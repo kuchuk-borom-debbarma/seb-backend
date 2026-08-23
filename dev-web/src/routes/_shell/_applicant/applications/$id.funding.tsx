@@ -16,7 +16,7 @@ import { PageHeader } from '#/components/PageHeader'
 import { applicationQuery, fundingQuery } from '#/features/application/applicationQueries'
 import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
 
-export const Route = createFileRoute('/_shell/app/applications/$id/funding')({
+export const Route = createFileRoute('/_shell/_applicant/applications/$id/funding')({
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(applicationQuery(params.id)),
@@ -45,7 +45,7 @@ function FundingPage() {
             'Once the committee approves this application and a sanction order is issued, the amount and every payment against it appear here.'}
         </p>
         <div className="row" style={{ marginTop: '1.5rem' }}>
-          <Link to="/app/applications/$id" params={{ id }} className="button">
+          <Link to="/applications/$id" params={{ id }} className="button">
             Back to the application
           </Link>
         </div>
@@ -194,7 +194,7 @@ function FundingPage() {
       </div>
 
       <div className="row" style={{ marginTop: '1.5rem' }}>
-        <Link to="/app/applications/$id" params={{ id }} className="button">
+        <Link to="/applications/$id" params={{ id }} className="button">
           Back to the application
         </Link>
       </div>

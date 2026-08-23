@@ -93,14 +93,14 @@ test.describe('cycle administration', () => {
     await signUpApplicant(applicantPage, email)
     await signIn(applicantPage, email)
 
-    await applicantPage.goto('/app/cycles')
+    await applicantPage.goto('/cycles')
     await expect(applicantPage.getByText(code).first()).toBeVisible()
 
-    await applicantPage.goto('/app/enterprises/new')
+    await applicantPage.goto('/enterprises/new')
     await applicantPage.getByLabel('Registered or trading name').fill('Journey Works')
     await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
 
-    await applicantPage.goto('/app/applications/new')
+    await applicantPage.goto('/applications/new')
     await applicantPage.getByLabel('Enterprise').selectOption({ label: 'Journey Works' })
     await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
     await applicantPage
@@ -108,7 +108,7 @@ test.describe('cycle administration', () => {
       .click()
 
     // The application exists, and the status rail says whose turn it is.
-    await expect(applicantPage).toHaveURL(/\/app\/applications\/[0-9a-f-]{36}$/u)
+    await expect(applicantPage).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
     await expect(applicantPage.getByText('Your turn')).toBeVisible()
     await expect(
       applicantPage.getByRole('heading', { name: 'Unsubmitted draft' }),
@@ -130,11 +130,11 @@ test.describe('cycle administration', () => {
     await signUpApplicant(applicantPage, email)
     await signIn(applicantPage, email)
 
-    await applicantPage.goto('/app/enterprises/new')
+    await applicantPage.goto('/enterprises/new')
     await applicantPage.getByLabel('Registered or trading name').fill('Unfunded Works')
     await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
 
-    await applicantPage.goto('/app/applications/new')
+    await applicantPage.goto('/applications/new')
     await applicantPage.getByLabel('Enterprise').selectOption({ label: 'Unfunded Works' })
     await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
 

@@ -170,6 +170,38 @@ document rules are all `OPTIONAL`. That is a legitimate policy the API accepts,
 not a fixture: an application in such a cycle genuinely requires no files. Every
 other cycle in the suite keeps the ordinary rules.
 
+## Two portals
+
+The client is two portals sharing one institution.
+
+- **`/` — the applicant portal.** Overview, enterprises, applications and the
+  cycles you can apply in. Needs the `APPLICANT` role.
+- **`/admin` — the programme office.** Intake, committee meetings, cycle
+  administration, and role management at `/admin/access`. Needs `ADMIN` or
+  `SUPER_ADMIN`; the access screen needs `SUPER_ADMIN` specifically.
+- **Shared** — `/guide` and `/account/sessions`, reachable from either.
+
+Signing in lands each account in the portal its roles fit, so an officer with no
+applicant grant never has to read a refusal after every sign-in. Opening a
+portal you cannot use **refuses in place** rather than redirecting: the screen
+names the roles the account does hold, links to the portal it can use, and when
+it holds none, gives the exact sentence to send a super administrator.
+
+The navigation beside a refusal is the one that *works*. If an applicant opens
+`/admin`, the sidebar shows the applicant portal — listing four office links
+that would every one of them refuse is exactly what this interface does not do.
+
+**Two densities, one system.** The palette, the three faces and every component
+are shared. Four custom properties differ, set by `data-portal` on the shell:
+`--page-measure`, `--body-size`, `--card-padding` and `--title-size`. An
+applicant applying once in their life gets room; an officer working forty
+applications a day gets density. Note that the shell — not `body` — reads
+`--body-size`, because custom properties inherit downwards only.
+
+**The gates are not the security boundary.** They decide what is *offered*.
+Every operation is still refused server-side by `currentApplicant`,
+`currentAdministrator` or the super-admin check.
+
 ## The guidance layer
 
 The client is a demonstration as well as a client, so it leads people through

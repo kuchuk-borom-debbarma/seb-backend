@@ -151,7 +151,7 @@ test('an application is carried from submission to payment', async ({ page }) =>
   // --- And the applicant sees their own money -----------------------------
   await page.context().clearCookies()
   await signIn(page, email)
-  await page.goto(`/app/applications/${id}/funding`)
+  await page.goto(`/applications/${id}/funding`)
 
   // The figures are the server's arithmetic, shown in the applicant's terms.
   await expect(page.getByText('TTAADC/SEP/SO/2026/019')).toBeVisible()

@@ -30,7 +30,7 @@ const enterprisesQuery = (search: Search) =>
     placeholderData: (previous) => previous,
   })
 
-export const Route = createFileRoute('/_shell/app/enterprises/')({
+export const Route = createFileRoute('/_shell/_applicant/enterprises/')({
   // Filters and the cursor live in the URL, so a page can be linked, shared and
   // returned to by the back button rather than living in component state.
   validateSearch: (search: Record<string, unknown>): Search => ({
@@ -58,7 +58,7 @@ function EnterprisesPage() {
         description="Each application is made on behalf of one enterprise. Register it here first."
         actions={
           <Link
-            to="/app/enterprises/new"
+            to="/enterprises/new"
             className="button"
             data-variant="primary"
             {...mark('enterprise-list')}
@@ -98,7 +98,7 @@ function EnterprisesPage() {
               an open programme cycle.
             </p>
             <Link
-              to="/app/enterprises/new"
+              to="/enterprises/new"
               className="button"
               data-variant="primary"
               style={{ marginTop: '1rem' }}
@@ -126,7 +126,7 @@ function EnterprisesPage() {
                   <tr key={enterprise.id}>
                     <td>
                       <Link
-                        to="/app/enterprises/$id"
+                        to="/enterprises/$id"
                         params={{ id: enterprise.id }}
                         style={{ fontWeight: 500 }}
                       >

@@ -108,10 +108,15 @@ export const bootstrapSuperAdmin = async (): Promise<void> => {
  * assert which sections exist rather than how they are styled.
  */
 export const navigationSections = async (page: Page): Promise<string[]> => {
-  const headings = await page
-    .locator('nav[aria-label="Portal sections"] p')
-    .allInnerTexts()
-  return headings.map((heading) => heading.toLowerCase())
+  const headings = page.locator('nav[aria-label="Portal sections"] p')
+  /*
+   * Wait for the first heading rather than sampling. `toHaveURL` passes the
+   * moment the address changes, which can be before the shell has rendered —
+   * reading immediately after it returned an empty list and made a correct page
+   * look broken.
+   */
+  await headings.first().waitFor()
+  return (await headings.allInnerTexts()).map((heading) => heading.toLowerCase())
 }
 
 /**
@@ -166,15 +171,15 @@ export const startApplication = async (
   await signUpApplicant(page, email)
   await signIn(page, email)
 
-  await page.goto('/app/enterprises/new')
+  await page.goto('/enterprises/new')
   await page.getByLabel('Registered or trading name').fill(businessName)
   await page.getByRole('button', { name: 'Register enterprise' }).click()
 
-  await page.goto('/app/applications/new')
+  await page.goto('/applications/new')
   await page.getByLabel('Enterprise').selectOption({ label: businessName })
   await page.getByLabel('Programme cycle').selectOption({ index: 1 })
   await page.getByRole('button', { name: 'Start an initial application' }).click()
-  await expect(page).toHaveURL(/\/app\/applications\/[0-9a-f-]{36}$/u)
+  await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
   return page.url().split('/').pop() as string
 }
 
@@ -203,11 +208,11 @@ export const submitApplication = async (
   await signUpApplicant(page, email)
   await signIn(page, email)
 
-  await page.goto('/app/enterprises/new')
+  await page.goto('/enterprises/new')
   await page.getByLabel('Registered or trading name').fill(businessName)
   await page.getByRole('button', { name: 'Register enterprise' }).click()
 
-  await page.goto('/app/applications/new')
+  await page.goto('/applications/new')
   await page.getByLabel('Enterprise').selectOption({ label: businessName })
   /*
    * By code, not by position. The suite shares one database, so by the time
@@ -222,15 +227,15 @@ export const submitApplication = async (
     .innerText()
   await page.getByLabel('Programme cycle').selectOption({ label: cycleOption })
   await page.getByRole('button', { name: 'Start an initial application' }).click()
-  await expect(page).toHaveURL(/\/app\/applications\/[0-9a-f-]{36}$/u)
+  await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
   const id = page.url().split('/').pop() as string
 
   await fillEveryAnswer(page, id, businessName)
 
-  await page.goto(`/app/applications/${id}/review`)
+  await page.goto(`/applications/${id}/review`)
   await expect(page.getByText('Everything needed is present')).toBeVisible()
   await page.getByRole('button', { name: 'Submit application' }).click()
-  await expect(page).toHaveURL(new RegExp(`/app/applications/${id}/submitted$`, 'u'))
+  await expect(page).toHaveURL(new RegExp(`/applications/${id}/submitted$`, 'u'))
 
   return { email, id }
 }
@@ -278,7 +283,7 @@ export const fillEveryAnswer = async (
   id: string,
   businessName: string,
 ): Promise<void> => {
-  await page.goto(`/app/applications/${id}/form`)
+  await page.goto(`/applications/${id}/form`)
   await page.getByLabel('Business name').fill(businessName)
   await page.getByLabel('Date established').fill('2025-03-10')
   await page.getByLabel('Category', { exact: true }).selectOption({ index: 1 })

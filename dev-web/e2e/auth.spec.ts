@@ -11,14 +11,14 @@ import {
 
 test.describe('signing in', () => {
   test('turns away a visitor and remembers where they were going', async ({ page }) => {
-    await page.goto('/app')
-    await expect(page).toHaveURL('/sign-in?next=%2Fapp')
+    await page.goto('/')
+    await expect(page).toHaveURL('/sign-in?next=%2F')
     await expect(page.getByRole('heading', { name: 'Mission SEP' })).toBeVisible()
   })
 
-  test('the root address sends a signed-out visitor to sign in', async ({ page }) => {
-    await page.goto('/')
-    await expect(page).toHaveURL('/sign-in')
+  test('a signed-out visitor is sent to sign in from anywhere', async ({ page }) => {
+    await page.goto('/applications')
+    await expect(page).toHaveURL('/sign-in?next=%2Fapplications')
   })
 
   test('shows the message the API returned for a wrong password', async ({ page }) => {
@@ -50,14 +50,18 @@ test.describe('signing in', () => {
    * still held the signed-out answer. This asserts the whole client-side
    * navigation, not just that the API accepted the credentials.
    */
-  test('lands on the portal without a full page reload', async ({ page }) => {
+  test('lands on the portal its roles fit, without a full page reload', async ({
+    page,
+  }) => {
     await page.goto('/sign-in')
     await page.getByLabel('Email address').fill(SUPER_ADMIN_EMAIL)
     await page.getByLabel('Password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()
 
-    await expect(page).toHaveURL(/\/app$/u)
-    await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+    // The bootstrap revoked this account's applicant grant, so the applicant
+    // portal would only refuse it. Sign-in sends it to the office instead.
+    await expect(page).toHaveURL(/\/admin$/u)
+    await expect(page.getByRole('heading', { name: 'Intake' })).toBeVisible()
   })
 
   test('returns to the page that was originally asked for', async ({ page }) => {
@@ -74,7 +78,7 @@ test.describe('signing in', () => {
   test('sends an already signed-in person straight past the form', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL)
     await page.goto('/sign-in')
-    await expect(page).toHaveURL(/\/app$/u)
+    await expect(page).not.toHaveURL(/\/sign-in/u)
   })
 })
 
@@ -84,8 +88,8 @@ test.describe('signing out', () => {
     await signOut(page)
 
     // Not merely a redirect: the session is deleted, so going back is refused.
-    await page.goto('/app')
-    await expect(page).toHaveURL('/sign-in?next=%2Fapp')
+    await page.goto('/')
+    await expect(page).toHaveURL('/sign-in?next=%2F')
   })
 })
 
@@ -100,9 +104,9 @@ test.describe('creating an account', () => {
     await expect(page).toHaveURL(/\/sign-in/u)
 
     await signIn(page, email)
-    await expect(page).toHaveURL(/\/app$/u)
+    await expect(page).toHaveURL(/localhost:\d+\/$/u)
     await expect(page.getByText(email).first()).toBeVisible()
-    expect(await navigationSections(page)).toContain('portal')
+    expect(await navigationSections(page)).toContain('your applications')
   })
 
   test('refuses a code that is not the one that was sent', async ({ page }) => {

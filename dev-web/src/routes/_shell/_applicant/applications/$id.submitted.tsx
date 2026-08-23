@@ -23,7 +23,7 @@ import { DOCUMENT_TITLES, formatBytes } from '#/features/application/documents'
 import { SECTION_TITLES } from '#/features/application/draft'
 import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
 
-export const Route = createFileRoute('/_shell/app/applications/$id/submitted')({
+export const Route = createFileRoute('/_shell/_applicant/applications/$id/submitted')({
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(applicationQuery(params.id)),
@@ -65,7 +65,7 @@ function SubmittedPage() {
             >
               Print this
             </button>
-            <Link to="/app/applications/$id" params={{ id }} className="button">
+            <Link to="/applications/$id" params={{ id }} className="button">
               Go to the application
             </Link>
           </>

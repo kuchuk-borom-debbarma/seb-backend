@@ -37,7 +37,7 @@ test.describe('evidence', () => {
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
-    await page.goto(`/app/applications/${id}/documents`)
+    await page.goto(`/applications/${id}/documents`)
 
     for (const title of [
       'Identity and age proof',
@@ -58,7 +58,7 @@ test.describe('evidence', () => {
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
-    await page.goto(`/app/applications/${id}/documents`)
+    await page.goto(`/applications/${id}/documents`)
 
     // The requirement is the API's own message, so the screen never states a
     // rule the server does not hold.
@@ -78,7 +78,7 @@ test.describe('evidence', () => {
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
-    await page.goto(`/app/applications/${id}/documents`)
+    await page.goto(`/applications/${id}/documents`)
 
     await choose(page, {
       name: 'notes.txt',
@@ -93,7 +93,7 @@ test.describe('evidence', () => {
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
-    await page.goto(`/app/applications/${id}/documents`)
+    await page.goto(`/applications/${id}/documents`)
 
     await choose(page, {
       name: 'blank.pdf',
@@ -110,7 +110,7 @@ test.describe('evidence', () => {
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
-    await page.goto(`/app/applications/${id}/documents`)
+    await page.goto(`/applications/${id}/documents`)
 
     await choose(page, {
       name: 'dpr.pdf',
@@ -144,7 +144,7 @@ test.describe('evidence', () => {
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
-    await page.goto(`/app/applications/${id}/review`)
+    await page.goto(`/applications/${id}/review`)
 
     // The row for a missing document leads to the evidence screen, not the
     // form, because that is where the file is attached.
@@ -153,10 +153,10 @@ test.describe('evidence', () => {
       .filter({ hasText: 'Upload the detailed project report.' })
       .getByRole('link')
     await documentIssue.click()
-    await expect(page).toHaveURL(new RegExp(`/app/applications/${id}/documents$`, 'u'))
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
 
     // An answer on the form leads to the form.
-    await page.goto(`/app/applications/${id}/review`)
+    await page.goto(`/applications/${id}/review`)
     const formIssue = page
       .getByRole('row')
       .filter({ hasText: 'About you' })
@@ -165,7 +165,7 @@ test.describe('evidence', () => {
     await formIssue.click()
     // With the field named in the address — the form is forty questions long,
     // and the section alone is not where the answer goes.
-    await expect(page).toHaveURL(new RegExp(`/app/applications/${id}/form#\\w+$`, 'u'))
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/form#\\w+$`, 'u'))
   })
 
   test('is reachable from the application and from the form', async ({ page }) => {
@@ -174,12 +174,12 @@ test.describe('evidence', () => {
       businessName: 'Evidence Works',
     })
 
-    await page.goto(`/app/applications/${id}`)
+    await page.goto(`/applications/${id}`)
     await page.getByRole('link', { name: 'Evidence' }).click()
-    await expect(page).toHaveURL(new RegExp(`/app/applications/${id}/documents$`, 'u'))
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
 
-    await page.goto(`/app/applications/${id}/form`)
+    await page.goto(`/applications/${id}/form`)
     await page.getByRole('link', { name: 'Attach evidence' }).click()
-    await expect(page).toHaveURL(new RegExp(`/app/applications/${id}/documents$`, 'u'))
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
   })
 })

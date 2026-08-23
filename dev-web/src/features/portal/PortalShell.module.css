@@ -1,4 +1,11 @@
 .shell {
+  /*
+   * The shell sets its own measure. `--body-size` is declared on this element
+   * by `data-portal`, and custom properties inherit downwards only — so reading
+   * it on `body`, which is an ancestor, would always have given the default.
+   * Sign-in and sign-up sit outside the shell and keep that default.
+   */
+  font-size: var(--body-size);
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   min-height: 100dvh;
@@ -29,6 +36,34 @@
   position: sticky;
   top: 0;
   height: 100dvh;
+}
+
+/* A line under the name saying which portal this is, and for the applicant what
+   the programme is for. Two words of orientation cost nothing and answer the
+   first question somebody has. */
+.brandNote {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--ink-faint);
+}
+
+/* The way across for an account holding both kinds of role. Set apart from the
+   sections above it, because it leaves this portal rather than moving within
+   it. */
+.switch {
+  display: block;
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--hairline);
+  font-size: 0.8125rem;
+  color: var(--green);
+  text-decoration: none;
+}
+
+.switch:hover {
+  background: var(--surface-sunken);
 }
 
 .brand {

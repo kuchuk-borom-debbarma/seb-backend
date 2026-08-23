@@ -14,7 +14,7 @@ import styles from './sign-in.module.css'
 export const Route = createFileRoute('/sign-up')({
   beforeLoad: async ({ context }) => {
     const session = await ensureSession(context.queryClient)
-    if (session) throw redirect({ to: '/app' })
+    if (session) throw redirect({ to: '/' })
   },
   component: SignUpPage,
 })

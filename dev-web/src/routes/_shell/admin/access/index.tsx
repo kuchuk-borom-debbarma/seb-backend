@@ -20,15 +20,17 @@ import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
 import { managedUserQuery } from '#/features/access/accessQueries'
+import { RoleRefusal } from '#/features/portal/RoleRefusal'
 import { GrantRoleDocument, RevokeRoleDocument } from '#/graphql/generated/operations'
 import type { ManageableRole } from '#/graphql/generated/schema'
 import { formatDateTime, humanize, readableReason } from '#/lib/format'
+import { isSuperAdministrator } from '#/lib/session'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 
 type Search = { email?: string }
 
-export const Route = createFileRoute('/_shell/access/')({
+export const Route = createFileRoute('/_shell/admin/access/')({
   validateSearch: (search: Record<string, unknown>): Search => ({
     email: typeof search.email === 'string' && search.email ? search.email : undefined,
   }),
@@ -41,6 +43,13 @@ export const Route = createFileRoute('/_shell/access/')({
 })
 
 function AccessPage() {
+  /*
+   * The office gate above already required an administrative role. Granting and
+   * revoking is narrower than that — the API's `access` namespace refuses
+   * anyone but a super administrator — so it is checked again here rather than
+   * letting an administrator open a screen whose every control would refuse.
+   */
+  const { user: operator } = Route.useRouteContext()
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const queryClient = useQueryClient()
@@ -52,6 +61,10 @@ function AccessPage() {
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['managed-user', search.email] })
+
+  if (!isSuperAdministrator(operator)) {
+    return <RoleRefusal portal="office" user={operator} />
+  }
 
   return (
     <main className="page">

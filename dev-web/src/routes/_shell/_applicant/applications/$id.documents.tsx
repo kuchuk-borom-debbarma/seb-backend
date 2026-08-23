@@ -40,7 +40,7 @@ type Application = NonNullable<
 >
 type Document = Application['documents'][number]
 
-export const Route = createFileRoute('/_shell/app/applications/$id/documents')({
+export const Route = createFileRoute('/_shell/_applicant/applications/$id/documents')({
   loader: ({ context, params }) => loadApplication(context.queryClient, params.id),
   component: DocumentsPage,
 })
@@ -110,14 +110,14 @@ function DocumentsPage() {
 
       <div className="row" style={{ marginTop: '1.5rem' }}>
         <Link
-          to="/app/applications/$id/review"
+          to="/applications/$id/review"
           params={{ id }}
           className="button"
           data-variant="primary"
         >
           Check and submit
         </Link>
-        <Link to="/app/applications/$id/form" params={{ id }} className="button">
+        <Link to="/applications/$id/form" params={{ id }} className="button">
           Back to the form
         </Link>
       </div>

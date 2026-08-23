@@ -30,7 +30,7 @@ const enterpriseQuery = (id: string) =>
     },
   })
 
-export const Route = createFileRoute('/_shell/app/enterprises/$id')({
+export const Route = createFileRoute('/_shell/_applicant/enterprises/$id')({
   loader: ({ context, params }) =>
     context.queryClient.ensureQueryData(enterpriseQuery(params.id)),
   component: EnterprisePage,
@@ -260,7 +260,7 @@ function EnterprisePage() {
       )}
 
       <p style={{ marginTop: '1.5rem' }}>
-        <Link to="/app/enterprises">Back to enterprises</Link>
+        <Link to="/enterprises">Back to enterprises</Link>
       </p>
     </main>
   )

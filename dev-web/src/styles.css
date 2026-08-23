@@ -45,6 +45,18 @@
 
   --focus: #2f5d45;
 
+  /*
+   * Measure. One system, two audiences: an applicant does this once in their
+   * life and needs room; an officer works forty applications a day and needs
+   * density. Only these four properties differ between the portals — the
+   * palette, the faces and the spacing rhythm are shared, so tables stay
+   * aligned to the same grid in both.
+   */
+  --page-measure: 72rem;
+  --body-size: 0.9375rem;
+  --card-padding: var(--space-5);
+  --title-size: 1.75rem;
+
   --font-display: 'Source Serif 4 Variable', Georgia, serif;
   --font-body: 'Public Sans Variable', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -83,7 +95,7 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--font-body);
-  font-size: 0.9375rem;
+  font-size: var(--body-size);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
@@ -99,7 +111,7 @@ h3 {
 }
 
 h1 {
-  font-size: 1.75rem;
+  font-size: var(--title-size);
 }
 h2 {
   font-size: 1.3125rem;
@@ -169,15 +181,19 @@ th.numeric {
 }
 
 .card-body {
-  padding: var(--space-5);
+  padding: var(--card-padding);
 }
 
 .card-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  /* Wraps rather than overflowing: a long title beside a badge or a row of
+     actions has nowhere to go on a narrow screen, and pushing the page sideways
+     is the one thing it must not do. */
+  flex-wrap: wrap;
   gap: var(--space-4);
-  padding: var(--space-5);
+  padding: var(--card-padding);
   border-bottom: 1px solid var(--hairline);
 }
 
@@ -473,7 +489,7 @@ th.numeric {
 
 .page {
   padding: var(--space-6);
-  max-width: 72rem;
+  max-width: var(--page-measure);
 }
 
 .page-header {
@@ -900,4 +916,26 @@ th.numeric {
 
 .field-label-row > .field-label {
   margin-bottom: 0;
+}
+
+/* ---- The two portals --------------------------------------------------- */
+
+/*
+ * An applicant is reading, so the page is held to a reading width and set a
+ * size larger. An officer is scanning tables, so the page takes the screen and
+ * the type tightens. Nothing else changes: same colours, same faces, same
+ * components.
+ */
+[data-portal='applicant'] {
+  --page-measure: 58rem;
+  --body-size: 1rem;
+  --card-padding: var(--space-6);
+  --title-size: 2rem;
+}
+
+[data-portal='office'] {
+  --page-measure: none;
+  --body-size: 0.875rem;
+  --card-padding: var(--space-5);
+  --title-size: 1.5rem;
 }

@@ -19,7 +19,7 @@ import { humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 
-export const Route = createFileRoute('/_shell/app/applications/$id/review')({
+export const Route = createFileRoute('/_shell/_applicant/applications/$id/review')({
   loader: ({ context, params }) =>
     Promise.all([
       loadApplication(context.queryClient, params.id),
@@ -61,7 +61,7 @@ function ReviewPage() {
       // The acknowledgement, not the application. Submitting is the moment the
       // whole thing has been building towards, and it should end somewhere that
       // says so and carries the reference number away with it.
-      await router.navigate({ to: '/app/applications/$id/submitted', params: { id } })
+      await router.navigate({ to: '/applications/$id/submitted', params: { id } })
     },
   })
 
@@ -101,14 +101,10 @@ function ReviewPage() {
                 </h2>
               </div>
               <div className="row">
-                <Link to="/app/applications/$id/form" params={{ id }} className="button">
+                <Link to="/applications/$id/form" params={{ id }} className="button">
                   Go to the form
                 </Link>
-                <Link
-                  to="/app/applications/$id/documents"
-                  params={{ id }}
-                  className="button"
-                >
+                <Link to="/applications/$id/documents" params={{ id }} className="button">
                   Evidence
                 </Link>
               </div>
@@ -136,8 +132,8 @@ function ReviewPage() {
                         <Link
                           to={
                             issue.section === 'DOCUMENTS'
-                              ? '/app/applications/$id/documents'
-                              : '/app/applications/$id/form'
+                              ? '/applications/$id/documents'
+                              : '/applications/$id/form'
                           }
                           params={{ id }}
                           /*
@@ -219,7 +215,7 @@ function ReviewPage() {
                 ? 'Resubmit application'
                 : 'Submit application'}
           </button>
-          <Link to="/app/applications/$id/form" params={{ id }} className="button">
+          <Link to="/applications/$id/form" params={{ id }} className="button">
             Back to the form
           </Link>
         </div>

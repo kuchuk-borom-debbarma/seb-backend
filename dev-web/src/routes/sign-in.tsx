@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { SignInDocument } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
-import { ensureSession, forgetSession } from '#/lib/session'
+import { ensureSession, forgetSession, isApplicant } from '#/lib/session'
 import styles from './sign-in.module.css'
 
 export const Route = createFileRoute('/sign-in')({
@@ -18,7 +18,7 @@ export const Route = createFileRoute('/sign-in')({
   // straight on rather than shown a form that would immediately redirect.
   beforeLoad: async ({ context }) => {
     const session = await ensureSession(context.queryClient)
-    if (session) throw redirect({ to: '/app' })
+    if (session) throw redirect({ to: '/' })
   },
   component: SignInPage,
 })
@@ -35,16 +35,23 @@ function SignInPage() {
       const data = await gql(SignInDocument, { email, password })
       return unwrap(data.auth.signIn)
     },
-    onSuccess: async () => {
+    onSuccess: async (signedIn) => {
       // The cookie has just changed, so the cached signed-out answer is wrong
       // rather than stale. It has to be discarded, not invalidated: this query
       // has no observers, so an invalidation would never refetch it and the
       // next guard would turn us straight back to this page.
       await forgetSession(queryClient)
-      // Return to whatever the shell turned away, falling back to the overview.
-      // `next` is router-produced, but it still goes through `to` rather than
-      // an open redirect: only in-app paths are accepted.
-      await router.navigate({ to: next?.startsWith('/') ? next : '/app' })
+      /*
+       * Return to whatever the shell turned away; otherwise go to the portal
+       * this account's roles fit. An officer who holds no applicant grant would
+       * otherwise be told they are not an applicant every single time they
+       * signed in.
+       *
+       * `next` is router-produced, but it still goes through `to` rather than
+       * an open redirect: only in-app paths are accepted.
+       */
+      const home = isApplicant(signedIn.user) ? '/' : '/admin'
+      await router.navigate({ to: next?.startsWith('/') ? next : home })
     },
   })
 

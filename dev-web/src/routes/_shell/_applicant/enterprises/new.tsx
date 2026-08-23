@@ -10,7 +10,7 @@ import { CreateEnterpriseDocument } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 
-export const Route = createFileRoute('/_shell/app/enterprises/new')({
+export const Route = createFileRoute('/_shell/_applicant/enterprises/new')({
   component: NewEnterprisePage,
 })
 
@@ -28,7 +28,7 @@ function NewEnterprisePage() {
       // key prefix goes rather than the one page we happen to have cached.
       await queryClient.invalidateQueries({ queryKey: ['enterprises'] })
       await router.navigate({
-        to: '/app/enterprises/$id',
+        to: '/enterprises/$id',
         params: { id: enterprise.id },
       })
     },
@@ -57,7 +57,7 @@ function NewEnterprisePage() {
         submitLabel="Register enterprise"
         busy={create.isPending}
         onSubmit={(values) => create.mutate(values)}
-        onCancel={() => router.navigate({ to: '/app/enterprises' })}
+        onCancel={() => router.navigate({ to: '/enterprises' })}
       />
     </main>
   )

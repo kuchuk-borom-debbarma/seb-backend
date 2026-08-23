@@ -21,18 +21,23 @@ setup(
   async ({ page }) => {
     await signUpApplicant(page, SUPER_ADMIN_EMAIL)
 
-    // Before promotion this is an ordinary applicant.
+    // Before promotion this is an ordinary applicant, so sign-in lands on the
+    // applicant portal at the root.
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await expect(page).toHaveURL(/\/app$/u)
-    expect(await navigationSections(page)).toContain('portal')
+    await expect(page).toHaveURL(/localhost:\d+\/$/u)
+    expect(await navigationSections(page)).toContain('your applications')
 
     await page.context().clearCookies()
     await bootstrapSuperAdmin()
 
-    // The bootstrap swaps APPLICANT for SUPER_ADMIN rather than adding to it, and
-    // destroys existing sessions, so this is a genuinely fresh administrative
-    // sign-in.
+    /*
+     * The bootstrap swaps APPLICANT for SUPER_ADMIN rather than adding to it,
+     * and destroys existing sessions, so this is a genuinely fresh
+     * administrative sign-in — and it now lands in the office rather than on a
+     * portal this account can no longer use.
+     */
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await expect(page.getByText('Super administrator')).toBeVisible()
+    await expect(page).toHaveURL(/\/admin$/u)
+    expect(await navigationSections(page)).toContain('casework')
   },
 )

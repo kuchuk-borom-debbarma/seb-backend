@@ -4,7 +4,7 @@ import { PageHeader } from '#/components/PageHeader'
 import { cyclesQuery } from '#/features/application/queries'
 import { formatDate, formatRelative, humanize } from '#/lib/format'
 
-export const Route = createFileRoute('/_shell/app/cycles')({
+export const Route = createFileRoute('/_shell/_applicant/cycles')({
   loader: ({ context }) => context.queryClient.ensureQueryData(cyclesQuery),
   component: CyclesPage,
 })
@@ -46,7 +46,7 @@ function CyclesPage() {
                     <h3 style={{ marginTop: '0.25rem' }}>{cycle.displayName}</h3>
                   </div>
                   <Link
-                    to="/app/applications/new"
+                    to="/applications/new"
                     search={{ cycleId: cycle.id }}
                     className="button"
                     data-variant="primary"

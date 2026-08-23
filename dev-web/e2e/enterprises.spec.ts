@@ -12,7 +12,7 @@ const asNewApplicant = async (page: import('@playwright/test').Page) => {
 test.describe('enterprises', () => {
   test('invites registration when there are none', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/app/enterprises')
+    await page.goto('/enterprises')
 
     await expect(page.getByText('No enterprises yet')).toBeVisible()
     await page
@@ -20,12 +20,12 @@ test.describe('enterprises', () => {
       .getByRole('link', { name: 'Register an enterprise' })
       .first()
       .click()
-    await expect(page).toHaveURL(/\/app\/enterprises\/new$/u)
+    await expect(page).toHaveURL(/\/enterprises\/new$/u)
   })
 
   test('registers one and shows it in the list and on its own page', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/app/enterprises/new')
+    await page.goto('/enterprises/new')
 
     await page.getByLabel('Registered or trading name').fill('Khumulwng Food Works')
     await page.getByLabel('Date established').fill('2026-01-15')
@@ -36,14 +36,14 @@ test.describe('enterprises', () => {
     await page.getByRole('button', { name: 'Register enterprise' }).click()
 
     // Registration lands on the new enterprise, not back on the list.
-    await expect(page).toHaveURL(/\/app\/enterprises\/[0-9a-f-]{36}$/u)
+    await expect(page).toHaveURL(/\/enterprises\/[0-9a-f-]{36}$/u)
     await expect(
       page.getByRole('heading', { name: 'Khumulwng Food Works' }),
     ).toBeVisible()
     await expect(page.getByText('Food processing')).toBeVisible()
     await expect(page.getByText('West Tripura')).toBeVisible()
 
-    await page.goto('/app/enterprises')
+    await page.goto('/enterprises')
     await expect(page.getByRole('link', { name: 'Khumulwng Food Works' })).toBeVisible()
   })
 
@@ -51,7 +51,7 @@ test.describe('enterprises', () => {
     page,
   }) => {
     await asNewApplicant(page)
-    await page.goto('/app/enterprises/new')
+    await page.goto('/enterprises/new')
 
     // The API refuses a number on an unregistered enterprise, so the field is
     // not offered until the type calls for one.
@@ -65,7 +65,7 @@ test.describe('enterprises', () => {
 
   test('describes the sector when it is not one of the listed ones', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/app/enterprises/new')
+    await page.goto('/enterprises/new')
 
     await expect(page.getByLabel('Describe the sector')).toBeHidden()
     await page.getByLabel('Sector').selectOption('OTHER')
@@ -74,19 +74,19 @@ test.describe('enterprises', () => {
 
   test('shows the message the API returns for an invalid profile', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/app/enterprises/new')
+    await page.goto('/enterprises/new')
 
     await page.getByLabel('Registered or trading name').fill('Bad GSTIN Works')
     await page.getByLabel('GSTIN').fill('not-a-gstin')
     await page.getByRole('button', { name: 'Register enterprise' }).click()
 
     await expect(page.getByRole('alert')).toBeVisible()
-    await expect(page).toHaveURL(/\/app\/enterprises\/new$/u)
+    await expect(page).toHaveURL(/\/enterprises\/new$/u)
   })
 
   test('edits an enterprise and keeps the change', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/app/enterprises/new')
+    await page.goto('/enterprises/new')
     await page.getByLabel('Registered or trading name').fill('Original Name')
     await page.getByRole('button', { name: 'Register enterprise' }).click()
     await expect(page.getByRole('heading', { name: 'Original Name' })).toBeVisible()
@@ -105,7 +105,7 @@ test.describe('enterprises', () => {
 
   test('removes an enterprise and restores it again', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/app/enterprises/new')
+    await page.goto('/enterprises/new')
     await page.getByLabel('Registered or trading name').fill('Removable Works')
     await page.getByRole('button', { name: 'Register enterprise' }).click()
 
@@ -113,7 +113,7 @@ test.describe('enterprises', () => {
     await expect(page.getByText('This enterprise has been removed')).toBeVisible()
 
     // Removal is reversible and keeps history, so it is hidden rather than gone.
-    await page.goto('/app/enterprises')
+    await page.goto('/enterprises')
     await expect(page.getByRole('link', { name: 'Removable Works' })).toBeHidden()
     // The filter lives in the URL, so its state follows the navigation rather
     // than changing the moment the box is clicked.

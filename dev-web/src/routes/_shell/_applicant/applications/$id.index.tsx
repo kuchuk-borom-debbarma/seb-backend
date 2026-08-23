@@ -21,7 +21,7 @@ import { formatDate, formatDateTime, humanize } from '#/lib/format'
 /** The statuses in which a sanction order can exist. */
 const FUNDED_STATUSES = new Set<string>(['SANCTIONED', 'DISBURSED'])
 
-export const Route = createFileRoute('/_shell/app/applications/$id/')({
+export const Route = createFileRoute('/_shell/_applicant/applications/$id/')({
   // All three start together: one round of requests, no waterfall.
   loader: async ({ context, params }) => {
     await Promise.all([
@@ -77,7 +77,7 @@ function ApplicationPage() {
           // sanction order can exist.
           funded ? (
             <Link
-              to="/app/applications/$id/funding"
+              to="/applications/$id/funding"
               params={{ id }}
               className="button"
               data-variant="primary"
@@ -87,7 +87,7 @@ function ApplicationPage() {
           ) : application.editableSections.length > 0 ? (
             <>
               <Link
-                to="/app/applications/$id/form"
+                to="/applications/$id/form"
                 params={{ id }}
                 className="button"
                 data-variant="primary"
@@ -96,14 +96,10 @@ function ApplicationPage() {
                   ? 'Make the corrections'
                   : 'Fill in the form'}
               </Link>
-              <Link
-                to="/app/applications/$id/documents"
-                params={{ id }}
-                className="button"
-              >
+              <Link to="/applications/$id/documents" params={{ id }} className="button">
                 Evidence
               </Link>
-              <Link to="/app/applications/$id/review" params={{ id }} className="button">
+              <Link to="/applications/$id/review" params={{ id }} className="button">
                 Check and submit
               </Link>
             </>
@@ -224,7 +220,7 @@ function ApplicationPage() {
       </div>
 
       <p style={{ marginTop: '1.5rem' }}>
-        <Link to="/app/applications">Back to applications</Link>
+        <Link to="/applications">Back to applications</Link>
       </p>
     </main>
   )

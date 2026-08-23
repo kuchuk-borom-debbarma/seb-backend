@@ -117,7 +117,7 @@ test.describe('access', () => {
   test('finds an account by its exact address and shows how it got its roles', async ({
     page,
   }) => {
-    await page.goto('/access')
+    await page.goto('/admin/access')
     await page.getByLabel('Email address').fill(SUPER_ADMIN_EMAIL)
     await page.getByRole('button', { name: 'Look them up' }).click()
 
@@ -138,7 +138,7 @@ test.describe('access', () => {
   })
 
   test('says so when no account has that address', async ({ page }) => {
-    await page.goto('/access')
+    await page.goto('/admin/access')
     await page.getByLabel('Email address').fill('nobody@example.invalid')
     await page.getByRole('button', { name: 'Look them up' }).click()
 
@@ -152,7 +152,7 @@ test.describe('access', () => {
     await signUpApplicant(page, colleague)
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
 
-    await page.goto(`/access?email=${encodeURIComponent(colleague)}`)
+    await page.goto(`/admin/access?email=${encodeURIComponent(colleague)}`)
     await expect(page.getByRole('heading', { name: colleague })).toBeVisible()
 
     await page.getByLabel('Role').selectOption('ADMIN')
@@ -172,7 +172,7 @@ test.describe('access', () => {
     await signUpApplicant(page, colleague)
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
 
-    await page.goto(`/access?email=${encodeURIComponent(colleague)}`)
+    await page.goto(`/admin/access?email=${encodeURIComponent(colleague)}`)
     await page.getByLabel('Role').selectOption('ADMIN')
     await page.getByLabel('Why they should have it').fill('Should not go through.')
     await page.getByLabel('Your password').fill('not the right password')
@@ -190,7 +190,7 @@ test.describe('access', () => {
     await signUpApplicant(page, colleague)
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
 
-    await page.goto(`/access?email=${encodeURIComponent(colleague)}`)
+    await page.goto(`/admin/access?email=${encodeURIComponent(colleague)}`)
     await page.getByLabel('Role').selectOption('ADMIN')
     await page.getByLabel('Why they should have it').fill('Temporary cover.')
     await page.getByLabel('Your password').fill(PASSWORD)
@@ -211,14 +211,14 @@ test.describe('access', () => {
   })
 
   test('does not offer a role the account already holds', async ({ page }) => {
-    await page.goto(`/access?email=${encodeURIComponent(SUPER_ADMIN_EMAIL)}`)
+    await page.goto(`/admin/access?email=${encodeURIComponent(SUPER_ADMIN_EMAIL)}`)
 
     const role = page.getByLabel('Role')
     await expect(role.getByRole('option', { name: 'Super admin' })).toHaveCount(0)
   })
 
   test('never offers to revoke the applicant role', async ({ page }) => {
-    await page.goto(`/access?email=${encodeURIComponent(SUPER_ADMIN_EMAIL)}`)
+    await page.goto(`/admin/access?email=${encodeURIComponent(SUPER_ADMIN_EMAIL)}`)
 
     // APPLICANT comes only from verified signup and nothing can grant it back,
     // so revoking it would strip somebody permanently.

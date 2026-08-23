@@ -51,7 +51,7 @@ const eligibilityQuery = (enterpriseId: string, programmeCycleId: string) =>
     },
   })
 
-export const Route = createFileRoute('/_shell/app/applications/new')({
+export const Route = createFileRoute('/_shell/_applicant/applications/new')({
   validateSearch: (search: Record<string, unknown>): Search => ({
     enterpriseId:
       typeof search.enterpriseId === 'string' ? search.enterpriseId : undefined,
@@ -97,7 +97,7 @@ function StartApplicationPage() {
     onSuccess: async (application) => {
       await queryClient.invalidateQueries({ queryKey: ['applications'] })
       await router.navigate({
-        to: '/app/applications/$id',
+        to: '/applications/$id',
         params: { id: application.id },
       })
     },
@@ -118,7 +118,7 @@ function StartApplicationPage() {
             <h3>Register an enterprise first</h3>
             <p>An application is always made on behalf of one enterprise.</p>
             <Link
-              to="/app/enterprises/new"
+              to="/enterprises/new"
               className="button"
               data-variant="primary"
               style={{ marginTop: '1rem' }}
@@ -135,7 +135,7 @@ function StartApplicationPage() {
               A programme cycle must be open before an application can be started. Closed
               cycles stay readable in your history.
             </p>
-            <Link to="/app/cycles" className="button" style={{ marginTop: '1rem' }}>
+            <Link to="/cycles" className="button" style={{ marginTop: '1rem' }}>
               See programme cycles
             </Link>
           </div>
