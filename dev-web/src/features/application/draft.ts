@@ -31,7 +31,13 @@ export const FORM_SECTIONS: ApplicationSection[] = [
   'DECLARATION',
 ]
 
-export const SECTION_TITLES: Record<string, string> = {
+/**
+ * What each section is called on screen.
+ *
+ * Typed over the section enum rather than as an open record, so adding a
+ * section to the API fails the build here instead of rendering a blank heading.
+ */
+export const SECTION_TITLES: Record<ApplicationSection, string> = {
   ENTERPRISE: 'The enterprise',
   APPLICANT_PROFILE: 'About you',
   FINANCIAL: 'Project cost and funding',
@@ -117,3 +123,83 @@ export const paiseToRupees = (paise: string | null | undefined): string =>
 
 export const rupeesToPaise = (rupees: string): string | null =>
   rupees.trim() === '' ? null : String(Math.round(Number(rupees) * 100))
+
+/**
+ * The title of a section named by a string the type system cannot narrow — an
+ * API record that reports its section as plain text. Falls back to the raw name
+ * rather than rendering nothing.
+ */
+export const sectionTitle = (section: string): string =>
+  SECTION_TITLES[section as ApplicationSection] ?? section.replaceAll('_', ' ')
+
+/**
+ * What each question is called, in the applicant's words.
+ *
+ * One map, read by both the form and the validation report. They used to name
+ * the same question differently — the report derived "Primary applicant name"
+ * from the field while the form asked "Your full name" — which left somebody
+ * hunting the form for a label that was not on it.
+ *
+ * Fields the applicant never types are absent on purpose: the expansion values
+ * are derived by the server, and a document is named by its type rather than by
+ * a form field.
+ */
+export const FIELD_LABELS = {
+  // The enterprise
+  businessName: 'Business name',
+  establishmentDate: 'Date established',
+  applicationCategory: 'Category',
+  registrationType: 'Registration',
+  registrationNumber: 'Registration number',
+  gstin: 'GSTIN',
+  businessSector: 'Sector',
+  otherBusinessSector: 'Describe the sector',
+  majorityOwnershipConfirmed: 'Majority ownership is held by Scheduled Tribe members',
+
+  // About you
+  primaryApplicantName: 'Your full name',
+  designation: 'Your role in the enterprise',
+  dateOfBirth: 'Date of birth',
+  gender: 'Gender',
+  businessBlockOrVillage: 'Block or village',
+  businessDistrict: 'District',
+  businessPinCode: 'PIN code',
+  contactNumber: 'Contact number',
+  contactEmail: 'Contact email',
+
+  // Project cost and funding
+  totalProjectCostPaise: 'Total project cost (₹)',
+  seedFundRequestedPaise: 'Seed fund requested (₹)',
+  bankLoanProposedPaise: 'Bank loan proposed (₹)',
+  promoterContributionPaise: 'Your own contribution (₹)',
+
+  // Previous support and credit
+  receivedGovernmentFunding: 'Has this enterprise received government funding before?',
+  governmentSchemeName: 'Scheme',
+  governmentFundingAmountPaise: 'Amount received (₹)',
+  governmentFundingSanctionYear: 'Year sanctioned',
+  hasExistingBankCredit: 'Does this enterprise have existing bank credit?',
+  existingBankName: 'Bank',
+  existingCreditAmountPaise: 'Amount outstanding (₹)',
+  existingCreditStatus: 'Account status',
+
+  // Evidence
+  nocRequired: 'Is a no-objection certificate needed for these premises?',
+
+  // Declaration
+  relationshipType: 'Relationship',
+  relatedPersonName: 'Of (name)',
+  declarationAccepted:
+    'I declare that everything in this application is true and complete.',
+  declarationPlace: 'Place',
+} as const satisfies Record<string, string>
+
+/**
+ * The label for a field, falling back to the field's own name.
+ *
+ * The fallback matters: the API may report an issue against a field this client
+ * does not render, and showing the raw name is more use than showing nothing.
+ */
+export const fieldLabel = (field: string): string =>
+  (FIELD_LABELS as Record<string, string>)[field] ??
+  field.replace(/([a-z0-9])([A-Z])/gu, '$1 $2').toLowerCase()

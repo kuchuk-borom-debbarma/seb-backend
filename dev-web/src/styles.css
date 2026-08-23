@@ -732,3 +732,43 @@ th.numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- Printing ---------------------------------------------------------- */
+
+/*
+ * An applicant may be applying once in their life and will want a copy on
+ * paper. Printing hides the navigation and every control — they do nothing on
+ * paper — and flattens the cards, so the page comes out as a document rather
+ * than a picture of a screen.
+ */
+@media print {
+  body {
+    background: #fff;
+  }
+
+  nav[aria-label='Portal sections'],
+  .button,
+  button {
+    display: none !important;
+  }
+
+  .page {
+    max-width: none;
+    padding: 0;
+  }
+
+  .card {
+    border: 0;
+    box-shadow: none;
+    break-inside: avoid;
+  }
+
+  .card-header {
+    border-bottom: 1px solid #000;
+  }
+
+  .table th,
+  .table td {
+    border-color: #000;
+  }
+}

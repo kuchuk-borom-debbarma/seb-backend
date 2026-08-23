@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
+import { ClosingNotice } from '#/features/application/ClosingNotice'
 import {
   applicationQuery,
   draftChangesQuery,
   validationQuery,
 } from '#/features/application/applicationQueries'
 import { DOCUMENT_TITLES } from '#/features/application/documents'
-import { SECTION_TITLES } from '#/features/application/draft'
+import { SECTION_TITLES, fieldLabel } from '#/features/application/draft'
 import {
   ResubmitApplicationDocument,
   SubmitApplicationDocument,
@@ -57,7 +58,11 @@ function ReviewPage() {
       await queryClient.invalidateQueries({ queryKey: ['application', id] })
       await queryClient.invalidateQueries({ queryKey: ['applications'] })
       await queryClient.invalidateQueries({ queryKey: ['application-timeline', id] })
-      await router.navigate({ to: '/app/applications/$id', params: { id } })
+      await queryClient.invalidateQueries({ queryKey: ['draft-changes', id] })
+      // The acknowledgement, not the application. Submitting is the moment the
+      // whole thing has been building towards, and it should end somewhere that
+      // says so and carries the reference number away with it.
+      await router.navigate({ to: '/app/applications/$id/submitted', params: { id } })
     },
   })
 
@@ -78,6 +83,8 @@ function ReviewPage() {
       />
 
       <div className="stack">
+        <ClosingNotice programmeCycleId={application.programmeCycleId} />
+
         {validation.valid ? (
           <p className="notice" data-tone="ok">
             <span className="notice-title">Everything needed is present</span>
@@ -134,15 +141,26 @@ function ReviewPage() {
                               : '/app/applications/$id/form'
                           }
                           params={{ id }}
+                          /*
+                           * The control itself, not just the screen it is on.
+                           * Every field carries its own name as its id, so the
+                           * browser scrolls to it and focuses it on arrival —
+                           * which for a form of forty questions is the
+                           * difference between being told what is wrong and
+                           * being taken to it.
+                           */
+                          hash={issue.section === 'DOCUMENTS' ? undefined : issue.field}
                         >
                           {SECTION_TITLES[issue.section] ?? humanize(issue.section)}
                         </Link>
                       </td>
+                      {/* The question as the form asks it, so somebody sent to
+                          fix it is looking for the same words. */}
                       <td className="muted">
                         {issue.section === 'DOCUMENTS'
                           ? (DOCUMENT_TITLES[issue.field as DocumentType] ??
                             humanize(issue.field))
-                          : humanize(issue.field)}
+                          : fieldLabel(issue.field)}
                       </td>
                       <td>{issue.message}</td>
                     </tr>

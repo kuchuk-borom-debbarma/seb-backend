@@ -23,7 +23,7 @@ import type {
   RelationshipType,
 } from '#/graphql/generated/schema'
 import { formatMoney, humanize } from '#/lib/format'
-import { paiseToRupees, rupeesToPaise } from './draft'
+import { FIELD_LABELS, paiseToRupees, rupeesToPaise } from './draft'
 
 const REGISTRATION_TYPES: RegistrationType[] = ['NONE', 'CIN', 'UDYAM']
 const CATEGORIES: ApplicationCategory[] = ['CATEGORY_A', 'CATEGORY_B']
@@ -212,7 +212,11 @@ export const EnterpriseSection = memo(function EnterpriseSection({
   return (
     <div className="stack">
       <div className="detail-grid">
-        <Field id="businessName" label="Business name" issue={issues.businessName}>
+        <Field
+          id="businessName"
+          label={FIELD_LABELS.businessName}
+          issue={issues.businessName}
+        >
           <input
             id="businessName"
             className="input"
@@ -225,7 +229,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
 
         <Field
           id="establishmentDate"
-          label="Date established"
+          label={FIELD_LABELS.establishmentDate}
           issue={issues.establishmentDate}
         >
           <input
@@ -241,7 +245,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
 
         <Field
           id="applicationCategory"
-          label="Category"
+          label={FIELD_LABELS.applicationCategory}
           issue={issues.applicationCategory}
         >
           <select
@@ -266,7 +270,11 @@ export const EnterpriseSection = memo(function EnterpriseSection({
           </select>
         </Field>
 
-        <Field id="registrationType" label="Registration" issue={issues.registrationType}>
+        <Field
+          id="registrationType"
+          label={FIELD_LABELS.registrationType}
+          issue={issues.registrationType}
+        >
           <select
             id="registrationType"
             className="select"
@@ -307,7 +315,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
           </Field>
         ) : null}
 
-        <Field id="gstin" label="GSTIN" issue={issues.gstin}>
+        <Field id="gstin" label={FIELD_LABELS.gstin} issue={issues.gstin}>
           <input
             id="gstin"
             className="input"
@@ -318,7 +326,11 @@ export const EnterpriseSection = memo(function EnterpriseSection({
           />
         </Field>
 
-        <Field id="businessSector" label="Sector" issue={issues.businessSector}>
+        <Field
+          id="businessSector"
+          label={FIELD_LABELS.businessSector}
+          issue={issues.businessSector}
+        >
           <select
             id="businessSector"
             className="select"
@@ -346,7 +358,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
         {value.businessSector === 'OTHER' ? (
           <Field
             id="otherBusinessSector"
-            label="Describe the sector"
+            label={FIELD_LABELS.otherBusinessSector}
             issue={issues.otherBusinessSector}
           >
             <input
@@ -363,7 +375,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
 
       <Attestation
         id="majorityOwnershipConfirmed"
-        statement="Majority ownership is held by Scheduled Tribe members"
+        statement={FIELD_LABELS.majorityOwnershipConfirmed}
         issue={issues.majorityOwnershipConfirmed}
         checked={value.majorityOwnershipConfirmed ?? false}
         disabled={disabled}
@@ -388,7 +400,7 @@ export const ApplicantSection = memo(function ApplicantSection({
     <div className="detail-grid">
       <Field
         id="primaryApplicantName"
-        label="Your full name"
+        label={FIELD_LABELS.primaryApplicantName}
         issue={issues.primaryApplicantName}
       >
         <input
@@ -401,11 +413,7 @@ export const ApplicantSection = memo(function ApplicantSection({
         />
       </Field>
 
-      <Field
-        id="designation"
-        label="Your role in the enterprise"
-        issue={issues.designation}
-      >
+      <Field id="designation" label={FIELD_LABELS.designation} issue={issues.designation}>
         <select
           id="designation"
           className="select"
@@ -425,7 +433,7 @@ export const ApplicantSection = memo(function ApplicantSection({
         </select>
       </Field>
 
-      <Field id="dateOfBirth" label="Date of birth" issue={issues.dateOfBirth}>
+      <Field id="dateOfBirth" label={FIELD_LABELS.dateOfBirth} issue={issues.dateOfBirth}>
         <input
           id="dateOfBirth"
           className="input"
@@ -437,7 +445,7 @@ export const ApplicantSection = memo(function ApplicantSection({
         />
       </Field>
 
-      <Field id="gender" label="Gender" issue={issues.gender}>
+      <Field id="gender" label={FIELD_LABELS.gender} issue={issues.gender}>
         <select
           id="gender"
           className="select"
@@ -457,7 +465,7 @@ export const ApplicantSection = memo(function ApplicantSection({
 
       <Field
         id="businessBlockOrVillage"
-        label="Block or village"
+        label={FIELD_LABELS.businessBlockOrVillage}
         issue={issues.businessBlockOrVillage}
       >
         <input
@@ -470,7 +478,11 @@ export const ApplicantSection = memo(function ApplicantSection({
         />
       </Field>
 
-      <Field id="businessDistrict" label="District" issue={issues.businessDistrict}>
+      <Field
+        id="businessDistrict"
+        label={FIELD_LABELS.businessDistrict}
+        issue={issues.businessDistrict}
+      >
         <input
           id="businessDistrict"
           className="input"
@@ -481,7 +493,11 @@ export const ApplicantSection = memo(function ApplicantSection({
         />
       </Field>
 
-      <Field id="businessPinCode" label="PIN code" issue={issues.businessPinCode}>
+      <Field
+        id="businessPinCode"
+        label={FIELD_LABELS.businessPinCode}
+        issue={issues.businessPinCode}
+      >
         <input
           id="businessPinCode"
           className="input tabular"
@@ -494,7 +510,11 @@ export const ApplicantSection = memo(function ApplicantSection({
         />
       </Field>
 
-      <Field id="contactNumber" label="Contact number" issue={issues.contactNumber}>
+      <Field
+        id="contactNumber"
+        label={FIELD_LABELS.contactNumber}
+        issue={issues.contactNumber}
+      >
         <input
           id="contactNumber"
           className="input"
@@ -506,7 +526,11 @@ export const ApplicantSection = memo(function ApplicantSection({
         />
       </Field>
 
-      <Field id="contactEmail" label="Contact email" issue={issues.contactEmail}>
+      <Field
+        id="contactEmail"
+        label={FIELD_LABELS.contactEmail}
+        issue={issues.contactEmail}
+      >
         <input
           id="contactEmail"
           className="input"
@@ -577,10 +601,10 @@ export const FinancialSection = memo(function FinancialSection({
   return (
     <div className="stack">
       <div className="detail-grid">
-        {money('totalProjectCostPaise', 'Total project cost (₹)')}
-        {money('seedFundRequestedPaise', 'Seed fund requested (₹)')}
-        {money('bankLoanProposedPaise', 'Bank loan proposed (₹)')}
-        {money('promoterContributionPaise', 'Your own contribution (₹)')}
+        {money('totalProjectCostPaise', FIELD_LABELS.totalProjectCostPaise)}
+        {money('seedFundRequestedPaise', FIELD_LABELS.seedFundRequestedPaise)}
+        {money('bankLoanProposedPaise', FIELD_LABELS.bankLoanProposedPaise)}
+        {money('promoterContributionPaise', FIELD_LABELS.promoterContributionPaise)}
       </div>
 
       {total > 0 || parts > 0 ? (
@@ -616,7 +640,7 @@ export const PriorFundingSection = memo(function PriorFundingSection({
     <div className="stack">
       <YesNoField
         name="receivedGovernmentFunding"
-        question="Has this enterprise received government funding before?"
+        question={FIELD_LABELS.receivedGovernmentFunding}
         issue={issues.receivedGovernmentFunding}
         value={value.receivedGovernmentFunding}
         disabled={disabled}
@@ -641,7 +665,7 @@ export const PriorFundingSection = memo(function PriorFundingSection({
         <div className="detail-grid">
           <Field
             id="governmentSchemeName"
-            label="Scheme"
+            label={FIELD_LABELS.governmentSchemeName}
             issue={issues.governmentSchemeName}
           >
             <input
@@ -657,7 +681,7 @@ export const PriorFundingSection = memo(function PriorFundingSection({
           </Field>
           <Field
             id="governmentFundingAmountPaise"
-            label="Amount received (₹)"
+            label={FIELD_LABELS.governmentFundingAmountPaise}
             issue={issues.governmentFundingAmountPaise}
           >
             <input
@@ -676,7 +700,7 @@ export const PriorFundingSection = memo(function PriorFundingSection({
           </Field>
           <Field
             id="governmentFundingSanctionYear"
-            label="Year sanctioned"
+            label={FIELD_LABELS.governmentFundingSanctionYear}
             issue={issues.governmentFundingSanctionYear}
           >
             <input
@@ -699,7 +723,7 @@ export const PriorFundingSection = memo(function PriorFundingSection({
 
       <YesNoField
         name="hasExistingBankCredit"
-        question="Does this enterprise have existing bank credit?"
+        question={FIELD_LABELS.hasExistingBankCredit}
         issue={issues.hasExistingBankCredit}
         value={value.hasExistingBankCredit}
         disabled={disabled}
@@ -720,7 +744,11 @@ export const PriorFundingSection = memo(function PriorFundingSection({
 
       {value.hasExistingBankCredit ? (
         <div className="detail-grid">
-          <Field id="existingBankName" label="Bank" issue={issues.existingBankName}>
+          <Field
+            id="existingBankName"
+            label={FIELD_LABELS.existingBankName}
+            issue={issues.existingBankName}
+          >
             <input
               id="existingBankName"
               className="input"
@@ -732,7 +760,7 @@ export const PriorFundingSection = memo(function PriorFundingSection({
           </Field>
           <Field
             id="existingCreditAmountPaise"
-            label="Amount outstanding (₹)"
+            label={FIELD_LABELS.existingCreditAmountPaise}
             issue={issues.existingCreditAmountPaise}
           >
             <input
@@ -751,7 +779,7 @@ export const PriorFundingSection = memo(function PriorFundingSection({
           </Field>
           <Field
             id="existingCreditStatus"
-            label="Account status"
+            label={FIELD_LABELS.existingCreditStatus}
             issue={issues.existingCreditStatus}
           >
             <select
@@ -791,7 +819,7 @@ export const DocumentsSection = memo(function DocumentsSection({
     <div className="stack">
       <YesNoField
         name="nocRequired"
-        question="Is a no-objection certificate needed for these premises?"
+        question={FIELD_LABELS.nocRequired}
         hint="This decides whether a NOC is required evidence. The files themselves are attached on the evidence screen."
         issue={issues.nocRequired}
         value={value.nocRequired}
@@ -816,7 +844,11 @@ export const DeclarationSection = memo(function DeclarationSection({
   return (
     <div className="stack">
       <div className="detail-grid">
-        <Field id="relationshipType" label="Relationship" issue={issues.relationshipType}>
+        <Field
+          id="relationshipType"
+          label={FIELD_LABELS.relationshipType}
+          issue={issues.relationshipType}
+        >
           <select
             id="relationshipType"
             className="select"
@@ -839,7 +871,11 @@ export const DeclarationSection = memo(function DeclarationSection({
           </select>
         </Field>
 
-        <Field id="relatedPersonName" label="Of (name)" issue={issues.relatedPersonName}>
+        <Field
+          id="relatedPersonName"
+          label={FIELD_LABELS.relatedPersonName}
+          issue={issues.relatedPersonName}
+        >
           <input
             id="relatedPersonName"
             className="input"
@@ -850,7 +886,11 @@ export const DeclarationSection = memo(function DeclarationSection({
           />
         </Field>
 
-        <Field id="declarationPlace" label="Place" issue={issues.declarationPlace}>
+        <Field
+          id="declarationPlace"
+          label={FIELD_LABELS.declarationPlace}
+          issue={issues.declarationPlace}
+        >
           <input
             id="declarationPlace"
             className="input"
@@ -864,7 +904,7 @@ export const DeclarationSection = memo(function DeclarationSection({
 
       <Attestation
         id="declarationAccepted"
-        statement="I declare that everything in this application is true and complete."
+        statement={FIELD_LABELS.declarationAccepted}
         issue={issues.declarationAccepted}
         checked={value.declarationAccepted ?? false}
         disabled={disabled}

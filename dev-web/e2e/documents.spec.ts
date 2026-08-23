@@ -163,7 +163,9 @@ test.describe('evidence', () => {
       .first()
       .getByRole('link')
     await formIssue.click()
-    await expect(page).toHaveURL(new RegExp(`/app/applications/${id}/form$`, 'u'))
+    // With the field named in the address — the form is forty questions long,
+    // and the section alone is not where the answer goes.
+    await expect(page).toHaveURL(new RegExp(`/app/applications/${id}/form#\\w+$`, 'u'))
   })
 
   test('is reachable from the application and from the form', async ({ page }) => {

@@ -112,3 +112,54 @@ test.describe('the application form', () => {
     await expect(page.getByLabel('Total project cost (₹)')).toHaveValue('500000')
   })
 })
+
+test.describe('the closing date', () => {
+  test.beforeEach(async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await openProgrammeCycle(page, { prefix: 'SEP-D' })
+    await page.context().clearCookies()
+  })
+
+  test('is repeated where the work happens, with the time left', async ({ page }) => {
+    const id = await startApplication(page, {
+      prefix: 'draft',
+      businessName: 'Draft Works',
+    })
+
+    // On the form, because a date seen on the cycles screen three weeks ago is
+    // no help to somebody halfway through the questions.
+    await page.goto(`/app/applications/${id}/form`)
+    await expect(page.getByText('When applications close')).toBeVisible()
+    await expect(page.getByText(/closes in \d+ (day|month)/u)).toBeVisible()
+
+    // And on the screen where somebody decides whether to send it now.
+    await page.goto(`/app/applications/${id}/review`)
+    await expect(page.getByText('When applications close')).toBeVisible()
+  })
+})
+
+test.describe('the validation report', () => {
+  test.beforeEach(async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await openProgrammeCycle(page, { prefix: 'SEP-V' })
+    await page.context().clearCookies()
+  })
+
+  test('takes the applicant to the field, not just the page', async ({ page }) => {
+    const id = await startApplication(page, {
+      prefix: 'draft',
+      businessName: 'Draft Works',
+    })
+    await page.goto(`/app/applications/${id}/review`)
+
+    const row = page.getByRole('row').filter({ hasText: 'Your full name' }).first()
+    await row.getByRole('link').click()
+
+    await expect(page).toHaveURL(
+      new RegExp(`/app/applications/${id}/form#primaryApplicantName$`, 'u'),
+    )
+    // Focused, not merely scrolled into view — a keyboard or screen reader user
+    // has to land on the control too.
+    await expect(page.getByLabel('Your full name')).toBeFocused()
+  })
+})

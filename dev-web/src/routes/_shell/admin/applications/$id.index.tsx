@@ -23,7 +23,7 @@ import {
 import { statusTone } from '#/features/admin/queues'
 import { cycleReasonsQuery, workspaceQuery } from '#/features/admin/workspaceQueries'
 import { DOCUMENT_TITLES, formatBytes } from '#/features/application/documents'
-import { SECTION_TITLES } from '#/features/application/draft'
+import { SECTION_TITLES, sectionTitle } from '#/features/application/draft'
 import {
   AddInternalNoteDocument,
   AdminDocumentDownloadUrlDocument,
@@ -459,9 +459,7 @@ function OpenRevisions({
           {revisions.map((revision) => (
             <div key={revision.id}>
               <p className="notice" data-tone="action">
-                <span className="notice-title">
-                  {SECTION_TITLES[revision.section] ?? humanize(revision.section)}
-                </span>
+                <span className="notice-title">{sectionTitle(revision.section)}</span>
                 {revision.note}
               </p>
               {cancelling === revision.id ? (

@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute, useLocation } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
+import { ClosingNotice } from '#/features/application/ClosingNotice'
 import {
   ApplicantSection,
   DeclarationSection,
@@ -137,6 +138,36 @@ function DraftFormPage() {
     [],
   )
 
+  /*
+   * Arriving from the validation report with a field named in the address.
+   *
+   * Waits for the draft to be seeded, because until then the fields are not on
+   * the page to focus. Focusing rather than only scrolling means somebody using
+   * a keyboard or a screen reader lands on the control too, not merely near it.
+   */
+  const hash = useLocation({ select: (location) => location.hash })
+  useEffect(() => {
+    if (!hash || !draft) return
+    const field = document.getElementById(hash)
+    if (!field) return
+    field.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    field.focus({ preventScroll: true })
+  }, [hash, draft])
+
+  /*
+   * Autosave is debounced, so there is a window in which the last keystroke is
+   * not yet on the server. Leaving during it would lose the edit silently, and
+   * the browser's own prompt is the only thing that can interrupt a navigation
+   * it does not control. Registered only while there is something to lose.
+   */
+  const unsaved = saveState === 'saving' || saveState === 'failed'
+  useEffect(() => {
+    if (!unsaved) return
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [unsaved])
+
   const update = useCallback(
     (next: ApplicationDraftInput) => {
       setDraft(next)
@@ -189,6 +220,14 @@ function DraftFormPage() {
         >
           {saveError}
         </p>
+      ) : null}
+
+      {/* Only while the application can still be sent. Telling somebody a
+          closed application is closing would be noise. */}
+      {!readOnly ? (
+        <div style={{ marginBottom: '1rem' }}>
+          <ClosingNotice programmeCycleId={application.programmeCycleId} />
+        </div>
       ) : null}
 
       <div className="stack">

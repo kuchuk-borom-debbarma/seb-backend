@@ -171,8 +171,10 @@ submitted in an older cycle.
   the original cycle closes.
 - [x] The applicant cycle view carries the cycle name, application opening and
   closing times, policy reference, and lifecycle status.
-- [ ] Show a countdown or explicit closing date in the applicant journey; do not
-  rely on colour alone to communicate urgency.
+- [x] Show a countdown or explicit closing date in the applicant journey; do not
+  rely on colour alone to communicate urgency. The cycles screen, the draft form
+  and the check-and-submit screen all state the closing date and the time
+  remaining, and the wording changes as well as the tone when it is near.
 - [x] Cycles the applicant has work in are listed separately from cycles a new
   application may start in, so closed cycles render read-only and can never
   carry a “start application” action.
@@ -249,12 +251,17 @@ submitted in an older cycle.
 - [x] The applicant can view only applications belonging to their account.
 - [x] The application list is paginated and supports stable continuation through
   large histories.
-- [ ] Add user-facing autosave status with the unambiguous states “Saving”,
+- [x] Add user-facing autosave status with the unambiguous states “Saving”,
   “Saved”, and “Could not save”.
-- [ ] Add a recovery prompt when the browser has unsaved edits and the applicant
-  tries to leave the page.
+- [x] Add a recovery prompt when the browser has unsaved edits and the applicant
+  tries to leave the page. Registered only while a save is in flight or has
+  failed, so it never interrupts somebody with nothing to lose.
 - [ ] Show “last saved” time and the current draft version without implying that
-  a saved draft has been submitted.
+  a saved draft has been submitted. The saved time is shown, taken from the
+  server's own record rather than the moment the request was sent. The draft
+  version is not, so this stays open — though it is worth asking whether it
+  should be dropped instead: a version number means nothing to an applicant and
+  reads as a count of submissions.
 
 ### 5.2 Enterprise section
 
@@ -366,8 +373,11 @@ submitted in an older cycle.
   status.
 - [x] Submission repeats validation so an earlier successful check cannot bypass
   later changes.
-- [ ] Add a clickable validation summary that takes the applicant to each invalid
-  field or document slot in form order.
+- [x] Add a clickable validation summary that takes the applicant to each invalid
+  field or document slot in form order. Each row links to the screen that fixes
+  it — the form for an answer, the evidence screen for a document — and names
+  the field in the address, so the control is scrolled to and focused on
+  arrival.
 
 ### 7.2 First submission
 
@@ -382,10 +392,16 @@ submitted in an older cycle.
 - [x] Two simultaneous submission attempts cannot create duplicate submissions
   or reference numbers.
 - [x] A deleted draft cannot be submitted.
-- [ ] Show a submission confirmation page containing the reference number,
-  submission number, submission time, and a read-only summary.
+- [x] Show a submission confirmation page containing the reference number,
+  submission number, submission time, and a read-only summary. The submission
+  number is read from `draftChanges.comparedToSubmissionNumber`, which is the
+  submission just made — the applicant surface reports no submission number of
+  its own, and inventing one in the browser was not acceptable.
 - [ ] Let the applicant download a human-readable acknowledgement of the exact
-  submitted snapshot and document list.
+  submitted snapshot and document list. The confirmation page prints as a
+  document — navigation and controls are hidden — which gives a paper copy, but
+  not a file. A download needs the API to render one, because only the server
+  can attest to what it holds.
 
 ### 7.3 Applicant timeline and status
 
