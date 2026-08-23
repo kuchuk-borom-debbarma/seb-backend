@@ -1,13 +1,14 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
+import { Pager, SearchBox } from '#/components/ListControls'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
-import { statusGuideQuery } from '#/features/application/queries'
+import { cyclesQuery, statusGuideQuery } from '#/features/application/queries'
 import {
   MyApplicationsDocument,
   MyEnterprisesDocument,
 } from '#/graphql/generated/operations'
-import type { ApplicationStatus } from '#/graphql/generated/schema'
+import type { ApplicationStatus, ApplicationType } from '#/graphql/generated/schema'
 import { formatDate, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
@@ -33,24 +34,26 @@ type Search = {
   after?: string
   enterpriseId?: string
   status?: ApplicationStatus
+  programmeCycleId?: string
+  applicationType?: ApplicationType
+  search?: string
   includeDeleted?: boolean
 }
 
 const applicationsQuery = (search: Search) =>
   queryOptions({
-    queryKey: [
-      'applications',
-      search.after ?? null,
-      search.enterpriseId ?? null,
-      search.status ?? null,
-      search.includeDeleted ?? false,
-    ],
+    // The whole filter set is the key, so returning to a view already seen is
+    // served from cache rather than refetched.
+    queryKey: ['applications', search],
     queryFn: async () => {
       const data = await gql(MyApplicationsDocument, {
         first: PAGE_SIZE,
         after: search.after ?? null,
         enterpriseId: search.enterpriseId ?? null,
         status: search.status ?? null,
+        programmeCycleId: search.programmeCycleId ?? null,
+        applicationType: search.applicationType ?? null,
+        search: search.search ?? null,
         includeDeleted: search.includeDeleted ?? false,
       })
       return unwrap(data.seb.application.mine)
@@ -80,6 +83,14 @@ export const Route = createFileRoute('/_shell/_applicant/applications/')({
     status: STATUSES.includes(search.status as ApplicationStatus)
       ? (search.status as ApplicationStatus)
       : undefined,
+    programmeCycleId:
+      typeof search.programmeCycleId === 'string' ? search.programmeCycleId : undefined,
+    applicationType:
+      search.applicationType === 'INITIAL' || search.applicationType === 'EXPANSION'
+        ? search.applicationType
+        : undefined,
+    search:
+      typeof search.search === 'string' && search.search ? search.search : undefined,
     includeDeleted: search.includeDeleted === true ? true : undefined,
   }),
   loaderDeps: ({ search }) => search,
@@ -90,6 +101,7 @@ export const Route = createFileRoute('/_shell/_applicant/applications/')({
       context.queryClient.ensureQueryData(applicationsQuery(deps)),
       context.queryClient.ensureQueryData(enterpriseNamesQuery),
       context.queryClient.ensureQueryData(statusGuideQuery),
+      context.queryClient.ensureQueryData(cyclesQuery),
     ])
   },
   component: ApplicationsPage,
@@ -102,10 +114,22 @@ function ApplicationsPage() {
   const mark = useMarker()
   const { data: enterprises } = useQuery(enterpriseNamesQuery)
   const { data: guide } = useQuery(statusGuideQuery)
+  const { data: cycles } = useQuery(cyclesQuery)
 
   const applications = data?.nodes ?? []
   const labelFor = (status: ApplicationStatus) =>
     guide?.find((entry) => entry.status === status)?.label ?? humanize(status)
+  const filtered = Boolean(
+    search.search ||
+    search.enterpriseId ||
+    search.status ||
+    search.programmeCycleId ||
+    search.applicationType,
+  )
+
+  /** Any filter change invalidates the cursor: it points into another set. */
+  const filter = (change: Partial<Search>) =>
+    navigate({ search: (previous) => ({ ...previous, ...change, after: undefined }) })
 
   return (
     <main className="page">
@@ -120,6 +144,14 @@ function ApplicationsPage() {
       />
 
       <div className="filters" {...mark('application-list')}>
+        <SearchBox
+          id="application-search"
+          label="Reference starts with"
+          placeholder="SEP-2026"
+          value={search.search}
+          onChange={(value) => filter({ search: value })}
+        />
+
         <div>
           <label className="field-label" htmlFor="enterprise">
             Enterprise
@@ -129,16 +161,10 @@ function ApplicationsPage() {
             className="select"
             value={search.enterpriseId ?? ''}
             onChange={(event) =>
-              navigate({
-                // The updater form reads the live search rather than the value
-                // captured at render, so changing two filters in quick
-                // succession cannot drop the first.
-                search: (previous) => ({
-                  ...previous,
-                  enterpriseId: event.target.value || undefined,
-                  after: undefined,
-                }),
-              })
+              // The updater form inside `filter` reads the live search rather
+              // than the value captured at render, so changing two filters in
+              // quick succession cannot drop the first.
+              filter({ enterpriseId: event.target.value || undefined })
             }
           >
             <option value="">All enterprises</option>
@@ -178,18 +204,54 @@ function ApplicationsPage() {
           </select>
         </div>
 
+        <div>
+          <label className="field-label" htmlFor="cycle">
+            Programme cycle
+          </label>
+          <select
+            id="cycle"
+            className="select"
+            value={search.programmeCycleId ?? ''}
+            onChange={(event) =>
+              filter({ programmeCycleId: event.target.value || undefined })
+            }
+          >
+            <option value="">Any cycle</option>
+            {cycles?.mine.map((cycle) => (
+              <option key={cycle.id} value={cycle.id}>
+                {cycle.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="field-label" htmlFor="type">
+            Type
+          </label>
+          <select
+            id="type"
+            className="select"
+            value={search.applicationType ?? ''}
+            onChange={(event) =>
+              filter({
+                applicationType: (event.target.value || undefined) as
+                  ApplicationType | undefined,
+              })
+            }
+          >
+            <option value="">Any type</option>
+            <option value="INITIAL">Initial</option>
+            <option value="EXPANSION">Expansion</option>
+          </select>
+        </div>
+
         <label className="checkbox-row">
           <input
             type="checkbox"
             checked={search.includeDeleted ?? false}
             onChange={(event) =>
-              navigate({
-                search: (previous) => ({
-                  ...previous,
-                  includeDeleted: event.target.checked ? true : undefined,
-                  after: undefined,
-                }),
-              })
+              filter({ includeDeleted: event.target.checked ? true : undefined })
             }
           />
           Include removed drafts
@@ -198,14 +260,46 @@ function ApplicationsPage() {
 
       {applications.length === 0 ? (
         <div className="card">
-          <div className="empty">
-            <h3>Nothing here yet</h3>
-            <p>
-              {search.enterpriseId || search.status
-                ? 'No application matches these filters.'
-                : 'Start an application in an open programme cycle to apply for seed funding.'}
-            </p>
-          </div>
+          {/* Two different facts: nothing matched, or there is nothing here. */}
+          {filtered ? (
+            <div className="empty">
+              <h3>Nothing matches</h3>
+              <p>
+                No application matches these filters. Clearing one may bring some back.
+              </p>
+              <button
+                type="button"
+                className="button"
+                style={{ marginTop: '1rem' }}
+                onClick={() =>
+                  filter({
+                    search: undefined,
+                    enterpriseId: undefined,
+                    status: undefined,
+                    programmeCycleId: undefined,
+                    applicationType: undefined,
+                  })
+                }
+              >
+                Clear the filters
+              </button>
+            </div>
+          ) : (
+            <div className="empty">
+              <h3>Nothing here yet</h3>
+              <p>
+                Start an application in an open programme cycle to apply for seed funding.
+              </p>
+              <Link
+                to="/applications/new"
+                className="button"
+                data-variant="primary"
+                style={{ marginTop: '1rem' }}
+              >
+                Start an application
+              </Link>
+            </div>
+          )}
         </div>
       ) : (
         <div className="card">
@@ -269,35 +363,24 @@ function ApplicationsPage() {
             </table>
           </div>
 
-          {data?.pageInfo.hasNextPage || search.after ? (
-            <div className="pager">
-              <button
-                type="button"
-                className="button"
-                disabled={!search.after}
-                onClick={() =>
-                  navigate({ search: (previous) => ({ ...previous, after: undefined }) })
-                }
-              >
-                Start again
-              </button>
-              <button
-                type="button"
-                className="button"
-                disabled={!data?.pageInfo.hasNextPage}
-                onClick={() =>
-                  navigate({
-                    search: (previous) => ({
-                      ...previous,
-                      after: data?.pageInfo.endCursor ?? undefined,
-                    }),
-                  })
-                }
-              >
-                Next page
-              </button>
-            </div>
-          ) : null}
+          <Pager
+            shown={applications.length}
+            totalCount={data?.pageInfo.totalCount ?? 0}
+            hasNextPage={data?.pageInfo.hasNextPage ?? false}
+            atStart={!search.after}
+            pageSize={PAGE_SIZE}
+            onFirst={() =>
+              navigate({ search: (previous) => ({ ...previous, after: undefined }) })
+            }
+            onNext={() =>
+              navigate({
+                search: (previous) => ({
+                  ...previous,
+                  after: data?.pageInfo.endCursor ?? undefined,
+                }),
+              })
+            }
+          />
         </div>
       )}
     </main>

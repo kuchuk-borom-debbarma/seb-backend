@@ -19,15 +19,29 @@ fragment EnterpriseFields on Enterprise {
   deletedAt
 }
 
-query MyEnterprises($first: Int, $after: String, $includeDeleted: Boolean) {
+query MyEnterprises(
+  $first: Int
+  $after: String
+  $includeDeleted: Boolean
+  $status: EnterpriseStatus
+  $sector: BusinessSector
+  $search: String
+) {
   seb {
     enterprise {
-      mine(first: $first, after: $after, includeDeleted: $includeDeleted) {
+      mine(
+        first: $first
+        after: $after
+        includeDeleted: $includeDeleted
+        status: $status
+        sector: $sector
+        search: $search
+      ) {
         success
         message
         response {
           nodes { ...EnterpriseFields }
-          pageInfo { endCursor hasNextPage }
+          pageInfo { endCursor hasNextPage totalCount }
         }
       }
     }

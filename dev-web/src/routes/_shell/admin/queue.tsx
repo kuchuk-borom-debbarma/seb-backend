@@ -11,6 +11,7 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
+import { Pager, SearchBox } from '#/components/ListControls'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
 import {
@@ -59,6 +60,7 @@ type Search = {
   sector?: BusinessSector
   order?: AdminIntakeOrder
   mine?: boolean
+  search?: string
 }
 
 const oneOf = <TValue extends string>(
@@ -79,6 +81,8 @@ export const Route = createFileRoute('/_shell/admin/queue')({
       search.order,
     ),
     mine: search.mine === true ? true : undefined,
+    search:
+      typeof search.search === 'string' && search.search ? search.search : undefined,
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
@@ -106,6 +110,7 @@ const inputFor = (search: Search, assigneeUserId: string | null) => ({
   sector: search.sector ?? null,
   order: search.order ?? 'OLDEST_WAITING',
   assigneeUserId: search.mine ? assigneeUserId : null,
+  search: search.search ?? null,
 })
 
 function QueuePage() {
@@ -127,6 +132,15 @@ function QueuePage() {
     navigate({
       search: (previous) => ({ ...previous, ...change, after: undefined }),
     })
+
+  /** Whether an empty queue means "nothing matched" or "nothing to do". */
+  const filtered = Boolean(
+    search.search ||
+    search.applicationType ||
+    search.category ||
+    search.sector ||
+    search.mine,
+  )
 
   return (
     <main className="page">
@@ -177,6 +191,14 @@ function QueuePage() {
       </div>
 
       <div className="filters" {...mark('queue-filters')}>
+        <SearchBox
+          id="queue-search"
+          label="Reference or enterprise starts with"
+          placeholder="SEP-2026 or Khumulwng"
+          value={search.search}
+          onChange={(value) => filter({ search: value })}
+        />
+
         <div>
           <label className="field-label" htmlFor="order">
             Order
@@ -279,7 +301,7 @@ function QueuePage() {
           <div className="empty">
             <h3>Nothing in this queue</h3>
             <p>
-              {search.applicationType || search.category || search.sector || search.mine
+              {filtered
                 ? 'No application matches these filters. Clearing one may bring some back.'
                 : 'Everything here has been dealt with.'}
             </p>
@@ -355,37 +377,24 @@ function QueuePage() {
             </table>
           </div>
 
-          {data?.pageInfo.hasNextPage || search.after ? (
-            <div className="pager">
-              <button
-                type="button"
-                className="button"
-                disabled={!search.after}
-                onClick={() =>
-                  navigate({
-                    search: (previous) => ({ ...previous, after: undefined }),
-                  })
-                }
-              >
-                Start again
-              </button>
-              <button
-                type="button"
-                className="button"
-                disabled={!data?.pageInfo.hasNextPage}
-                onClick={() =>
-                  navigate({
-                    search: (previous) => ({
-                      ...previous,
-                      after: data?.pageInfo.endCursor ?? undefined,
-                    }),
-                  })
-                }
-              >
-                Next {QUEUE_PAGE_SIZE}
-              </button>
-            </div>
-          ) : null}
+          <Pager
+            shown={rows.length}
+            totalCount={data?.pageInfo.totalCount ?? 0}
+            hasNextPage={data?.pageInfo.hasNextPage ?? false}
+            atStart={!search.after}
+            pageSize={QUEUE_PAGE_SIZE}
+            onFirst={() =>
+              navigate({ search: (previous) => ({ ...previous, after: undefined }) })
+            }
+            onNext={() =>
+              navigate({
+                search: (previous) => ({
+                  ...previous,
+                  after: data?.pageInfo.endCursor ?? undefined,
+                }),
+              })
+            }
+          />
         </div>
       )}
     </main>

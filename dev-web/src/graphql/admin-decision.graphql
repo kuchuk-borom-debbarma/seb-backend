@@ -74,14 +74,14 @@ fragment MeetingWorkspaceRecord on AdminMeetingWorkspace {
   }
 }
 
-query TtmMeetings {
+query TtmMeetings($first: Int, $after: String, $status: TtmMeetingStatus) {
   admin {
     decision {
-      meetings {
+      meetings(first: $first, after: $after, status: $status) {
         success
         message
         response {
-          meetings {
+          nodes {
             id
             meetingReference
             scheduledAt
@@ -90,6 +90,7 @@ query TtmMeetings {
             status
             currentVersion
           }
+          pageInfo { endCursor hasNextPage totalCount }
         }
       }
     }

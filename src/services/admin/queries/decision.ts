@@ -6,8 +6,11 @@
  * batch atomically, so a concurrent winner leaves no partial referral,
  * meeting, agenda, decision, timeline, or audit record behind.
  */
-import { and, asc, desc, eq, getTableColumns, isNull, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, getTableColumns, isNull, lt, or, sql } from 'drizzle-orm'
+import { COUNT_MISSING, requireInvariant } from '../../application/support'
 import type { Database } from '../../../db'
+import { encodeAdminCursor } from '../pagination'
+import type { PageInfo } from '../types'
 import {
   coreAuditEvent,
   sebApplication,
@@ -389,8 +392,55 @@ export const correctBankOutcomeWrite = async (
   return changedExactlyOne(changed)
 }
 
-export const listMeetings = (db: Database) => db.select().from(sebTtmMeeting)
-  .orderBy(desc(sebTtmMeeting.scheduledAt), desc(sebTtmMeeting.id))
+/**
+ * One page of committee meetings, newest first.
+ *
+ * Previously this returned the whole table with no limit and no filter, which
+ * is fine for a demonstration and wrong for a programme that runs for years.
+ * It seeks like every other list, ordered by the sitting date.
+ */
+export const listMeetings = async (
+  db: Database,
+  input: {
+    first: number
+    after: { timestamp: Date; id: string } | null
+    status?: MeetingStatus | null
+  },
+): Promise<{ nodes: MeetingRecord[]; pageInfo: PageInfo }> => {
+  const filters = input.status ? eq(sebTtmMeeting.status, input.status) : undefined
+  const cursor = input.after
+    ? or(
+        lt(sebTtmMeeting.scheduledAt, input.after.timestamp),
+        and(
+          eq(sebTtmMeeting.scheduledAt, input.after.timestamp),
+          lt(sebTtmMeeting.id, input.after.id),
+        ),
+      )
+    : undefined
+  const rows = await db
+    .select()
+    .from(sebTtmMeeting)
+    .where(and(filters, cursor))
+    .orderBy(desc(sebTtmMeeting.scheduledAt), desc(sebTtmMeeting.id))
+    .limit(input.first + 1)
+  const selected = rows.slice(0, input.first)
+  const last = selected.at(-1)
+  const [total] = await db
+    .select({ value: count() })
+    .from(sebTtmMeeting)
+    .where(filters)
+  return {
+    nodes: selected,
+    pageInfo: {
+      hasNextPage: rows.length > input.first,
+      endCursor: last ? encodeAdminCursor('scheduledAt', last.scheduledAt, last.id) : null,
+      totalCount: requireInvariant(total, COUNT_MISSING).value,
+    },
+  }
+}
+
+type MeetingRecord = typeof sebTtmMeeting.$inferSelect
+type MeetingStatus = MeetingRecord['status']
 
 export const meetingWorkspace = async (db: Database, meetingId: string) => {
   const [meeting] = await db.select().from(sebTtmMeeting)

@@ -540,6 +540,7 @@ th.numeric {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--hairline);
@@ -938,4 +939,11 @@ th.numeric {
   --body-size: 0.875rem;
   --card-padding: var(--space-5);
   --title-size: 1.5rem;
+}
+
+/* Where a page sits in the set. Tabular figures so the number does not shift
+   as pages change. */
+.pager-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
 }

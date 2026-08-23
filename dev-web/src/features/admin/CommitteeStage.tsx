@@ -244,7 +244,12 @@ function PutOnAgenda({
   bankOutcomeId: string
   onChanged: () => Promise<unknown>
 }) {
-  const { data: meetings } = useQuery(meetingsQuery)
+  /*
+   * Only a meeting still being planned can take a new item, so the filter is
+   * the API's rather than a pass over everything it returned. That also keeps
+   * this correct once there are more meetings than one page.
+   */
+  const { data: meetings } = useQuery(meetingsQuery({ status: MEETING_STATES.draft }))
   const [meetingId, setMeetingId] = useState('')
   const [position, setPosition] = useState('1')
   const [error, setError] = useState<string | null>(null)
@@ -267,10 +272,7 @@ function PutOnAgenda({
     onError: (cause) => setError(messageFor(cause)),
   })
 
-  // Only a meeting still being planned can take a new item.
-  const open = (meetings ?? []).filter(
-    (meeting) => meeting.status === MEETING_STATES.draft,
-  )
+  const open = meetings?.nodes ?? []
 
   if (open.length === 0) {
     return (

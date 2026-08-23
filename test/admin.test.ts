@@ -1744,7 +1744,7 @@ describe('Mission SEP administration', () => {
     }`, { input: { meetingId: meetingHead.id, expectedVersion: 3 } }, administrator.cookie)
     expect(finalized.data.admin.decision.finalizeMeeting.response.meeting.status).toBe('FINALIZED')
     const meetings = await graphql<any>(`query($id: ID!) { admin { decision {
-      meetings { response { meetings { id status } } }
+      meetings { response { nodes { id status } pageInfo { totalCount } } }
       meetingById(meetingId: $id) { response { agenda { id } decisions { id } } }
     } } }`, { id: meetingHead.id }, administrator.cookie)
     expect(meetings.data.admin.decision.meetingById.response.decisions).toHaveLength(5)
@@ -2511,5 +2511,75 @@ describe('searching the intake queue and the cycle list', () => {
     const refused = await list({ cycleYear: 12 })
     expect(refused?.success).toBe(false)
     expect(refused?.message).toBe('Select a valid programme year.')
+  })
+})
+
+describe('the committee meetings list', () => {
+  it('is a page with a total, not the whole table', async () => {
+    const administrator = await adminSession(['ADMIN'])
+    for (const index of [1, 2, 3]) {
+      await graphql<{ admin: { decision: { createMeeting: { success: boolean } } } }>(
+        `mutation M($input: CreateTtmMeetingInput!) {
+          admin { decision { createMeeting(input: $input) { success message } } }
+        }`,
+        {
+          input: {
+            meetingReference: `TTM-PAGE-${index}`,
+            scheduledAt: new Date(Date.now() + index * 86_400_000).toISOString(),
+            venue: 'Khumulwng',
+          },
+        },
+        administrator.cookie,
+      )
+    }
+
+    const list = async (variables: Record<string, unknown>) => {
+      const response = await graphql<{
+        admin: {
+          decision: {
+            meetings: {
+              success: boolean
+              message: string | null
+              response: {
+                nodes: { meetingReference: string }[]
+                pageInfo: { endCursor: string | null; hasNextPage: boolean; totalCount: number }
+              } | null
+            }
+          }
+        }
+      }>(
+        `query M($first: Int, $after: String, $status: TtmMeetingStatus) {
+          admin { decision { meetings(first: $first, after: $after, status: $status) {
+            success message
+            response { nodes { meetingReference } pageInfo { endCursor hasNextPage totalCount } }
+          } } }
+        }`,
+        variables,
+        administrator.cookie,
+      )
+      return response.data?.admin.decision.meetings
+    }
+
+    // Bounded: asking for two returns two, and says there are more.
+    const firstPage = await list({ first: 2 })
+    expect(firstPage?.response?.nodes).toHaveLength(2)
+    expect(firstPage?.response?.pageInfo.hasNextPage).toBe(true)
+    expect(firstPage?.response?.pageInfo.totalCount).toBeGreaterThanOrEqual(3)
+
+    // And the cursor continues rather than repeating.
+    const second = await list({ first: 2, after: firstPage?.response?.pageInfo.endCursor })
+    const firstNames = firstPage?.response?.nodes.map((node) => node.meetingReference) ?? []
+    for (const node of second?.response?.nodes ?? []) {
+      expect(firstNames).not.toContain(node.meetingReference)
+    }
+
+    // A meeting is DRAFT until it starts, so this filter reaches the column.
+    expect((await list({ status: 'FINALIZED' }))?.response?.pageInfo.totalCount).toBe(0)
+    expect((await list({ status: 'DRAFT' }))?.response?.pageInfo.totalCount)
+      .toBeGreaterThanOrEqual(3)
+
+    // A cursor from another ordering is refused rather than mis-seeking.
+    const foreign = btoa(JSON.stringify(['updatedAt', Date.now(), 'x']))
+    expect((await list({ after: foreign }))?.message).toBe('Invalid pagination arguments.')
   })
 })

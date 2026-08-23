@@ -16,6 +16,7 @@ import {
   transitionMeetingWrite,
   updateDraftMeetingWrite,
 } from '../queries/decision'
+import { adminPageSize, decodeAdminCursor } from '../pagination'
 import { approvedReason, latestSubmission, loadApplicationHead, loadWorkspace } from '../queries/intake'
 import {
   ADMIN_REQUIRED_MESSAGE,
@@ -253,9 +254,19 @@ export const correctBankOutcome = async (
   return changed ? success(await loadWorkspace(context.db, input.applicationId)) : failure(STALE_MESSAGE)
 }
 
-export const ttmMeetings = async (context: AdminOperationContext): Promise<AdminResult<unknown>> => {
+export const ttmMeetings = async (
+  input: {
+    first?: number | null
+    after?: string | null
+    status?: Parameters<typeof listMeetings>[1]['status']
+  },
+  context: AdminOperationContext,
+): Promise<AdminResult<unknown>> => {
   if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
-  return success({ meetings: await listMeetings(context.db) })
+  const first = adminPageSize(input.first)
+  const after = decodeAdminCursor(input.after, 'scheduledAt')
+  if (!first || after === 'INVALID') return failure('Invalid pagination arguments.')
+  return success(await listMeetings(context.db, { first, after, status: input.status }))
 }
 
 export const ttmMeetingById = async (

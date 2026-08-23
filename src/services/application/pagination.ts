@@ -12,7 +12,12 @@
  */
 
 /** The column a page was ordered by. Part of the cursor, not decoration. */
-export type SortKey = 'updatedAt' | 'createdAt' | 'statusChangedAt' | 'submittedAt'
+export type SortKey =
+  | 'updatedAt'
+  | 'createdAt'
+  | 'statusChangedAt'
+  | 'submittedAt'
+  | 'scheduledAt'
 
 export const pageSize = (first: number | null | undefined): number | null => {
   if (first === null || first === undefined) return 20

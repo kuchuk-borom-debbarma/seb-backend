@@ -44,7 +44,7 @@ query IntakeQueue($input: AdminIntakeQueueInput) {
             statusChangedAt
             updatedAt
           }
-          pageInfo { endCursor hasNextPage }
+          pageInfo { endCursor hasNextPage totalCount }
         }
       }
     }

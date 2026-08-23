@@ -34,6 +34,9 @@ query MyApplications(
   $after: String
   $enterpriseId: ID
   $status: ApplicationStatus
+  $programmeCycleId: ID
+  $applicationType: ApplicationType
+  $search: String
   $includeDeleted: Boolean
 ) {
   seb {
@@ -43,13 +46,16 @@ query MyApplications(
         after: $after
         enterpriseId: $enterpriseId
         status: $status
+        programmeCycleId: $programmeCycleId
+        applicationType: $applicationType
+        search: $search
         includeDeleted: $includeDeleted
       ) {
         success
         message
         response {
           nodes { ...ApplicationSummaryFields }
-          pageInfo { endCursor hasNextPage }
+          pageInfo { endCursor hasNextPage totalCount }
         }
       }
     }
@@ -218,7 +224,7 @@ query ApplicationTimeline($applicationId: ID!, $first: Int) {
         message
         response {
           nodes { id eventType fromStatus toStatus section message createdAt }
-          pageInfo { endCursor hasNextPage }
+          pageInfo { endCursor hasNextPage totalCount }
         }
       }
     }

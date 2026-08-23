@@ -15,15 +15,29 @@ fragment AdminCycleHead on AdminProgrammeCycle {
   deletedAt
 }
 
-query AdminCycles($first: Int, $after: String, $includeDeleted: Boolean) {
+query AdminCycles(
+  $first: Int
+  $after: String
+  $includeDeleted: Boolean
+  $status: ProgrammeCycleStatus
+  $cycleYear: Int
+  $search: String
+) {
   admin {
     programmeCycle {
-      list(first: $first, after: $after, includeDeleted: $includeDeleted) {
+      list(
+        first: $first
+        after: $after
+        includeDeleted: $includeDeleted
+        status: $status
+        cycleYear: $cycleYear
+        search: $search
+      ) {
         success
         message
         response {
           nodes { ...AdminCycleHead }
-          pageInfo { endCursor hasNextPage }
+          pageInfo { endCursor hasNextPage totalCount }
         }
       }
     }

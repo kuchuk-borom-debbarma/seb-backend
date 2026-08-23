@@ -31,7 +31,11 @@ type AdminIntakeQuery {
 }
 
 type AdminDecisionQuery {
-  meetings: AdminMeetingsResult!
+  meetings(
+    first: Int
+    after: String
+    status: TtmMeetingStatus
+  ): AdminMeetingsResult!
   meetingById(meetingId: ID!): AdminMeetingWorkspaceResult!
 }
 
@@ -79,6 +83,7 @@ enum AdminIntakeQueueKey {
   DISBURSED
 }
 
+enum TtmMeetingStatus { DRAFT IN_SESSION FINALIZED CANCELLED }
 enum FundingCeilingState { UNRESOLVED RESOLVED }
 enum FundingCeilingScope { APPLICATION PHASE ENTERPRISE FUNDING_CASE }
 enum ProgrammeJurisdiction { TRIPURA TTAADC }
@@ -229,8 +234,8 @@ type AdminApplicationResult implements BaseResponse { success: Boolean!, message
 type AdminApplicationConnectionResult implements BaseResponse { success: Boolean!, message: String, response: AdminApplicationConnection }
 type AdminQueueSummaryResult implements BaseResponse { success: Boolean!, message: String, response: AdminQueueSummary }
 type AdminWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminWorkspace }
-type AdminMeetingsResponse { meetings: [AdminTtmMeeting!]! }
-type AdminMeetingsResult implements BaseResponse { success: Boolean!, message: String, response: AdminMeetingsResponse }
+type AdminMeetingConnection { nodes: [AdminTtmMeeting!]!, pageInfo: PageInfo! }
+type AdminMeetingsResult implements BaseResponse { success: Boolean!, message: String, response: AdminMeetingConnection }
 type AdminMeetingWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminMeetingWorkspace }
 type AdminFundingWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminFundingWorkspace }
 type AdminRecoveryWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminRecoveryWorkspace }

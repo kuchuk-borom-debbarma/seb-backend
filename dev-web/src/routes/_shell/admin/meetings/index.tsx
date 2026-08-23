@@ -8,23 +8,40 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
+import { Pager } from '#/components/ListControls'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
-import { meetingsQuery } from '#/features/admin/meetingQueries'
+import { MEETINGS_PAGE_SIZE, meetingsQuery } from '#/features/admin/meetingQueries'
 import { CreateMeetingDocument } from '#/graphql/generated/operations'
 import { MEETING_TITLES } from '#/features/admin/states'
+import type { TtmMeetingStatus } from '#/graphql/generated/schema'
 import { formatDateTime, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 
+type Search = { after?: string; status?: TtmMeetingStatus }
+
+const STATUSES: TtmMeetingStatus[] = ['DRAFT', 'IN_SESSION', 'FINALIZED', 'CANCELLED']
+
 export const Route = createFileRoute('/_shell/admin/meetings/')({
-  loader: ({ context }) => context.queryClient.ensureQueryData(meetingsQuery),
+  validateSearch: (search: Record<string, unknown>): Search => ({
+    after: typeof search.after === 'string' ? search.after : undefined,
+    status: STATUSES.includes(search.status as TtmMeetingStatus)
+      ? (search.status as TtmMeetingStatus)
+      : undefined,
+  }),
+  loaderDeps: ({ search }) => search,
+  loader: ({ context, deps }) => context.queryClient.ensureQueryData(meetingsQuery(deps)),
   component: MeetingsPage,
 })
 
 function MeetingsPage() {
-  const { data: meetings } = useQuery(meetingsQuery)
+  const search = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const { data } = useQuery(meetingsQuery(search))
   const [creating, setCreating] = useState(false)
+
+  const meetings = data?.nodes ?? []
   const mark = useMarker()
 
   return (
@@ -50,11 +67,46 @@ function MeetingsPage() {
       <div className="stack">
         {creating ? <MeetingForm onDone={() => setCreating(false)} /> : null}
 
-        {meetings?.length === 0 ? (
+        <div className="filters">
+          <div>
+            <label className="field-label" htmlFor="meeting-status">
+              State
+            </label>
+            <select
+              id="meeting-status"
+              className="select"
+              value={search.status ?? ''}
+              onChange={(event) =>
+                navigate({
+                  search: (previous) => ({
+                    ...previous,
+                    status: (event.target.value || undefined) as
+                      TtmMeetingStatus | undefined,
+                    // A filter change invalidates the cursor.
+                    after: undefined,
+                  }),
+                })
+              }
+            >
+              <option value="">Any state</option>
+              {STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {MEETING_TITLES[status] ?? humanize(status)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {meetings.length === 0 ? (
           <div className="card">
             <div className="empty">
-              <h3>No meetings yet</h3>
-              <p>Schedule one to start building an agenda.</p>
+              <h3>{search.status ? 'Nothing matches' : 'No meetings yet'}</h3>
+              <p>
+                {search.status
+                  ? 'No meeting is in that state. Clearing the filter may bring some back.'
+                  : 'Schedule one to start building an agenda.'}
+              </p>
             </div>
           </div>
         ) : (
@@ -71,7 +123,7 @@ function MeetingsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {meetings?.map((meeting) => (
+                  {meetings.map((meeting) => (
                     <tr key={meeting.id}>
                       <td>
                         <Link
@@ -94,6 +146,24 @@ function MeetingsPage() {
                 </tbody>
               </table>
             </div>
+            <Pager
+              shown={meetings.length}
+              totalCount={data?.pageInfo.totalCount ?? 0}
+              hasNextPage={data?.pageInfo.hasNextPage ?? false}
+              atStart={!search.after}
+              pageSize={MEETINGS_PAGE_SIZE}
+              onFirst={() =>
+                navigate({ search: (previous) => ({ ...previous, after: undefined }) })
+              }
+              onNext={() =>
+                navigate({
+                  search: (previous) => ({
+                    ...previous,
+                    after: data?.pageInfo.endCursor ?? undefined,
+                  }),
+                })
+              }
+            />
           </div>
         )}
       </div>

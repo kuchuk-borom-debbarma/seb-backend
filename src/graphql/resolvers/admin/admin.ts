@@ -86,7 +86,7 @@ export const adminResolvers = {
     documentDownloadUrl: (_parent: unknown, args: { applicationId: string; submissionDocumentId: string }, context: GraphQLContext) => adminDocumentDownloadUrl(args, context),
   },
   AdminDecisionQuery: {
-    meetings: (_parent: unknown, _args: unknown, context: GraphQLContext) => ttmMeetings(context),
+    meetings: (_parent: unknown, args: Parameters<typeof ttmMeetings>[0], context: GraphQLContext) => ttmMeetings(args, context),
     meetingById: (_parent: unknown, args: { meetingId: string }, context: GraphQLContext) => ttmMeetingById(args.meetingId, context),
   },
   AdminFundingQuery: {

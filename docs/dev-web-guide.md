@@ -237,6 +237,31 @@ Three rules the layer keeps:
 Used once on the application form, on purpose — an icon beside every label
 teaches nothing and doubles the reading.
 
+## Lists
+
+Every list is cursor-paginated, filtered from the address, and reports a total.
+
+**Search is prefix matching, and the labels say so** — "Name starts with",
+"Reference or enterprise starts with", "Code starts with". The API matches an
+indexed prefix, which is what makes it a range seek rather than a table scan; a
+control labelled "Search" that quietly meant "starts with" would be discovered
+by somebody typing a word from the middle of a name and getting nothing.
+
+**Filters live in the URL**, so a narrowed view can be bookmarked or sent to a
+colleague and comes back with the same rows. Changing a filter clears the cursor
+— it points into a differently-filtered set. Search is debounced, because a
+request per keystroke is both wasteful and slower to settle than one after the
+pause.
+
+**Empty means two different things** and the screens distinguish them: "Nothing
+matches" with a way to clear the filters, or "Nothing here yet" with the real
+first action. Knowing the total is what makes that distinction possible.
+
+Shared controls live in `src/components/ListControls.tsx` — `SearchBox` and
+`Pager`. The pager reports `1–20 of 143` rather than an unlabelled Next button,
+and says "continued" past the first page because a keyset cursor cannot know
+which page number it is on.
+
 ## The quality floor
 
 Held by tests rather than asserted in a document:
