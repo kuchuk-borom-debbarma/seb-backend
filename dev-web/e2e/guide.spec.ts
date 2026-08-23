@@ -181,7 +181,7 @@ test.describe('walking a route', () => {
 
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     await expect(rail).toBeVisible()
-    await expect(rail.getByText('Step 1 of 8')).toBeVisible()
+    await expect(rail.getByText('Step 1 of 9')).toBeVisible()
     await expect(rail.getByText('Programme office', { exact: true })).toBeVisible()
     await expect(
       rail.getByRole('heading', { name: 'Start from what needs you' }),
@@ -226,10 +226,10 @@ test.describe('walking a route', () => {
 
     await rail.getByRole('button', { name: 'Next' }).click()
     await expect(page).toHaveURL(/\/admin\/queue/u)
-    await expect(rail.getByText('Step 2 of 8')).toBeVisible()
+    await expect(rail.getByText('Step 2 of 9')).toBeVisible()
 
     await rail.getByRole('button', { name: 'Back' }).click()
-    await expect(rail.getByText('Step 1 of 8')).toBeVisible()
+    await expect(rail.getByText('Step 1 of 9')).toBeVisible()
     await expect(page).toHaveURL(/\/admin$/u)
   })
 
@@ -281,12 +281,12 @@ test.describe('walking a route', () => {
 
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     await rail.getByRole('button', { name: 'Next' }).click()
-    await expect(rail.getByText('Step 2 of 8')).toBeVisible()
+    await expect(rail.getByText('Step 2 of 9')).toBeVisible()
 
     // A demonstration gets interrupted. Coming back must not start again.
     await page.reload()
     await expect(
-      page.getByRole('complementary', { name: /Guided route/u }).getByText('Step 2 of 8'),
+      page.getByRole('complementary', { name: /Guided route/u }).getByText('Step 2 of 9'),
     ).toBeVisible()
   })
 
@@ -321,7 +321,7 @@ test.describe('walking a route', () => {
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     await rail.getByRole('button', { name: 'Next' }).focus()
     await page.keyboard.press('Enter')
-    await expect(rail.getByText('Step 2 of 8')).toBeVisible()
+    await expect(rail.getByText('Step 2 of 9')).toBeVisible()
   })
 })
 
@@ -491,7 +491,7 @@ test.describe('the office is led to the work, not only to the console', () => {
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     for (const step of [2, 3, 4]) {
       await rail.getByRole('button', { name: 'Next' }).click()
-      await expect(rail.getByText(`Step ${step} of 8`)).toBeVisible()
+      await expect(rail.getByText(`Step ${step} of 9`)).toBeVisible()
     }
 
     // Step four is the claim card, on that exact application.

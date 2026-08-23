@@ -1,5 +1,7 @@
 import type { AppBindings } from '../../bindings'
 import type { Database } from '../../db'
+import type { IdentifierKind } from './identifiers'
+export type { IdentifierKind } from './identifiers'
 import type {
   awardAssessmentTypes,
   bankOutcomes,
@@ -108,6 +110,20 @@ export type DeskReviewCheckInput = {
   checkType: DeskReviewCheckType
   result: DeskReviewCheckResult
   internalNote?: string | null
+}
+
+/**
+ * One number read off a document, as the reviewer typed it.
+ *
+ * `branchCode` belongs only to a bank account, where the account number alone
+ * does not identify a destination. `matchedReason` is supplied on the second
+ * attempt, once the reviewer has been told the value already exists elsewhere.
+ */
+export type DeskReviewIdentifierInput = {
+  kind: IdentifierKind
+  value: string
+  branchCode?: string | null
+  matchedReason?: string | null
 }
 
 export type RevisionRequestInput = {

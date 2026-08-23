@@ -60,7 +60,17 @@ enum DeskReviewCheckResult { PASS FAIL NOT_APPLICABLE }
 enum DeskReviewOutcome { ADVANCE_TO_BANK REQUEST_REVISION REJECT }
 input DeskReviewCheckInput { checkType: DeskReviewCheckType!, result: DeskReviewCheckResult!, internalNote: String }
 input AdminRevisionInput { section: ApplicationSection!, reasonCategoryId: ID!, note: String! }
-input CompleteDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int!, outcome: DeskReviewOutcome!, checks: [DeskReviewCheckInput!]!, reasonCategoryId: ID, applicantMessage: String, revisions: [AdminRevisionInput!]! }
+# What a reviewer read off the documents behind the checks they passed. A
+# passed check without its number is an attestation with nothing behind it, so
+# the API refuses one.
+enum DeskReviewIdentifierKind { ST_CERTIFICATE IDENTITY_DOCUMENT BANK_ACCOUNT BUSINESS_REGISTRATION }
+# `branchCode` belongs only to BANK_ACCOUNT: an account number identifies a
+# destination only together with the branch it is held at. `matchedReason` is
+# sent on the second attempt, after the API has said the value already exists
+# on another funding case — a match is a question, not a verdict, because the
+# same person legitimately returns for a later phase.
+input DeskReviewIdentifierInput { kind: DeskReviewIdentifierKind!, value: String!, branchCode: String, matchedReason: String }
+input CompleteDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int!, outcome: DeskReviewOutcome!, checks: [DeskReviewCheckInput!]!, reasonCategoryId: ID, applicantMessage: String, revisions: [AdminRevisionInput!]!, identifiers: [DeskReviewIdentifierInput!]! }
 input StartDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int! }
 input CancelRevisionInput { applicationId: ID!, revisionRequestId: ID!, expectedStatusVersion: Int!, reason: String! }
 type AdminIntakeMutation {

@@ -200,6 +200,7 @@ describe('core and Mission SEP schema', () => {
       'seb_award_assessment',
       'seb_desk_review',
       'seb_desk_review_check',
+      'seb_desk_review_identifier',
       'seb_disbursement',
       'seb_document_upload_intent',
       'seb_enterprise',

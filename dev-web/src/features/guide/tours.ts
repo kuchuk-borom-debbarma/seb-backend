@@ -181,6 +181,13 @@ export const TOURS: Tour[] = [
         needs: 'Claim an application and start its desk review.',
       },
       {
+        title: 'Write down what the documents actually say',
+        body: 'Passing a check means you read a document, so the number on it is asked for as you go. Until these were kept, the programme held no identity number at all and could not tell whether one certificate or one bank account had been used on two applications. A repeat is not refused — the same promoter returns for a later phase — but it has to be answered, and the answer stays beside the number that raised it.',
+        desk: DESKS.office,
+        mark: 'desk-review-identifiers',
+        needs: 'Start a desk review and pass a check to see the fields appear.',
+      },
+      {
         title: 'Everything said about a file stays with it',
         body: 'Internal notes are never shown to the applicant, and none can be edited or deleted — a correction is a new note pointing at the one it corrects. What was thought at the time survives alongside what replaced it.',
         desk: DESKS.office,

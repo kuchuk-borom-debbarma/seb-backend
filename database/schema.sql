@@ -1184,6 +1184,21 @@ CREATE TABLE `seb_desk_review_check` (
 );
 
 CREATE UNIQUE INDEX `seb_desk_review_check_type_uq` ON `seb_desk_review_check` (`desk_review_id`,`check_type`);
+CREATE TABLE `seb_desk_review_identifier` (
+	`id` text PRIMARY KEY NOT NULL,
+	`desk_review_id` text NOT NULL,
+	`funding_case_id` text NOT NULL,
+	`kind` text NOT NULL,
+	`comparable_value` text NOT NULL,
+	`last_four` text NOT NULL,
+	`matched_reason` text,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`desk_review_id`) REFERENCES `seb_desk_review`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_desk_review_identifier_kind_check" CHECK("seb_desk_review_identifier"."kind" IN ('ST_CERTIFICATE', 'IDENTITY_DOCUMENT', 'BANK_ACCOUNT', 'BUSINESS_REGISTRATION'))
+);
+
+CREATE UNIQUE INDEX `seb_desk_review_identifier_kind_uq` ON `seb_desk_review_identifier` (`desk_review_id`,`kind`);
+CREATE INDEX `seb_desk_review_identifier_match_idx` ON `seb_desk_review_identifier` (`kind`,`comparable_value`,`funding_case_id`);
 CREATE TABLE `seb_application_event` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,

@@ -7,6 +7,7 @@ import {
   cancelRevisionRequestWrite,
   changeAssignment,
   completeDeskReviewWrite,
+  identifierMatches,
   insertInternalNote,
   intakeQueueSummary,
   intakeSortKey,
@@ -27,11 +28,20 @@ import {
   STALE_MESSAGE,
   success,
 } from '../support'
+import {
+  IDENTIFIER_FOR_CHECK,
+  bankDestination,
+  lastFourOf,
+  normalizeIdentifier,
+  storedValue,
+  type IdentifierKind,
+} from '../identifiers'
 import type {
   AdminOperationContext,
   IntakeQueueKey,
   AdminResult,
   DeskReviewCheckInput,
+  DeskReviewIdentifierInput,
   DeskReviewOutcome,
   RevisionRequestInput,
 } from '../types'
@@ -306,6 +316,71 @@ const validateReviewChecks = (
   return null
 }
 
+/** What each identifier is called when a refusal has to name one. */
+const IDENTIFIER_LABELS: Record<IdentifierKind, string> = {
+  ST_CERTIFICATE: 'Scheduled Tribe certificate number',
+  IDENTITY_DOCUMENT: 'identity document number',
+  BANK_ACCOUNT: 'bank account number and branch code',
+  BUSINESS_REGISTRATION: 'business registration number',
+}
+
+/**
+ * Turns what the reviewer typed into what the database compares.
+ *
+ * A check that was passed asks for the number on the document behind it; a
+ * check that failed or does not apply asks for nothing, because there is
+ * nothing being attested to. Business registration is never required — an
+ * unregistered enterprise has none, and demanding one would make somebody
+ * invent a number to get past the form.
+ *
+ * Returns a refusal message, or the values ready to be compared and stored.
+ */
+const readIdentifiers = async (
+  input: { checks: DeskReviewCheckInput[]; identifiers: DeskReviewIdentifierInput[] },
+  context: AdminOperationContext,
+): Promise<string | { kind: IdentifierKind; comparableValue: string; lastFour: string }[]> => {
+  const given = new Map(input.identifiers.map((entry) => [entry.kind, entry]))
+  if (given.size !== input.identifiers.length) {
+    return 'Each identifier may be given once.'
+  }
+
+  const required = new Set<IdentifierKind>()
+  for (const check of input.checks) {
+    const kind: IdentifierKind | undefined =
+      IDENTIFIER_FOR_CHECK[check.checkType as keyof typeof IDENTIFIER_FOR_CHECK]
+    if (kind && check.result === 'PASS') required.add(kind)
+  }
+
+  const read: { kind: IdentifierKind; comparableValue: string; lastFour: string }[] = []
+  for (const [kind, entry] of given) {
+    /*
+     * An account number and a branch code identify a destination only together,
+     * so they are folded into one value. The last four shown back are the
+     * account's, because that is what a person checks against a passbook.
+     */
+    const digits = normalizeIdentifier(entry.value)
+    const comparable = kind === 'BANK_ACCOUNT'
+      ? bankDestination(entry.value, entry.branchCode ?? '')
+      : digits
+    if (!digits || !comparable) {
+      return `Enter the ${IDENTIFIER_LABELS[kind]} exactly as it appears.`
+    }
+    read.push({
+      kind,
+      comparableValue: await storedValue(kind, comparable, context.env),
+      lastFour: lastFourOf(digits),
+    })
+  }
+
+  const missing = [...required].filter((kind) => !given.has(kind))
+  if (missing.length > 0) {
+    return `Passing this check means reading the document: enter the ${
+      missing.map((kind) => IDENTIFIER_LABELS[kind]).join(' and the ')
+    }.`
+  }
+  return read
+}
+
 const validateAdvanceOutcome = async (
   context: AdminOperationContext,
   input: { checks: DeskReviewCheckInput[]; revisions: RevisionRequestInput[] },
@@ -380,6 +455,7 @@ export const completeDeskReview = async (
     reasonCategoryId?: string | null
     applicantMessage?: string | null
     revisions: RevisionRequestInput[]
+    identifiers: DeskReviewIdentifierInput[]
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
@@ -415,8 +491,37 @@ export const completeDeskReview = async (
   } else if (input.revisions.length > 0) {
     return failure('This outcome cannot include revision requests.')
   }
+
+  const read = await readIdentifiers(input, context)
+  if (typeof read === 'string') return failure(read)
+
+  /*
+   * A value already recorded against another funding case is a question, not a
+   * verdict. The same promoter legitimately returns for a second phase, and a
+   * hard refusal would block real work — so the reviewer answers it, and the
+   * answer is kept beside the number that raised it.
+   */
+  const matches = await identifierMatches(context.db, head.application.fundingCaseId, read)
+  const answers = new Map<IdentifierKind, string>()
+  for (const [kind, reference] of matches) {
+    const given = input.identifiers.find((entry) => entry.kind === kind)
+    const answer = normalizeRequiredText(given?.matchedReason ?? '', 1_000)
+    if (!answer) {
+      return failure(
+        `That ${IDENTIFIER_LABELS[kind]} is already recorded against ${reference}. `
+        + 'Say why this is not the same claim, or fail the check.',
+      )
+    }
+    answers.set(kind, answer)
+  }
+
   const changed = await constraintSafe(() => completeDeskReviewWrite(context, {
     ...input,
+    identifiers: read.map((entry) => ({
+      ...entry,
+      matchedReason: answers.get(entry.kind) ?? null,
+    })),
+    fundingCaseId: head.application.fundingCaseId,
     submissionId: submission.submission.id,
     actorUserId: administrator.id,
     applicantMessage: input.applicantMessage?.trim() ?? null,

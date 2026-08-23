@@ -52,6 +52,17 @@ test('an application is carried from submission to payment', async ({ page }) =>
   // Not applicable: this is an initial application, and the API refuses a pass
   // or a fail on the expansion check for one.
   await page.locator('input[name="EXPANSION_EVIDENCE"]').last().check()
+
+  /*
+   * Passing a check means having read the document, so the numbers on them are
+   * now part of the review. The fields appear as the checks they evidence are
+   * passed, which is why this sits after the checks and not before.
+   */
+  await page.getByLabel('Scheduled Tribe certificate number').fill('TR/ST/2026-000117')
+  await page.getByLabel('Identity document number').fill('411700002222')
+  await page.getByLabel('Bank account number').fill('50010000411')
+  await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
+
   await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
   await page.getByRole('button', { name: 'Complete the review' }).click()
 

@@ -38,6 +38,14 @@ export const deskReviewOutcomes = [
   'REJECT',
 ] as const
 
+/** What a reviewer transcribes off the document they are looking at. */
+export const deskReviewIdentifierKinds = [
+  'ST_CERTIFICATE',
+  'IDENTITY_DOCUMENT',
+  'BANK_ACCOUNT',
+  'BUSINESS_REGISTRATION',
+] as const
+
 /** Every change to the current queue owner, including self-review disclosure. */
 export const sebApplicationAssignmentEvent = sqliteTable(
   'seb_application_assignment_event',
@@ -197,6 +205,57 @@ export const sebDeskReviewCheck = sqliteTable(
     check(
       'seb_desk_review_check_result_check',
       sql`${table.result} IN ('PASS', 'FAIL', 'NOT_APPLICABLE')`,
+    ),
+  ],
+)
+
+/**
+ * The identifiers read off the documents a review passed.
+ *
+ * Append-only and immutable, like the review itself: this is a record of what
+ * somebody read on a particular day, and correcting it means a new review
+ * rather than an edit to an old one.
+ *
+ * `fundingCaseId` is copied here rather than joined for. The duplicate check
+ * runs on every completed review and asks one question — has this value been
+ * recorded against a different case — so it must be a single indexed lookup
+ * rather than a walk through reviews and applications. The copy cannot drift:
+ * an application's funding case is fixed when it is created and never moves.
+ *
+ * `matchedReason` is what the reviewer said when a match was found and the
+ * check was passed anyway. A match is not proof of anything — a second-phase
+ * expansion by the same promoter is expected here — so it is a question that
+ * must be answered rather than a refusal.
+ */
+export const sebDeskReviewIdentifier = sqliteTable(
+  'seb_desk_review_identifier',
+  {
+    id: text('id').primaryKey(),
+    deskReviewId: text('desk_review_id')
+      .notNull()
+      .references(() => sebDeskReview.id, { onDelete: 'restrict' }),
+    fundingCaseId: text('funding_case_id').notNull(),
+    kind: text('kind', { enum: deskReviewIdentifierKinds }).notNull(),
+    /** Normalized for comparison, or a keyed digest where the kind is sensitive. */
+    comparableValue: text('comparable_value').notNull(),
+    /** The digits a reviewer can check by eye. Never the whole number. */
+    lastFour: text('last_four').notNull(),
+    /** Set when this value already existed on another case and was passed anyway. */
+    matchedReason: text('matched_reason'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    // One value of each kind per review: a reviewer reads one certificate.
+    uniqueIndex('seb_desk_review_identifier_kind_uq').on(table.deskReviewId, table.kind),
+    check(
+      'seb_desk_review_identifier_kind_check',
+      sql`${table.kind} IN ('ST_CERTIFICATE', 'IDENTITY_DOCUMENT', 'BANK_ACCOUNT', 'BUSINESS_REGISTRATION')`,
+    ),
+    // The duplicate question, answered by one indexed seek.
+    index('seb_desk_review_identifier_match_idx').on(
+      table.kind,
+      table.comparableValue,
+      table.fundingCaseId,
     ),
   ],
 )

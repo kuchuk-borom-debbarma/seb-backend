@@ -5,6 +5,12 @@
  */
 export type AppBindings = CloudflareBindings & {
   AUTH_SECRET?: string
+  /**
+   * Keys the digest of the identity numbers a reviewer transcribes. Separate
+   * from AUTH_SECRET on purpose: rotating session signing must not silently
+   * stop the duplicate check from matching anything already recorded.
+   */
+  IDENTIFIER_SECRET?: string
   FRONTEND_ORIGINS?: string
   AUTH_COOKIE_SAME_SITE?: string
   APPLICANT_SIGNUP_TOKEN_ATTEMPT_COUNT?: string

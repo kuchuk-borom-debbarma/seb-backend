@@ -108,6 +108,33 @@ consistency, DPR feasibility, and expansion evidence. An initial application
 uses `NOT_APPLICABLE` only for expansion evidence; all applicable checks must
 pass before bank referral. Submitted files must also have accepted scans.
 
+### What the reviewer transcribes
+
+A result alone is an attestation with nothing behind it: "I saw a valid
+certificate" cannot afterwards be asked *which* certificate. So a passed check
+also records the number on the document it was read from — the Scheduled Tribe
+certificate for `ST_ELIGIBILITY`, the identity document for `IDENTITY_KYC`, and
+the bank account with its branch code for `DOCUMENT_COMPLETENESS`. A business
+registration number is accepted but never demanded, because an unregistered
+enterprise has none. A check that is failed or not applicable asks for nothing.
+
+Values are compared after case and separators are stripped, so `tr/st/2019-004471`
+and `TR-ST-2019-004471` are one certificate. Identity and bank numbers are stored
+as a keyed digest and never rendered back; the reviewer confirms against the last
+four digits. The key is set once — every stored digest was made with it, so
+changing it would silently stop the check matching anything already recorded.
+
+If a value already exists on a **different funding case**, the review is refused
+and names both the identifier and the application it was found on. This is a
+question, not a verdict: a second-phase expansion by the same promoter is
+expected, so the reviewer either fails the check or states why it is not the same
+claim, and that answer is retained beside the value that raised it.
+
+Before this, the only identity-based duplicate guard in the programme was the
+unique index on an enterprise's GSTIN — which an unregistered enterprise does not
+have, so one person could carry two enterprises and two funding cases with
+nothing linking them.
+
 A financial inconsistency might produce a `FINANCIAL` revision request with an
 approved reason and safe instruction: “Correct the requested amount to match
 the DPR.” Only that section becomes editable. Resubmission creates a new frozen

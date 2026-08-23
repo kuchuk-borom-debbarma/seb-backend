@@ -109,6 +109,25 @@ const deskCheckTypes = [
   'DPR_FEASIBILITY', 'EXPANSION_EVIDENCE',
 ]
 
+/**
+ * The numbers a reviewer would read off the documents, distinct per call.
+ *
+ * Distinct because they have to be: two applications carrying the same
+ * certificate number is exactly what the duplicate check refuses, so a shared
+ * fixture would make every second review in this file fail — which would be the
+ * feature working, not a fixture problem.
+ */
+let identifierSequence = 0
+const passingIdentifiers = () => {
+  identifierSequence += 1
+  const n = String(identifierSequence).padStart(6, '0')
+  return [
+    { kind: 'ST_CERTIFICATE', value: `TR-ST-2026-${n}` },
+    { kind: 'IDENTITY_DOCUMENT', value: `9${n}000${n}`.slice(0, 12) },
+    { kind: 'BANK_ACCOUNT', value: `500100${n}`, branchCode: 'SBIN0007890' },
+  ]
+}
+
 const createOpenedCycle = async (cookie: string) => {
   const cycle = {
     cycleCode: `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
@@ -208,7 +227,7 @@ describe('Mission SEP administration', () => {
       'mutation { admin { intake { startDeskReview(input: { applicationId: "x", expectedStatusVersion: 1 }) { success } } } }',
       `mutation { admin { intake { completeDeskReview(input: {
         applicationId: "x", expectedStatusVersion: 1, outcome: ADVANCE_TO_BANK,
-        checks: [], revisions: []
+        checks: [], revisions: [], identifiers: []
       }) { success } } } }`,
       'mutation { admin { intake { cancelRevision(input: { applicationId: "x", revisionRequestId: "x", expectedStatusVersion: 1, reason: "x" }) { success } } } }',
       'mutation { admin { decision { cancelBankReferral(input: { applicationId: "x", referralId: "x", expectedReferralVersion: 1, reasonCategoryId: "x", reason: "x", applicantMessage: "x" }) { success } } } }',
@@ -776,6 +795,7 @@ describe('Mission SEP administration', () => {
       checks: deskCheckTypes.map((checkType) => ({
         checkType, result: checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS',
       })), reasonCategoryId: null, applicantMessage: null, revisions: [],
+      identifiers: passingIdentifiers(),
     } }, administrator.cookie)
     expect(blockedReview.data.admin.intake.completeDeskReview.message)
       .toBe('Every submitted document must pass malware scanning first.')
@@ -815,6 +835,7 @@ describe('Mission SEP administration', () => {
       checks: deskCheckTypes.map((checkType) => ({
         checkType, result: checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS',
       })),
+      identifiers: passingIdentifiers(),
       revisions: [{
         section: 'FINANCIAL', reasonCategoryId: revisionReason,
         note: 'Correct the requested-funding details.',
@@ -856,7 +877,7 @@ describe('Mission SEP administration', () => {
       outcome: 'ADVANCE_TO_BANK', reasonCategoryId: null, applicantMessage: null,
       checks: deskCheckTypes.map((checkType) => ({
         checkType, result: checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS',
-      })), revisions: [],
+      })), revisions: [], identifiers: passingIdentifiers(),
     } }, administrator.cookie)
     const reviewId = advanced.data.admin.intake.completeDeskReview.response.reviews[0].id
     const refer = async (suffix: string, statusVersion: number) => graphql<any>(`mutation($input: BankReferralInput!) {
@@ -1025,7 +1046,7 @@ describe('Mission SEP administration', () => {
       admin { intake { completeDeskReview(input: $input) { success } } }
     }`, { input: {
       applicationId: 'missing', expectedStatusVersion: 1,
-      outcome: 'ADVANCE_TO_BANK', checks: [], reasonCategoryId: null,
+      outcome: 'ADVANCE_TO_BANK', checks: [], identifiers: [], reasonCategoryId: null,
       applicantMessage: null, revisions: [],
     } }, administrator.cookie)
     expect(missingReview.data.admin.intake.completeDeskReview.success).toBe(false)
@@ -1117,8 +1138,8 @@ describe('Mission SEP administration', () => {
     const revisionReasonPlaceholder = await reasonId(cycle.id, 'REVISION')
     const rejectionReason = await reasonId(cycle.id, 'REJECTION')
     const reviewCases = [
-      { checks: [], outcome: 'ADVANCE_TO_BANK', revisions: [] },
-      { checks: checks.map((check) => check.checkType === 'EXPANSION_EVIDENCE' ? { ...check, result: 'PASS' } : check), outcome: 'ADVANCE_TO_BANK', revisions: [] },
+      { checks: [], outcome: 'ADVANCE_TO_BANK', revisions: [], identifiers: [] },
+      { checks: checks.map((check) => check.checkType === 'EXPANSION_EVIDENCE' ? { ...check, result: 'PASS' } : check), outcome: 'ADVANCE_TO_BANK', revisions: [], identifiers: passingIdentifiers() },
       { checks: checks.map((check) => check.checkType === 'IDENTITY_KYC' ? { ...check, internalNote: 'x'.repeat(2001) } : check), outcome: 'ADVANCE_TO_BANK', revisions: [] },
       { checks: checks.map((check) => check.checkType === 'DPR_FEASIBILITY' ? { ...check, result: 'FAIL' } : check), outcome: 'ADVANCE_TO_BANK', revisions: [] },
       { checks, outcome: 'ADVANCE_TO_BANK', revisions: [{ section: 'FINANCIAL', reasonCategoryId: revisionReasonPlaceholder, note: 'Change.' }] },
@@ -1143,7 +1164,8 @@ describe('Mission SEP administration', () => {
         admin { intake { completeDeskReview(input: $input) { success message } } }
       }`, { input: {
         applicationId: submitted.applicationId, expectedStatusVersion: 3,
-        reasonCategoryId: null, applicantMessage: null, ...candidate,
+        reasonCategoryId: null, applicantMessage: null,
+        identifiers: passingIdentifiers(), ...candidate,
       } }, administrator.cookie)
       expect(result.data.admin.intake.completeDeskReview.success).toBe(false)
     }
@@ -1152,7 +1174,7 @@ describe('Mission SEP administration', () => {
     }`, { input: {
       applicationId: submitted.applicationId, expectedStatusVersion: 99,
       outcome: 'REJECT', checks, reasonCategoryId: rejectionReason,
-      applicantMessage: 'Safe.', revisions: [],
+      applicantMessage: 'Safe.', revisions: [], identifiers: passingIdentifiers(),
     } }, administrator.cookie)
     expect(staleReview.data.admin.intake.completeDeskReview.success).toBe(false)
     const rejected = await graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
@@ -1160,7 +1182,8 @@ describe('Mission SEP administration', () => {
     }`, { input: {
       applicationId: submitted.applicationId, expectedStatusVersion: 3,
       outcome: 'REJECT', checks, reasonCategoryId: rejectionReason,
-      applicantMessage: 'The submitted evidence did not meet desk-review requirements.', revisions: [],
+      applicantMessage: 'The submitted evidence did not meet desk-review requirements.',
+      revisions: [], identifiers: passingIdentifiers(),
     } }, administrator.cookie)
     expect(rejected.data.admin.intake.completeDeskReview.response.application)
       .toMatchObject({ status: 'REJECTED', assignedToUserId: null })
@@ -1191,7 +1214,7 @@ describe('Mission SEP administration', () => {
     }`, { input: {
       applicationId: expansion.applicationId, expectedStatusVersion: 3,
       outcome: 'ADVANCE_TO_BANK', reasonCategoryId: null, applicantMessage: null,
-      checks, revisions: [],
+      checks, revisions: [], identifiers: passingIdentifiers(),
     } }, administrator.cookie)
     expect(uncheckedExpansion.data.admin.intake.completeDeskReview.message)
       .toBe('Expansion evidence must be checked for an expansion application.')
@@ -1390,6 +1413,7 @@ describe('Mission SEP administration', () => {
       checks: deskCheckTypes.map((checkType) => ({
         checkType, result: checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS',
       })),
+      identifiers: passingIdentifiers(),
     } }, administrator.cookie)
     expect(review.data.admin.intake.completeDeskReview.success).toBe(true)
     const reviewId = review.data.admin.intake.completeDeskReview.response.reviews[0].id as string
@@ -2581,5 +2605,231 @@ describe('the committee meetings list', () => {
     // A cursor from another ordering is refused rather than mis-seeking.
     const foreign = btoa(JSON.stringify(['updatedAt', Date.now(), 'x']))
     expect((await list({ after: foreign }))?.message).toBe('Invalid pagination arguments.')
+  })
+})
+
+describe('what a reviewer read off the documents', () => {
+  /**
+   * Takes a fresh application to the point a desk review can be completed, and
+   * returns a function that completes it with whatever identifiers are given.
+   */
+  const readyToReview = async () => {
+    const administrator = await adminSession(['APPLICANT', 'ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie)
+    const submitted = await createSubmittedApplication(
+      administrator.cookie,
+      administrator.userId,
+      cycle.id,
+    )
+    // Claiming is what moves it into this reviewer's hands, and is also what
+    // takes the status version from 1 to 2.
+    await graphql<any>(
+      `
+        mutation ($input: ClaimApplicationInput!) {
+          admin {
+            intake {
+              claim(input: $input) {
+                success
+              }
+            }
+          }
+        }
+      `,
+      {
+        input: {
+          applicationId: submitted.applicationId,
+          expectedAssignmentVersion: 0,
+          conflictAcknowledged: true,
+        },
+      },
+      administrator.cookie,
+    )
+    await graphql<any>(
+      `
+        mutation ($input: StartDeskReviewInput!) {
+          admin {
+            intake {
+              startDeskReview(input: $input) {
+                success
+              }
+            }
+          }
+        }
+      `,
+      { input: { applicationId: submitted.applicationId, expectedStatusVersion: 2 } },
+      administrator.cookie,
+    )
+
+    const review = async (identifiers: unknown[], results: Record<string, string> = {}) =>
+      graphql<any>(
+        `
+          mutation ($input: CompleteDeskReviewInput!) {
+            admin {
+              intake {
+                completeDeskReview(input: $input) {
+                  success
+                  message
+                }
+              }
+            }
+          }
+        `,
+        {
+          input: {
+            applicationId: submitted.applicationId,
+            expectedStatusVersion: 3,
+            outcome: 'ADVANCE_TO_BANK',
+            checks: deskCheckTypes.map((checkType) => ({
+              checkType,
+              result:
+                results[checkType] ??
+                (checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS'),
+            })),
+            reasonCategoryId: null,
+            applicantMessage: null,
+            revisions: [],
+            identifiers,
+          },
+        },
+        administrator.cookie,
+      ).then((result) => result.data.admin.intake.completeDeskReview)
+
+    return { administrator, applicationId: submitted.applicationId, review }
+  }
+
+  it('will not let a check be passed without the number behind it', async () => {
+    const { review } = await readyToReview()
+
+    // Passing identity, Scheduled Tribe eligibility and document completeness
+    // means having read three documents. None of the numbers were given.
+    const bare = await review([])
+    expect(bare.success).toBe(false)
+    expect(bare.message).toContain('Scheduled Tribe certificate number')
+
+    // A check that is not passed asks for nothing: there is nothing being
+    // attested to.
+    const failedInstead = await review(
+      [{ kind: 'BANK_ACCOUNT', value: '50010000111', branchCode: 'SBIN0007890' }],
+      { ST_ELIGIBILITY: 'FAIL', IDENTITY_KYC: 'FAIL' },
+    )
+    expect(failedInstead.success).toBe(false)
+    expect(failedInstead.message).not.toContain('Scheduled Tribe certificate number')
+  })
+
+  it('refuses a value that is not plausibly off a document', async () => {
+    const { review } = await readyToReview()
+
+    for (const identifiers of [
+      // Punctuation only: normalizing leaves nothing.
+      [{ kind: 'ST_CERTIFICATE', value: ' -- ' }],
+      // Too short to be any real instrument.
+      [{ kind: 'ST_CERTIFICATE', value: 'TR1' }],
+      // An account number identifies a destination only with its branch.
+      [{ kind: 'BANK_ACCOUNT', value: '50010000111', branchCode: '' }],
+      [{ kind: 'BANK_ACCOUNT', value: '50010000111' }],
+      // The same kind twice is a client fault, not a second reading.
+      [
+        { kind: 'ST_CERTIFICATE', value: 'TR-ST-2026-900001' },
+        { kind: 'ST_CERTIFICATE', value: 'TR-ST-2026-900002' },
+      ],
+    ]) {
+      expect((await review(identifiers)).success).toBe(false)
+    }
+  })
+
+  it('reads the same certificate through any punctuation', async () => {
+    const first = await readyToReview()
+    expect(
+      await first.review([
+        { kind: 'ST_CERTIFICATE', value: 'TR/ST/2026-770001' },
+        { kind: 'IDENTITY_DOCUMENT', value: '777700001111' },
+        { kind: 'BANK_ACCOUNT', value: '50010000771', branchCode: 'SBIN0007890' },
+      ]),
+    ).toMatchObject({ success: true })
+
+    // A different case, a different layout, the same certificate. If separators
+    // defeated the check it would report a clean file and be believed.
+    const second = await readyToReview()
+    const restated = await second.review([
+      { kind: 'ST_CERTIFICATE', value: 'tr-st-2026-770001' },
+      { kind: 'IDENTITY_DOCUMENT', value: '777700002222' },
+      { kind: 'BANK_ACCOUNT', value: '50010000772', branchCode: 'SBIN0007890' },
+    ])
+    expect(restated.success).toBe(false)
+    expect(restated.message).toContain('already recorded against')
+  })
+
+  it('asks rather than refuses, and keeps the answer', async () => {
+    const shared = { kind: 'IDENTITY_DOCUMENT', value: '880000001111' }
+
+    const first = await readyToReview()
+    expect(
+      (
+        await first.review([
+          { kind: 'ST_CERTIFICATE', value: 'TR-ST-2026-880001' },
+          shared,
+          { kind: 'BANK_ACCOUNT', value: '50010000881', branchCode: 'SBIN0007890' },
+        ])
+      ).success,
+    ).toBe(true)
+
+    const second = await readyToReview()
+    const flagged = await second.review([
+      { kind: 'ST_CERTIFICATE', value: 'TR-ST-2026-880002' },
+      shared,
+      { kind: 'BANK_ACCOUNT', value: '50010000882', branchCode: 'SBIN0007890' },
+    ])
+    expect(flagged.success).toBe(false)
+    expect(flagged.message).toContain('identity document number')
+    expect(flagged.message).toContain('Say why this is not the same claim')
+
+    /*
+     * A match is a question. The same person legitimately returns for a later
+     * phase, so answering it is allowed — and the answer is kept beside the
+     * number that raised it, which is the whole point of asking.
+     */
+    const answered = await second.review([
+      { kind: 'ST_CERTIFICATE', value: 'TR-ST-2026-880002' },
+      { ...shared, matchedReason: 'Second-phase expansion by the same promoter.' },
+      { kind: 'BANK_ACCOUNT', value: '50010000882', branchCode: 'SBIN0007890' },
+    ])
+    expect(answered.success).toBe(true)
+
+    const [kept] = (
+      await env.DB.prepare(
+        `SELECT matched_reason AS reason, comparable_value AS value, last_four AS lastFour
+       FROM seb_desk_review_identifier
+       WHERE kind = 'IDENTITY_DOCUMENT' AND matched_reason IS NOT NULL`,
+      ).all()
+    ).results as { reason: string; value: string; lastFour: string }[]
+    expect(kept.reason).toBe('Second-phase expansion by the same promoter.')
+
+    // An identity number is the most sensitive thing here. It is stored as a
+    // keyed digest and never in the clear; the reviewer confirms the last four.
+    expect(kept.value).not.toContain('880000001111')
+    expect(kept.value).toMatch(/^[0-9a-f]{64}$/u)
+    expect(kept.lastFour).toBe('1111')
+  })
+
+  it('stores a public instrument as written, so it can be read back', async () => {
+    const { review } = await readyToReview()
+    expect(
+      await review([
+        { kind: 'ST_CERTIFICATE', value: 'TR/ST/2026-660001' },
+        { kind: 'IDENTITY_DOCUMENT', value: '660000001111' },
+        { kind: 'BANK_ACCOUNT', value: '50010000661', branchCode: 'SBIN0007890' },
+        // Never required — an unregistered enterprise has none — but transcribed
+        // when there is one.
+        { kind: 'BUSINESS_REGISTRATION', value: 'UDYAM-TR-01-0006601' },
+      ]),
+    ).toMatchObject({ success: true })
+
+    const [row] = (
+      await env.DB.prepare(
+        `SELECT comparable_value AS value FROM seb_desk_review_identifier
+       WHERE kind = 'ST_CERTIFICATE' AND comparable_value LIKE 'TRST2026660001'`,
+      ).all()
+    ).results as { value: string }[]
+    expect(row?.value).toBe('TRST2026660001')
   })
 })

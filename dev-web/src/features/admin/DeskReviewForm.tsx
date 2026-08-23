@@ -15,12 +15,16 @@ import { useMemo, useState } from 'react'
 import { reasonsFor, type ReasonCategory } from '#/features/admin/workspaceQueries'
 import { SECTION_TITLES } from '#/features/application/draft'
 import type {
+  DeskReviewIdentifierKind,
   ApplicationSection,
   DeskReviewCheckResult,
   DeskReviewCheckType,
   DeskReviewOutcome,
 } from '#/graphql/generated/schema'
 import { humanize } from '#/lib/format'
+import { useMarker } from '../guide/GuideContext'
+import { Explain } from '#/features/guide/Explain'
+import { OFFICE_HELP } from './officeGuidance'
 
 /** The checks the API defines, in the order a reviewer works through them. */
 const CHECKS: { type: DeskReviewCheckType; title: string; asks: string }[] = [
@@ -123,7 +127,57 @@ export type DeskReviewDraft = {
     reasonCategoryId: string
     note: string
   }[]
+  identifiers: {
+    kind: DeskReviewIdentifierKind
+    value: string
+    branchCode?: string | null
+    matchedReason?: string | null
+  }[]
 }
+
+/**
+ * What the reviewer transcribes, and which check it is the evidence for.
+ *
+ * Passing a check means having read a document. The number on it is what turns
+ * "I saw a valid certificate" into something the programme can later ask
+ * questions about — chiefly whether the same one has been used before.
+ *
+ * Business registration is never demanded: an unregistered enterprise has none,
+ * and requiring one would make somebody invent a number to get past the form.
+ */
+const TRANSCRIBE: {
+  kind: DeskReviewIdentifierKind
+  forCheck: DeskReviewCheckType | null
+  label: string
+  hint: string
+  branch?: string
+}[] = [
+  {
+    kind: 'ST_CERTIFICATE',
+    forCheck: 'ST_ELIGIBILITY',
+    label: 'Scheduled Tribe certificate number',
+    hint: 'As printed on the certificate. Punctuation and case do not matter.',
+  },
+  {
+    kind: 'IDENTITY_DOCUMENT',
+    forCheck: 'IDENTITY_KYC',
+    label: 'Identity document number',
+    hint: 'Stored only as a one-way digest. Nobody, including you, can read it back.',
+  },
+  {
+    kind: 'BANK_ACCOUNT',
+    forCheck: 'DOCUMENT_COMPLETENESS',
+    label: 'Bank account number',
+    hint: 'With its branch code: the same account number at two banks is two accounts.',
+    branch: 'Branch code (IFSC)',
+  },
+  {
+    kind: 'BUSINESS_REGISTRATION',
+    forCheck: null,
+    label: 'Business registration number',
+    hint: 'If the enterprise is registered. Leave blank if it is not.',
+  },
+]
 
 export function DeskReviewForm({
   reasons,
@@ -146,6 +200,29 @@ export function DeskReviewForm({
   const [revisions, setRevisions] = useState<
     Partial<Record<ApplicationSection, { reasonCategoryId: string; note: string }>>
   >({})
+  const [typed, setTyped] = useState<
+    Partial<Record<DeskReviewIdentifierKind, { value: string; branchCode: string }>>
+  >({})
+  const [notSameClaim, setNotSameClaim] = useState('')
+  const mark = useMarker()
+
+  /*
+   * Only what this review is actually attesting to. A check that is failed or
+   * does not apply asks for nothing, so the field disappears rather than sitting
+   * there greyed out.
+   */
+  const transcribing = TRANSCRIBE.filter(
+    (entry) => entry.forCheck === null || results[entry.forCheck] === 'PASS',
+  )
+  const required = transcribing.filter((entry) => entry.forCheck !== null)
+
+  /*
+   * The server has already refused once because one of these numbers exists on
+   * another file. It is a question rather than a verdict — the same promoter
+   * legitimately returns for a later phase — so the answer appears only after
+   * it has been asked.
+   */
+  const flagged = Boolean(error?.includes('already recorded against'))
 
   const revisionReasons = useMemo(() => reasonsFor(reasons, 'REVISION'), [reasons])
   const rejectionReasons = useMemo(() => reasonsFor(reasons, 'REJECTION'), [reasons])
@@ -168,7 +245,15 @@ export function DeskReviewForm({
       (chosen.length > 0 &&
         chosen.every(([, value]) => value.reasonCategoryId && value.note.trim()))) &&
     (outcome !== 'REJECT' || Boolean(rejectionReasonId)) &&
-    (outcome === 'ADVANCE_TO_BANK' || applicantMessage.trim().length > 0)
+    (outcome === 'ADVANCE_TO_BANK' || applicantMessage.trim().length > 0) &&
+    required.every((entry) => {
+      const entered = typed[entry.kind]
+      return (
+        (entered?.value.trim().length ?? 0) >= 4 &&
+        (!entry.branch || (entered?.branchCode.trim().length ?? 0) >= 4)
+      )
+    }) &&
+    (!flagged || notSameClaim.trim().length > 0)
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
@@ -190,6 +275,14 @@ export function DeskReviewForm({
               note: value.note.trim(),
             }))
           : [],
+      identifiers: transcribing
+        .filter((entry) => typed[entry.kind]?.value.trim())
+        .map((entry) => ({
+          kind: entry.kind,
+          value: typed[entry.kind]!.value.trim(),
+          branchCode: entry.branch ? typed[entry.kind]!.branchCode.trim() : null,
+          matchedReason: notSameClaim.trim() || null,
+        })),
     })
   }
 
@@ -257,6 +350,100 @@ export function DeskReviewForm({
           Internal notes stay inside the programme office. The applicant never sees them.
         </p>
       </fieldset>
+
+      {/*
+        Appears as checks are passed, because that is what it is evidence for.
+        Sitting above the outcome puts it where the reviewer still has the
+        documents open, rather than after they have decided.
+      */}
+      {transcribing.length > 0 ? (
+        <fieldset
+          className="fieldset"
+          disabled={pending}
+          style={{ marginTop: '1rem' }}
+          {...mark('desk-review-identifiers')}
+        >
+          <div className="label-row">
+            <legend className="eyebrow">What the documents say</legend>
+            <Explain label="these numbers" opener="Why a passed check asks for a number">
+              {OFFICE_HELP.transcribing}
+            </Explain>
+          </div>
+          <p className="field-hint" style={{ marginBottom: '0.75rem' }}>
+            Passing a check means you have read the document. Entering its number is what
+            lets the programme notice if the same one is used twice.
+          </p>
+
+          <div className="stack">
+            {transcribing.map((entry) => (
+              <div key={entry.kind} className={entry.branch ? 'detail-grid' : undefined}>
+                <div>
+                  <label className="field-label" htmlFor={`id-${entry.kind}`}>
+                    {entry.label}
+                    {entry.forCheck === null ? ' (if there is one)' : ''}
+                  </label>
+                  <input
+                    id={`id-${entry.kind}`}
+                    className="input"
+                    value={typed[entry.kind]?.value ?? ''}
+                    onChange={(event) =>
+                      setTyped((was) => ({
+                        ...was,
+                        [entry.kind]: {
+                          branchCode: was[entry.kind]?.branchCode ?? '',
+                          value: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                  <p className="field-hint">{entry.hint}</p>
+                </div>
+                {entry.branch ? (
+                  <div>
+                    <label className="field-label" htmlFor={`branch-${entry.kind}`}>
+                      {entry.branch}
+                    </label>
+                    <input
+                      id={`branch-${entry.kind}`}
+                      className="input"
+                      value={typed[entry.kind]?.branchCode ?? ''}
+                      onChange={(event) =>
+                        setTyped((was) => ({
+                          ...was,
+                          [entry.kind]: {
+                            value: was[entry.kind]?.value ?? '',
+                            branchCode: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ))}
+
+            {flagged ? (
+              <div>
+                <label className="field-label" htmlFor="not-same-claim">
+                  Why this is not the same claim
+                </label>
+                <textarea
+                  id="not-same-claim"
+                  className="input"
+                  rows={2}
+                  value={notSameClaim}
+                  onChange={(event) => setNotSameClaim(event.target.value)}
+                />
+                <p className="field-hint">
+                  A number appearing twice is not proof of anything — the same promoter
+                  returns for a later phase. Say what this is, and it is kept beside the
+                  number that raised it.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </fieldset>
+      ) : null}
 
       <fieldset className="fieldset" disabled={pending} style={{ marginTop: '1rem' }}>
         <legend className="eyebrow">Outcome</legend>

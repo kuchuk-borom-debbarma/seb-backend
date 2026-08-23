@@ -35,6 +35,7 @@ export type OfficeTerm =
   | 'ledger'
   | 'recoveryLive'
   | 'frozenPolicy'
+  | 'transcribing'
 
 /**
  * The answer shown when somebody asks what a word means.
@@ -83,6 +84,15 @@ export const OFFICE_HELP: Record<OfficeTerm, string> = {
     'reversal, which is its own entry naming the release it corrects, so the two ' +
     'are read together. Every figure comes from the programme’s own arithmetic.',
 
+  // Source: admin-workflow-guide.md, "Desk review and revisions".
+  transcribing:
+    'Passing a check means you have read the document; this is the number on it. ' +
+    'Until these were recorded the programme could not tell whether the same ' +
+    'certificate or the same account had been used twice, because no identity ' +
+    'number was kept anywhere. Identity numbers and account numbers are stored ' +
+    'as a one-way digest — nobody can read them back, and you confirm against ' +
+    'the last four digits.',
+
   // Source: admin-workflow-guide.md, "Cancellation and recovery".
   recoveryLive:
     'A case stays live through demand and settlement — entries can still be added. ' +
@@ -106,8 +116,10 @@ export const OFFICE_HELP: Record<OfficeTerm, string> = {
 export const OFFICE_LEDES = {
   workspace:
     'Everything the office knows about this application, ordered by what a reviewer ' +
-    'does next. Every action is checked against the version you are looking at, so ' +
-    'two people acting at once get a refusal rather than a silent overwrite.',
+    'does next. A review records the numbers on the documents as well as the ' +
+    'judgement, so a certificate or an account used twice is noticed. Every action ' +
+    'is checked against the version you are looking at, so two people acting at ' +
+    'once get a refusal rather than a silent overwrite.',
 
   meeting:
     'An agenda is built while the meeting is being planned, decisions are recorded ' +

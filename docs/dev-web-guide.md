@@ -264,6 +264,13 @@ reader should not be told. The office's description of a thing is not a
 paraphrase of the applicant's — the same distinction `RouteDiagram` already
 draws one level up.
 
+The desk review asks for the numbers on the documents as the checks they
+evidence are passed, so the fields appear beside the work rather than before it,
+and a check that is failed withdraws its question instead of greying it out. A
+value already recorded on another file is refused with the reason field that
+answers it — the guidance calls that a question rather than a verdict, because
+the same promoter legitimately returns for a later phase.
+
 **Every screen opens with a lede.** `PageHeader` takes `description` for what
 the screen is for and `meta` for the identity that completes the title. Three
 office screens had been spending the lede slot on metadata and so had no lede

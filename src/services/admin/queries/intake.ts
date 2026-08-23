@@ -8,6 +8,7 @@ import {
   gte,
   inArray,
   isNull,
+  ne,
   or,
   sql,
   lt,
@@ -15,6 +16,9 @@ import {
   type SQL,
 } from 'drizzle-orm'
 import { COUNT_MISSING, requireInvariant } from '../../application/support'
+
+/** A submitted application without a reference number cannot happen. */
+const REFERENCE_MISSING = 'A reviewed application has no reference number.'
 import type { Database } from '../../../db'
 import {
   coreAuditEvent,
@@ -28,6 +32,7 @@ import {
   sebApplicationSubmissionDocument,
   sebApplicationVersion,
   sebDeskReview,
+  sebDeskReviewIdentifier,
   sebDeskReviewCheck,
   sebEnterprise,
   sebPartnerBankOutcome,
@@ -48,6 +53,7 @@ import { encodeAdminCursor, type SortKey } from '../pagination'
 import { prefixMatchAny, prefixPattern } from '../../search'
 import { adminAudit } from '../support'
 import { intakeQueueKeys } from '../types'
+import type { IdentifierKind } from '../identifiers'
 import type {
   AdminOperationContext,
   DeskReviewCheckInput,
@@ -660,6 +666,51 @@ export const unacceptedSubmissionDocumentCount = async (
   return Number(row!.count)
 }
 
+/**
+ * Which of these values have already been recorded against a different case.
+ *
+ * One indexed seek per identifier rather than a join walked from the review
+ * side: this runs on every completed desk review, and the index is
+ * `(kind, comparable_value, funding_case_id)` precisely so the answer is a
+ * range lookup on a key that starts with what is being asked.
+ *
+ * The matching application's reference comes back with it, because a reviewer
+ * cannot judge whether a match is a legitimate second phase or a duplicate
+ * attempt without being able to go and look. Staff can already see every
+ * application in the queue, so this discloses nothing new.
+ */
+export const identifierMatches = async (
+  db: Database,
+  fundingCaseId: string,
+  candidates: { kind: IdentifierKind; comparableValue: string }[],
+): Promise<Map<IdentifierKind, string>> => {
+  const found = new Map<IdentifierKind, string>()
+  for (const candidate of candidates) {
+    const [row] = await db
+      .select({ referenceNumber: sebApplication.referenceNumber })
+      .from(sebDeskReviewIdentifier)
+      .innerJoin(sebDeskReview, eq(sebDeskReview.id, sebDeskReviewIdentifier.deskReviewId))
+      .innerJoin(sebApplication, eq(sebApplication.id, sebDeskReview.applicationId))
+      .where(and(
+        eq(sebDeskReviewIdentifier.kind, candidate.kind),
+        eq(sebDeskReviewIdentifier.comparableValue, candidate.comparableValue),
+        ne(sebDeskReviewIdentifier.fundingCaseId, fundingCaseId),
+      ))
+      .orderBy(desc(sebDeskReviewIdentifier.createdAt))
+      .limit(1)
+    /*
+     * A desk review only exists for a submitted application, and submission is
+     * what issues the reference number — so a match always has one. Asserted
+     * rather than defaulted, because a quiet fallback would hide a broken
+     * invariant behind a plausible-looking message.
+     */
+    if (row) {
+      found.set(candidate.kind, requireInvariant(row.referenceNumber, REFERENCE_MISSING))
+    }
+  }
+  return found
+}
+
 export const completeDeskReviewWrite = async (
   context: AdminOperationContext,
   input: {
@@ -672,6 +723,13 @@ export const completeDeskReviewWrite = async (
     reasonCategoryId?: string | null
     applicantMessage?: string | null
     revisions: RevisionRequestInput[]
+    identifiers: {
+      kind: IdentifierKind
+      comparableValue: string
+      lastFour: string
+      matchedReason: string | null
+    }[]
+    fundingCaseId: string
     now: Date
   },
 ): Promise<boolean> => {
@@ -714,6 +772,12 @@ export const completeDeskReviewWrite = async (
     ...input.checks.map((check) => context.db.insert(sebDeskReviewCheck).select(sql`
       SELECT ${crypto.randomUUID()}, ${reviewId}, ${check.checkType}, ${check.result},
         ${check.internalNote ?? null}, ${input.now.getTime()}
+      WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
+    `)),
+    ...input.identifiers.map((identifier) => context.db.insert(sebDeskReviewIdentifier).select(sql`
+      SELECT ${crypto.randomUUID()}, ${reviewId}, ${input.fundingCaseId},
+        ${identifier.kind}, ${identifier.comparableValue}, ${identifier.lastFour},
+        ${identifier.matchedReason}, ${input.now.getTime()}
       WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
     `)),
     ...input.revisions.map((revision) => context.db.insert(sebRevisionRequest).select(sql`
