@@ -22,6 +22,7 @@ import type {
   ProgrammeJurisdiction,
   ProgrammeReasonContext,
 } from '#/graphql/generated/schema'
+import { useMarker } from '#/features/guide/GuideContext'
 import { humanize } from '#/lib/format'
 
 const ASSESSMENT_TYPES: AssessmentType[] = [
@@ -140,6 +141,7 @@ export function CycleForm({
   onCancel?: () => void
 }) {
   const [values, setValues] = useState<ProgrammeCycleInput>(initial)
+  const mark = useMarker()
 
   const set = <TKey extends keyof ProgrammeCycleInput>(
     key: TKey,
@@ -179,7 +181,7 @@ export function CycleForm({
         administrative action are all present.
       </p>
 
-      <fieldset className="fieldset">
+      <fieldset className="fieldset" {...mark('cycle-policy')}>
         <legend className="eyebrow">The cycle</legend>
         <div className="detail-grid">
           <div>

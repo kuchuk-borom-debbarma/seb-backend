@@ -61,14 +61,14 @@ test.describe('the intake console', () => {
     await expect(page).toHaveURL(/queue=NEW_SUBMISSIONS/u)
 
     // A second filter must not drop the first.
-    await page.getByLabel('Category').selectOption('CATEGORY_A')
+    await page.getByLabel('Category', { exact: true }).selectOption('CATEGORY_A')
     await expect(page).toHaveURL(/applicationType=EXPANSION/u)
     await expect(page).toHaveURL(/category=CATEGORY_A/u)
 
     // And the page survives a reload with the same view.
     await page.reload()
     await expect(page.getByLabel('Type')).toHaveValue('EXPANSION')
-    await expect(page.getByLabel('Category')).toHaveValue('CATEGORY_A')
+    await expect(page.getByLabel('Category', { exact: true })).toHaveValue('CATEGORY_A')
   })
 
   test('switching queues does not lose the ordering you chose', async ({ page }) => {
@@ -86,7 +86,7 @@ test.describe('the intake console', () => {
     await expect(page.getByText('Everything here has been dealt with.')).toBeVisible()
 
     // With a filter on, the emptiness has a different cause and says so.
-    await page.getByLabel('Category').selectOption('CATEGORY_B')
+    await page.getByLabel('Category', { exact: true }).selectOption('CATEGORY_B')
     await expect(page.getByText(/No application matches these filters/u)).toBeVisible()
   })
 

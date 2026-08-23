@@ -12,6 +12,7 @@
  * section still shows its answers; it just cannot be changed.
  */
 import { memo } from 'react'
+import { Explain } from '#/features/guide/Explain'
 import type { ApplicationDraftInput } from '#/graphql/generated/operations'
 import type {
   ApplicantDesignation,
@@ -54,19 +55,36 @@ function Field({
   label,
   hint,
   issue,
+  explain,
   children,
 }: {
   id: string
   label: string
   hint?: string
   issue?: string
+  /** Why this question is asked, for the few where the name does not say. */
+  explain?: string
   children: React.ReactNode
 }) {
   return (
     <div>
-      <label className="field-label" htmlFor={id}>
-        {label}
-      </label>
+      {/*
+        The explanation sits beside the label, not inside it. A control inside a
+        <label> becomes part of the field's accessible name — the select would
+        have announced as "Category ?".
+      */}
+      {explain ? (
+        <span className="field-label-row">
+          <label className="field-label" htmlFor={id}>
+            {label}
+          </label>
+          <Explain label={label}>{explain}</Explain>
+        </span>
+      ) : (
+        <label className="field-label" htmlFor={id}>
+          {label}
+        </label>
+      )}
       {children}
       {issue ? (
         <span className="field-error" id={`${id}-error`}>
@@ -247,6 +265,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
           id="applicationCategory"
           label={FIELD_LABELS.applicationCategory}
           issue={issues.applicationCategory}
+          explain="Category decides how much seed funding this enterprise may ask for and how long it must have been trading. The programme cycle sets both, and the desk review checks the enterprise against them."
         >
           <select
             id="applicationCategory"

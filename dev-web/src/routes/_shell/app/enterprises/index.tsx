@@ -1,6 +1,7 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
+import { useMarker } from '#/features/guide/GuideContext'
 import { MyEnterprisesDocument } from '#/graphql/generated/operations'
 import { formatDate, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
@@ -46,6 +47,7 @@ function EnterprisesPage() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const { data } = useQuery(enterprisesQuery(search))
+  const mark = useMarker()
 
   const enterprises = data?.nodes ?? []
 
@@ -55,7 +57,12 @@ function EnterprisesPage() {
         title="Enterprises"
         description="Each application is made on behalf of one enterprise. Register it here first."
         actions={
-          <Link to="/app/enterprises/new" className="button" data-variant="primary">
+          <Link
+            to="/app/enterprises/new"
+            className="button"
+            data-variant="primary"
+            {...mark('enterprise-list')}
+          >
             Register an enterprise
           </Link>
         }

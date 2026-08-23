@@ -1,6 +1,7 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
+import { useMarker } from '#/features/guide/GuideContext'
 import { statusGuideQuery } from '#/features/application/queries'
 import {
   MyApplicationsDocument,
@@ -98,6 +99,7 @@ function ApplicationsPage() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const { data } = useQuery(applicationsQuery(search))
+  const mark = useMarker()
   const { data: enterprises } = useQuery(enterpriseNamesQuery)
   const { data: guide } = useQuery(statusGuideQuery)
 
@@ -117,7 +119,7 @@ function ApplicationsPage() {
         }
       />
 
-      <div className="filters">
+      <div className="filters" {...mark('application-list')}>
         <div>
           <label className="field-label" htmlFor="enterprise">
             Enterprise

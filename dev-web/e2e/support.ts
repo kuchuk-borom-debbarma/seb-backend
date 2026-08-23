@@ -281,7 +281,7 @@ export const fillEveryAnswer = async (
   await page.goto(`/app/applications/${id}/form`)
   await page.getByLabel('Business name').fill(businessName)
   await page.getByLabel('Date established').fill('2025-03-10')
-  await page.getByLabel('Category').selectOption({ index: 1 })
+  await page.getByLabel('Category', { exact: true }).selectOption({ index: 1 })
   await page.getByLabel('Sector').selectOption({ label: 'Food processing' })
   await page.getByLabel('Majority ownership is held by Scheduled Tribe members').check()
   await page.getByLabel('Your full name').fill('Bethel Debbarma')

@@ -170,10 +170,47 @@ document rules are all `OPTIONAL`. That is a legitimate policy the API accepts,
 not a fixture: an application in such a cycle genuinely requires no files. Every
 other cycle in the suite keeps the ordinary rules.
 
+## The guidance layer
+
+The client is a demonstration as well as a client, so it leads people through
+itself.
+
+**How this works** (`/guide`) is the first entry in the navigation. It opens
+with the route a file takes: all eleven states, each placed under the desk that
+holds it — applicant, programme office, partner bank, committee — numbered in
+the order they happen. The office's description of each stop is this screen's
+own; the applicant's plain-language wording is quoted beneath it from the API's
+status guide, where the account is allowed to read it. That surface is
+deliberately behind the applicant guard, so an administrator sees one and not
+the other, and the page says which is which.
+
+**Guided routes** walk the real screens. A route is a sequence of steps, each
+with the desk that holds the work, a sentence about what happens, and where it
+happens. Starting one docks a companion rail in a column of its own — the page
+narrows, it does not disappear. A step that is about a particular control draws
+a clay bracket in the margin beside it rather than dimming everything else: a
+demonstration that hides the product to explain the product has it backwards.
+
+Three rules the layer keeps:
+
+- **Nothing is simulated.** Every step names a route that exists. A step that
+  needs data the demonstration may not have says so under "To try this" instead
+  of telling somebody to click a control that is not there.
+- **Only what this account can do.** Routes are filtered by role, and the page
+  states how many were withheld rather than silently omitting them.
+- **It can be left.** Progress is remembered, so an interrupted demonstration
+  carries on where it stopped, and ending a tour ends it for good.
+
+`Explain` attaches a short answer to a question whose name does not give one.
+Used once on the application form, on purpose — an icon beside every label
+teaches nothing and doubles the reading.
+
 ## The quality floor
 
 Held by tests rather than asserted in a document:
 
+- **The guide never covers the product.** Asserted: while a tour runs, the
+  screen under discussion is still visible and its controls still editable.
 - **Narrow screens.** Below 60rem the sidebar becomes a bar across the top. The
   bar takes its own content height, wide content scrolls inside its own
   container, and the page body never scrolls sideways — all three are asserted

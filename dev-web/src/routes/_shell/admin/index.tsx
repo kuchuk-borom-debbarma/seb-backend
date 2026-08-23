@@ -13,6 +13,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
+import { useMarker } from '#/features/guide/GuideContext'
 import { queueSummaryQuery } from '#/features/admin/intakeQueries'
 import {
   ACTIONABLE_QUEUES,
@@ -30,6 +31,7 @@ export const Route = createFileRoute('/_shell/admin/')({
 
 function IntakeConsole() {
   const { data: queues } = useQuery(queueSummaryQuery())
+  const mark = useMarker()
 
   const countOf = (queue: AdminIntakeQueueKey) =>
     queues?.find((entry) => entry.queue === queue)?.count ?? 0
@@ -47,7 +49,7 @@ function IntakeConsole() {
       <div className="stack">
         <section>
           <h2 className="section-title">Waiting on us</h2>
-          <div className="queue-grid">
+          <div className="queue-grid" {...mark('waiting-on-us')}>
             {waiting.map((queue) => (
               <Link
                 key={queue}

@@ -1,0 +1,173 @@
+/*
+ * Four desks across, the route down.
+ *
+ * A stop sits in the column of the desk that holds it, and a continuous rule
+ * runs down the middle of the whole thing — the file passing from hand to hand.
+ * The horizontal position is the information: a reader sees the work crossing
+ * from the applicant to the office and out to a bank without reading a word.
+ */
+.diagram {
+  --stop-gap: var(--space-5);
+}
+
+.desks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--hairline-strong);
+  position: sticky;
+  top: 0;
+  background: var(--paper);
+  z-index: 1;
+}
+
+.deskName {
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.route {
+  list-style: none;
+  margin: 0;
+  padding: var(--stop-gap) 0 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.stop {
+  grid-column: var(--column);
+  position: relative;
+  display: flex;
+  gap: var(--space-3);
+}
+
+.stop[data-column='1'] {
+  --column: 1;
+}
+.stop[data-column='2'] {
+  --column: 2;
+}
+.stop[data-column='3'] {
+  --column: 3;
+}
+.stop[data-column='4'] {
+  --column: 4;
+}
+
+/* The stop number, set in the utility face like a file's serial. It is what
+   carries the order across four columns. */
+.marker {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.375rem;
+  height: 1.375rem;
+  margin-top: 0.05rem;
+  border-radius: 50%;
+  border: 1px solid var(--green);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--green);
+}
+
+.card {
+  min-width: 0;
+}
+
+.deskTag {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.label {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  margin-top: 0.125rem;
+}
+
+.explanation {
+  margin-top: var(--space-1);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+.actor {
+  margin-top: var(--space-2);
+  font-size: 0.75rem;
+  color: var(--clay);
+}
+
+/* Where a file stops. The marker is filled rather than outlined, and the whole
+   stop is set back — these are outcomes, not stages on the way somewhere. */
+/* Where a file stops rather than passes through. */
+.stop[data-ending] .marker {
+  border-color: var(--ink-faint);
+  color: var(--ink-faint);
+}
+
+.stop[data-ending] .label,
+.stop[data-ending] .explanation {
+  color: var(--ink-muted);
+}
+
+.stop[data-ending] .actor {
+  color: var(--ink-faint);
+}
+
+/*
+ * Narrow: the four columns collapse to one and the desk headings go with them,
+ * because a column position that no longer varies carries no information. Each
+ * stop keeps its own desk tag, which is where that information moves to.
+ */
+@media (max-width: 60rem) {
+  .desks {
+    display: none;
+  }
+
+  .route {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    padding-top: 0;
+  }
+
+  .stop {
+    grid-column: 1;
+  }
+}
+
+/* The applicant's own wording, set apart from the guide's. Attribution matters:
+   one of these is what the programme promises somebody, and the other is a
+   description written for whoever is being shown the system. */
+.told {
+  margin-top: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--clay);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+.toldLabel {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--clay);
+  margin-bottom: 0.125rem;
+}
+
+.told .actor {
+  color: var(--ink-faint);
+}

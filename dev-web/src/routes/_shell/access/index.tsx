@@ -18,6 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
+import { useMarker } from '#/features/guide/GuideContext'
 import { managedUserQuery } from '#/features/access/accessQueries'
 import { GrantRoleDocument, RevokeRoleDocument } from '#/graphql/generated/operations'
 import type { ManageableRole } from '#/graphql/generated/schema'
@@ -44,6 +45,7 @@ function AccessPage() {
   const navigate = Route.useNavigate()
   const queryClient = useQueryClient()
   const [typed, setTyped] = useState(search.email ?? '')
+  const mark = useMarker()
 
   const { data, isFetching } = useQuery(managedUserQuery(search.email))
   const user = data?.response
@@ -59,7 +61,7 @@ function AccessPage() {
       />
 
       <div className="stack">
-        <div className="card">
+        <div className="card" {...mark('access-lookup')}>
           <div className="card-body">
             <form
               className="row"

@@ -1,6 +1,7 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
+import { useMarker } from '#/features/guide/GuideContext'
 import { AdminCyclesDocument } from '#/graphql/generated/operations'
 import { formatDate, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
@@ -25,6 +26,7 @@ export const Route = createFileRoute('/_shell/admin/cycles/')({
 
 function AdminCyclesPage() {
   const { data: cycles } = useQuery(cyclesQuery)
+  const mark = useMarker()
 
   return (
     <main className="page">
@@ -32,7 +34,12 @@ function AdminCyclesPage() {
         title="Programme cycles"
         description="A cycle is the policy an application is judged by. Its rules are frozen into every draft started while it is open."
         actions={
-          <Link to="/admin/cycles/new" className="button" data-variant="primary">
+          <Link
+            to="/admin/cycles/new"
+            className="button"
+            data-variant="primary"
+            {...mark('cycle-list')}
+          >
             Create a cycle
           </Link>
         }

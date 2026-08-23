@@ -9,6 +9,9 @@ import {
   useRouter,
 } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
+import { GuideProvider, useGuide } from '#/features/guide/GuideContext'
+import { FirstVisit } from '#/features/guide/FirstVisit'
+import { TourRail } from '#/features/guide/TourRail'
 import { SignOutDocument } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
 import { messageFor } from '#/lib/result'
@@ -64,9 +67,35 @@ function Shell() {
   const location = useLocation()
 
   return (
-    <div className={styles.shell}>
+    <GuideProvider>
+      <ShellFrame user={user} pathname={location.pathname} search={location.searchStr} />
+    </GuideProvider>
+  )
+}
+
+/**
+ * The three columns: navigation, the page, and the guide when one is running.
+ *
+ * The guide is a column rather than an overlay, so the layout gives it room
+ * instead of the page giving up its legibility. `data-guided` is what the
+ * stylesheet reads to widen the grid.
+ */
+function ShellFrame({
+  user,
+  pathname,
+  search,
+}: {
+  user: SignedInUser
+  pathname: string
+  search: string
+}) {
+  const { tour } = useGuide()
+
+  return (
+    <div className={styles.shell} data-guided={tour ? 'true' : undefined}>
       <Sidebar user={user} />
       <div className={styles.main}>
+        <FirstVisit />
         {/*
           The boundary is around the outlet rather than on the route, because a
           route's error component replaces that route's whole output — which
@@ -77,13 +106,11 @@ function Shell() {
           Reset on the address, so moving somewhere else clears the error rather
           than carrying it to a page that would have loaded.
         */}
-        <CatchBoundary
-          getResetKey={() => location.pathname + location.searchStr}
-          errorComponent={ShellError}
-        >
+        <CatchBoundary getResetKey={() => pathname + search} errorComponent={ShellError}>
           <Outlet />
         </CatchBoundary>
       </div>
+      <TourRail />
     </div>
   )
 }
@@ -103,6 +130,10 @@ function Sidebar({ user }: { user: SignedInUser }) {
         nowhere is worse than a section that is not offered yet.
       */}
       <div className={styles.groups}>
+        <NavGroup title="Start here">
+          <NavLink to="/guide">How this works</NavLink>
+        </NavGroup>
+
         <NavGroup title="Portal">
           <NavLink to="/app">Overview</NavLink>
           {/* Applicant screens are refused by the API without an APPLICANT

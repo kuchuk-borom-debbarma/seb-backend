@@ -12,6 +12,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
+import { useMarker } from '#/features/guide/GuideContext'
 import {
   QUEUE_PAGE_SIZE,
   queueQuery,
@@ -115,6 +116,7 @@ function QueuePage() {
     queueQuery(inputFor(search, user?.id ?? null)),
   )
   const { data: summary } = useQuery(queueSummaryQuery())
+  const mark = useMarker()
 
   const rows = data?.nodes ?? []
   const countOf = (queue: AdminIntakeQueueKey) =>
@@ -174,7 +176,7 @@ function QueuePage() {
         ))}
       </div>
 
-      <div className="filters">
+      <div className="filters" {...mark('queue-filters')}>
         <div>
           <label className="field-label" htmlFor="order">
             Order

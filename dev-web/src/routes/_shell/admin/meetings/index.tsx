@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
+import { useMarker } from '#/features/guide/GuideContext'
 import { meetingsQuery } from '#/features/admin/meetingQueries'
 import { CreateMeetingDocument } from '#/graphql/generated/operations'
 import { MEETING_TITLES } from '#/features/admin/states'
@@ -24,6 +25,7 @@ export const Route = createFileRoute('/_shell/admin/meetings/')({
 function MeetingsPage() {
   const { data: meetings } = useQuery(meetingsQuery)
   const [creating, setCreating] = useState(false)
+  const mark = useMarker()
 
   return (
     <main className="page">
@@ -37,6 +39,7 @@ function MeetingsPage() {
               className="button"
               data-variant="primary"
               onClick={() => setCreating(true)}
+              {...mark('meetings-list')}
             >
               Schedule a meeting
             </button>

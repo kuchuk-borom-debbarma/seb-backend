@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
+import { Route as ShellGuideRouteImport } from './routes/_shell/guide'
 import { Route as ShellAccessIndexRouteImport } from './routes/_shell/access/index'
 import { Route as ShellAccountSessionsRouteImport } from './routes/_shell/account/sessions'
 import { Route as ShellAdminIndexRouteImport } from './routes/_shell/admin/index'
@@ -56,6 +57,11 @@ const SignUpRoute = SignUpRouteImport.update({
   id: '/sign-up',
   path: '/sign-up',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ShellGuideRoute = ShellGuideRouteImport.update({
+  id: '/guide',
+  path: '/guide',
+  getParentRoute: () => ShellRoute,
 } as any)
 const ShellAccessIndexRoute = ShellAccessIndexRouteImport.update({
   id: '/access/',
@@ -193,6 +199,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/guide': typeof ShellGuideRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
   '/admin/queue': typeof ShellAdminQueueRoute
   '/app/cycles': typeof ShellAppCyclesRoute
@@ -222,6 +229,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/guide': typeof ShellGuideRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
   '/admin/queue': typeof ShellAdminQueueRoute
   '/app/cycles': typeof ShellAppCyclesRoute
@@ -253,6 +261,7 @@ export interface FileRoutesById {
   '/_shell': typeof ShellRouteWithChildren
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/_shell/guide': typeof ShellGuideRoute
   '/_shell/account/sessions': typeof ShellAccountSessionsRoute
   '/_shell/admin/queue': typeof ShellAdminQueueRoute
   '/_shell/app/cycles': typeof ShellAppCyclesRoute
@@ -284,6 +293,7 @@ export interface FileRouteTypes {
     | '/'
     | '/sign-in'
     | '/sign-up'
+    | '/guide'
     | '/account/sessions'
     | '/admin/queue'
     | '/app/cycles'
@@ -313,6 +323,7 @@ export interface FileRouteTypes {
     | '/'
     | '/sign-in'
     | '/sign-up'
+    | '/guide'
     | '/account/sessions'
     | '/admin/queue'
     | '/app/cycles'
@@ -343,6 +354,7 @@ export interface FileRouteTypes {
     | '/_shell'
     | '/sign-in'
     | '/sign-up'
+    | '/_shell/guide'
     | '/_shell/account/sessions'
     | '/_shell/admin/queue'
     | '/_shell/app/cycles'
@@ -405,6 +417,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/sign-up'
       preLoaderRoute: typeof SignUpRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_shell/guide': {
+      id: '/_shell/guide'
+      path: '/guide'
+      fullPath: '/guide'
+      preLoaderRoute: typeof ShellGuideRouteImport
+      parentRoute: typeof ShellRoute
     }
     '/_shell/access/': {
       id: '/_shell/access/'
@@ -578,6 +597,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface ShellRouteChildren {
+  ShellGuideRoute: typeof ShellGuideRoute
   ShellAccountSessionsRoute: typeof ShellAccountSessionsRoute
   ShellAdminQueueRoute: typeof ShellAdminQueueRoute
   ShellAppCyclesRoute: typeof ShellAppCyclesRoute
@@ -605,6 +625,7 @@ interface ShellRouteChildren {
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
+  ShellGuideRoute: ShellGuideRoute,
   ShellAccountSessionsRoute: ShellAccountSessionsRoute,
   ShellAdminQueueRoute: ShellAdminQueueRoute,
   ShellAppCyclesRoute: ShellAppCyclesRoute,

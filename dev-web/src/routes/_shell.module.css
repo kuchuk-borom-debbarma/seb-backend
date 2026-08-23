@@ -4,6 +4,22 @@
   min-height: 100dvh;
 }
 
+/* A running tour takes a column of its own rather than covering the page. The
+   page narrows; it does not disappear. */
+@media (min-width: 78rem) {
+  .shell[data-guided] {
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 22rem;
+  }
+}
+
+/* Below that there is no room for a third column, so the guide docks along the
+   bottom and the two rows stack. */
+@media (max-width: 78rem) {
+  .shell[data-guided] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;

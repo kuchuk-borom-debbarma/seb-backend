@@ -13,11 +13,20 @@ import {
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
 
+/**
+ * The plain-language catalogue for every application status.
+ *
+ * Returns an empty list rather than throwing when the account may not read it.
+ * The catalogue lives on the applicant surface, which the whole `seb` namespace
+ * guards with one authentication rule, so an administrator is refused — and a
+ * refusal here is an answer about this account, not a broken page. Callers show
+ * what they know and leave out what they cannot see.
+ */
 export const statusGuideQuery = queryOptions({
   queryKey: ['status-guide'],
   queryFn: async () => {
     const data = await gql(StatusGuideDocument)
-    return unwrap(data.seb.application.statusGuide).statuses
+    return data.seb.application.statusGuide.response?.statuses ?? []
   },
   // A fixed catalogue that only changes when the workflow itself does.
   staleTime: 60 * 60 * 1000,
