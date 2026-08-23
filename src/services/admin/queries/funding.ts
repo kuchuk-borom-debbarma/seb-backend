@@ -22,7 +22,12 @@ export const fundingWorkspace = async (db: Database, applicationId: string) => {
   const [award] = await db.select().from(sebFundingAward)
     .where(eq(sebFundingAward.applicationId, applicationId)).limit(1)
   if (!award) return null
-  const [versions, ledger, obligations, assessments, recovery] = await Promise.all([
+  /*
+   * One statement, not 5. Every read here is single-table, so `db.batch` maps
+   * the results back correctly — a joined read could not go in here, because a
+   * batch is read back by column name and two columns called `id` collide.
+   */
+  const [versions, ledger, obligations, assessments, recovery] = await db.batch([
     db.select().from(sebFundingAwardVersion)
       .where(eq(sebFundingAwardVersion.fundingAwardId, award.id))
       .orderBy(asc(sebFundingAwardVersion.version)),
@@ -482,7 +487,12 @@ export const recoveryWorkspace = async (db: Database, recoveryCaseId: string) =>
   const [recoveryCase] = await db.select().from(sebRecoveryCase)
     .where(eq(sebRecoveryCase.id, recoveryCaseId)).limit(1)
   if (!recoveryCase) return null
-  const [versions, entries] = await Promise.all([
+  /*
+   * One statement, not 2. Every read here is single-table, so `db.batch` maps
+   * the results back correctly — a joined read could not go in here, because a
+   * batch is read back by column name and two columns called `id` collide.
+   */
+  const [versions, entries] = await db.batch([
     db.select().from(sebRecoveryCaseVersion)
       .where(eq(sebRecoveryCaseVersion.recoveryCaseId, recoveryCaseId))
       .orderBy(asc(sebRecoveryCaseVersion.version)),

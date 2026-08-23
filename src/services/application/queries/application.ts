@@ -571,11 +571,16 @@ export const findSubmissionPolicy = async (
   cycleId: string,
   cycleVersion: number,
 ): Promise<SubmissionPolicy | null> => {
-  const [version, documentRules] = await Promise.all([
+  /*
+   * One statement, not 2. Every read here is single-table, so `db.batch` maps
+   * the results back correctly — a joined read could not go in here, because a
+   * batch is read back by column name and two columns called `id` collide.
+   */
+  const [versionRows, documentRules] = await db.batch([
     db.select().from(sebProgrammeCycleVersion).where(and(
       eq(sebProgrammeCycleVersion.programmeCycleId, cycleId),
       eq(sebProgrammeCycleVersion.version, cycleVersion),
-    )).limit(1).then((rows) => rows[0]),
+    )).limit(1),
     db.select({
       documentType: sebProgrammeCycleDocumentRule.documentType,
       condition: sebProgrammeCycleDocumentRule.condition,
@@ -584,6 +589,7 @@ export const findSubmissionPolicy = async (
       eq(sebProgrammeCycleDocumentRule.programmeCycleVersion, cycleVersion),
     )),
   ])
+  const [version] = versionRows
   if (!version || version.minimumApplicantAge === null ||
       version.maximumApplicantAge === null || version.categoryAMaximumMonths === null ||
       version.majorityOwnershipRequired === null || version.fundingCeilingState === null) return null

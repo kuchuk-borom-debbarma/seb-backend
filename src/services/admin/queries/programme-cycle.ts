@@ -61,7 +61,12 @@ export const loadProgrammeCycle = async (
     .where(eq(sebProgrammeCycle.id, id))
     .limit(1)
   if (!row) return null
-  const [documentRules, assessmentRules, reasons] = await Promise.all([
+  /*
+   * One statement, not 3. Every read here is single-table, so `db.batch` maps
+   * the results back correctly — a joined read could not go in here, because a
+   * batch is read back by column name and two columns called `id` collide.
+   */
+  const [documentRules, assessmentRules, reasons] = await db.batch([
     db
       .select()
       .from(sebProgrammeCycleDocumentRule)

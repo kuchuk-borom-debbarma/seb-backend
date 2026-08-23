@@ -35,7 +35,12 @@ export const findApplicantFunding = async (
     .limit(1)
   if (!award) return null
 
-  const [entries, assessments] = await Promise.all([
+  /*
+   * One statement, not 2. Every read here is single-table, so `db.batch` maps
+   * the results back correctly — a joined read could not go in here, because a
+   * batch is read back by column name and two columns called `id` collide.
+   */
+  const [entries, assessments] = await db.batch([
     db
       .select()
       .from(sebDisbursement)

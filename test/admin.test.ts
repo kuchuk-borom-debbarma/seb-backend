@@ -301,6 +301,7 @@ describe('Mission SEP administration', () => {
    * handed an id that does not exist — including an operation the caller was
    * in fact allowed to attempt.
    */
+
   describe('what each staff role may do', () => {
     const DENIED = 'You do not have permission to do that.'
 
