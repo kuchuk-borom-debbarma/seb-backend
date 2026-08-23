@@ -102,5 +102,17 @@ export const coreAuditEvent = sqliteTable(
     index('core_audit_event_actor_idx').on(table.actorUserId, table.createdAt),
     index('core_audit_event_action_idx').on(table.action, table.createdAt),
     index('core_audit_event_request_idx').on(table.requestId),
+    /*
+     * The unfiltered read: everything, newest first.
+     *
+     * Every other index here leads with a filter column, so a query that names
+     * no actor, entity or action had nothing to seek on and fell back to
+     * scanning the table and sorting it — which is the one query most likely to
+     * be run against the largest table in the database.
+     *
+     * `(created_at, id)` rather than `created_at` alone because that pair is
+     * exactly the keyset cursor, so the seek and the ordering use one index.
+     */
+    index('core_audit_event_created_idx').on(table.createdAt, table.id),
   ],
 )

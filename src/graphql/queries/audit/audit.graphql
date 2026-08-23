@@ -1,0 +1,83 @@
+extend type Query {
+  audit: AuditQuery!
+}
+
+# Newest first is the default: recent activity is what gets looked at.
+enum AuditOrder { NEWEST_FIRST OLDEST_FIRST }
+
+enum AuditOutcome { SUCCESS FAILURE }
+
+# Every filter is optional and they combine with AND.
+#
+# `actorUserIds` and `actorRole` are the two halves of "selected people, or
+# everybody holding a role". Supplying both narrows to selected people who also
+# hold that role, which is a coherent question rather than a contradiction.
+input AuditQueryInput {
+  first: Int
+  after: String
+  # At most 50. A person-picker will never legitimately need more, and an
+  # unbounded IN (...) is a way to make one request do arbitrary work.
+  actorUserIds: [ID!]
+  actorRole: UserRole
+  # Matches events recorded against the application itself. Events recorded
+  # against one of its documents or submissions carry their own entity id and
+  # are not included — see the service README.
+  applicationId: ID
+  entityType: String
+  action: [String!]
+  outcome: AuditOutcome
+  from: DateTime
+  to: DateTime
+  order: AuditOrder
+}
+
+# Resolved rather than a bare id, so a page of fifty does not become fifty-one
+# requests. `roles` are the roles held now, not at the time of the event.
+type AuditActor {
+  id: ID!
+  email: String!
+  roles: [UserRole!]!
+}
+
+# `actor` is null for trusted system transitions that have no operator at all,
+# such as verified signup and the first-administrator bootstrap.
+type AuditEvent {
+  id: ID!
+  action: String!
+  entityType: String!
+  entityId: ID
+  outcome: AuditOutcome!
+  actor: AuditActor
+  requestId: String
+  ipAddress: String
+  userAgent: String
+  # The stored JSON text, passed through as written.
+  metadata: String
+  createdAt: DateTime!
+}
+
+type AuditEventConnection {
+  nodes: [AuditEvent!]!
+  pageInfo: PageInfo!
+}
+
+type AuditEventConnectionResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: AuditEventConnection
+}
+
+type AuditActionsResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: [String!]
+}
+
+# Every field here is readable only by a super administrator. The history
+# carries more about people than any other read in the portal — who did what,
+# from which address, with which browser — so the gate is deliberately narrow.
+type AuditQuery {
+  events(input: AuditQueryInput): AuditEventConnectionResult!
+  # The action names that actually occur, so a filter offers no dead ends.
+  actions: AuditActionsResult!
+}

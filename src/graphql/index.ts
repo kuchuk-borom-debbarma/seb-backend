@@ -7,11 +7,13 @@ import adminMutationTypeDefs from './mutations/admin/admin.graphql'
 import accessQueryTypeDefs from './queries/access/access.graphql'
 import authQueryTypeDefs from './queries/auth/auth.graphql'
 import adminQueryTypeDefs from './queries/admin/admin.graphql'
+import auditQueryTypeDefs from './queries/audit/audit.graphql'
 import sebMutationTypeDefs from './mutations/seb/seb.graphql'
 import sebQueryTypeDefs from './queries/seb/seb.graphql'
 import { accessResolvers } from './resolvers/access/access'
 import { authResolvers } from './resolvers/auth/auth'
 import { adminResolvers } from './resolvers/admin/admin'
+import { auditResolvers } from './resolvers/audit/audit'
 import { sebResolvers } from './resolvers/seb/seb'
 import baseTypeDefs from './schema.graphql'
 import type { GraphQLContext } from './types'
@@ -108,6 +110,7 @@ const schema = createSchema<GraphQLContext>({
     accessMutationTypeDefs,
     adminQueryTypeDefs,
     adminMutationTypeDefs,
+    auditQueryTypeDefs,
     sebQueryTypeDefs,
     sebMutationTypeDefs,
   ],
@@ -126,6 +129,7 @@ const schema = createSchema<GraphQLContext>({
     },
     authResolvers,
     accessResolvers,
+    auditResolvers,
     adminResolvers,
     sebResolvers,
   ],

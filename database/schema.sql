@@ -23,6 +23,7 @@ CREATE INDEX `core_audit_event_entity_idx` ON `core_audit_event` (`entity_type`,
 CREATE INDEX `core_audit_event_actor_idx` ON `core_audit_event` (`actor_user_id`,`created_at`);
 CREATE INDEX `core_audit_event_action_idx` ON `core_audit_event` (`action`,`created_at`);
 CREATE INDEX `core_audit_event_request_idx` ON `core_audit_event` (`request_id`);
+CREATE INDEX `core_audit_event_created_idx` ON `core_audit_event` (`created_at`,`id`);
 CREATE TABLE `core_session` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
