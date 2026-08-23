@@ -6,6 +6,7 @@
     "dev": "vite dev --port 3000",
     "local": "SEB_API_URL=http://localhost:9999 vite dev --port 9990",
     "build": "vite build",
+    "build:cf": "NITRO_PRESET=cloudflare-module vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "generate-routes": "tsr generate",

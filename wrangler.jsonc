@@ -1,8 +1,44 @@
+/**
+ * The API Worker.
+ *
+ * Two things are worth knowing before editing this file.
+ *
+ * **A named environment inherits less than it looks.** Wrangler 4 inherits
+ * `name`, `main`, `routes`, `triggers` and the `compatibility_*` keys into an
+ * `env.*` block, but **not** `vars`, `d1_databases`, `r2_buckets`, `queues` or
+ * `services`. Any environment added here must redeclare each of those in full,
+ * or it deploys with the binding silently missing.
+ *
+ * **The bindings below are deliberately incomplete.** `DB` has no
+ * `database_id` and `STORAGE` has no `bucket_name`, because neither resource
+ * exists yet — R2 is not enabled on the account. The development runtime
+ * supplies both locally regardless. This cannot be deployed until they are
+ * filled in, and it fails loudly rather than quietly deploying without storage.
+ */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "seb-backend",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-21",
+
+  // Pinned so a stray CLOUDFLARE_ACCOUNT_ID in the environment cannot redirect
+  // a deploy to a different account. That is not hypothetical: it happened once
+  // while this environment was being set up, and sent a read to the wrong
+  // account entirely. An account id is an identifier, not a credential.
+  "account_id": "15a26eaa33db8561da8f42e036dfe627",
+
+  // Workers Logs. Sampling is left at 1 because the traffic is a programme
+  // office's, not a consumer product's, and a dropped log during an intake
+  // problem is worth more than the storage it saves.
+  //
+  // What reaches these logs is a standing constraint, not a preference: never
+  // a one-time code, a message body, a full recipient address, a provider
+  // token, or a document object key.
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
   "rules": [
     {
       "type": "Text",

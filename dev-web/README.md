@@ -55,6 +55,43 @@ the same way a real deployment does:
 5. Sign in. The account now holds `SUPER_ADMIN` alone, because bootstrap swaps
    the applicant grant rather than adding to it.
 
+## Two build targets
+
+| Script | Preset | Produces |
+| --- | --- | --- |
+| `npm run build` | `node-server` | `.output/server/index.mjs`, run with `node` |
+| `npm run build:cf` | `cloudflare-module` | the same path, but a Worker module |
+
+They are separate on purpose. The end-to-end suite runs the built artifact with
+`node .output/server/index.mjs`, and a Cloudflare build exports an object with a
+`fetch` handler instead — which `node` loads happily and then exits from without
+ever listening. One command that means different things depending on an
+environment variable would make that failure look like a flake.
+
+### Why `wrangler.jsonc` is in this directory
+
+Nitro's Cloudflare preset generates `.output/server/wrangler.json` by merging
+the nearest wrangler config it finds walking *up* from here, and it only
+overrides `main` and `assets`. Everything else in the file it finds survives.
+
+Without [`wrangler.jsonc`](wrangler.jsonc) the walk reaches the repository root
+and finds the **API Worker's** config, so the client builds as `seb-backend`
+carrying the API's D1 binding, its R2 bucket, its queue producer and consumer,
+and its hourly cron. Deploying that would replace the API Worker with the
+server-rendered client.
+
+That is not a theory about the code; it is what the build does with the file
+removed. The file exists to be found first.
+
+The generated config is what `wrangler` deploys, reached through a redirect at
+`.wrangler/deploy/config.json`, so **deploy from this directory rather than
+from `.output/server`** — that path has both a config and the redirect and
+refuses as ambiguous.
+
+`SEB_API_URL` has no value in that file yet, because the API Worker is not
+deployed and there is no honest one to put there. It has to be set before the
+client is, or every server-side request it makes goes nowhere.
+
 ## How it reaches the API
 
 Every operation goes through one backend-for-frontend route rather than the

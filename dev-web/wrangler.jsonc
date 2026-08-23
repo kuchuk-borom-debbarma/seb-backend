@@ -1,0 +1,52 @@
+/**
+ * The client Worker's own configuration.
+ *
+ * ## This file is not optional
+ *
+ * Nitro's Cloudflare preset generates `.output/server/wrangler.json` at the end
+ * of a build, and it does not generate it from nothing — it merges the nearest
+ * user wrangler config, found by walking *up* from this directory:
+ *
+ *     const { config: userConfig = {} } = await readWranglerConfig(nitro)
+ *     const wranglerConfig = defu(overrides, ctxConfig, userConfig, defaults)
+ *
+ * `overrides` is only `main` and `assets`. Everything else in the file it finds
+ * survives into the generated config. Without this file the walk reaches the
+ * repository root and finds the **API Worker's** config — so the client would
+ * be built as `seb-backend`, carrying the API's D1 binding, its R2 bucket, its
+ * queue producer and consumer, and its hourly cron. Deploying that would
+ * replace the API Worker with the server-rendered client.
+ *
+ * So this file exists to be found first. Keep it here even if it looks empty.
+ *
+ * ## What is deliberately absent
+ *
+ * `main`, `assets` and `compatibility_flags` are all written by the preset —
+ * `nodejs_compat` is added automatically because the preset enables Node
+ * compatibility, which is what lets the server bundle's `node:` imports work.
+ * Setting any of them here would be ignored, with a warning.
+ */
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "seb-web",
+
+  // Pinned so a stray CLOUDFLARE_ACCOUNT_ID in the environment cannot redirect
+  // a deploy to a different account. That is not hypothetical: it happened once
+  // while this environment was being set up, and sent a read to the wrong
+  // account entirely. An account id is an identifier, not a credential.
+  "account_id": "15a26eaa33db8561da8f42e036dfe627",
+
+  // The preset supplies its own default; stating it keeps the client and the
+  // API Worker on the same runtime semantics.
+  "compatibility_date": "2026-08-21",
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+
+  // No `vars` yet. The client reads SEB_API_URL to reach the Worker, and the
+  // API Worker is not deployed, so there is no honest value to put here. It
+  // must be set before the client is deployed, or every request it makes
+  // server-side will go nowhere.
+}

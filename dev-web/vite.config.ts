@@ -12,6 +12,18 @@ export default defineConfig({
    * entry failing to load and the page never hydrating.
    */
   cacheDir: process.env.VITE_CACHE_DIR ?? 'node_modules/.vite',
+  /*
+   * The preset is deliberately not set here.
+   *
+   * `npm run build` must keep producing a Node server, because the end-to-end
+   * suite runs the built artifact with `node .output/server/index.mjs`. A
+   * Cloudflare build exports a module with a `fetch` handler instead, which
+   * `node` will happily load and then exit from without ever listening.
+   *
+   * `npm run build:cf` sets NITRO_PRESET=cloudflare-module for the deployable
+   * build. Two targets, chosen explicitly, rather than one that silently means
+   * something different depending on the environment.
+   */
   resolve: { tsconfigPaths: true },
   plugins: [nitro(), tanstackStart(), viteReact()],
   build: {
