@@ -24,6 +24,8 @@ import { RECOVERY_TITLES, recoveryIsLive } from '#/features/admin/states'
 import { formatDateTime, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { Explain } from '#/features/guide/Explain'
+import { OFFICE_HELP } from './officeGuidance'
 
 const ENTRY_TYPES: {
   value: RecoveryEntryType
@@ -76,7 +78,12 @@ export function RecoveryCase({
   return (
     <section className="card">
       <div className="card-header">
-        <p className="eyebrow">Recovery</p>
+        <div className="label-row">
+          <p className="eyebrow">Recovery</p>
+          <Explain label="recovery" opener="When a recovery case is still live">
+            {OFFICE_HELP.recoveryLive}
+          </Explain>
+        </div>
         {open ? (
           <span className="badge" data-tone="error">
             {RECOVERY_TITLES[open.status] ?? humanize(open.status)}

@@ -112,6 +112,20 @@ function AccessPage() {
           </div>
         </div>
 
+        {!search.email ? (
+          <div className="card">
+            <div className="empty">
+              <h3>Nobody looked up yet</h3>
+              {/* The field hint directly above already says the address must be
+                  exact, and why. This says what will appear, which it does not. */}
+              <p>
+                Every role this account holds, and the whole history of how each was
+                granted and revoked, appears here once somebody is looked up.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
         {search.email && !isFetching && !user ? (
           <p className="notice" data-tone="error" role="alert">
             {data?.message ?? 'No account has that address.'}

@@ -18,6 +18,10 @@ import {
 import { formatDate, formatDateTime, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { Explain } from '#/features/guide/Explain'
+import { OFFICE_HELP } from '#/features/admin/officeGuidance'
+import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
+import { useMarker } from '#/features/guide/GuideContext'
 
 const cycleQuery = (id: string) =>
   queryOptions({
@@ -42,6 +46,7 @@ export const Route = createFileRoute('/_shell/admin/cycles/$id')({
 })
 
 function AdminCyclePage() {
+  const mark = useMarker()
   const { id } = Route.useParams()
   const queryClient = useQueryClient()
   const { data } = useQuery(cycleQuery(id))
@@ -131,7 +136,8 @@ function AdminCyclePage() {
     <main className="page">
       <PageHeader
         title={head.displayName}
-        description={`${head.cycleCode} · programme year ${head.cycleYear}`}
+        meta={`${head.cycleCode} · programme year ${head.cycleYear}`}
+        description={OFFICE_LEDES.cycle}
         actions={
           <span
             className="badge"
@@ -273,9 +279,14 @@ function AdminCyclePage() {
           </div>
         </div>
 
-        <div className="card">
+        <div className="card" {...mark('cycle-frozen')}>
           <div className="card-header">
-            <p className="eyebrow">Policy frozen into this cycle</p>
+            <div className="label-row">
+              <p className="eyebrow">Policy frozen into this cycle</p>
+              <Explain label="this policy" opener="What freezing a cycle's policy means">
+                {OFFICE_HELP.frozenPolicy}
+              </Explain>
+            </div>
           </div>
           <div className="card-body">
             <div className="detail-grid">
@@ -335,7 +346,16 @@ function AdminCyclePage() {
               </table>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="card">
+            <div className="card-header">
+              <p className="eyebrow">Applications in this cycle</p>
+            </div>
+            <div className="empty">
+              <p>No applications have been started in this cycle yet.</p>
+            </div>
+          </div>
+        )}
 
         {data.events.length > 0 ? (
           <div className="card">
@@ -366,7 +386,22 @@ function AdminCyclePage() {
               </table>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="card">
+            <div className="card-header">
+              <p className="eyebrow">History</p>
+            </div>
+            <div className="empty">
+              {/* Every cycle has at least the event that created it, so an empty
+                  history is a refused query rather than a quiet cycle. Rendering
+                  the card surfaces that; omitting it hid it. */}
+              <p>
+                No history has been recorded. That is unexpected — a cycle always carries
+                at least the event that created it.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       <p style={{ marginTop: '1.5rem' }}>

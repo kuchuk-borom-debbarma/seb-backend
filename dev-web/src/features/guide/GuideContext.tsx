@@ -9,7 +9,7 @@
  * phone call — and coming back to step one every time would make the guide
  * something to endure rather than use.
  */
-import { useNavigate } from '@tanstack/react-router'
+import { useLocation, useNavigate } from '@tanstack/react-router'
 import {
   createContext,
   useCallback,
@@ -19,9 +19,19 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { tourById, type Tour, type TourStep } from './tours'
+import type { UserRole } from '#/graphql/generated/schema'
+import { NOTHING_HELD, heldFrom, resolve, type Held } from './heldFile'
+import { canWalk, tourById, type Tour, type TourStep } from './tours'
 
 const STORAGE_KEY = 'seb.guide'
+
+/*
+ * The file in hand is remembered across reloads for the same reason the
+ * position is. Somebody opens an application, goes to the guide to start a
+ * route, and expects it to follow the file they were just looking at — and a
+ * full page load between the two would otherwise drop it.
+ */
+const HELD_KEY = 'seb.guide.held'
 
 type Position = { tourId: string; step: number }
 
@@ -37,34 +47,87 @@ type Guide = {
   stop: () => void
   /** True while a tour is talking about this element. */
   isMarked: (mark: string | undefined) => boolean
+  /**
+   * True when the current step names a screen and the reader is not on it —
+   * they clicked away, or the step needed a file that has since been opened.
+   */
+  adrift: boolean
+  /** Re-runs the current step, now that it can be followed. */
+  again: () => void
 }
 
 const GuideChannel = createContext<Guide | null>(null)
 
-/** Reads the saved position, tolerating anything that is not one. */
-const readSaved = (): Position | null => {
+/**
+ * Reads the saved position, tolerating anything that is not one.
+ *
+ * A position is discarded when this account may no longer walk the route it
+ * names. Storage outlives a role: a tour begun before a grant was revoked, or
+ * left running by whoever used the browser last, would otherwise reappear as a
+ * rail full of work this person cannot do.
+ */
+const readSaved = (walker: Walker): Position | null => {
   if (typeof window === 'undefined') return null
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Position
-    return tourById(parsed.tourId) ? parsed : null
+    const saved = tourById(parsed.tourId)
+    return saved && canWalk(saved, walker) ? parsed : null
   } catch {
     // A corrupt or unreadable entry is not worth failing the page for.
     return null
   }
 }
 
-export function GuideProvider({ children }: { children: ReactNode }) {
+/** Only the roles matter here; the shell already holds the whole account. */
+type Walker = { roles: readonly UserRole[] } | undefined
+
+export function GuideProvider({ children, user }: { children: ReactNode; user: Walker }) {
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const [position, setPosition] = useState<Position | null>(null)
+  const [held, setHeld] = useState<Held>(NOTHING_HELD)
+
+  /*
+   * Remember whatever file the address names, whether or not a tour is running:
+   * somebody usually opens an application first and starts the route afterwards,
+   * and a guide that only began watching at step one would have missed it.
+   */
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(HELD_KEY)
+      if (raw) setHeld({ ...NOTHING_HELD, ...(JSON.parse(raw) as Partial<Held>) })
+    } catch {
+      // An unreadable entry only means the guide has nothing in hand.
+    }
+  }, [])
+
+  useEffect(() => {
+    setHeld((previous) => {
+      const next = heldFrom(pathname, previous)
+      if (
+        next.application === previous.application &&
+        next.meeting === previous.meeting &&
+        next.cycle === previous.cycle
+      ) {
+        return previous
+      }
+      try {
+        window.localStorage.setItem(HELD_KEY, JSON.stringify(next))
+      } catch {
+        // Remembering across a reload is a convenience, not a requirement.
+      }
+      return next
+    })
+  }, [pathname])
 
   /*
    * Read after mount rather than during render. The shell is server-rendered,
    * and the server has no localStorage — starting from the saved position on
    * the client only would make the first paint disagree with the markup.
    */
-  useEffect(() => setPosition(readSaved()), [])
+  useEffect(() => setPosition(readSaved(user)), [user])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -79,13 +142,21 @@ export function GuideProvider({ children }: { children: ReactNode }) {
   const goTo = useCallback(
     (tourId: string, index: number) => {
       const target = tourById(tourId)
-      if (!target) return
+      // Refused here as well as filtered on the page that offers routes: this
+      // is the one door every entry goes through, so it is where the rule holds.
+      if (!target || !canWalk(target, user)) return
       const bounded = Math.max(0, Math.min(index, target.steps.length - 1))
       setPosition({ tourId, step: bounded })
-      const destination = target.steps[bounded]?.to
-      if (destination) void navigate({ to: destination })
+      /*
+       * A step naming a screen that belongs to one file is followed only when
+       * that file is in hand. Otherwise the tour advances and stays put, and the
+       * rail says what to open — it does not guess at an id.
+       */
+      const moving = target.steps[bounded]
+      const destination = resolve(moving?.to, moving?.search, held)
+      if (destination) void navigate(destination)
     },
-    [navigate],
+    [navigate, user, held],
   )
 
   const value = useMemo<Guide>(
@@ -99,8 +170,25 @@ export function GuideProvider({ children }: { children: ReactNode }) {
       back: () => position && goTo(position.tourId, position.step - 1),
       stop: () => setPosition(null),
       isMarked: (mark) => Boolean(mark) && step?.mark === mark,
+      /*
+       * Where the step wants to be, compared with where the reader is. Computed
+       * rather than remembered, so opening the file the step was waiting for
+       * turns the offer on by itself.
+       */
+      adrift: Boolean(
+        step?.to &&
+        resolve(step.to, step.search, held) &&
+        pathname !==
+          resolve(step.to, step.search, held)?.to?.replace(
+            /\$\w+/u,
+            (name) =>
+              (name === '$meetingId' ? held.meeting : (held.cycle ?? held.application)) ??
+              '',
+          ),
+      ),
+      again: () => position && goTo(position.tourId, position.step),
     }),
-    [goTo, position, step, tour],
+    [goTo, position, step, tour, held, pathname],
   )
 
   return <GuideChannel.Provider value={value}>{children}</GuideChannel.Provider>
@@ -124,6 +212,8 @@ export const useGuide = (): Guide =>
     back: () => {},
     stop: () => {},
     isMarked: () => false,
+    adrift: false,
+    again: () => {},
   }
 
 /**

@@ -14,19 +14,8 @@ import { PageHeader } from '#/components/PageHeader'
 import { statusGuideQuery } from '#/features/application/queries'
 import { useGuide } from '#/features/guide/GuideContext'
 import { ROUTE_LENGTH, RouteDiagram } from '#/features/guide/RouteDiagram'
-import { TOURS } from '#/features/guide/tours'
-import { isAdministrator, isApplicant, isSuperAdministrator } from '#/lib/session'
+import { TOURS, canWalk } from '#/features/guide/tours'
 import styles from './guide.module.css'
-
-/** Which routes are worth offering to an account that cannot walk them. */
-const AUDIENCE: Record<string, 'applicant' | 'admin' | 'super'> = {
-  applying: 'applicant',
-  reviewing: 'admin',
-  deciding: 'admin',
-  money: 'admin',
-  cycles: 'admin',
-  access: 'super',
-}
 
 export const Route = createFileRoute('/_shell/guide')({
   loader: ({ context }) => context.queryClient.ensureQueryData(statusGuideQuery),
@@ -37,12 +26,10 @@ function GuidePage() {
   const { user } = Route.useRouteContext()
   const { start, tour: running } = useGuide()
 
-  const allowed = TOURS.filter((tour) => {
-    const audience = AUDIENCE[tour.id]
-    if (audience === 'super') return isSuperAdministrator(user)
-    if (audience === 'admin') return isAdministrator(user)
-    return isApplicant(user)
-  })
+  // Only what this account can actually walk. The count of the rest is stated
+  // below rather than silently omitted, so nobody is left wondering whether a
+  // route exists.
+  const allowed = TOURS.filter((tour) => canWalk(tour, user))
 
   return (
     <main className="page">
@@ -107,8 +94,10 @@ function GuidePage() {
 
         {allowed.length < TOURS.length ? (
           <p className={styles.withheld}>
-            {TOURS.length - allowed.length} more routes cover work this account cannot do.
-            They appear once it holds the role.
+            {TOURS.length - allowed.length === 1
+              ? '1 more route covers work this account cannot do. It appears'
+              : `${TOURS.length - allowed.length} more routes cover work this account cannot do. They appear`}{' '}
+            once it holds the role.
           </p>
         ) : null}
       </section>

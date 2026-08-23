@@ -35,6 +35,10 @@ import type { DocumentType } from '#/graphql/generated/schema'
 import { formatDateTime, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { Explain } from '#/features/guide/Explain'
+import { OFFICE_HELP } from '#/features/admin/officeGuidance'
+import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
+import { useMarker } from '#/features/guide/GuideContext'
 
 /** The statuses in which a sanction order can exist. */
 const FUNDED_STATUSES = new Set<string>(['APPROVED', 'SANCTIONED', 'DISBURSED'])
@@ -65,7 +69,8 @@ function WorkspacePage() {
     <main className="page">
       <PageHeader
         title={application.referenceNumber ?? 'Unreferenced application'}
-        description={`${workspace.enterpriseName ?? 'Unknown enterprise'} · ${workspace.cycleDisplayName ?? workspace.cycleCode ?? ''}`}
+        meta={`${workspace.enterpriseName ?? 'Unknown enterprise'} · ${workspace.cycleDisplayName ?? workspace.cycleCode ?? ''}`}
+        description={OFFICE_LEDES.workspace}
         actions={
           <>
             <span className="badge" data-tone={statusTone(application.status)}>
@@ -241,7 +246,10 @@ function WorkspacePage() {
           </div>
           {workspace.assignments.length === 0 ? (
             <div className="card-body">
-              <p className="muted">Nobody has claimed this application yet.</p>
+              <p className="muted">
+                Nobody has claimed this application yet. Claiming records who holds the
+                next decision — until somebody does, nothing on it can be actioned.
+              </p>
             </div>
           ) : (
             <div className="table-wrap">
@@ -301,6 +309,12 @@ function NextStep({
   hasReview: boolean
   onChanged: () => Promise<unknown>
 }) {
+  /*
+   * Marked on every branch. Only one renders, so the "exactly one bracket on
+   * the page" property holds — and the step lands on whatever this application
+   * actually offers rather than on a stage it happens not to be at.
+   */
+  const mark = useMarker()
   const [error, setError] = useState<string | null>(null)
 
   const start = useMutation({
@@ -333,7 +347,7 @@ function NextStep({
 
   if (status === 'SUBMITTED') {
     return (
-      <section className="card">
+      <section className="card" {...mark('next-step')}>
         <div className="card-header">
           <div>
             <p className="eyebrow">Next</p>
@@ -371,7 +385,7 @@ function NextStep({
 
   if (status === 'DESK_REVIEW') {
     return (
-      <section className="card">
+      <section className="card" {...mark('next-step')}>
         <div className="card-header">
           <div>
             <p className="eyebrow">Next</p>
@@ -379,6 +393,11 @@ function NextStep({
           </div>
         </div>
         <div className="card-body">
+          <p className="muted" style={{ marginBottom: '0.75rem' }}>
+            The nine checks and the outcome are recorded together, in one write — so a
+            review cannot be left half-saved. Closing this leaves the application exactly
+            where it is.
+          </p>
           <DeskReviewForm
             reasons={reasons}
             pending={complete.isPending}
@@ -564,11 +583,23 @@ function Documents({
   return (
     <section className="card">
       <div className="card-header">
-        <p className="eyebrow">Documents</p>
+        <div className="label-row">
+          <p className="eyebrow">Documents</p>
+          <Explain label="documents" opener="Which documents a review reads">
+            {OFFICE_HELP.frozenEvidence}
+          </Explain>
+        </div>
       </div>
       {current.length === 0 ? (
         <div className="card-body">
-          <p className="muted">No documents were attached to this submission.</p>
+          {/* Two different facts. Saying "none" when earlier submissions carry
+              documents would report the filter as if it were the application. */}
+          <p className="muted">
+            {documents.length === 0
+              ? 'Nothing has been attached to this application.'
+              : `The latest submission carries no documents. ${documents.length} from earlier ` +
+                'submissions are kept, but a review reads only what its own submission froze.'}
+          </p>
         </div>
       ) : (
         <div className="table-wrap">
@@ -644,6 +675,7 @@ function InternalNotes({
   }[]
   onChanged: () => Promise<unknown>
 }) {
+  const mark = useMarker()
   const [text, setText] = useState('')
   const [correcting, setCorrecting] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -673,14 +705,18 @@ function InternalNotes({
   )
 
   return (
-    <section className="card">
+    <section className="card" {...mark('internal-notes')}>
       <div className="card-header">
         <p className="eyebrow">Internal notes</p>
         <span className="muted">Never shown to the applicant</span>
       </div>
       <div className="card-body">
         {notes.length === 0 ? (
-          <p className="muted">No notes yet.</p>
+          <p className="muted">
+            No notes yet. Notes stay inside the office and are never shown to the
+            applicant; once written, one can only be corrected by another that points at
+            it.
+          </p>
         ) : (
           <div className="stack">
             {notes.map((note) => (

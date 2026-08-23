@@ -278,7 +278,15 @@ test.describe('committee meetings', () => {
     await page.getByRole('button', { name: 'Schedule it' }).click()
     await expect(page).toHaveURL(/\/admin\/meetings\/[0-9a-f-]{36}$/u)
 
-    await expect(page.getByText('The agenda is empty')).toBeVisible()
+    /*
+     * The emptiness is stated once, in the card where the agenda would be, and
+     * it names the one way an item gets there — a notice ten lines above saying
+     * the same thing was two answers to one question.
+     */
+    await expect(
+      page.getByRole('heading', { name: 'Nothing on the agenda yet' }),
+    ).toBeVisible()
+    await expect(page.getByText(/added from its own workspace/u)).toBeVisible()
     await expect(page.getByRole('button', { name: 'Start the meeting' })).toBeDisabled()
   })
 

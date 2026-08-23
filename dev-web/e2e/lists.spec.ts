@@ -109,10 +109,10 @@ test.describe('the intake queue', () => {
     await expect(page.getByLabel('Reference or enterprise starts with')).toBeVisible()
     await page.getByLabel('Reference or enterprise starts with').fill('nothing-like-this')
 
-    await expect(
-      page.getByRole('heading', { name: 'Nothing in this queue' }),
-    ).toBeVisible()
+    // The heading now says which kind of empty this is, and offers the way out.
+    await expect(page.getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
     await expect(page.getByText(/No application matches these filters/u)).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Clear the filters' })).toBeVisible()
     await expect(page).toHaveURL(/search=nothing-like-this/u)
   })
 

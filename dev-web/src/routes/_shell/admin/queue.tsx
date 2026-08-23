@@ -133,7 +133,13 @@ function QueuePage() {
       search: (previous) => ({ ...previous, ...change, after: undefined }),
     })
 
-  /** Whether an empty queue means "nothing matched" or "nothing to do". */
+  /*
+   * Whether an empty queue means "nothing matched" or "nothing to do".
+   *
+   * `queue` is deliberately not counted. It is the tab, not a filter — clearing
+   * it as part of "clear the filters" would eject somebody from the queue they
+   * chose to open, which is not what that button offers to do.
+   */
   const filtered = Boolean(
     search.search ||
     search.applicationType ||
@@ -299,16 +305,43 @@ function QueuePage() {
       {rows.length === 0 ? (
         <div className="card">
           <div className="empty">
-            <h3>Nothing in this queue</h3>
+            {/* Three different facts, and the heading has to say which one. */}
+            <h3>
+              {filtered
+                ? 'Nothing matches'
+                : search.queue
+                  ? 'Nothing in this queue'
+                  : 'No applications yet'}
+            </h3>
             <p>
               {filtered
                 ? 'No application matches these filters. Clearing one may bring some back.'
-                : 'Everything here has been dealt with.'}
+                : search.queue
+                  ? 'Everything here has been dealt with.'
+                  : 'Nothing has been submitted to the programme office yet.'}
             </p>
+            {filtered ? (
+              <button
+                type="button"
+                className="button"
+                style={{ marginTop: '1rem' }}
+                onClick={() =>
+                  filter({
+                    search: undefined,
+                    applicationType: undefined,
+                    category: undefined,
+                    sector: undefined,
+                    mine: undefined,
+                  })
+                }
+              >
+                Clear the filters
+              </button>
+            ) : null}
           </div>
         </div>
       ) : (
-        <div className="card" aria-busy={isPlaceholderData}>
+        <div className="card" aria-busy={isPlaceholderData} {...mark('queue-rows')}>
           <div className="table-wrap">
             <table className="table">
               <caption className="visually-hidden">Applications in this queue</caption>

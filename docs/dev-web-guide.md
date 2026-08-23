@@ -233,9 +233,47 @@ Three rules the layer keeps:
 - **It can be left.** Progress is remembered, so an interrupted demonstration
   carries on where it stopped, and ending a tour ends it for good.
 
-`Explain` attaches a short answer to a question whose name does not give one.
-Used once on the application form, on purpose — an icon beside every label
-teaches nothing and doubles the reading.
+Three rules gained a fourth: **a route says who it is for.** Audience is a
+required field on the tour itself, so a route that forgot to say cannot compile.
+It used to be a lookup table beside the page that read it, keyed by a loose
+string — and a tour missing from that table fell through to applicant-only and
+vanished from the office with nothing failing.
+
+**The file in hand.** Most office screens exist only for one particular
+application, meeting or cycle, so their address carries an id a tour cannot
+know. The guide watches the address and remembers the last one opened; a step
+naming such a screen follows it. With nothing in hand the step does not
+navigate at all — the rail says what to open, and offers to take you there once
+you have. It never invents an id, and never picks a record at random: both
+would be the demonstration lying about what it knows.
+
+`Explain` attaches a short answer to a word whose name does not give one. It is
+kept sparse — at most one per card, and only where the meaning is genuinely not
+guessable, because an icon beside every label teaches nothing and doubles the
+reading. One sits on the application form. Eight sit in the programme office,
+which is where the vocabulary is hardest: an applicant reads "Submitted" and
+knows what it means, while an officer reads two queues that both hold
+`SUBMITTED` and has to be told why they are separate.
+
+Office copy lives in `src/features/admin/officeGuidance.ts`, in one module
+reviewable as copy, each entry naming the section of the
+[administrator workflow guide](admin-workflow-guide.md) it is drawn from. It is
+deliberately **not** a rendering of `features/admin/states.ts`: those doc
+comments are a maintainer's gloss, uneven in coverage and free to say things a
+reader should not be told. The office's description of a thing is not a
+paraphrase of the applicant's — the same distinction `RouteDiagram` already
+draws one level up.
+
+**Every screen opens with a lede.** `PageHeader` takes `description` for what
+the screen is for and `meta` for the identity that completes the title. Three
+office screens had been spending the lede slot on metadata and so had no lede
+at all; folding the two together would have buried the identity in a muted
+paragraph.
+
+**The first visit knows which desk it is.** The strip is portal-aware and
+remembered once per portal, because the two welcomes say different things about
+different work — one key for both would silence the only line that ever explains
+the second.
 
 ## Lists
 
@@ -305,6 +343,11 @@ Held by tests rather than asserted in a document:
 
 - **The guide never covers the product.** Asserted: while a tour runs, the
   screen under discussion is still visible and its controls still editable.
+- **Every mark a route declares is registered on a real screen.** Asserted
+  without a browser, by reading the sources: a step marking an element nobody
+  registered brackets nothing, the rail polls for thirty frames and silently
+  scrolls to the top instead, and the failure survives review. One step was in
+  that state until the check was written.
 - **Narrow screens.** Below 60rem the sidebar becomes a bar across the top. The
   bar takes its own content height, wide content scrolls inside its own
   container, and the page body never scrolls sideways — all three are asserted

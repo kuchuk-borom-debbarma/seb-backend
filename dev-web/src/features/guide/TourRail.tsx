@@ -11,12 +11,13 @@
  * a numbered position in the route, one passage of prose, and the step list
  * underneath.
  */
+import { useLocation } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { useGuide } from './GuideContext'
 import styles from './TourRail.module.css'
 
 export function TourRail() {
-  const { tour, step, number, total, next, back, stop } = useGuide()
+  const { tour, step, number, total, next, back, stop, adrift, again } = useGuide()
 
   /*
    * Put the reader in front of the thing being discussed.
@@ -27,7 +28,8 @@ export function TourRail() {
    * nothing. The marked element is polled for a few frames because the
    * destination route renders after the navigation resolves.
    */
-  const here = `${tour?.id ?? ''}:${number}`
+  const { pathname } = useLocation()
+  const here = `${tour?.id ?? ''}:${number}:${pathname}`
   useEffect(() => {
     if (!tour) return
     let frames = 0
@@ -105,6 +107,23 @@ export function TourRail() {
           </li>
         ))}
       </ol>
+
+      {/*
+        A step that needed a file nobody had open did not navigate — it said so
+        instead. Once one is open the step can be followed, so the offer appears
+        by itself rather than leaving somebody holding an instruction with no way
+        to act on it. It also covers the ordinary case of clicking away mid-route.
+      */}
+      {adrift ? (
+        <button
+          type="button"
+          className={`button ${styles.again}`}
+          data-variant="primary"
+          onClick={again}
+        >
+          Take me to this step
+        </button>
+      ) : null}
 
       <div className={styles.foot}>
         <button type="button" className="button" disabled={first} onClick={back}>

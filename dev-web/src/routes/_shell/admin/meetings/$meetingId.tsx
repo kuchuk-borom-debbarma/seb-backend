@@ -32,6 +32,10 @@ import { AGENDA_TITLES, MEETING_STATES, MEETING_TITLES } from '#/features/admin/
 import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { Explain } from '#/features/guide/Explain'
+import { OFFICE_HELP } from '#/features/admin/officeGuidance'
+import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
+import { useMarker } from '#/features/guide/GuideContext'
 
 export const Route = createFileRoute('/_shell/admin/meetings/$meetingId')({
   loader: ({ context, params }) =>
@@ -40,6 +44,7 @@ export const Route = createFileRoute('/_shell/admin/meetings/$meetingId')({
 })
 
 function MeetingPage() {
+  const mark = useMarker()
   const { meetingId } = Route.useParams()
   const queryClient = useQueryClient()
   const { data: workspace } = useQuery(meetingQuery(meetingId))
@@ -77,7 +82,8 @@ function MeetingPage() {
     <main className="page">
       <PageHeader
         title={meeting.meetingReference}
-        description={`${formatDateTime(meeting.scheduledAt)} · ${meeting.venue}`}
+        meta={`${formatDateTime(meeting.scheduledAt)} · ${meeting.venue}`}
+        description={OFFICE_LEDES.meeting}
         actions={
           <>
             <span className="badge">
@@ -131,24 +137,44 @@ function MeetingPage() {
           </p>
         ) : null}
 
-        {planning && agenda.length === 0 ? (
-          <p className="notice" data-tone="warn">
-            <span className="notice-title">The agenda is empty</span>
-            An application is added to an agenda from its own workspace, once a partner
-            bank has given an outcome. A meeting cannot start without one.
-          </p>
-        ) : null}
-
-        <section className="card">
+        <section className="card" {...mark('agenda')}>
           <div className="card-header">
-            <p className="eyebrow">Agenda</p>
+            <div className="label-row">
+              <p className="eyebrow">Agenda</p>
+              <Explain label="the agenda" opener="What a meeting's state decides">
+                {OFFICE_HELP.meetingState}
+              </Explain>
+            </div>
             <span className="muted">
               {agenda.length} {agenda.length === 1 ? 'application' : 'applications'}
             </span>
           </div>
           {agenda.length === 0 ? (
-            <div className="card-body">
-              <p className="muted">Nothing on the agenda yet.</p>
+            <div className="empty">
+              {/* Said once, where the emptiness is, and for every state rather
+                  than only for a meeting still being planned. */}
+              {planning ? (
+                <>
+                  <h3>Nothing on the agenda yet</h3>
+                  <p>
+                    An application is added from its own workspace, once a partner bank
+                    has given an outcome. A meeting cannot start without at least one.
+                  </p>
+                  <Link
+                    to="/admin/queue"
+                    search={{ queue: 'TTM_REVIEW' }}
+                    className="button"
+                    style={{ marginTop: '1rem' }}
+                  >
+                    Find applications waiting for the committee
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <h3>This meeting had no agenda</h3>
+                  <p>Applications can only be added while a meeting is being planned.</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="table-wrap">

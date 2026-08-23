@@ -74,7 +74,7 @@ function Field({
         have announced as "Category ?".
       */}
       {explain ? (
-        <span className="field-label-row">
+        <span className="label-row">
           <label className="field-label" htmlFor={id}>
             {label}
           </label>

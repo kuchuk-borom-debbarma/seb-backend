@@ -27,6 +27,9 @@ import { CreateAwardDocument } from '#/graphql/generated/operations'
 import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { Explain } from '#/features/guide/Explain'
+import { OFFICE_HELP, OFFICE_LEDES } from '#/features/admin/officeGuidance'
+import { useMarker } from '#/features/guide/GuideContext'
 
 export const Route = createFileRoute('/_shell/admin/applications/$id/funding')({
   loader: ({ context, params }) =>
@@ -35,6 +38,7 @@ export const Route = createFileRoute('/_shell/admin/applications/$id/funding')({
 })
 
 function FundingPage() {
+  const mark = useMarker()
   const { id } = Route.useParams()
   const queryClient = useQueryClient()
   const { data: workspace } = useQuery(workspaceQuery(id))
@@ -53,11 +57,14 @@ function FundingPage() {
     <main className="page">
       <PageHeader
         title="Funding"
-        description={
+        meta={
           award
             ? `Sanction order ${award.sanctionOrderNumber}, issued ${formatDate(award.sanctionDate)}`
-            : 'Nothing has been sanctioned against this application yet.'
+            : undefined
         }
+        /* The unsanctioned case is already said, once, by the "Not yet" notice
+           further down beside the control that would change it. */
+        description={OFFICE_LEDES.funding}
         actions={
           <Link to="/admin/applications/$id" params={{ id }} className="button">
             Back to the application
@@ -117,16 +124,24 @@ function FundingPage() {
               </div>
             </section>
 
-            <section className="card">
+            <section className="card" {...mark('ledger')}>
               <div className="card-header">
-                <p className="eyebrow">Ledger</p>
+                <div className="label-row">
+                  <p className="eyebrow">Ledger</p>
+                  <Explain label="the ledger" opener="How the money record works">
+                    {OFFICE_HELP.ledger}
+                  </Explain>
+                </div>
                 <span className="muted">
                   {funding?.response?.ledger.length ?? 0} entries
                 </span>
               </div>
               {funding?.response?.ledger.length === 0 ? (
                 <div className="card-body">
-                  <p className="muted">No money has moved yet.</p>
+                  <p className="muted">
+                    No money has moved yet. Every release, and every correction to one,
+                    appears here in the order it happened.
+                  </p>
                 </div>
               ) : (
                 <div className="table-wrap">

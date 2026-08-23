@@ -25,6 +25,9 @@ import { REFERRAL_STATES, REFERRAL_TITLES } from '#/features/admin/states'
 import { formatDate, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { Explain } from '#/features/guide/Explain'
+import { OFFICE_HELP } from './officeGuidance'
+import { useMarker } from '../guide/GuideContext'
 
 type Referral = {
   id: string
@@ -100,6 +103,7 @@ export function BankStage({
    * the bank replies — it becomes RESPONDED — and its outcome can still be
    * corrected, so both states matter here.
    */
+  const mark = useMarker()
   const current = referrals.find(
     (referral) =>
       referral.status === REFERRAL_STATES.open ||
@@ -115,9 +119,14 @@ export function BankStage({
   }
 
   return (
-    <section className="card">
+    <section className="card" {...mark('bank-stage')}>
       <div className="card-header">
-        <p className="eyebrow">Partner bank</p>
+        <div className="label-row">
+          <p className="eyebrow">Partner bank</p>
+          <Explain label="the bank's outcome" opener="How a bank outcome is recorded">
+            {OFFICE_HELP.bankOutcome}
+          </Explain>
+        </div>
         {current ? (
           <span className="badge">{REFERRAL_TITLES[current.status]}</span>
         ) : null}

@@ -13,6 +13,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
+import { Explain } from '#/features/guide/Explain'
+import { OFFICE_HELP } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
 import { queueSummaryQuery } from '#/features/admin/intakeQueries'
 import {
@@ -48,7 +50,17 @@ function IntakeConsole() {
 
       <div className="stack">
         <section>
-          <h2 className="section-title">Waiting on us</h2>
+          {/* The one place both SUBMITTED queues are on screen together, so the
+              one place their separation is worth explaining. */}
+          <div className="label-row">
+            <h2 className="section-title">Waiting on us</h2>
+            <Explain
+              label="these queues"
+              opener="Why new submissions and revision responses are counted apart"
+            >
+              {OFFICE_HELP.twoSubmittedQueues}
+            </Explain>
+          </div>
           <div className="queue-grid" {...mark('waiting-on-us')}>
             {waiting.map((queue) => (
               <Link

@@ -23,6 +23,9 @@ import { formatDateTime } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { sessionQuery } from '#/lib/session'
+import { Explain } from '#/features/guide/Explain'
+import { OFFICE_HELP } from './officeGuidance'
+import { useMarker } from '../guide/GuideContext'
 
 export function AssignmentControls({
   applicationId,
@@ -39,6 +42,7 @@ export function AssignmentControls({
   reasons: ReasonCategory[] | undefined
   onChanged: () => Promise<unknown>
 }) {
+  const mark = useMarker()
   const { data: session } = useQuery(sessionQuery)
   const [error, setError] = useState<string | null>(null)
   const [showRelease, setShowRelease] = useState(false)
@@ -66,10 +70,15 @@ export function AssignmentControls({
   })
 
   return (
-    <section className="card">
+    <section className="card" {...mark('assignment')}>
       <div className="card-header">
         <div>
-          <p className="eyebrow">Assignment</p>
+          <div className="label-row">
+            <p className="eyebrow">Assignment</p>
+            <Explain label="assignment" opener="What claiming an application means">
+              {OFFICE_HELP.claiming}
+            </Explain>
+          </div>
           <h3>
             {mine
               ? 'You have this'

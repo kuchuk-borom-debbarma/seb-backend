@@ -183,3 +183,10 @@
     display: none;
   }
 }
+
+/* Offered only when the step's screen is not the one being looked at, so it
+   must read as the way forward rather than as another navigation control. */
+.again {
+  width: 100%;
+  margin-top: var(--space-3);
+}

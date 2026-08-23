@@ -7,6 +7,7 @@ import {
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
 import { cyclesQuery } from '#/features/application/queries'
+import { useMarker } from '#/features/guide/GuideContext'
 import {
   ExpansionEligibilityDocument,
   MyEnterprisesDocument,
@@ -71,6 +72,7 @@ function StartApplicationPage() {
   const navigate = Route.useNavigate()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const mark = useMarker()
 
   const { data: enterprises } = useQuery(liveEnterprisesQuery)
   const { data: cycles } = useQuery(cyclesQuery)
@@ -144,7 +146,10 @@ function StartApplicationPage() {
         <div className="stack">
           <div className="card">
             <div className="card-body">
-              <div className="detail-grid">
+              {/* The guided route stops here: this pair is the whole decision,
+                  because the cycle chosen fixes the rules the application is
+                  judged by for the rest of its life. */}
+              <div className="detail-grid" {...mark('start-application')}>
                 <div>
                   <label className="field-label" htmlFor="enterprise">
                     Enterprise

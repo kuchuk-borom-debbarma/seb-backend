@@ -11,6 +11,9 @@
  * because "whose turn is it" is the question the whole product answers.
  */
 
+import { isAdministrator, isApplicant, isSuperAdministrator } from '#/lib/session'
+import type { AdminIntakeQueueKey, UserRole } from '#/graphql/generated/schema'
+
 /** The four desks a file passes between. */
 export const DESKS = {
   applicant: 'Applicant',
@@ -35,13 +38,37 @@ export type TourStep = {
    * margin bracket beside it, the way an officer marks a passage in a file.
    */
   mark?: string
+  /**
+   * Narrows a list route to one queue, using the API's own keys.
+   *
+   * A step that says "pick one out of the queue" should land on the queue it
+   * means rather than on whatever the reader last filtered to.
+   */
+  search?: { queue: AdminIntakeQueueKey }
   /** Stated when a step needs data the demonstration may not have yet. */
   needs?: string
 }
 
+/**
+ * Which account may walk a route.
+ *
+ * `super` is a narrowing of `admin`, not a separate desk: role management is
+ * the one office job an ordinary administrator cannot do.
+ */
+export type TourAudience = 'applicant' | 'admin' | 'super'
+
 export type Tour = {
   id: string
   title: string
+  /**
+   * Who is allowed to walk this route.
+   *
+   * Required, and deliberately so. This lived in a lookup table beside the page
+   * that reads it, keyed by tour id — and a tour absent from that table fell
+   * through to applicant-only and disappeared from the office with nothing
+   * failing. Naming it here makes forgetting a compile error instead.
+   */
+  for: TourAudience
   /** Who this route is for, in their own words. */
   audience: string
   /** What somebody will understand by the end. */
@@ -52,6 +79,7 @@ export type Tour = {
 export const TOURS: Tour[] = [
   {
     id: 'applying',
+    for: 'applicant',
     title: 'Applying for seed funding',
     audience: 'A first-generation entrepreneur applying to the programme',
     promise:
@@ -100,6 +128,7 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'reviewing',
+    for: 'admin',
     title: 'Reviewing what comes in',
     audience: 'A programme officer at the desk',
     promise:
@@ -120,16 +149,44 @@ export const TOURS: Tour[] = [
         mark: 'queue-filters',
       },
       {
+        title: 'Pick a file out of the queue',
+        body: 'Every row is one application, longest wait first. Opening one is also how this route learns which file you are working on — the steps after this follow it.',
+        desk: DESKS.office,
+        to: '/admin/queue',
+        search: { queue: 'NEW_SUBMISSIONS' },
+        mark: 'queue-rows',
+        needs:
+          'A submitted application. If this queue is empty, nothing has been sent in yet.',
+      },
+      {
         title: 'Claim it before you work on it',
         body: 'Claiming records who holds the application. Taking one somebody else holds is allowed — it is a normal thing to need — but it is acknowledged, and the acknowledgement is kept against your account.',
         desk: DESKS.office,
-        needs: 'Open any submitted application from a queue.',
+        to: '/admin/applications/$id',
+        mark: 'assignment',
+        needs: 'Open an application from the queue first; this route then follows it.',
+      },
+      {
+        title: 'What to do next is decided by where the file is',
+        body: 'Only the transitions the API will accept from this status are offered — the desk review on a submitted application, the form that completes it on one under review, nothing at all on one waiting for somebody else. A button that exists to be refused teaches people to distrust the screen.',
+        desk: DESKS.office,
+        to: '/admin/applications/$id',
+        mark: 'next-step',
+        needs: 'Open an application from the queue first.',
       },
       {
         title: 'Run the nine checks',
         body: 'A desk review is one form and one write, not a wizard that could be abandoned half-recorded. The outcome decides what happens next: on to a bank, back to the applicant, or closed.',
         desk: DESKS.office,
         needs: 'Claim an application and start its desk review.',
+      },
+      {
+        title: 'Everything said about a file stays with it',
+        body: 'Internal notes are never shown to the applicant, and none can be edited or deleted — a correction is a new note pointing at the one it corrects. What was thought at the time survives alongside what replaced it.',
+        desk: DESKS.office,
+        to: '/admin/applications/$id',
+        mark: 'internal-notes',
+        needs: 'Open an application from the queue first.',
       },
       {
         title: 'Ask for corrections precisely',
@@ -140,6 +197,7 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'deciding',
+    for: 'admin',
     title: 'The bank and the committee',
     audience: 'A programme officer carrying a file through approval',
     promise:
@@ -149,7 +207,9 @@ export const TOURS: Tour[] = [
         title: 'Refer it to a partner bank',
         body: 'The bank evaluates the proposal and writes back. Nothing is decided here — the office records what the bank said, which is why every form asks for the reference and date of the bank’s own document.',
         desk: DESKS.bank,
-        needs: 'Complete a desk review with the outcome "Refer to a partner bank".',
+        to: '/admin/applications/$id',
+        mark: 'bank-stage',
+        needs: 'An application whose desk review ended in "Refer to a partner bank".',
       },
       {
         title: 'Record the outcome, never edit it',
@@ -164,6 +224,14 @@ export const TOURS: Tour[] = [
         mark: 'meetings-list',
       },
       {
+        title: 'Position is the agenda’s whole meaning',
+        body: 'Position is the order the committee will take the applications in. Moving one, or taking it off, asks for a reason and the programme keeps it — an agenda that quietly reorders itself is not a record of anything.',
+        desk: DESKS.committee,
+        to: '/admin/meetings/$meetingId',
+        mark: 'agenda',
+        needs: 'Open a meeting from the list.',
+      },
+      {
         title: 'The committee sits',
         body: 'A decision is only accepted while the meeting is in session and only from the person holding the application — the same rules the room itself works by.',
         desk: DESKS.committee,
@@ -172,16 +240,36 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'money',
+    for: 'admin',
     title: 'From approval to money',
     audience: 'A programme officer handling sanctions and payments',
     promise:
       'How a sanction order is issued, how instalments are released, and what has to be in hand before money moves.',
     steps: [
       {
-        title: 'Issue the sanction order',
-        body: 'The award is issued against the committee’s approval and takes its amount from that decision. It cannot exist without one.',
+        title: 'Start from what has been approved',
+        body: 'An award is issued against the committee’s decision and takes its amount from it, so the work starts here: files that have a decision and no sanction order yet.',
         desk: DESKS.office,
-        needs: 'An approved application.',
+        to: '/admin/queue',
+        search: { queue: 'APPROVED' },
+        mark: 'queue-rows',
+        needs:
+          'An approved application. If this queue is empty, nothing has reached a committee decision yet.',
+      },
+      {
+        title: 'Issue the sanction order',
+        body: 'The number and the date are the sanction letter’s own. The amount is not asked for — it comes from the committee’s decision, and a second figure typed on this screen could only ever disagree with the letter.',
+        desk: DESKS.office,
+        to: '/admin/applications/$id/funding',
+        needs: 'Open an approved application from the queue first.',
+      },
+      {
+        title: 'The ledger is the record, and the screen does not add it up',
+        body: 'Every entry is appended and numbered; nothing is removed. The totals come from the programme’s own arithmetic, because a subtotal computed in the browser is one more thing that can disagree with the sanction letter.',
+        desk: DESKS.office,
+        to: '/admin/applications/$id/funding',
+        mark: 'ledger',
+        needs: 'An application with a sanction order issued against it.',
       },
       {
         title: 'Release an instalment',
@@ -202,6 +290,7 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'cycles',
+    for: 'admin',
     title: 'Setting up a programme year',
     audience: 'The programme office before applications open',
     promise:
@@ -222,6 +311,14 @@ export const TOURS: Tour[] = [
         mark: 'cycle-list',
       },
       {
+        title: 'The policy once it is frozen',
+        body: 'This is what an application started under the cycle carries: the document rules, the assessments an award will need, and the version they were frozen at. A later cycle changing its mind does not reach back.',
+        desk: DESKS.office,
+        to: '/admin/cycles/$id',
+        mark: 'cycle-frozen',
+        needs: 'Open a cycle from the list.',
+      },
+      {
         title: 'Reasons are part of the policy',
         body: 'Releasing a claim, asking for a correction, deferring a decision, writing off a recovery — each names a reason from this cycle’s catalogue, so the programme can report on why things happened.',
         desk: DESKS.office,
@@ -230,6 +327,7 @@ export const TOURS: Tour[] = [
   },
   {
     id: 'access',
+    for: 'super',
     title: 'Who is allowed to do what',
     audience: 'A super administrator',
     promise: 'How roles are granted, revoked, and accounted for afterwards.',
@@ -257,3 +355,20 @@ export const TOURS: Tour[] = [
 
 export const tourById = (id: string): Tour | undefined =>
   TOURS.find((tour) => tour.id === id)
+
+/**
+ * Whether this account may walk this route.
+ *
+ * Shared rather than written once at the page that lists the routes, because a
+ * saved position outlives the list: a tour started before a role was revoked,
+ * or restored from storage in the other portal, has to be refused where it
+ * would be *rendered*, not only where it was offered.
+ */
+export const canWalk = (
+  tour: Tour,
+  user: { roles: readonly UserRole[] } | undefined,
+): boolean => {
+  if (tour.for === 'super') return isSuperAdministrator(user)
+  if (tour.for === 'admin') return isAdministrator(user)
+  return isApplicant(user)
+}

@@ -8,6 +8,9 @@
  * is talking. And it must be leadable by anyone: reachable from a standing
  * start, resumable after an interruption, and operable by keyboard.
  */
+import { readFile, readdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
 import {
   PASSWORD,
@@ -16,16 +19,66 @@ import {
   signIn,
   signUpApplicant,
   startApplication,
+  submitApplication,
   uniqueEmail,
 } from './support'
 
-/** Clears what the browser remembers about the guide, for a first-visit test. */
+/**
+ * Clears what the browser remembers about the guide, for a first-visit test.
+ *
+ * By prefix rather than by name: the first visit is now remembered once per
+ * portal, and a helper listing keys by hand is a helper that silently stops
+ * clearing the one somebody adds next.
+ */
 const forgetGuide = async (page: Page) => {
   await page.evaluate(() => {
-    window.localStorage.removeItem('seb.guide')
-    window.localStorage.removeItem('seb.guide.seen')
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith('seb.guide')) window.localStorage.removeItem(key)
+    }
   })
 }
+
+/** Every `.tsx` under a directory, so no screen is missed by a hand-kept list. */
+const collectSources = async (directory: string): Promise<string[]> => {
+  const entries = await readdir(directory, { withFileTypes: true })
+  const found = await Promise.all(
+    entries.map(async (entry) => {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) return collectSources(path)
+      return entry.name.endsWith('.tsx') ? [path] : []
+    }),
+  )
+  return found.flat()
+}
+
+test.describe('the guide keeps its own promises', () => {
+  /*
+   * A step that marks an element nobody registered brackets nothing: the rail
+   * polls for thirty frames, gives up, and scrolls to the top instead — so the
+   * failure is invisible and survives review. It did, for one step, until this
+   * test was written. Read as files rather than driven through a browser,
+   * because it is a fact about the source, not about a running page.
+   */
+  test('every mark a route declares is registered on a real screen', async () => {
+    const here = fileURLToPath(new URL('.', import.meta.url))
+    const tours = await readFile(join(here, '../src/features/guide/tours.ts'), 'utf8')
+    const declared = [...tours.matchAll(/mark: '([a-z-]+)'/gu)].flatMap(
+      (match) => match[1] ?? [],
+    )
+    expect(declared.length).toBeGreaterThan(0)
+
+    const sources = await collectSources(join(here, '../src'))
+    const registered = new Set<string>()
+    for (const file of sources) {
+      const text = await readFile(file, 'utf8')
+      for (const match of text.matchAll(/mark\('([a-z-]+)'\)/gu)) {
+        if (match[1]) registered.add(match[1])
+      }
+    }
+
+    expect([...new Set(declared)].filter((mark) => !registered.has(mark))).toEqual([])
+  })
+})
 
 test.describe('how this works', () => {
   test.beforeEach(async ({ page }) => {
@@ -86,7 +139,7 @@ test.describe('how this works', () => {
       page.getByRole('heading', { name: 'Applying for seed funding' }),
     ).toHaveCount(0)
     await expect(
-      page.getByText(/more routes cover work this account cannot do/u),
+      page.getByText(/more routes? covers? work this account cannot do/u),
     ).toBeVisible()
   })
 
@@ -128,7 +181,7 @@ test.describe('walking a route', () => {
 
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     await expect(rail).toBeVisible()
-    await expect(rail.getByText('Step 1 of 5')).toBeVisible()
+    await expect(rail.getByText('Step 1 of 8')).toBeVisible()
     await expect(rail.getByText('Programme office', { exact: true })).toBeVisible()
     await expect(
       rail.getByRole('heading', { name: 'Start from what needs you' }),
@@ -173,10 +226,10 @@ test.describe('walking a route', () => {
 
     await rail.getByRole('button', { name: 'Next' }).click()
     await expect(page).toHaveURL(/\/admin\/queue/u)
-    await expect(rail.getByText('Step 2 of 5')).toBeVisible()
+    await expect(rail.getByText('Step 2 of 8')).toBeVisible()
 
     await rail.getByRole('button', { name: 'Back' }).click()
-    await expect(rail.getByText('Step 1 of 5')).toBeVisible()
+    await expect(rail.getByText('Step 1 of 8')).toBeVisible()
     await expect(page).toHaveURL(/\/admin$/u)
   })
 
@@ -196,7 +249,9 @@ test.describe('walking a route', () => {
     await rail.getByRole('button', { name: 'Next' }).click()
 
     await expect(rail.getByText('To try this')).toBeVisible()
-    await expect(rail.getByText(/Open any submitted application/u)).toBeVisible()
+    await expect(
+      rail.getByText(/If this queue is empty, nothing has been sent in yet/u),
+    ).toBeVisible()
   })
 
   test('the last step finishes rather than running off the end', async ({ page }) => {
@@ -226,12 +281,12 @@ test.describe('walking a route', () => {
 
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     await rail.getByRole('button', { name: 'Next' }).click()
-    await expect(rail.getByText('Step 2 of 5')).toBeVisible()
+    await expect(rail.getByText('Step 2 of 8')).toBeVisible()
 
     // A demonstration gets interrupted. Coming back must not start again.
     await page.reload()
     await expect(
-      page.getByRole('complementary', { name: /Guided route/u }).getByText('Step 2 of 5'),
+      page.getByRole('complementary', { name: /Guided route/u }).getByText('Step 2 of 8'),
     ).toBeVisible()
   })
 
@@ -266,7 +321,7 @@ test.describe('walking a route', () => {
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     await rail.getByRole('button', { name: 'Next' }).focus()
     await page.keyboard.press('Enter')
-    await expect(rail.getByText('Step 2 of 5')).toBeVisible()
+    await expect(rail.getByText('Step 2 of 8')).toBeVisible()
   })
 })
 
@@ -277,14 +332,14 @@ test.describe('the first visit', () => {
     await forgetGuide(page)
     await page.reload()
 
-    await expect(page.getByText('First time here?')).toBeVisible()
+    await expect(page.getByText('First time in the programme office?')).toBeVisible()
 
     await page.getByRole('button', { name: 'Not now' }).click()
-    await expect(page.getByText('First time here?')).toHaveCount(0)
+    await expect(page.getByText('First time in the programme office?')).toHaveCount(0)
 
     // And it does not come back on the next page.
     await page.goto('/admin/queue')
-    await expect(page.getByText('First time here?')).toHaveCount(0)
+    await expect(page.getByText('First time in the programme office?')).toHaveCount(0)
   })
 
   test('is never shown on the guide itself', async ({ page }) => {
@@ -293,7 +348,7 @@ test.describe('the first visit', () => {
     await forgetGuide(page)
     await page.goto('/guide')
 
-    await expect(page.getByText('First time here?')).toHaveCount(0)
+    await expect(page.getByText('First time in the programme office?')).toHaveCount(0)
   })
 })
 
@@ -354,7 +409,7 @@ test.describe('the pointer and the tour do not talk over each other', () => {
     await page.goto('/admin')
     await forgetGuide(page)
     await page.reload()
-    await expect(page.getByText('First time here?')).toBeVisible()
+    await expect(page.getByText('First time in the programme office?')).toBeVisible()
 
     await page.goto('/guide')
     await page
@@ -364,6 +419,183 @@ test.describe('the pointer and the tour do not talk over each other', () => {
       .click()
 
     // Somebody being led through the product is not lost.
+    await expect(page.getByText('First time in the programme office?')).toHaveCount(0)
+  })
+})
+
+test.describe('the office is led to the work, not only to the console', () => {
+  /*
+   * The property that made this half of the guidance layer worth building. A
+   * route may now name a screen that exists only for one application — and the
+   * only honest way to follow it is to follow the file the reader has actually
+   * opened. These two tests are the two halves of that: it follows one when
+   * there is one, and it refuses to invent one when there is not.
+   */
+
+  test('a step that needs a file nobody opened stays put and says what to open', async ({
+    page,
+  }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await forgetGuide(page)
+    await page.goto('/guide')
+
+    await page
+      .getByRole('article')
+      .filter({ hasText: 'From approval to money' })
+      .getByRole('button', { name: 'Walk this route' })
+      .click()
+    await expect(page).toHaveURL(/\/admin\/queue/u)
+
+    const rail = page.getByRole('complementary', { name: /Guided route/u })
+    await rail.getByRole('button', { name: 'Next' }).click()
+
+    // Step two names /admin/applications/$id/funding. With no application in
+    // hand it must not navigate, and must not fabricate an id.
+    await expect(page).toHaveURL(/\/admin\/queue/u)
+    await expect(
+      rail.getByText(/Open an approved application from the queue first/u),
+    ).toBeVisible()
+    await expect(page.locator('[data-marked]')).toHaveCount(0)
+
+    /*
+     * And it does not offer to take anybody anywhere, because there is nowhere
+     * honest to go. The offer appears the moment a file is in hand — asserted
+     * in the test below rather than here, where it would be a lie.
+     */
+    await expect(rail.getByRole('button', { name: 'Take me to this step' })).toHaveCount(
+      0,
+    )
+  })
+
+  test('a route follows the application the reader has open', async ({ page }) => {
+    const { id } = await submitApplication(page, {
+      prefix: 'guided',
+      businessName: 'Guided Works',
+    })
+
+    await page.context().clearCookies()
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await forgetGuide(page)
+
+    // Open the file first — this is how the guide learns which one is meant.
+    await page.goto(`/admin/applications/${id}`)
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+
+    await page.goto('/guide')
+    await page
+      .getByRole('article')
+      .filter({ hasText: 'Reviewing what comes in' })
+      .getByRole('button', { name: 'Walk this route' })
+      .click()
+
+    const rail = page.getByRole('complementary', { name: /Guided route/u })
+    for (const step of [2, 3, 4]) {
+      await rail.getByRole('button', { name: 'Next' }).click()
+      await expect(rail.getByText(`Step ${step} of 8`)).toBeVisible()
+    }
+
+    // Step four is the claim card, on that exact application.
+    await expect(page).toHaveURL(new RegExp(`/admin/applications/${id}$`, 'u'))
+    await expect(page.locator('[data-marked]')).toHaveCount(1)
+    await expect(page.locator('[data-guide="assignment"][data-marked]')).toBeVisible()
+
+    // And the product is still the product while the guide talks about it: the
+    // card it brackets is readable and its control is still usable.
+    await expect(page.getByText('Assignment', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Claim it' })).toBeEnabled()
+  })
+})
+
+test.describe('the office reads its own words', () => {
+  test('a word whose name does not give its meaning has an answer beside it', async ({
+    page,
+  }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await page.goto('/admin')
+
+    const opener = page.getByRole('button', {
+      name: 'Why new submissions and revision responses are counted apart',
+    })
+    await expect(opener).toBeVisible()
+    await expect(opener).toHaveAttribute('aria-expanded', 'false')
+
+    await opener.click()
+    await expect(opener).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('note')).toContainText(/never land in one pile/u)
+
+    await page.keyboard.press('Escape')
+    await expect(opener).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  test('the console still reads as a console, not as a help page', async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await page.goto('/admin')
+
+    /*
+     * Scarcity is the whole rule. One answer per card at most — an icon beside
+     * every label teaches nothing and doubles the reading — so the count is
+     * asserted rather than left to taste.
+     */
+    await expect(page.locator('button.explain')).toHaveCount(1)
+  })
+
+  test('every office screen says what it is for', async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+
+    for (const path of [
+      '/admin',
+      '/admin/queue',
+      '/admin/cycles',
+      '/admin/cycles/new',
+      '/admin/meetings',
+      '/admin/access',
+    ]) {
+      await page.goto(path)
+      const lede = page.locator('.page-header-description')
+      await expect(lede, `${path} opens with no lede`).toBeVisible()
+      // A lede is a sentence, not a label.
+      expect(
+        (await lede.innerText()).length,
+        `${path} lede is too short`,
+      ).toBeGreaterThan(30)
+    }
+  })
+})
+
+test.describe('the first visit', () => {
+  test('welcomes each portal in its own words, once', async ({ page }) => {
+    // An account that genuinely holds both, built the way portals.spec.ts does.
+    const both = uniqueEmail('welcome')
+    await signUpApplicant(page, both)
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await page.goto(`/admin/access?email=${encodeURIComponent(both)}`)
+    await page.getByLabel('Role').selectOption('ADMIN')
+    await page.getByLabel('Why they should have it').fill('Runs the demonstration.')
+    await page.getByLabel('Your password').fill(PASSWORD)
+    await page.getByRole('button', { name: 'Grant it' }).click()
+    await expect(page.getByText('Admin granted.')).toBeVisible()
+
+    await page.context().clearCookies()
+    await signIn(page, both)
+    await forgetGuide(page)
+
+    await page.goto('/')
+    await expect(page.getByText('First time here?')).toBeVisible()
+    await page.getByRole('button', { name: 'Not now' }).click()
     await expect(page.getByText('First time here?')).toHaveCount(0)
+
+    /*
+     * Dismissing the applicant welcome says nothing about the office: they are
+     * two products with two things to say, and one key for both would silence
+     * the only line that would ever explain the second.
+     */
+    await page.goto('/admin')
+    await expect(page.getByText('First time in the programme office?')).toBeVisible()
+    await page.getByRole('button', { name: 'Not now' }).click()
+
+    await page.goto('/')
+    await expect(page.getByText('First time here?')).toHaveCount(0)
+    await page.goto('/admin')
+    await expect(page.getByText('First time in the programme office?')).toHaveCount(0)
   })
 })

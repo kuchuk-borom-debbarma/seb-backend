@@ -18,6 +18,7 @@ import type { TtmMeetingStatus } from '#/graphql/generated/schema'
 import { formatDateTime, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
 
 type Search = { after?: string; status?: TtmMeetingStatus }
 
@@ -48,7 +49,7 @@ function MeetingsPage() {
     <main className="page">
       <PageHeader
         title="Committee meetings"
-        description="Where approved applications are decided."
+        description={OFFICE_LEDES.meetings}
         actions={
           creating ? null : (
             <button
@@ -107,6 +108,24 @@ function MeetingsPage() {
                   ? 'No meeting is in that state. Clearing the filter may bring some back.'
                   : 'Schedule one to start building an agenda.'}
               </p>
+              {search.status ? (
+                <button
+                  type="button"
+                  className="button"
+                  style={{ marginTop: '1rem' }}
+                  onClick={() =>
+                    navigate({
+                      search: (previous) => ({
+                        ...previous,
+                        status: undefined,
+                        after: undefined,
+                      }),
+                    })
+                  }
+                >
+                  Clear the filter
+                </button>
+              ) : null}
             </div>
           </div>
         ) : (

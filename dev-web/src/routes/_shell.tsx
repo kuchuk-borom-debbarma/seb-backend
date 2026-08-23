@@ -57,7 +57,7 @@ function Shell() {
   const location = useLocation()
 
   return (
-    <GuideProvider>
+    <GuideProvider user={user}>
       <ShellFrame user={user} pathname={location.pathname} search={location.searchStr} />
     </GuideProvider>
   )
@@ -98,7 +98,7 @@ function ShellFrame({
     >
       <PortalNav portal={portal} user={user} />
       <div className={styles.main}>
-        <FirstVisit />
+        <FirstVisit portal={portal} />
         {/*
           The boundary is around the outlet rather than on the route, because a
           route's error component replaces that route's whole output — which
