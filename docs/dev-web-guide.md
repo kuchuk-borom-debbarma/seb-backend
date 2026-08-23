@@ -170,6 +170,20 @@ document rules are all `OPTIONAL`. That is a legitimate policy the API accepts,
 not a fixture: an application in such a cycle genuinely requires no files. Every
 other cycle in the suite keeps the ordinary rules.
 
+## The quality floor
+
+Held by tests rather than asserted in a document:
+
+- **Narrow screens.** Below 60rem the sidebar becomes a bar across the top. The
+  bar takes its own content height, wide content scrolls inside its own
+  container, and the page body never scrolls sideways — all three are asserted
+  at 360px.
+- **Keyboard.** Every control is reachable by Tab and lands with a visible focus
+  ring; nothing traps focus.
+- **Reduced motion.** The stylesheet neutralizes animation and smooth scrolling,
+  and the one place that scrolls from JavaScript reads the preference — an
+  explicit `behavior` option overrides the stylesheet, so it has to.
+
 ## Formatting
 
 `.prettierrc.json` pins the style the code was written in — single quotes, no

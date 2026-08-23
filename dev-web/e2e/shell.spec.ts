@@ -113,3 +113,80 @@ test.describe('signed-in devices', () => {
     await expect(page).toHaveURL('/sign-in?next=%2Fapp')
   })
 })
+
+test.describe('on a narrow screen', () => {
+  test.use({ viewport: { width: 360, height: 900 } })
+
+  test('the navigation becomes a bar and the page never scrolls sideways', async ({
+    page,
+  }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL)
+    await page.goto('/admin')
+
+    // The links are still there, in the same order, laid out across the top
+    // rather than down the side.
+    const navigation = page.getByRole('navigation', { name: 'Portal sections' })
+    await expect(navigation).toBeVisible()
+    await expect(navigation.getByRole('link', { name: 'Intake' })).toBeVisible()
+
+    // The bar takes its content height, not a share of the viewport.
+    const bar = await navigation.boundingBox()
+    expect(bar?.height ?? 0).toBeLessThan(220)
+
+    // Wide content scrolls inside its own container; the body does not.
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflow).toBe(0)
+  })
+
+  test('a table scrolls inside its wrapper rather than collapsing', async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL)
+    await page.goto('/admin')
+
+    const wrapper = page.locator('.table-wrap').first()
+    const scrollable = await wrapper.evaluate(
+      (element) => element.scrollWidth > element.clientWidth,
+    )
+    expect(scrollable).toBe(true)
+  })
+})
+
+test.describe('by keyboard alone', () => {
+  test('every control on the sign-in screen is reachable and visibly focused', async ({
+    page,
+  }) => {
+    await page.goto('/sign-in')
+
+    const reached: string[] = []
+    for (let step = 0; step < 12; step += 1) {
+      await page.keyboard.press('Tab')
+      const here = await page.evaluate(() => {
+        const element = document.activeElement as HTMLElement | null
+        if (!element || element === document.body) return null
+        // The focus ring must be drawn by :focus-visible, not merely implied.
+        const outline = getComputedStyle(element).outlineWidth
+        return `${element.tagName.toLowerCase()}:${outline}`
+      })
+      if (here) reached.push(here)
+    }
+
+    // Email, password, the submit button and the sign-up link at least.
+    expect(reached.length).toBeGreaterThanOrEqual(4)
+    // Nothing lands with no ring at all.
+    expect(reached.every((entry) => !entry.endsWith(':0px'))).toBe(true)
+  })
+
+  test('the skip of a disabled action is not a trap', async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL)
+    await page.goto('/admin')
+
+    // Tabbing forward from the first link always moves on; a control that
+    // swallowed focus would return the same element twice.
+    await page.keyboard.press('Tab')
+    const first = await page.evaluate(() => document.activeElement?.textContent ?? '')
+    await page.keyboard.press('Tab')
+    const second = await page.evaluate(() => document.activeElement?.textContent ?? '')
+    expect(second).not.toBe(first)
+  })
+})

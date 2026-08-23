@@ -198,6 +198,9 @@ th.numeric {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
+  /* A control's label is not prose; wrapping it makes the button taller than
+     the field beside it and harder to read at a glance. */
+  white-space: nowrap;
   min-height: 2.25rem;
   padding: 0 var(--space-4);
   border-radius: var(--radius-sm);
@@ -395,6 +398,16 @@ th.numeric {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+}
+
+/*
+ * A table narrower than this stops being a table: the columns collapse to two
+ * words each and the rows are taller than the screen. Below that width it
+ * scrolls inside its own wrapper instead, which is what the wrapper is for.
+ * On a wide screen the minimum is smaller than the container and does nothing.
+ */
+.table-wrap > .table {
+  min-width: 34rem;
 }
 
 .table th {

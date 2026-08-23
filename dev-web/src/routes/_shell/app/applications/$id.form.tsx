@@ -148,7 +148,10 @@ function DraftFormPage() {
     if (!hash || !draft) return
     const field = document.getElementById(hash)
     if (!field) return
-    field.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    // A behaviour passed here overrides the stylesheet's reduced-motion rule,
+    // so the preference is read rather than assumed.
+    const stillness = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    field.scrollIntoView({ block: 'center', behavior: stillness ? 'auto' : 'smooth' })
     field.focus({ preventScroll: true })
   }, [hash, draft])
 

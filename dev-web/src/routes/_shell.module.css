@@ -127,9 +127,18 @@
 
 /* Below the sidebar breakpoint the navigation becomes a scrolling strip above
    the content rather than disappearing behind a menu the demo cannot open. */
+/* Below this the sidebar becomes a bar across the top: a column of navigation
+   is most of a phone screen, and the register itself is what people came for. */
 @media (max-width: 60rem) {
   .shell {
     grid-template-columns: minmax(0, 1fr);
+    /*
+     * The bar takes exactly its content height and the page takes the rest.
+     * Without this the grid's free space is shared between the two rows — the
+     * shell is at least a viewport tall — and the navigation grew a hundred
+     * empty pixels below itself.
+     */
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .sidebar {
@@ -137,13 +146,20 @@
     height: auto;
     border-right: none;
     border-bottom: 1px solid var(--hairline);
+    padding: var(--space-3);
+    gap: var(--space-2);
   }
 
   .groups {
+    /* No longer the column that grows: it is one line of links. */
+    flex: none;
     flex-direction: row;
-    gap: var(--space-4);
+    align-items: center;
+    gap: var(--space-3);
     overflow-x: auto;
-    padding-bottom: var(--space-2);
+    overflow-y: visible;
+    padding-bottom: var(--space-1);
+    scrollbar-width: thin;
   }
 
   .group {
@@ -151,11 +167,24 @@
     gap: var(--space-1);
   }
 
+  /* The section headings are the one thing that does not survive the fold.
+     Their links stay in the same order, which is what people navigate by. */
   .groupTitle {
     display: none;
   }
 
   .navLink {
     white-space: nowrap;
+  }
+
+  /* A left rule reads as a list marker; in a row it has to sit under the
+     word it marks. */
+  .navLinkActive {
+    box-shadow: inset 0 -2px 0 var(--green);
+  }
+
+  .account {
+    margin-top: 0;
+    padding: var(--space-2) var(--space-3);
   }
 }
