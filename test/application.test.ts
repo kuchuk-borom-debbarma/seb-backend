@@ -32,6 +32,7 @@ import {
 } from '../src/services/application/queries/document'
 import { setEnterpriseDeleted } from '../src/services/application/queries/enterprise'
 import { auditRecord } from '../src/services/application/support'
+import { requiredDocumentTypesForSnapshot } from '../src/services/application/validation'
 import type {
   ApplicationDraftInput,
   EnterpriseProfileInput,
@@ -955,6 +956,9 @@ describe('applicant application business service', () => {
       programmeCycleVersion: currentVersion.programmeCycleVersion,
       referenceNumber: `SEP-2026-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
       resubmission: false,
+      // The real list, so the write repeats the check the validator made —
+      // which is what this test is about.
+      requiredDocumentTypes: requiredDocumentTypesForSnapshot(persistenceDraft()),
       now: submitNow,
       audit: auditRecord(context, {
         actorUserId: applicant.userId,
@@ -2461,6 +2465,9 @@ describe('applicant application business service', () => {
       programmeCycleVersion: staleExpansionVersion.programmeCycleVersion,
       referenceNumber: `SEP-2026-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
       resubmission: false,
+      // The real list, so the write repeats the check the validator made —
+      // which is what this test is about.
+      requiredDocumentTypes: requiredDocumentTypesForSnapshot(persistenceDraft()),
       now: staleSubmitAt,
       audit: auditRecord(directContext(applicant.cookie), {
         actorUserId: applicant.userId,

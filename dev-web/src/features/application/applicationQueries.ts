@@ -5,7 +5,7 @@
  * is never served stale — what is editable can change the moment a reviewer
  * issues or cancels a revision request — while the timeline only grows.
  */
-import { queryOptions } from '@tanstack/react-query'
+import { queryOptions, type QueryClient } from '@tanstack/react-query'
 import {
   ApplicationByIdDocument,
   ApplicationFundingDocument,
@@ -81,3 +81,22 @@ export const fundingQuery = (id: string) =>
     },
     staleTime: 30_000,
   })
+
+/**
+ * Loads an application and its validation report, both guaranteed fresh.
+ *
+ * `ensureQueryData` returns whatever is in the cache without revalidating, and
+ * on these two screens that is wrong in a way that surfaces as a refusal: every
+ * write carries the version this data reports, so arriving from the form with
+ * a copy taken before the last autosave means the first save — or the
+ * submission — is refused as stale, and the applicant is told to refresh a page
+ * they just opened.
+ *
+ * Fetching costs one round of two parallel requests per navigation, which is
+ * the right trade for the screen where an application is sent.
+ */
+export const loadApplication = (queryClient: QueryClient, id: string) =>
+  Promise.all([
+    queryClient.fetchQuery(applicationQuery(id)),
+    queryClient.fetchQuery(validationQuery(id)),
+  ])

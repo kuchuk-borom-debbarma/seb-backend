@@ -177,3 +177,149 @@ export const startApplication = async (
   await expect(page).toHaveURL(/\/app\/applications\/[0-9a-f-]{36}$/u)
   return page.url().split('/').pop() as string
 }
+
+/**
+ * Opens a cycle that requires no documents, and fills one application in it
+ * right through to submission.
+ *
+ * Uploading evidence needs a bucket development does not have, so an
+ * application in an ordinary cycle can never be submitted here — and without a
+ * submission, nothing the programme office does is reachable. A cycle whose
+ * policy names no required documents is a legitimate configuration the API
+ * accepts, and it is the only honest way to reach the administrative flow
+ * without inventing data.
+ *
+ * Returns the applicant's email and the submitted application's id.
+ */
+export const submitApplication = async (
+  page: Page,
+  { prefix = 'journey', businessName = 'Journey Works' } = {},
+): Promise<{ email: string; id: string }> => {
+  await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+  const cycleCode = await openCycleWithoutDocuments(page, prefix.toUpperCase())
+  await page.context().clearCookies()
+
+  const email = uniqueEmail(prefix)
+  await signUpApplicant(page, email)
+  await signIn(page, email)
+
+  await page.goto('/app/enterprises/new')
+  await page.getByLabel('Registered or trading name').fill(businessName)
+  await page.getByRole('button', { name: 'Register enterprise' }).click()
+
+  await page.goto('/app/applications/new')
+  await page.getByLabel('Enterprise').selectOption({ label: businessName })
+  /*
+   * By code, not by position. The suite shares one database, so by the time
+   * this runs there are other open cycles — ones that do require documents —
+   * and picking the second option in the list would quietly apply the wrong
+   * policy.
+   */
+  const cycleOption = await page
+    .getByLabel('Programme cycle')
+    .locator('option')
+    .filter({ hasText: cycleCode })
+    .innerText()
+  await page.getByLabel('Programme cycle').selectOption({ label: cycleOption })
+  await page.getByRole('button', { name: 'Start an initial application' }).click()
+  await expect(page).toHaveURL(/\/app\/applications\/[0-9a-f-]{36}$/u)
+  const id = page.url().split('/').pop() as string
+
+  await fillEveryAnswer(page, id, businessName)
+
+  await page.goto(`/app/applications/${id}/review`)
+  await expect(page.getByText('Everything needed is present')).toBeVisible()
+  await page.getByRole('button', { name: 'Submit application' }).click()
+  await expect(page).toHaveURL(new RegExp(`/app/applications/${id}/submitted$`, 'u'))
+
+  return { email, id }
+}
+
+/** A cycle whose policy names no required documents. */
+const openCycleWithoutDocuments = async (page: Page, prefix: string): Promise<string> => {
+  const code = `${prefix}-${Date.now().toString(36).toUpperCase()}`
+  await page.goto('/admin/cycles/new')
+  await page.getByLabel('Cycle code').fill(code)
+  await page.getByLabel('Name', { exact: true }).fill(code)
+  await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/07')
+  await page
+    .getByLabel('Guidance for applicants')
+    .fill('No documents are required in this cycle.')
+  const local = (value: Date) => value.toISOString().slice(0, 16)
+  await page.getByLabel('Applications open').fill(local(new Date(Date.now() - 3_600_000)))
+  await page
+    .getByLabel('Applications close')
+    .fill(local(new Date(Date.now() + 2_592_000_000)))
+
+  /*
+   * Make every document optional. The API insists on exactly one rule for every
+   * supported document type, so the rules stay — but a rule whose condition is
+   * OPTIONAL asks for nothing, and an application in this cycle can be
+   * submitted with no files at all.
+   */
+  const conditions = page.locator('select[aria-label^="Required when"]')
+  for (let index = 0; index < (await conditions.count()); index += 1) {
+    await conditions.nth(index).selectOption('OPTIONAL')
+  }
+
+  await page.getByRole('button', { name: 'Create draft cycle' }).click()
+  await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
+  await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
+  await page.getByRole('button', { name: 'Open for applications' }).click()
+  await expect(
+    page.getByRole('button', { name: 'Close to new applications' }),
+  ).toBeVisible()
+  return code
+}
+
+/** Every question the form asks, answered. */
+export const fillEveryAnswer = async (
+  page: Page,
+  id: string,
+  businessName: string,
+): Promise<void> => {
+  await page.goto(`/app/applications/${id}/form`)
+  await page.getByLabel('Business name').fill(businessName)
+  await page.getByLabel('Date established').fill('2025-03-10')
+  await page.getByLabel('Category').selectOption({ index: 1 })
+  await page.getByLabel('Sector').selectOption({ label: 'Food processing' })
+  await page.getByLabel('Majority ownership is held by Scheduled Tribe members').check()
+  await page.getByLabel('Your full name').fill('Bethel Debbarma')
+  await page.getByLabel('Your role in the enterprise').selectOption({ index: 1 })
+  await page.getByLabel('Date of birth').fill('1996-07-14')
+  await page.getByLabel('Gender').selectOption({ index: 2 })
+  await page.getByLabel('Block or village').fill('Khumulwng')
+  await page.getByLabel('District').fill('West Tripura')
+  await page.getByLabel('PIN code').fill('799045')
+  await page.getByLabel('Contact number').fill('+919876543210')
+  await page.getByLabel('Contact email').fill('bethel@example.test')
+  await page.getByLabel('Total project cost (₹)').fill('1000000')
+  await page.getByLabel('Seed fund requested (₹)').fill('250000')
+  await page.getByLabel('Bank loan proposed (₹)').fill('600000')
+  await page.getByLabel('Your own contribution (₹)').fill('150000')
+  await page
+    .getByRole('group', {
+      name: 'Has this enterprise received government funding before?',
+    })
+    .getByLabel('No')
+    .check()
+  await page
+    .getByRole('group', { name: 'Does this enterprise have existing bank credit?' })
+    .getByLabel('No')
+    .check()
+  await page
+    .getByRole('group', {
+      name: 'Is a no-objection certificate needed for these premises?',
+    })
+    .getByLabel('No')
+    .check()
+  await page.getByLabel('Relationship').selectOption({ index: 1 })
+  await page.getByLabel('Of (name)').fill('Sanjoy Debbarma')
+  await page.getByLabel('Place').fill('Khumulwng')
+  await page
+    .getByLabel('I declare that everything in this application is true and complete.')
+    .check()
+
+  // The indicator is the honest signal that the server has the last answer.
+  await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 20_000 })
+}

@@ -20,6 +20,7 @@ import {
 } from '#/features/application/draft'
 import {
   applicationQuery,
+  loadApplication,
   validationQuery,
 } from '#/features/application/applicationQueries'
 import { SaveApplicationDraftDocument } from '#/graphql/generated/operations'
@@ -33,12 +34,7 @@ import { messageFor, unwrap } from '#/lib/result'
 const AUTOSAVE_DELAY_MS = 900
 
 export const Route = createFileRoute('/_shell/app/applications/$id/form')({
-  loader: async ({ context, params }) => {
-    await Promise.all([
-      context.queryClient.ensureQueryData(applicationQuery(params.id)),
-      context.queryClient.ensureQueryData(validationQuery(params.id)),
-    ])
-  },
+  loader: ({ context, params }) => loadApplication(context.queryClient, params.id),
   component: DraftFormPage,
 })
 
@@ -87,6 +83,8 @@ function DraftFormPage() {
       return unwrap(data.seb.application.saveDraft)
     },
     onMutate: () => {
+      // Already 'saving' from the keystroke; this clears a previous failure so
+      // the retry is not shown as still broken.
       setSaveState('saving')
       setSaveError(null)
     },
@@ -171,6 +169,13 @@ function DraftFormPage() {
   const update = useCallback(
     (next: ApplicationDraftInput) => {
       setDraft(next)
+      /*
+       * "Saving" from the keystroke, not from the request. Autosave is
+       * debounced, and leaving the indicator on "Saved" through that window
+       * claims the newest answer is safe when it is still only in the browser.
+       * It is also what makes the leave-the-page warning cover the window.
+       */
+      setSaveState('saving')
       scheduleSave(next)
     },
     [scheduleSave],

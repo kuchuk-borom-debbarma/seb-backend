@@ -60,7 +60,11 @@ import type {
   TimelineEvent,
   ValidationReport,
 } from '../types'
-import { normalizeDraftInput, validateSubmissionSnapshot } from '../validation'
+import {
+  normalizeDraftInput,
+  requiredDocumentTypes,
+  validateSubmissionSnapshot,
+} from '../validation'
 
 const EMPTY_EXPANSION_CLAIM: ExpansionClaim = {
   priorSanctionOrderNumber: null,
@@ -593,15 +597,20 @@ const submit = async (
     documents: draft.documents,
     declaration: draft.declaration,
   }
+  // Resolved once: the validator and the write must agree about which
+  // documents this cycle requires, and they only do so by asking the same
+  // policy rather than each deriving one.
+  const submissionPolicy =
+    (await findSubmissionPolicy(
+      context.db,
+      application.programmeCycleId,
+      application.snapshot.programmeCycleVersion,
+    )) ?? undefined
   const report = validateSubmissionSnapshot(
     formalSnapshot,
     await listActiveDocumentTypes(context.db, application.id),
     now,
-    await findSubmissionPolicy(
-      context.db,
-      application.programmeCycleId,
-      application.snapshot.programmeCycleVersion,
-    ) ?? undefined,
+    submissionPolicy,
   )
   if (!report.valid) return failure('The application is incomplete. Run validation for details.')
   const currentVersionRecord = await findApplicationVersion(
@@ -623,6 +632,7 @@ const submit = async (
     programmeCycleVersion: readableVersion.programmeCycleVersion,
     referenceNumber: createReferenceNumber(cycle?.cycleYear ?? new Date().getUTCFullYear()),
     resubmission,
+    requiredDocumentTypes: requiredDocumentTypes(formalSnapshot, submissionPolicy),
     now,
     audit: auditRecord(context, {
       actorUserId: applicant.id,

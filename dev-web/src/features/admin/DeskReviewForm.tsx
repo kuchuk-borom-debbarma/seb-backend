@@ -67,7 +67,10 @@ const CHECKS: { type: DeskReviewCheckType; title: string; asks: string }[] = [
   {
     type: 'EXPANSION_EVIDENCE',
     title: 'Expansion evidence',
-    asks: 'For an expansion, the prior award has been used as required.',
+    // The API refuses a pass or a fail here on an initial application, so the
+    // rule is stated where the choice is made rather than left to be
+    // discovered from a refusal after nine checks have been filled in.
+    asks: 'For an expansion, the prior award has been used as required. Not applicable to an initial application.',
   },
 ]
 

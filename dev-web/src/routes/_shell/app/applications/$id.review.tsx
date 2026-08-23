@@ -5,6 +5,7 @@ import { ClosingNotice } from '#/features/application/ClosingNotice'
 import {
   applicationQuery,
   draftChangesQuery,
+  loadApplication,
   validationQuery,
 } from '#/features/application/applicationQueries'
 import { DOCUMENT_TITLES } from '#/features/application/documents'
@@ -19,13 +20,11 @@ import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 
 export const Route = createFileRoute('/_shell/app/applications/$id/review')({
-  loader: async ({ context, params }) => {
-    await Promise.all([
-      context.queryClient.ensureQueryData(applicationQuery(params.id)),
-      context.queryClient.ensureQueryData(validationQuery(params.id)),
-      context.queryClient.ensureQueryData(draftChangesQuery(params.id)),
-    ])
-  },
+  loader: ({ context, params }) =>
+    Promise.all([
+      loadApplication(context.queryClient, params.id),
+      context.queryClient.fetchQuery(draftChangesQuery(params.id)),
+    ]),
   component: ReviewPage,
 })
 

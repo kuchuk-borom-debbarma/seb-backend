@@ -12,6 +12,7 @@
  * says why the office is changing its record of it.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { meetingsQuery } from '#/features/admin/meetingQueries'
 import { reasonsFor, type ReasonCategory } from '#/features/admin/workspaceQueries'
@@ -205,9 +206,20 @@ export function CommitteeStage({
         ) : null}
 
         {listed && decisions.length === 0 ? (
-          <p className="field-hint" style={{ marginTop: '0.75rem' }}>
-            On the agenda at position {listed.position}. The order it will be taken in is
-            set on the meeting.
+          /*
+           * The API accepts a decision only while the meeting is sitting, and
+           * only from the person who holds the application. Neither fact is
+           * visible from here — an agenda item does not report which meeting it
+           * is on — so the rule is stated rather than left to be discovered
+           * from a refusal that says the record changed, which it had not.
+           */
+          <p className="notice" data-tone="warn" style={{ marginTop: '0.75rem' }}>
+            <span className="notice-title">
+              A decision can only be recorded while the meeting is sitting
+            </span>
+            This application is on an agenda at position {listed.position}. Start the
+            meeting from <Link to="/admin/meetings">committee meetings</Link> first, and
+            make sure you still hold this application.
           </p>
         ) : null}
       </div>

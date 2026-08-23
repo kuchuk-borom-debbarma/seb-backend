@@ -25,6 +25,7 @@ import {
   normalizeDraftInput,
   normalizeEnterpriseProfile,
   parseDateOnly,
+  requiredDocumentTypes,
   validateSubmissionSnapshot,
 } from '../src/services/application/validation'
 
@@ -114,6 +115,50 @@ const digest = async (bytes: Uint8Array) => {
 }
 
 describe('application pure business rules', () => {
+  it('takes the required documents from the cycle rules, not from the snapshot', () => {
+    const snapshot = {
+      enterprise: {
+        businessName: null,
+        establishmentDate: null,
+        registrationType: 'NONE',
+        registrationNumber: null,
+        gstin: null,
+        businessSector: null,
+        otherBusinessSector: null,
+        applicationCategory: null,
+        majorityOwnershipConfirmed: null,
+      },
+      documents: { nocRequired: false },
+    } as const
+
+    // A cycle that asks for nothing asks for nothing. Every rule here is
+    // OPTIONAL, which is a legitimate policy, and the submission write has to
+    // agree with the validator about it — they used to disagree, and the write
+    // refused an application the validator had passed.
+    expect(requiredDocumentTypes(snapshot, { documentRules: [
+      { documentType: 'DPR', condition: 'OPTIONAL' },
+      { documentType: 'BANK_DETAILS', condition: 'OPTIONAL' },
+    ] })).toEqual([])
+
+    // A conditional rule applies only when its condition holds.
+    expect(requiredDocumentTypes(snapshot, { documentRules: [
+      { documentType: 'DPR', condition: 'ALWAYS' },
+      { documentType: 'NOC', condition: 'WHEN_NOC_REQUIRED' },
+      { documentType: 'BUSINESS_REGISTRATION', condition: 'WHEN_REGISTERED' },
+      { documentType: 'GST_REGISTRATION', condition: 'WHEN_GSTIN_PRESENT' },
+    ] })).toEqual(['DPR'])
+
+    // No policy at all is the pre-policy default, not an empty policy.
+    expect(requiredDocumentTypes(snapshot, undefined)).toEqual([
+      'IDENTITY_AGE_PROOF',
+      'ST_CERTIFICATE',
+      'ADDRESS_PROOF',
+      'DPR',
+      'BANK_DETAILS',
+    ])
+    expect(requiredDocumentTypes(snapshot, { documentRules: [] })).toHaveLength(5)
+  })
+
   it('parses real date-only values and uses calendar month boundaries', () => {
     expect(parseDateOnly('2024-02-29')?.toISOString()).toBe('2024-02-29T00:00:00.000Z')
     expect(parseDateOnly('2023-02-29')).toBeNull()

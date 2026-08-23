@@ -112,6 +112,11 @@ rather than hidden:
 
   Everything else on that screen works without credentials — listing what is
   required, removing a document and putting it back.
+- **An agenda item does not report which meeting it is on.** The API accepts a
+  committee decision only while that meeting is in session, but an application's
+  workspace cannot tell whether it is — so the screen states the rule and links
+  to the meetings list rather than hiding a control it cannot decide about.
+  `AdminAgendaItem.meetingId` would let it.
 - **The workspace does not report its cycle's id**, only its code. Every write
   that names a reason — releasing a claim, reassigning, requesting a correction
   — needs a reason category defined by the programme cycle, so the client finds
@@ -151,6 +156,19 @@ Every operation the GraphQL schema exposes now has a screen.
 
 A screen that is not built is not in the navigation. There are no placeholder
 pages, and no control that does not do what it says.
+
+## The whole programme, end to end
+
+`e2e/journey.spec.ts` carries one application from signup to money in the bank:
+submission, claim, desk review, referral to a partner bank, the bank's outcome,
+a committee agenda and decision, the sanction order, and a payment — then signs
+back in as the applicant and checks they can see their own award, and that
+nothing the office keeps to itself has leaked into it.
+
+It reaches all of that without a storage bucket by opening a cycle whose
+document rules are all `OPTIONAL`. That is a legitimate policy the API accepts,
+not a fixture: an application in such a cycle genuinely requires no files. Every
+other cycle in the suite keeps the ordinary rules.
 
 ## Formatting
 

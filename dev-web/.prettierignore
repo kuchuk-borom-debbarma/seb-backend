@@ -1,0 +1,4 @@
+# Written by the TanStack Router plugin on every build; formatting it here only
+# creates a diff the generator undoes.
+src/routeTree.gen.ts
+src/graphql/generated/

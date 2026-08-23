@@ -662,6 +662,43 @@ export const requiredDocumentTypesForSnapshot = (
   return requiredDocuments
 }
 
+/**
+ * The documents this application must carry.
+ *
+ * The cycle's own rules decide, and a rule may make a document optional — so a
+ * cycle can legitimately require none at all. The snapshot-only list is used
+ * only when a cycle defines no rules, which is the pre-policy default rather
+ * than a deliberate empty policy.
+ *
+ * Exported because submission checks the same thing twice: once when validating
+ * and again inside the write, so a document deleted in between cannot slip
+ * past. Both must ask this one function — when they disagreed, an application
+ * the cycle considered complete was refused by the write with a message about
+ * something else entirely.
+ */
+export const requiredDocumentTypes = (
+  snapshot: Pick<ApplicationDraftInput, 'enterprise' | 'documents'>,
+  policy: Pick<SubmissionPolicy, 'documentRules'> | undefined,
+): DocumentType[] => {
+  if (!policy || policy.documentRules.length === 0) {
+    return requiredDocumentTypesForSnapshot(snapshot)
+  }
+  return [
+    ...new Set(
+      policy.documentRules
+        .filter(
+          (rule) =>
+            rule.condition === 'ALWAYS' ||
+            (rule.condition === 'WHEN_REGISTERED' &&
+              snapshot.enterprise.registrationType !== 'NONE') ||
+            (rule.condition === 'WHEN_GSTIN_PRESENT' && snapshot.enterprise.gstin !== null) ||
+            (rule.condition === 'WHEN_NOC_REQUIRED' && snapshot.documents.nocRequired === true),
+        )
+        .map((rule) => rule.documentType),
+    ),
+  ]
+}
+
 const validateDocumentSubmission = (
   snapshot: ApplicationSnapshot,
   activeDocumentTypes: ReadonlySet<DocumentType>,
@@ -669,14 +706,7 @@ const validateDocumentSubmission = (
   policy: SubmissionPolicy,
 ) => {
   requireValue(issues, 'DOCUMENTS', 'nocRequired', snapshot.documents.nocRequired)
-  const requiredDocuments = policy.documentRules.length === 0
-    ? requiredDocumentTypesForSnapshot(snapshot)
-    : new Set(policy.documentRules.filter((rule) =>
-        rule.condition === 'ALWAYS' ||
-        (rule.condition === 'WHEN_REGISTERED' && snapshot.enterprise.registrationType !== 'NONE') ||
-        (rule.condition === 'WHEN_GSTIN_PRESENT' && snapshot.enterprise.gstin !== null) ||
-        (rule.condition === 'WHEN_NOC_REQUIRED' && snapshot.documents.nocRequired === true),
-      ).map((rule) => rule.documentType))
+  const requiredDocuments = requiredDocumentTypes(snapshot, policy)
   for (const documentType of requiredDocuments) {
     if (!activeDocumentTypes.has(documentType)) {
       issues.push(issue('DOCUMENTS', documentType, 'DOCUMENT_REQUIRED', `Upload the ${DOCUMENT_NAMES[documentType]}.`))

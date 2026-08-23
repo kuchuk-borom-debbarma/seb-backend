@@ -1762,6 +1762,8 @@ export const submitApplicationSnapshot = async (
     programmeCycleVersion: number
     referenceNumber: string
     resubmission: boolean
+    /** From the cycle's rules, computed once by the caller that validated. */
+    requiredDocumentTypes: readonly DocumentType[]
     now: Date
     audit: AuditRecord
   },
@@ -1804,8 +1806,16 @@ export const submitApplicationSnapshot = async (
         WHERE ${sebProgrammeCycle.id} = ${input.head.programmeCycleId}
           AND ${programmeCycleOpenAt(input.now)}
       )`
+  /*
+   * Repeated inside the write so a document deleted between validation and
+   * submission cannot slip past — using the list the validator computed from
+   * the cycle's own rules. Deriving it again here from the snapshot alone made
+   * the two disagree whenever a cycle asked for fewer documents than the
+   * default, and the submission was refused with a message about the
+   * application having changed, which it had not.
+   */
   const requiredDocumentsStillExist = and(
-    ...requiredDocumentTypesForSnapshot(input.draft).map((documentType) => sql`EXISTS (
+    ...input.requiredDocumentTypes.map((documentType) => sql`EXISTS (
       SELECT 1 FROM ${sebApplicationDocument}
       WHERE ${sebApplicationDocument.applicationId} = ${input.head.id}
         AND ${sebApplicationDocument.documentType} = ${documentType}

@@ -13,6 +13,7 @@ import { useMemo, useRef, useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import {
   applicationQuery,
+  loadApplication,
   validationQuery,
 } from '#/features/application/applicationQueries'
 import {
@@ -40,12 +41,7 @@ type Application = NonNullable<
 type Document = Application['documents'][number]
 
 export const Route = createFileRoute('/_shell/app/applications/$id/documents')({
-  loader: async ({ context, params }) => {
-    await Promise.all([
-      context.queryClient.ensureQueryData(applicationQuery(params.id)),
-      context.queryClient.ensureQueryData(validationQuery(params.id)),
-    ])
-  },
+  loader: ({ context, params }) => loadApplication(context.queryClient, params.id),
   component: DocumentsPage,
 })
 
