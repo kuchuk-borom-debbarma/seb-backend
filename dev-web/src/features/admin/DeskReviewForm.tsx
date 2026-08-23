@@ -215,7 +215,7 @@ export function DeskReviewForm({
                     <span className="field-hint">{check.asks}</span>
                   </td>
                   <td>
-                    <div className="choice-row">
+                    <div className="choice-row" data-compact>
                       {RESULTS.map((result) => (
                         <label className="choice" key={result.value}>
                           <input

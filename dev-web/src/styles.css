@@ -592,6 +592,14 @@ th.numeric {
   gap: var(--space-2);
   font-size: 0.875rem;
   cursor: pointer;
+  white-space: nowrap;
+}
+
+/* A row of answers inside a table column, where wrapping would put one option
+   on a line of its own and make nine identical rows read differently. */
+.choice-row[data-compact] {
+  flex-wrap: nowrap;
+  gap: var(--space-3);
 }
 
 .choice-field:disabled .choice {
