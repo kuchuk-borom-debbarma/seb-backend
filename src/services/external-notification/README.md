@@ -4,6 +4,15 @@ This service is the boundary between business workflows and outbound delivery.
 Its current implementation is deliberately small: callers import and invoke the
 exported `sendEmail` function directly.
 
+## What it assumes
+
+- **Delivery is best-effort and never blocks a workflow.** A signup whose
+  notification fails still records the challenge; the applicant is told to try
+  again rather than being left with an account in an unknown state.
+- **The caller has already decided the message is safe to send.** This service
+  does not redact. Whatever is handed to it is logged verbatim by the console
+  transport, which is exactly why that transport must never be deployed.
+
 ## Contract
 
 ```ts
@@ -57,9 +66,9 @@ When replacing the console function:
 3. Avoid logging message text, OTPs, full recipient addresses, provider tokens,
    or authorization headers.
 4. Use an idempotency key or delivery identifier before enabling retries.
-5. Define whether “accepted by queue/provider” counts as success; asynchronous
-   terminal failures require a callback/consumer that can invalidate the
-   associated challenge.
+5. Define whether “accepted by queue/provider” counts as success;
+   asynchronous terminal failures require a callback or consumer that can
+   invalidate the associated challenge.
 6. Add request and notification rate limits before public signup is enabled.
 7. Add transport tests for success, rejection, retry, and redacted logging.
 
@@ -71,3 +80,14 @@ or unrelated applicant/application data in the message.
 
 Do not publicly deploy while `sendEmail` writes OTP-bearing messages to the
 console. Replace it with a production transport and add rate limiting first.
+
+## Exports
+
+| Symbol | File | Does |
+| --- | --- | --- |
+| `sendEmail` | `controllers/external-notification.ts` | The entire service. One function, so the seam is obvious |
+
+## Elsewhere
+
+- [Layering rule](../README.md) — why this service has no `queries/`
+- [Auth service](../auth/README.md) — the only current caller

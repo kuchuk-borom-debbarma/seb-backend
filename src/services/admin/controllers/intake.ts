@@ -1,3 +1,11 @@
+/**
+ * Authorization and input validation for intake, assignment, and desk review.
+ *
+ * Claiming is the concurrency lock the rest of the workflow depends on: nothing
+ * on an application can be actioned by anyone but its holder. The refusals
+ * decided here explain which rule stopped somebody; the predicates in
+ * `queries/intake.ts` are what decide concurrent attempts.
+ */
 import { deskReviewChecks } from '../../../db/schema'
 import { createDownloadAuthorization } from '../../application/uploads'
 import { adminPageSize, decodeAdminCursor } from '../pagination'

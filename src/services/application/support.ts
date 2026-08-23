@@ -1,3 +1,14 @@
+/**
+ * Shared policy-layer helpers for the applicant controllers.
+ *
+ * Mirrors the administrative and authentication equivalents so the three
+ * services cannot drift apart on response envelopes or audit content.
+ *
+ * Also holds the D1 boundary conversions that are easy to get wrong once and
+ * then repeat: `undefined` is not SQL `NULL`, a batch result shape has to be
+ * normalized before it can be read as "exactly one row changed", and an
+ * expected uniqueness race is a business refusal rather than a fault.
+ */
 import { auditActions, type coreAuditEvent } from '../../db/schema'
 import { authenticatedApplicant } from '../auth'
 import type { ApplicationOperationContext, SebResult } from './types'

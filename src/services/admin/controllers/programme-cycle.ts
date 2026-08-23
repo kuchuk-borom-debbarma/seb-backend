@@ -1,3 +1,11 @@
+/**
+ * Authorization and policy validation for the programme-cycle lifecycle.
+ *
+ * A cycle is the policy an application is judged by, and opening one freezes
+ * its rules into every application started while it is open. Validation is
+ * therefore strictest before opening; afterwards only the guidance text and the
+ * closing time may change, each with a retained reason.
+ */
 import { programmeReasonContexts, documentTypes } from '../../../db/schema'
 import { decodeAdminCursor, adminPageSize } from '../pagination'
 import {

@@ -1,3 +1,14 @@
+/**
+ * Guarded persistence for programme cycles and their pinned policy versions.
+ *
+ * A policy snapshot is inserted only after the guarded head reached the version
+ * it belongs to, and the dependent document, assessment, and reason rows stay
+ * in the same D1 batch — if the head update loses a race their version foreign
+ * key fails and the whole batch rolls back.
+ *
+ * Normalized rows are written one prepared statement at a time because D1 has a
+ * low bind-variable ceiling that a single large multi-row INSERT can exceed.
+ */
 import { and, asc, count, desc, eq, gt, isNull, lt, or, sql } from 'drizzle-orm'
 import {
   coreAuditEvent,

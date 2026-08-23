@@ -1,109 +1,201 @@
 # Applicant application service
 
-This service implements the applicant-owned part of Mission SEP. It is split
-into direct exported controller functions and Drizzle query functions; there is
-no service class or dependency-injection interface.
+Everything an applicant owns: their enterprises, their draft applications, the
+evidence attached to them, submission, and their own view of the award that
+follows. The administrative service owns every write behind that award; this
+service adds one thing to reading it — proof that the caller owns the
+application before any funding fact leaves the server.
 
-## Responsibilities
+The plain-language applicant journey is the
+[application guide](../../../docs/application-guide.md). This document is how
+the code implements it.
 
-- `controllers/enterprise.ts` owns enterprise create, edit, soft-delete, and
-  restore use cases.
-- `controllers/application.ts` owns cycle discovery, initial and expansion
-  starts, full-snapshot draft saves, validation, submission, resubmission, the
-  applicant timeline, the status guide, and the pre-resubmission change review.
-- `controllers/funding.ts` owns the applicant's read of the award, payments, and
-  assessments an administrator recorded. It writes nothing.
-- `controllers/document.ts` owns private R2 upload intents, finalization,
-  download authorization, logical deletion, restoration, and cleanup.
-- `queries/*` contain Drizzle persistence. Race-sensitive transitions use
-  guarded writes inside bounded D1 batches.
-- `validation.ts` normalizes drafts and applies submission rules.
-- `ownership.ts` holds the one definition of “the caller owns this application”,
-  including the version preconditions every draft write shares.
-- `ledger.ts` folds an award's append-only disbursements into retained money.
-  Shared by the applicant funding view and expansion eligibility so they can
-  never disagree about the same award.
-- `sections.ts` maps form sections to snapshot fields. Shared with the
-  administrative workspace so staff and applicant see the same changed sections.
-- `status-guide.ts` explains every application status in plain language.
-- `uploads.ts` signs R2 requests and verifies finalized object metadata and
-  magic bytes.
+## What it assumes
 
-Resolvers in `src/graphql/resolvers/seb` only map GraphQL arguments to these
-functions. Every operation receives a request-scoped context containing D1,
-R2, request headers/URL, and response headers.
+- **Ownership is resolved before anything else is read.** An opaque identifier
+  belonging to somebody else must be indistinguishable from one that never
+  existed, so every read that reaches past the application row starts at
+  `ownership.ts`.
+- **A cycle's rules are pinned, not looked up.** A snapshot records the exact
+  policy version it was started under, so a later correction to that cycle
+  cannot silently change old eligibility.
+- **Prior-award facts are derived, never supplied.** Expansion eligibility comes
+  from the authoritative award and ledger; what an applicant typed about a
+  previous award is never trusted.
+- **A verified applicant always holds the `APPLICANT` role.** The signup write
+  rolls back entirely if the role insert fails, so an account without it cannot
+  exist.
+- **`undefined` and SQL `NULL` are different things** to D1. `sqlNullable` is
+  the single conversion point.
 
-## Important invariants
+## Layout
 
-- Every operation requires an authenticated, non-deleted `APPLICANT`.
-- IDs are always checked through an ownership-scoped query.
-- Draft saves replace the complete snapshot. Omitted nullable keys are invalid;
-  explicit `null` clears a value.
-- Enterprise and application versions are immutable. A no-op save reuses the
-  current version.
-- Optimistic `current_version` and `status_version` predicates make concurrent
-  mutations first-writer-wins.
-- Multi-row state changes use D1 batches and make dependent statements
-  conditional on the guarded root write.
-- Applicants can change only `DRAFT` data, or sections named by unresolved
-  revision requests while status is `REVISION_REQUIRED`. `editableSections` is
-  derived from that same rule, so it can never advertise an edit the write path
-  would refuse.
-- Draft creation and validation use the immutable cycle version pinned at
-  start; later cycle guidance cannot rewrite older eligibility rules.
-- Formal submissions pin the exact form and logical-document file versions.
-  Replacing a current file cannot alter evidence already sent to staff.
-- Resubmission clears the former assignment and returns to intake.
-- Expansion applies target-cycle assessment rules to every retained release’s
-  utilization and to award-level performance and financial audit.
-- Audit metadata contains only public IDs and allow-listed lifecycle values. It
-  never contains form data, filenames, R2 keys, URLs, or checksums.
-- The funding view returns an explicit allow-list of fields. TTM approval
-  references, bank-account verification, performance agreements, physical
-  verification, evidence references, internal notes, recovery cases, and award
-  version history are never exposed to an applicant.
+| Path | Owns |
+| --- | --- |
+| `controllers/enterprise.ts` | Enterprise create, edit, soft-delete, restore |
+| `controllers/application.ts` | Cycle discovery, starts, drafts, validation, submission |
+| `controllers/document.ts` | Upload authorization, finalization, download, cleanup |
+| `controllers/funding.ts` | The applicant's read of their own award |
+| `queries/*` | Drizzle reads and every guarded write |
+| `validation.ts` | Pure form normalization and policy rules — no D1, no R2 |
+| `uploads.ts` | R2 signing and object verification |
+| `ownership.ts` | The ownership preamble every read starts from |
+| `ledger.ts` | The release/reversal fold |
+| `sections.ts` | Which form sections differ between two snapshots |
+| `status-guide.ts` | Plain-language explanation of every status |
+| `pagination.ts` | Cursors, page size, and `MAX_COLLECTION_ROWS` |
+| `support.ts`, `types.ts` | Envelope, audit builder, shared shapes |
 
-## R2 configuration
+## Flows
 
-The private `STORAGE` bucket binding is used for object inspection and cleanup.
-Presigned browser URLs additionally require `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`,
-`R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY`. Use bucket-scoped credentials
-that can access only the application-document bucket.
+### Saving a draft
 
-Bucket CORS must allow the frontend origins, `PUT` and `GET`, and the signed
-headers `Content-Type`, `Content-Disposition`, `If-None-Match`, and
-`x-amz-checksum-sha256`. Do not make the bucket public. Download URLs last five
-minutes and force attachment disposition.
+| | |
+| --- | --- |
+| **Entry** | `seb.application.saveDraft` |
+| **Guard** | applicant, and owns this application |
+| **Refuses** | a stale `expectedVersion` or `expectedStatusVersion`; a status that is neither `DRAFT` nor `REVISION_REQUIRED`; in `REVISION_REQUIRED`, any section that was not asked for; expansion evidence that has since changed |
+| **Writes** | a new immutable form version plus the audit row, one batch |
+| **Guarded by** | both versions, the status, the revision scope, and the pinned expansion evidence |
+| **Fails** | `The record changed. Reload and try again.` |
 
-Uploads are limited to PDF, JPEG, or PNG and 10 MB. Finalization appends a
-`PENDING` scan result for the immutable file. The signed PUT binds content
-length, MIME, SHA-256, and `If-None-Match: *`; finalization independently verifies
-size, MIME, checksum, and file signature. Browsers generate `Content-Length`
-from the request body, so the frontend must upload a Blob of the declared size
-instead of attempting to set that forbidden header manually. A fail-closed
-administrator download guard exists, but a production scanner is not connected;
-staff access must remain disabled for public deployment until it is connected.
+`editableSections` is derived from the same rule the write enforces, so the API
+can never advertise an edit the write path would refuse.
 
-Expired/invalid intents are first changed to `CLEANUP_PENDING`. That state
-prevents finalization while allowing cron to retry an R2 deletion that failed.
-The row also retains whether cleanup must end in `EXPIRED` or `REJECTED`, so a
-retry cannot erase why the upload was discarded.
-A deletion failure leaves only that intent pending; cleanup continues through
-the rest of the bounded batch and retries the failed intent on a later run.
+### Submitting
 
-## Deliberate exclusions
+| | |
+| --- | --- |
+| **Entry** | `seb.application.submit`, `seb.application.resubmit` |
+| **Guard** | applicant, and owns this application |
+| **Refuses** | any validation issue against the cycle's pinned rules; a missing required document |
+| **Writes** | status, the frozen submission, the exact document versions pinned to it, the timeline event, and — on a first submission — the reference number |
+| **Guarded by** | both versions, the status, and the required-document set recomputed at write time |
+| **Fails** | the first validation issue, or `The record changed.` |
 
-Programme-cycle administration, reviewer revisions, bank/TTM decisions,
-awards, disbursements, assessments, and recovery now live in the administrator
-service, and role administration in the authentication service. Notifications,
-idempotency storage, rate limiting, production malware scanning, and
-administrator account recovery remain excluded.
+**The validator and the write must ask the same function** which documents are
+required. When they derived it separately, a cycle asking for fewer documents
+validated as complete and was then refused with a message about the application
+having changed — which it had not. One definition:
+`requiredDocumentTypes` in `validation.ts`.
 
-See the [combined application guide](../../../docs/application-guide.md) for the
-business journey, examples, entity glossary, field rules, and GraphQL usage.
-The [administrator workflow guide](../../../docs/admin-workflow-guide.md)
-explains what follows submission, while the
-[policy crosswalk](../../../docs/policy-alignment.md) records source differences.
-The focused [integrity guide](../../../docs/application-integrity.md) documents
-the guarded-write, restoration, expansion-evidence, signed-upload, and cleanup
-guarantees that must remain true during concurrent requests and R2 failures.
+Resubmission clears the assignment, because a resubmission is fresh intake work.
+
+### Restoring a deleted draft
+
+Deleting a draft releases its place in the phase chain, so restoring it is a new
+eligibility decision rather than clearing `deleted_at`. The guarded restore
+requires all of this to still be true:
+
+- the enterprise belongs to the applicant and is not deleted;
+- its funding case exists, is open, and is not deleted;
+- no other non-rejected, non-deleted application occupies the same phase;
+- for an expansion, the qualifying-award link can be reclaimed atomically;
+- the award is active, in the same case, and from the immediately preceding
+  phase; and
+- the award still has the exact positive net disbursement and first
+  retained release the controller evaluated.
+
+So an old phase-1 draft cannot be restored once a replacement has started, and
+an expansion cannot be restored on eligibility a reversal has invalidated.
+
+### Expansion eligibility
+
+Derived from authoritative records only:
+
+```text
+net disbursed = total RELEASE amounts - total REVERSAL amounts
+```
+
+The anniversary starts at the **earliest release that still retains a positive
+amount after its reversals**. Eligibility begins when that release's UTC
+calendar anniversary plus the target cycle's pinned waiting period has
+passed — calendar arithmetic, not a fixed number of milliseconds.
+
+The guard pins both the net amount *and* that exact release timestamp. Both
+matter: a concurrent release and reversal could leave the same total while
+changing which release establishes the anniversary.
+
+Every unmet assessment rule is reported separately rather than collapsed, and
+award status is classified rather than filtered in SQL — "never sanctioned",
+"award suspended" and "nothing actually paid out" are three different things
+for an applicant to act on.
+
+## Documents and R2
+
+This service is the single owner of the upload rules.
+
+Uploads never pass through the Worker. It signs a URL and the browser PUTs
+directly to R2.
+
+| | |
+| --- | --- |
+| Types | PDF, JPEG, PNG |
+| Maximum | 10 MB |
+| Upload URL | valid 10 minutes |
+| Download URL | valid 5 minutes, always forced to attachment |
+
+The signature binds `Content-Type`, `Content-Disposition`, **`Content-Length`**,
+`If-None-Match: *` and `x-amz-checksum-sha256`, and is signed with
+`allHeaders: true` because these are security constraints rather than hints.
+Binding the length makes R2 reject a payload differing from the applicant's
+declaration — browsers generate that header from the body, so a caller must
+send a body of exactly that size rather than trying to set the header.
+
+Finalization verifies size, MIME type, checksum and magic bytes against the
+stored object. **It never makes a file staff-readable**: it queues the immutable
+object for the scanner, and administrative download fails closed until an
+`ACCEPTED` result is appended.
+
+An upload intent moves `ISSUED → FINALIZED | REJECTED | CLEANUP_PENDING →
+EXPIRED`. A failed R2 delete leaves the row `CLEANUP_PENDING` rather than
+starving the batch, so cleanup can span cron runs. Object keys are never
+logged — a storage identifier is sensitive.
+
+Configuration lives in [`.env.example`](../../../.env.example); without it the
+evidence screen refuses with `R2 signing configuration is required.` There is no
+local substitute, because the signed URL addresses Cloudflare and a Miniflare
+bucket is never contacted.
+
+## Bounds
+
+Pages default to 20 and cap at 100. Cursors carry the column they were ordered
+by, so one reused under a different ordering is refused rather than seeking the
+wrong column.
+
+`MAX_COLLECTION_ROWS = 500` caps child collections that have no cursor —
+timeline events, notes, assignment history. They are bounded by real work rather
+than by anything a caller sends, but "bounded by real work" is not bounded, and
+a file worked on for years should not make one request read ten thousand rows.
+
+## Exports
+
+| Symbol | File | Does |
+| --- | --- | --- |
+| `myEnterprises`, `enterpriseById`, `createEnterprise`, `updateEnterprise`, `softDeleteEnterprise`, `restoreEnterprise` | `controllers/enterprise.ts` | The enterprise lifecycle; deletion names its blockers individually so the applicant can act |
+| `availableProgrammeCycles` | `controllers/application.ts` | The only list a "start application" action may be offered from |
+| `myProgrammeCycles` | `controllers/application.ts` | Read-only history, including closed cycles |
+| `myApplications`, `applicationById`, `applicationTimeline` | `controllers/application.ts` | Reads |
+| `startInitialApplication`, `startExpansionApplication` | `controllers/application.ts` | Starts |
+| `saveApplicationDraft`, `validateApplication`, `softDeleteApplicationDraft`, `restoreApplicationDraft` | `controllers/application.ts` | The draft |
+| `submitApplication`, `resubmitApplication` | `controllers/application.ts` | Submission |
+| `expansionEligibility` | `controllers/application.ts` | Every unmet rule, reported separately |
+| `applicationStatusExplanations`, `applicationDraftChanges` | `controllers/application.ts` | Guidance and what this draft changes |
+| `issueDocumentUpload`, `finalizeDocumentUpload`, `documentDownloadUrl`, `softDeleteApplicationDocument`, `restoreApplicationDocument` | `controllers/document.ts` | Evidence |
+| `cleanupExpiredDocumentUploads` | `controllers/document.ts` | Hourly cron; at most 50 objects per run |
+| `applicationFunding` | `controllers/funding.ts` | Ownership proof plus one query |
+| `requiredDocumentTypes`, `validateSubmissionSnapshot`, `normalizeDraftInput` | `validation.ts` | The rules, with no I/O |
+| `foldDisbursementLedger` | `ledger.ts` | Pairs reversals to releases; one definition so no two views disagree |
+| `changedSections` | `sections.ts` | Which sections differ between snapshots |
+| `ownedApplication`, `ownedApplicationAtVersion` | `ownership.ts` | The ownership preamble |
+| `pageSize`, `encodeCursor`, `decodeCursor`, `MAX_COLLECTION_ROWS` | `pagination.ts` | Paging |
+| `createUploadAuthorization`, `createDownloadAuthorization`, `verifyUploadedObject` | `uploads.ts` | R2 |
+
+## Elsewhere
+
+- [Application guide](../../../docs/application-guide.md) — the journey in the
+  applicant's own terms
+- [Layering rule](../README.md) — why controllers and queries both check
+- [Schema](../../db/schema/README.md) — tables, versions, constraints
+- [Policy crosswalk](../../../docs/policy-alignment.md) — which rules came
+  from the programme itself

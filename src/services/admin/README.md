@@ -1,146 +1,199 @@
 # Administrative service
 
-This service implements programme-cycle governance, intake, desk review,
-offline bank evidence, TTM decisions, awards, releases, assessments, and
-operational recovery. The plain-language staff journey lives in the
-[administrator workflow guide](../../../docs/admin-workflow-guide.md).
+Everything that happens to an application after it is submitted: programme-cycle
+governance, the intake queues, desk review, offline bank evidence, committee
+decisions, awards and payments, and operational recovery.
 
-## Organization
+The plain-language staff journey — what the rules *are*, and why — is the
+[administrator workflow guide](../../../docs/admin-workflow-guide.md). This
+document is how the code implements it.
 
-- `controllers/programme-cycle.ts` validates policy input and cycle lifecycle.
-- `controllers/intake.ts` owns queues, assignment, notes, scans, and desk review.
-- `controllers/decision.ts` owns bank referrals/outcomes and TTM meetings,
-  agendas, decisions, and append-only corrections.
-- `controllers/funding.ts` owns awards, release/reversal evidence, assessments,
-  and recovery.
-- `queries/*` contains Drizzle reads and guarded writes.
-- `document-scanner.ts` is the internal append-only scanner callback contract;
-  it has no HTTP or GraphQL exposure.
+## What it assumes
 
-GraphQL SDL remains in `.graphql` files and resolvers only delegate arguments.
-There are no service classes or interfaces.
+- **An application reaching this service has been formally submitted.** Drafts
+  never appear in a queue, and a non-draft application always has at least one
+  submission. That is a database invariant, so the workspace read asserts it
+  rather than handling its absence.
+- **A submitted application always has a reference number**, because submission
+  is what mints one. Code that needs it asserts rather than defaulting — a
+  quiet fallback would hide a broken invariant behind a plausible message.
+- **An application's funding case is fixed when it is created and never moves.**
+  This is what lets `seb_desk_review_identifier` carry a copy of the case ID and
+  answer the duplicate question with one indexed seek.
+- **Roles are joined live on every request.** A revoked role stops the next
+  operation even though the browser session is still valid, so nothing here
+  re-checks a role it was handed.
+- **Evidence is frozen, never current.** A review reads the exact submission and
+  the exact file versions pinned to it, so replacing a document tomorrow cannot
+  change what was reviewed yesterday.
 
-## Authorization and operation context
+## Layout
 
-Every public controller calls the live administrator guard. It validates the
-current D1 session and reloads active roles on every request; `ADMIN` or
-`SUPER_ADMIN` succeeds. Revoking a role therefore stops the next operation even
-when the browser session remains active.
+| Path | Owns |
+| --- | --- |
+| `controllers/programme-cycle.ts` | Policy input and cycle lifecycle |
+| `controllers/intake.ts` | Queues, assignment, notes, desk review |
+| `controllers/decision.ts` | Bank referrals and outcomes; meetings, agendas, decisions |
+| `controllers/funding.ts` | Awards, releases, reversals, assessments, recovery |
+| `queries/*` | Drizzle reads and every guarded write |
+| `identifiers.ts` | Normalizing and hashing what a reviewer transcribes |
+| `document-scanner.ts` | The internal scanner callback — no HTTP or GraphQL exposure |
+| `support.ts` | Response envelope, audit builder, the reasoned-transition preamble |
+| `types.ts`, `pagination.ts` | Shared shapes; `pagination.ts` re-exports the applicant's |
 
-The request-scoped context supplies Drizzle D1, bindings, request headers/URL,
-and response headers. It is passed into each operation; no mutable request state
-is stored in a singleton.
+`index.ts` also re-exports `queries/funding` publicly — the one place a query
+module crosses a service boundary, because the applicant's funding view reads
+these records. See [the layering rule](../README.md).
 
-## Concurrency and bounded transitions
+## Flows
 
-Mutable heads expose `current_version`, `status_version`, `assignment_version`,
-or `ledger_version`. A mutation receives the version the staff member viewed.
-Its first guarded statement verifies role-sensitive ownership, lifecycle, and
-that version. Dependent evidence inserts use the winning state as a predicate.
-D1 batches remain bounded: meetings permit at most 20 active agenda items and
-scheduled cycle closing processes at most 20 cycles per run.
+### Claiming an application
 
-This design makes claims, workflow transitions, releases, reversals, and ledger
-entries first-writer-wins. A stale request returns a safe failure with no partial
-history. Accounting limits and recovery closure are recalculated inside the
-write predicate, not trusted from an earlier application read.
+| | |
+| --- | --- |
+| **Entry** | `admin.intake.claim` |
+| **Guard** | any administrator |
+| **Refuses** | a stale `expectedAssignmentVersion`; taking a colleague's file without `conflictAcknowledged` when the assignee would be the applicant |
+| **Writes** | the head's assignee plus an append-only assignment event, in one batch |
+| **Guarded by** | `assignment_version` alone, so claiming cannot invalidate a colleague's in-flight review |
+| **Fails** | `The record changed. Reload and try again.` |
 
-Award closure requires an explicit disposition: either releases are complete
-or the programme will not release the remaining sanction. An empty recovery
-case opened by mistake may be cancelled with a retained reason; once it has a
-ledger entry, corrections use reversals and closure requires a derived zero
-balance.
+Claiming is not a soft bookmark. It is the concurrency lock for every workflow
+action: nothing on an application can be actioned by anyone but its holder.
 
-## Pagination and queues
+### Completing a desk review
 
-Intake and cycle lists use opaque timestamp-plus-ID cursors, default to 20, and
-cap at 100. Intake reads the latest formal submission and its frozen snapshot;
-drafts are excluded. Supported orderings are oldest waiting, newest submission,
-and last activity. The cursor column changes with the selected ordering, so a
-client must not reuse a cursor with different filters/order.
+| | |
+| --- | --- |
+| **Entry** | `admin.intake.completeDeskReview` |
+| **Guard** | administrator **and** holds the assignment |
+| **Refuses** | a missing or duplicated check; an expansion check that disagrees with the application type; a passed check with no transcribed number; an identifier already recorded on another funding case and not explained; for `ADVANCE_TO_BANK`, any submitted document whose latest scan is not `ACCEPTED` |
+| **Writes** | status, the immutable review, its nine checks, the transcribed identifiers, any revision requests, the applicant-visible event, and the audit row — one batch |
+| **Guarded by** | `status_version`, the current status, and the assignee |
+| **Fails** | the specific refusal, or `The record changed.` |
 
-Beyond ad-hoc filters, the queue accepts a named `queue` key and
-`admin.intake.queues` returns the count waiting in each one, as a single grouped
-aggregate rather than one query per queue. Most keys map to a status, but new
-submissions and revision responses are both `SUBMITTED` and are separated by
-submission number, which is why the keys are their own vocabulary rather than a
-reuse of `ApplicationStatus`. `queue` and `status` are mutually exclusive:
-supplying both is refused rather than intersected into a silently empty page.
+The nine checks and the outcome are one write, not a wizard, so a review cannot
+be left half-recorded.
 
-## Frozen documents and scans
+### Transcribed identifiers
 
-Each submission pins logical document ID plus immutable file version. Staff
-download uses that pin, never the current document head. The latest appended
-scan for the file must be `ACCEPTED`; missing, pending, rejected, and errored
-states fail closed. Only the future trusted scanner may call
-`recordDocumentScanResult`. Never add a public scan-acceptance mutation.
+A result alone is an attestation with nothing behind it: "I saw a valid
+certificate" cannot afterwards be asked *which* certificate. So a passed check
+also records the number on the document behind it.
 
-## Transcribed identifiers and duplicate detection
+`identifiers.ts` does three things:
 
-A passed desk-review check also records the number on the document it was read
-from (`identifiers.ts`). Without it a review is an attestation with nothing
-behind it — it cannot be asked *which* certificate was seen, and so cannot be
-asked whether the same one has been seen before.
+- **Normalizes** — uppercase, strip everything but letters and digits. An ST
+  certificate written `tr/st/2019-004471` and `TR-ST-2019-004471` is one
+  certificate, and a check that missed that would report a clean file and be
+  believed.
+- **Folds a bank destination** — account number and branch code identify a
+  destination only together, so they compare as one value.
+- **Hashes what must not be readable** — identity and bank numbers become a
+  keyed HMAC-SHA-256 digest; only the last four digits are kept, so a reviewer
+  can confirm by eye. Keyed rather than plain because twelve digits is 10¹²,
+  an afternoon's work: a plain digest column would be a lookup table, not a
+  protection.
 
-- `ST_ELIGIBILITY`, `IDENTITY_KYC` and `DOCUMENT_COMPLETENESS` each require
-  their number when the check is passed. A failed or not-applicable check
-  requires nothing. `BUSINESS_REGISTRATION` is accepted but never demanded,
-  because an unregistered enterprise has none.
-- Values compare with case and separators stripped, so one certificate written
-  two ways is one certificate.
-- `IDENTITY_DOCUMENT` and `BANK_ACCOUNT` are stored as an HMAC digest, never in
-  the clear, with the last four digits kept so a reviewer can confirm by eye.
-- A value found on a different **funding case** refuses the write and names both
-  the identifier and the application it was found on. The reviewer either fails
-  the check or states why it is not the same claim; that answer is retained.
+A match against a **different funding case** refuses the write and names both
+the identifier and the application it was found on — a reviewer cannot judge a
+match without being able to go and look, and staff already see every
+application in the queue. The rule that a match is a question rather than a
+verdict, and the four identifiers themselves, belong to the workflow guide's
+[transcription section][transcribes].
 
 ### Configuration
 
-- `IDENTIFIER_SECRET` is **required** and must contain at least 32 bytes. It
-  keys the digest of identity and bank numbers, and is deliberately not
-  `AUTH_SECRET`: rotating session signing must never silently stop the duplicate
-  check from matching what is already recorded.
-- It is effectively **set once**. Every stored digest was made with it, so a new
-  value stops matching everything recorded under the old one — and the check
-  would then pass everything, quietly. Changing it means re-transcribing every
-  document.
-- It is read at first use rather than at startup, so a deployment missing it
-  looks healthy until the first desk review is completed, which then fails.
-  Provision it with the rest of the secrets, not afterwards.
+`IDENTIFIER_SECRET` is required and must be at least 32 bytes.
 
-## Safe audit construction
+It is deliberately **not** `AUTH_SECRET`: rotating session signing must never
+silently stop the duplicate check matching what is already recorded. And it is
+effectively **set once** — every stored digest was made with it, so a new
+value stops matching everything recorded under the old one, and the check
+would then pass everything, quietly.
 
-Audit events contain public record IDs, fixed actions/outcomes, request ID,
-network metadata, and small allow-listed lifecycle values. Never put form
-answers, applicant-safe messages, internal notes, correspondence, filenames,
-URLs, R2 keys, checksums, money, passwords, cookies, tokens, or hashes into
-audit JSON. Applicant-visible messages belong only in the appropriate workflow
-event or business record.
+It is read at first use rather than at startup, so a deployment missing it looks
+healthy until the first desk review is completed, which then fails. Provision it
+with the rest of the secrets, not afterwards.
+
+### Money
+
+Releases and reversals are an append-only ledger. Amounts are always positive;
+direction comes from the entry type, and a correction is a compensating entry
+that names the one it corrects. Sanction limits, over-reversal, and zero-balance
+closure are recomputed **inside the write predicate**, never trusted from an
+earlier read.
+
+Award closure states its disposition explicitly: either the releases were
+complete, or the programme decided not to release the remainder. A recovery case
+opened in error can be cancelled while its ledger is empty; after the first
+entry it must be corrected with reversals and closed at a derived zero balance.
+
+The disbursement ledger and recovery entries are read **uncapped**, unlike every
+other child collection. The totals are folded from exactly those rows, so a cap
+would report a wrong figure rather than a short list.
+
+## Queues and lists
+
+Cursors are opaque `[sortKey, timestamp, id]`, default 20, cap 100. The cursor
+records which column it was ordered by, so one presented under a different
+ordering is refused rather than silently seeking the wrong column.
+
+Nine named queues; `NEW_SUBMISSIONS` and `REVISION_RESPONSES` both hold
+`SUBMITTED` and are separated by submission number. `queue` and `status` are
+mutually exclusive and supplying both is refused rather than intersected into an
+empty page. Every queue is reported including empty ones, so the counts stay
+stable. Search is an indexed prefix — see
+[the schema README](../../db/schema/README.md#searching).
+
+Every list also returns `totalCount`, computed with the same predicates as the
+page, so a client can say "1–20 of 143" and tell "no results" apart from "no
+data yet".
+
+## Documents
+
+Staff download **fails closed**: the latest scan for that exact submitted file
+must be `ACCEPTED`, and the staff member must hold the assignment. There is no
+GraphQL mutation to accept a scan and there must never be one —
+`recordDocumentScanResult` is an internal function for a future trusted scanner.
+The scanner provider is not connected, so staff document access remains a
+public-launch blocker.
+
+## Exports
+
+| Symbol | File | Does |
+| --- | --- | --- |
+| `intakeQueue`, `intakeQueues`, `intakeByReference`, `intakeWorkspace` | `controllers/intake.ts` | The queue page, the chip counts, exact reference lookup, the whole case file |
+| `claimApplication`, `releaseApplication`, `reassignApplication` | `controllers/intake.ts` | Assignment, each with a catalogued reason |
+| `addInternalNote` | `controllers/intake.ts` | Append-only staff note; a correction points at what it replaces |
+| `startDeskReview`, `completeDeskReview`, `cancelRevisionRequest` | `controllers/intake.ts` | The review itself |
+| `adminDocumentDownloadUrl` | `controllers/intake.ts` | Fail-closed signed download of a pinned file |
+| `referApplicationToBank`, `recordBankOutcome`, `cancelBankReferral`, `correctBankOutcome` | `controllers/decision.ts` | The offline partner-bank stage |
+| `ttmMeetings`, `ttmMeetingById`, `createTtmMeeting`, `updateTtmMeeting`, `cancelTtmMeeting`, `startTtmMeeting`, `finalizeTtmMeeting` | `controllers/decision.ts` | Meeting lifecycle |
+| `addTtmAgendaItem`, `reorderTtmAgendaItem`, `removeTtmAgendaItem` | `controllers/decision.ts` | Agenda, each change reasoned and retained |
+| `recordTtmDecision`, `correctTtmDecision` | `controllers/decision.ts` | The committee's verdict; a correction supersedes |
+| `fundingByApplication`, `createFundingAward`, `changeFundingAward` | `controllers/funding.ts` | The award |
+| `recordFundingRelease`, `reverseFundingRelease` | `controllers/funding.ts` | The money ledger |
+| `recordFundingAssessment` | `controllers/funding.ts` | Utilization, performance, financial audit |
+| `recoveryById`, `openRecoveryCase`, `recordRecoveryEntry`, `closeRecoveryCase`, `cancelRecoveryCase` | `controllers/funding.ts` | Recovery |
+| `createProgrammeCycle`, `openProgrammeCycle`, `closeProgrammeCycle`, `archiveProgrammeCycle` and the rest | `controllers/programme-cycle.ts` | Cycle lifecycle |
+| `closeExpiredProgrammeCycles` | `controllers/programme-cycle.ts` | Hourly cron; at most 20 cycles per run |
+| `recordDocumentScanResult` | `document-scanner.ts` | Appends a scan outcome. Not exposed |
+| `identifierMatches` | `queries/intake.ts` | Which transcribed values exist on another case |
+| `calculateRecoveryBalance` | `queries/funding.ts` | The pure accounting fold |
+| `currentAdministrator`, `authorizeReasonedTransition`, `adminAudit`, `constraintSafe` | `support.ts` | The shared preamble every transition uses |
 
 ## Tests
 
-Run:
+`test/admin.test.ts` covers the workflow end to end; `test/schema.test.ts`
+covers the constraints. Both run under `npm run check` at 100% coverage.
 
-```sh
-npm test -- test/admin.test.ts
-npm test -- test/schema.test.ts
-npm run test:coverage
-npm run db:schema:check
-```
+## Elsewhere
 
-Tests must assert business outcomes and persisted invariants: live role loss,
-cycle pinning, frozen documents, scan fail-closed access, assignment and status
-races, decision correction locks, release limits, utilization obligations,
-assessment scoping, and recovery accounting. New controller/query/resolver code
-belongs in the enforced Istanbul coverage set.
+- [Workflow guide](../../../docs/admin-workflow-guide.md) — the rules in staff
+  language
+- [Layering rule](../README.md) — why controllers and queries both check
+- [Schema](../../db/schema/README.md) — tables, versions, search indexes
+- [RBAC](../../../docs/admin-rbac.md) — roles and grants
 
-## Public-launch limitations
-
-The first administrator signs in with the shared email/password login, which
-accepts any active role. Further administrators are provisioned through the
-`access` namespace in the authentication service. Invitations and account
-recovery are not yet available. A production malware scanner, rate limits,
-approved privacy/access rules, and resolved TTAADC ceiling/jurisdiction
-decisions are also missing.
-Administrative operations must not be publicly launched until those roadmap
-blockers are complete.
+[transcribes]: ../../../docs/admin-workflow-guide.md#what-the-reviewer-transcribes

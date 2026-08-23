@@ -1,3 +1,15 @@
+/**
+ * Cryptographic primitives for authentication.
+ *
+ * Kept apart from the controllers so that policy decisions never sit next to
+ * key handling, and so the one digest label shared by session creation,
+ * request authentication and sign-out has a single definition — when those
+ * three derive it separately they silently stop recognising each other's
+ * sessions.
+ *
+ * Passwords use scrypt with its parameters encoded into the stored hash, so a
+ * future cost increase can be rolled out without invalidating existing hashes.
+ */
 import { scryptAsync } from '@noble/hashes/scrypt.js'
 
 const encoder = new TextEncoder()

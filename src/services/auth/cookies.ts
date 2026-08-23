@@ -1,3 +1,11 @@
+/**
+ * Reading and writing the session cookie.
+ *
+ * The cookie deliberately carries no `Max-Age` or `Expires`: it is a session
+ * cookie, and the authoritative lifetime is the row in D1. A browser that keeps
+ * it longer than the server does simply presents a token that no longer
+ * authenticates.
+ */
 import type { AuthOperationContext } from './types'
 
 const SESSION_COOKIE_NAME = 'seb_session'

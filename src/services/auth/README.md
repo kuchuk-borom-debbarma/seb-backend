@@ -6,6 +6,24 @@ serve applicants and administrators alike. Operations are GraphQL-only; the
 single exception is the direct curl route used once to promote the first super
 administrator.
 
+## What it assumes
+
+- **Sign-in accepts any active role.** It is not an applicant gate. The narrower
+  `authenticatedApplicant` check is what keeps applicant operations closed to an
+  administrator holding no applicant grant.
+- **Roles are joined live on every request**, never copied into the session, so
+  a grant or revocation takes effect on the very next one.
+- **A grant is never deleted, only closed.** Revocation sets `revoked_at`, and a
+  partial unique index allows one *active* grant per user and role while the
+  history persists. The first historical `SUPER_ADMIN` row therefore doubles as
+  the permanent bootstrap-completed marker, with no mutable flag.
+- **`APPLICANT` can never be granted back.** Only verified signup creates it,
+  which is why role administration cannot touch it — one revocation would
+  otherwise strip an applicant permanently, with no recovery path.
+- **Email is normalized by trim and lowercase; passwords never are.**
+- **A soft-deleted user still reserves their email**, so an address can never be
+  reclaimed by a new account.
+
 ## Authentication flow
 
 ### Signup
@@ -149,7 +167,7 @@ person's next administrative call is refused immediately, and a person who lost
 only one of several roles keeps their session. Losing the last role is handled
 by the deactivation paths above.
 
-See the [administrator RBAC guide](../../../docs/admin-rbac.md#role-administration)
+See the [administrator RBAC guide][rbac-roles]
 for the full rule set.
 
 ## GraphQL integration
@@ -246,6 +264,27 @@ npm test -- test/auth.test.ts
 See the [administrator RBAC guide](../../../docs/admin-rbac.md) for the fixed
 role hierarchy, retained grant lifecycle, and the role-administration rules.
 
+## Exports
+
+| Symbol | File | Does |
+| --- | --- | --- |
+| `authenticatedApplicant` | `controllers/auth.ts` | Requires an active `APPLICANT` grant |
+| `authenticatedAdministrator` | `controllers/auth.ts` | `ADMIN` or `SUPER_ADMIN` |
+| `authenticatedSuperAdministrator` | `controllers/auth.ts` | `SUPER_ADMIN` only; used solely by `controllers/access.ts` and not re-exported |
+| `startApplicantSignup`, `verifyApplicantSignup` | `controllers/auth.ts` | One challenge, then one verified applicant |
+| `signIn`, `signOut`, `currentSession`, `sessions` | `controllers/auth.ts` | Session lifecycle and the caller's own device list |
+| `revokeSession`, `revokeOtherSessions`, `revokeAllSessions` | `controllers/auth.ts` | Session revocation |
+| `bootstrapFirstSuperAdmin` | `controllers/auth.ts` | The one-time promotion, closed forever afterwards |
+| `cleanupExpiredAuthentication` | `controllers/auth.ts` | Hourly cron; never reachable from a request |
+| `managedUserByEmail`, `managedUserById` | `controllers/access.ts` | Exact-match lookup only |
+| `grantRole`, `revokeRole` | `controllers/access.ts` | Role administration with password step-up |
+| `hashPassword`, `verifyPassword`, `sessionTokenDigest`, `createOtp` | `crypto.ts` | The primitives; scrypt parameters are encoded into the hash |
+| `readSessionToken`, `setSessionCookie`, `clearSessionCookie` | `cookies.ts` | The cookie, which carries no `Max-Age` |
+| `usableSuperAdminExistsExcluding` | `queries/access.ts` | The last-super-administrator guard, in SQL |
+
+`auth.sessions` returns at most 100 sessions. It is a display list, not a
+security boundary — revocation is by ID.
+
 ## Known limitation
 
 Request, resend, and notification rate limiting are not implemented. CAPTCHA,
@@ -255,3 +294,5 @@ now available, but recovery is not. Do not publicly deploy applicant signup with
 the current console notification transport or without rate limiting. See the
 [bootstrap operator guide](../../../docs/first-super-admin-bootstrap.md) for the
 one-time curl procedure.
+
+[rbac-roles]: ../../../docs/admin-rbac.md#role-administration

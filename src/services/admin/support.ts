@@ -1,3 +1,14 @@
+/**
+ * Shared policy-layer helpers for the administrative controllers.
+ *
+ * Mirrors `services/application/support.ts` and `services/auth/support.ts` on
+ * purpose. Keeping one copy per service is what stops four controllers drifting
+ * to different failure envelopes or different rules about what may enter an
+ * audit row.
+ *
+ * Audit metadata stays deliberately smaller than the business record: a flat
+ * map of primitives, never the form itself.
+ */
 import { coreAuditEvent, type auditActions } from '../../db/schema'
 import { authenticatedAdministrator } from '../auth'
 import type { AdminOperationContext, AdminResult } from './types'

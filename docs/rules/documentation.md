@@ -66,7 +66,8 @@ necessary — a rule with a scar attached is followed; an abstract one is not.
 ## Conventions
 
 - **Hard wrap at 80 columns.** Matches every existing document and keeps diffs
-  readable.
+  readable. Three things cannot be wrapped and are exempt: table rows, fenced
+  code, and reference-link definitions.
 - **Tables** for anything enumerable — states, roles, operations, constraints.
   Prose lists of more than four items should be a table.
 - **Mermaid** for sequence and state. Rendered by GitHub; there is precedent in

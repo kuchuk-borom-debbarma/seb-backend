@@ -1,3 +1,14 @@
+/**
+ * Guarded persistence for queues, assignment, notes, and desk review.
+ *
+ * Every transition begins with an optimistic update and makes the append-only
+ * evidence depend on the resulting version, so a concurrent winner leaves no
+ * partial review, identifier, revision request, timeline entry, or audit row.
+ *
+ * The queue reads seek on a cursor that names its own sort column, because
+ * deriving that column separately on the encode and decode sides once let a
+ * cursor seek the wrong column and return a wrong page with no error.
+ */
 import {
   and,
   asc,
