@@ -29,7 +29,43 @@ input RevokeRoleInput {
   currentPassword: String!
 }
 
+# No password confirmation: inviting grants nothing on its own. The role only
+# lands when the invited person accepts, which is a second act by a second
+# party, so this is not the step-up moment that a direct grant is.
+input InviteRoleInput {
+  userId: ID!
+  role: ManageableRole!
+  reason: String!
+}
+
+# Deliberately carries no link. An issuer able to read it could forward it, and
+# the invitee's mailbox is what makes possession of the link mean anything.
+type RoleInvitation {
+  email: String!
+  role: ManageableRole!
+  expiresAt: DateTime!
+}
+
+type RoleInvitationResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: RoleInvitation
+}
+
+type AcceptedRoleInvitation { role: UserRole! }
+
+type AcceptedRoleInvitationResult implements BaseResponse {
+  success: Boolean!
+  message: String
+  response: AcceptedRoleInvitation
+}
+
 type AccessMutation {
   grantRole(input: GrantRoleInput!): ManagedUserResult!
   revokeRole(input: RevokeRoleInput!): ManagedUserResult!
+  # Sends an invitation the person accepts themselves.
+  inviteRole(input: InviteRoleInput!): RoleInvitationResult!
+  # Takes no session: possession of the sealed token is the credential. Every
+  # protection is in the service — see controllers/access.ts.
+  acceptRoleInvite(token: String!): AcceptedRoleInvitationResult!
 }

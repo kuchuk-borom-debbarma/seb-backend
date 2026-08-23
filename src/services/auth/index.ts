@@ -1,5 +1,7 @@
 export {
+  acceptRoleInvite,
   grantRole,
+  inviteRole,
   managedUserByEmail,
   managedUserById,
   revokeRole,

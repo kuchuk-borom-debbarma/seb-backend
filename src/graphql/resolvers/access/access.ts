@@ -1,5 +1,7 @@
 import {
+  acceptRoleInvite,
   grantRole,
+  inviteRole,
   managedUserByEmail,
   managedUserById,
   revokeRole,
@@ -45,5 +47,15 @@ export const accessResolvers = {
       args: { input: { grantId: string; reason: string; currentPassword: string } },
       context: GraphQLContext,
     ) => revokeRole(args.input, context),
+    inviteRole: (
+      _parent: unknown,
+      args: { input: { userId: string; role: ManageableRole; reason: string } },
+      context: GraphQLContext,
+    ) => inviteRole(args.input, context),
+    acceptRoleInvite: (
+      _parent: unknown,
+      args: { token: string },
+      context: GraphQLContext,
+    ) => acceptRoleInvite(args, context),
   },
 }

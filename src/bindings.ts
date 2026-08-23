@@ -19,6 +19,18 @@ export type AppBindings = CloudflareBindings & {
    * stop the duplicate check from matching anything already recorded.
    */
   IDENTIFIER_SECRET?: string
+  /**
+   * Seals role invitations. Separate again, and for a sharper reason: an
+   * invitation is a bearer credential that lives only in a link, so rotating
+   * this must invalidate outstanding invitations without touching sessions.
+   */
+  ROLE_INVITE_SECRET?: string
+  /**
+   * Where the client is, used to build the link an invitation travels in.
+   * Falls back to the Worker's own origin, which is right for local work and
+   * wrong the moment the client is deployed somewhere else.
+   */
+  PORTAL_BASE_URL?: string
   FRONTEND_ORIGINS?: string
   AUTH_COOKIE_SAME_SITE?: string
   APPLICANT_SIGNUP_TOKEN_ATTEMPT_COUNT?: string

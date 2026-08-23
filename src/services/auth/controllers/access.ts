@@ -11,9 +11,18 @@
  * concurrent attempts. The two are deliberately redundant.
  */
 import { z } from 'zod'
-import { auditActions } from '../../../db/schema'
+import { auditActions, type UserRole } from '../../../db/schema'
+import { sendNotification } from '../../external-notification'
 import { verifyPassword } from '../crypto'
 import {
+  INVITE_TTL_MS,
+  openInvite,
+  requireInviteSecret,
+  sealInvite,
+} from '../invite'
+import { createAuditEvent } from '../queries/auth'
+import {
+  acceptRoleInviteWrite,
   findActorPasswordHash,
   findManagedUserByEmail,
   findManagedGrant,
@@ -33,7 +42,7 @@ import {
   success,
 } from '../support'
 import type { AuthOperationContext, AuthResult, ManagedUser } from '../types'
-import { authenticatedSuperAdministrator } from './auth'
+import { authenticatedSuperAdministrator, authenticatedWithCapability } from './auth'
 
 const REASON_MAXIMUM_LENGTH = 500
 const INVALID_REASON_MESSAGE =
@@ -240,4 +249,212 @@ export const revokeRole = async (
   })
   if (!revoked) return failure(CHANGED_MESSAGE)
   return success(await reloadSubject(context, subject.id))
+}
+
+/** How a role is named to the person being invited, rather than in SQL. */
+const ROLE_LABELS: Record<ManageableRole, string> = {
+  REVIEWER: 'reviewer',
+  APPROVER: 'approver',
+  ADMIN: 'programme administrator',
+  SUPER_ADMIN: 'super administrator',
+}
+
+/**
+ * Where the invitation link points.
+ *
+ * At the client, not at this Worker, and the reason matters: a link that acted
+ * on `GET` would be spent by whatever opened it first, and mail providers open
+ * links — Gmail, Outlook and most scanners prefetch them to check for malware.
+ * The invitation would be consumed before the person ever saw it, and the audit
+ * row would record an acceptance nobody performed. So the link is a page, with
+ * a button that calls the mutation.
+ *
+ * The token rides in the fragment, which browsers never send to a server and
+ * which therefore stays out of access logs and `Referer` headers.
+ */
+const invitePortalUrl = (context: AuthOperationContext, token: string): string => {
+  const base = context.env.PORTAL_BASE_URL?.trim() || new URL(context.requestUrl).origin
+  return `${base.replace(/\/+$/u, '')}/invite#${token}`
+}
+
+/**
+ * The roles each issuer may invite somebody to.
+ *
+ * Without a ceiling, "an administrator may invite" is a privilege escalation: a
+ * plain `ADMIN` could invite a second account to `ADMIN` — or to `SUPER_ADMIN`
+ * — and obtain through it exactly the authority they are directly forbidden.
+ * Nobody is ever invited to `SUPER_ADMIN`; that stays bootstrap, or a direct
+ * grant by somebody who already is one.
+ */
+const INVITABLE_ROLES: Partial<Record<UserRole, readonly ManageableRole[]>> = {
+  ADMIN: ['REVIEWER', 'APPROVER'],
+  SUPER_ADMIN: ['REVIEWER', 'APPROVER', 'ADMIN'],
+}
+
+const invitableBy = (roles: readonly UserRole[]): Set<ManageableRole> =>
+  new Set(roles.flatMap((role) => [...(INVITABLE_ROLES[role] ?? [])]))
+
+/** Said to anyone whose link does not open, whatever the reason. */
+const INVITE_UNUSABLE_MESSAGE =
+  'This invitation is not usable. Ask for a new one.'
+
+/**
+ * Invites somebody to a staff role they must accept themselves.
+ *
+ * The link is emailed and never returned to the issuer. An issuer who could
+ * read it could forward it, and the invitee's mailbox is supposed to be the
+ * factor that makes possession meaningful.
+ */
+export const inviteRole = async (
+  input: { userId: string; role: ManageableRole; reason: string },
+  context: AuthOperationContext,
+): Promise<AuthResult<{ email: string; role: ManageableRole; expiresAt: Date }>> => {
+  // Authority first. Nothing below may describe the subject to a caller who
+  // has not proved they may invite at all.
+  const actor = await authenticatedWithCapability(context, 'ROLE_INVITE')
+  if (!actor) return failure(AUTH_REQUIRED_MESSAGE)
+  if (!invitableBy(actor.roles).has(input.role)) {
+    return failure('You cannot invite somebody to that role.')
+  }
+  if (!identifierSchema.safeParse(input.userId).success) {
+    return failure(USER_NOT_FOUND_MESSAGE)
+  }
+  const reason = normalizeReason(input.reason, REASON_MAXIMUM_LENGTH)
+  if (!reason) return failure(INVALID_REASON_MESSAGE)
+
+  const subject = await findManagedUserById(context.db, input.userId)
+  if (!subject || subject.deleted) return failure(USER_NOT_FOUND_MESSAGE)
+  if (!subject.emailVerified) {
+    return failure('That user has not verified their email address yet.')
+  }
+  if (subject.roles.includes(input.role)) {
+    return failure('That role is already active for this user.')
+  }
+  // Accepting swaps an applicant grant for the staff role, so somebody who no
+  // longer holds one has nothing to swap. Refusing here rather than sending a
+  // link that could never work.
+  if (!subject.roles.includes('APPLICANT')) {
+    return failure('That user is not an applicant, so this invitation cannot apply.')
+  }
+
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + INVITE_TTL_MS)
+  const token = await sealInvite(requireInviteSecret(context.env.ROLE_INVITE_SECRET), {
+    version: 1,
+    userId: subject.id,
+    email: subject.email,
+    role: input.role,
+    issuerId: actor.user.id,
+    issuedAt: now.getTime(),
+    expiresAt: expiresAt.getTime(),
+    nonce: crypto.randomUUID(),
+  })
+
+  await createAuditEvent(
+    context.db,
+    auditEvent(context, {
+      action: auditActions.roleInviteIssued,
+      entityType: 'CORE_USER',
+      entityId: subject.id,
+      actorUserId: actor.user.id,
+      // The token is never recorded. An audit row that carried it would be a
+      // second copy of a live credential, readable by anybody who may read
+      // audits.
+      metadata: { role: input.role, reason, expiresAt: expiresAt.toISOString() },
+    }),
+  )
+
+  try {
+    await sendNotification(
+      {
+        to: subject.email,
+        subject: `You have been invited to the Mission SEP office`,
+        body: [
+          `You have been invited to join the Mission SEP programme office as a`,
+          `${ROLE_LABELS[input.role]}.`,
+          ``,
+          `Open this link to accept. It expires in 48 hours:`,
+          `${invitePortalUrl(context, token)}`,
+          ``,
+          `If you were not expecting this, ignore it and nothing will change.`,
+        ].join('\n'),
+      },
+      context.env,
+    )
+  } catch {
+    // Deliberately not logging the error: a transport failure can carry the
+    // request it was making, and that request contains the invitation link.
+    return failure('The invitation could not be sent. Try again.')
+  }
+
+  return success({ email: subject.email, role: input.role, expiresAt })
+}
+
+/**
+ * Accepts an invitation, exchanging the applicant grant for the staff role.
+ *
+ * **Takes no session.** Possession of the link is the credential, which is the
+ * decision this flow was built around: the link goes to an address only that
+ * person can read. Everything protecting it is below — the seal is
+ * authenticated so it cannot be edited, it expires, it is void if the address
+ * changed since it was sent, and it only applies while its precondition holds,
+ * which is what makes a stateless invitation single-use.
+ */
+export const acceptRoleInvite = async (
+  input: { token: string },
+  context: AuthOperationContext,
+): Promise<AuthResult<{ role: UserRole }>> => {
+  const now = new Date()
+  const invite = await openInvite(
+    requireInviteSecret(context.env.ROLE_INVITE_SECRET),
+    input.token,
+    now,
+  )
+  // One refusal for every failure — wrong key, altered bytes, expired, absent.
+  // Distinguishing them would let somebody probe which tokens are valid.
+  if (!invite || !isManageableRole(invite.role)) {
+    return failure(INVITE_UNUSABLE_MESSAGE)
+  }
+
+  const subject = await findManagedUserById(context.db, invite.userId)
+  if (
+    !subject ||
+    subject.deleted ||
+    !subject.emailVerified ||
+    // The address the invitation was sent to is no longer the account's, so
+    // whoever holds the link is no longer necessarily the account holder.
+    subject.email !== invite.email
+  ) {
+    return failure(INVITE_UNUSABLE_MESSAGE)
+  }
+
+  const grantedAt = new Date()
+  const accepted = await acceptRoleInviteWrite(context.db, {
+    userId: subject.id,
+    grant: {
+      id: crypto.randomUUID(),
+      userId: subject.id,
+      role: invite.role,
+      grantedByUserId: invite.issuerId,
+      grantReason: 'ROLE_INVITE_ACCEPTED',
+      grantedAt,
+      revokedByUserId: null,
+      revokedAt: null,
+      revocationReason: null,
+    },
+    auditEvent: auditEvent(context, {
+      action: auditActions.roleInviteAccepted,
+      entityType: 'CORE_USER',
+      entityId: subject.id,
+      // The subject acts on their own account here; the issuer is recorded as
+      // the grant's authority rather than as this event's actor.
+      actorUserId: subject.id,
+      metadata: { role: invite.role, issuerId: invite.issuerId },
+    }),
+  })
+  // Already spent, or the account stopped being an applicant in between. Both
+  // are the same answer to whoever is holding the link.
+  if (!accepted) return failure(INVITE_UNUSABLE_MESSAGE)
+
+  return success({ role: invite.role }, `You are now a ${ROLE_LABELS[invite.role]}.`)
 }

@@ -322,3 +322,91 @@ export const revokeRoleWrite = async (
   ])
   return revoked.meta.changes === 1
 }
+
+export type AcceptRoleInviteWriteInput = {
+  userId: string
+  grant: UserRoleGrantRecord
+  auditEvent: AuditEventRecord
+}
+
+/**
+ * Exchanges an applicant grant for the staff role an invitation named.
+ *
+ * **There is no actor term in this write, and that is deliberate.** Every other
+ * statement in this module repeats the caller's authority in SQL; here the
+ * authority was established when the invitation was sealed, by an administrator
+ * who held `ROLE_INVITE`, and the person accepting is the subject rather than
+ * an operator. The sealed token is the credential, and `invite.ts` is what
+ * validates it.
+ *
+ * What this write does repeat is the *precondition*, which is what makes a
+ * stateless invitation single-use. It lands only while the subject still holds
+ * `APPLICANT` and does not already hold the target role — so once accepted,
+ * neither is true and a replayed link writes nothing. That check has to be here
+ * rather than only in the controller: two clicks arriving together would both
+ * pass a read, and D1 serializes these statements so the second observes the
+ * first.
+ *
+ * The revocation shares the insert's outcome, so a request that loses that race
+ * revokes nothing. Stranding the account with no active role would leave
+ * somebody unable to sign in at all.
+ */
+export const acceptRoleInviteWrite = async (
+  db: Database,
+  input: AcceptRoleInviteWriteInput,
+): Promise<boolean> => {
+  const { grant } = input
+  const insertGrant = db
+    .insert(coreUserRoleGrant)
+    .select(sql`
+      SELECT
+        ${grant.id},
+        ${grant.userId},
+        ${grant.role},
+        ${grant.grantedByUserId},
+        ${grant.grantReason},
+        ${grant.grantedAt.getTime()},
+        NULL,
+        NULL,
+        NULL
+      WHERE ${subjectIsGrantable(db, grant.userId)}
+        AND ${hasActiveRole(db, grant.userId, 'APPLICANT')}
+        AND NOT ${hasActiveRole(db, grant.userId, grant.role)}
+    `)
+    .returning({ id: coreUserRoleGrant.id })
+
+  const grantLanded = exists(
+    db
+      .select({ id: coreUserRoleGrant.id })
+      .from(coreUserRoleGrant)
+      .where(eq(coreUserRoleGrant.id, grant.id)),
+  )
+
+  // Matched on user and role rather than on a grant id read earlier: a grant
+  // revoked and re-created in between would leave a stale id matching nothing,
+  // silently leaving the account holding both roles.
+  const revokeApplicantGrant = db
+    .update(coreUserRoleGrant)
+    .set({
+      // Taking both from the new grant keeps the swap structurally one event,
+      // so the pair cannot drift to different times or different reasons.
+      revokedByUserId: grant.grantedByUserId,
+      revokedAt: grant.grantedAt,
+      revocationReason: grant.grantReason,
+    })
+    .where(
+      and(
+        eq(coreUserRoleGrant.userId, input.userId),
+        eq(coreUserRoleGrant.role, 'APPLICANT'),
+        isNull(coreUserRoleGrant.revokedAt),
+        grantLanded,
+      ),
+    )
+
+  const [inserted] = await db.batch([
+    insertGrant,
+    revokeApplicantGrant,
+    insertAuditEventWhere(db, input.auditEvent, grantLanded),
+  ])
+  return inserted.length === 1
+}

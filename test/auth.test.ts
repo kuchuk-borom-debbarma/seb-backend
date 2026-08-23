@@ -11,7 +11,8 @@ import { auditActions } from '../src/db/schema'
 import worker from '../src/index'
 import { userRoles } from '../src/db/schema'
 import { capabilities } from '../src/services/auth/capabilities'
-import { createDigest, hashPassword } from '../src/services/auth/crypto'
+import { createDigest, hashPassword, sessionTokenDigest } from '../src/services/auth/crypto'
+import { sealInvite } from '../src/services/auth/invite'
 import {
   authenticatedApplicant,
   authenticatedWithCapability,
@@ -415,6 +416,220 @@ const runScheduledCleanup = async () => {
  * capability added to one and forgotten in the other would be invisible until
  * somebody could not be granted a role that plainly exists.
  */
+
+/*
+ * Role invitations.
+ *
+ * The invitation is a bearer credential that lives only in a link and is never
+ * written down, so what protects it is entirely in what refuses it. These are
+ * mostly refusals for that reason: an invitation that can be edited, replayed,
+ * or aimed at a role the issuer does not hold is a way to become staff without
+ * anybody granting it.
+ */
+describe('inviting somebody to a staff role', () => {
+  const UNUSABLE = 'This invitation is not usable. Ask for a new one.'
+
+  /** Signs somebody up for real, so they are a verified applicant. */
+  const applicantAccount = async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const email = `invitee-${crypto.randomUUID()}@example.test`
+    const signup = await startSignup(email, log)
+    await verifySignup(signup.challengeToken, signup.otp)
+    log.mockRestore()
+    const row = await env.DB.prepare('SELECT id FROM core_user WHERE email = ?')
+      .bind(email).first<{ id: string }>()
+    return { id: row!.id, email }
+  }
+
+  /** A session holding exactly the roles given, without going through signup. */
+  const sessionHolding = async (roles: string[]) => {
+    const userId = crypto.randomUUID()
+    const token = crypto.randomUUID()
+    const now = Date.now()
+    const digest = await sessionTokenDigest(env.AUTH_SECRET!, token)
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO core_user (id, email, password_hash, email_verified_at,
+          row_version, created_at, updated_at) VALUES (?, ?, 'unused', ?, 1, ?, ?)`,
+      ).bind(userId, `${userId}@example.test`, now, now, now),
+      ...roles.map((role) => env.DB.prepare(
+        `INSERT INTO core_user_role_grant (id, user_id, role, grant_reason, granted_at)
+         VALUES (?, ?, ?, 'INVITE_TEST', ?)`,
+      ).bind(crypto.randomUUID(), userId, role, now)),
+      env.DB.prepare(
+        `INSERT INTO core_session (id, user_id, token_digest, expires_at,
+          created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      ).bind(crypto.randomUUID(), userId, digest, now + 3_600_000, now, now),
+    ])
+    return { userId, cookie: `seb_session=${token}` }
+  }
+
+  const invite = async (cookie: string, userId: string, role: string) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { body } = await graphql<{
+      access: { inviteRole: { success: boolean; message: string | null } }
+    }>(
+      `mutation { access { inviteRole(input: {
+        userId: "${userId}", role: ${role}, reason: "Joining the office"
+      }) { success message } } }`,
+      cookie,
+    )
+    // The link is only ever in the message that was sent, never in the reply.
+    const line = log.mock.calls.map((call) => String(call[0]))
+      .find((value) => value.startsWith('DEV_EMAIL '))
+    log.mockRestore()
+    const token = line
+      ? (JSON.parse(line.slice('DEV_EMAIL '.length)) as { text: string })
+          .text.match(/\/invite#([A-Za-z0-9_-]+)/u)?.[1] ?? null
+      : null
+    return { result: body.data!.access.inviteRole, token }
+  }
+
+  const accept = async (token: string) => {
+    const { body } = await graphql<{
+      access: { acceptRoleInvite: { success: boolean; message: string | null } }
+    }>(`mutation { access { acceptRoleInvite(token: "${token}") { success message } } }`)
+    return body.data!.access.acceptRoleInvite
+  }
+
+  const activeRoles = async (userId: string): Promise<string[]> => {
+    const { results } = await env.DB.prepare(
+      `SELECT role FROM core_user_role_grant
+       WHERE user_id = ? AND revoked_at IS NULL ORDER BY role`,
+    ).bind(userId).all<{ role: string }>()
+    return results.map((row) => row.role)
+  }
+
+  it('swaps the applicant grant for the role, and never returns the link', async () => {
+    const admin = await sessionHolding(['SUPER_ADMIN'])
+    const subject = await applicantAccount()
+
+    const { result, token } = await invite(admin.cookie, subject.id, 'REVIEWER')
+    expect(result.success).toBe(true)
+    expect(JSON.stringify(result)).not.toContain('invite#')
+    expect(token).toBeTruthy()
+
+    expect(await activeRoles(subject.id)).toEqual(['APPLICANT'])
+    expect((await accept(token!)).success).toBe(true)
+    // A swap, not an addition: they stop being an applicant.
+    expect(await activeRoles(subject.id)).toEqual(['REVIEWER'])
+  })
+
+  it('refuses a replay, because the precondition is what expires it', async () => {
+    const admin = await sessionHolding(['SUPER_ADMIN'])
+    const subject = await applicantAccount()
+    const { token } = await invite(admin.cookie, subject.id, 'APPROVER')
+
+    expect((await accept(token!)).success).toBe(true)
+    // Nothing recorded the token as spent. It fails because they are no longer
+    // an applicant, which is the same check that authorized the first one.
+    expect(await accept(token!)).toMatchObject({ success: false, message: UNUSABLE })
+    expect(await activeRoles(subject.id)).toEqual(['APPROVER'])
+  })
+
+  it('refuses a token whose bytes were edited', async () => {
+    const admin = await sessionHolding(['SUPER_ADMIN'])
+    const subject = await applicantAccount()
+    const { token } = await invite(admin.cookie, subject.id, 'REVIEWER')
+
+    // Flip one character of the ciphertext. Without authenticated encryption
+    // this is where somebody would go looking for a different role.
+    const at = token!.length - 5
+    const edited = token!.slice(0, at) +
+      (token![at] === 'A' ? 'B' : 'A') + token!.slice(at + 1)
+    expect(await accept(edited)).toMatchObject({ success: false, message: UNUSABLE })
+    expect(await activeRoles(subject.id)).toEqual(['APPLICANT'])
+  })
+
+  it('refuses a token sealed with a different secret', async () => {
+    const subject = await applicantAccount()
+    const forged = await sealInvite('an-entirely-different-secret-32-bytes-long', {
+      version: 1,
+      userId: subject.id,
+      email: subject.email,
+      role: 'ADMIN',
+      issuerId: crypto.randomUUID(),
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      nonce: crypto.randomUUID(),
+    })
+    expect(await accept(forged)).toMatchObject({ success: false, message: UNUSABLE })
+    expect(await activeRoles(subject.id)).toEqual(['APPLICANT'])
+  })
+
+  it('refuses one that has expired', async () => {
+    const subject = await applicantAccount()
+    const stale = await sealInvite('test-invite-secret-that-is-at-least-32-bytes', {
+      version: 1,
+      userId: subject.id,
+      email: subject.email,
+      role: 'REVIEWER',
+      issuerId: crypto.randomUUID(),
+      issuedAt: Date.now() - 100_000,
+      expiresAt: Date.now() - 1_000,
+      nonce: crypto.randomUUID(),
+    })
+    expect(await accept(stale)).toMatchObject({ success: false, message: UNUSABLE })
+    expect(await activeRoles(subject.id)).toEqual(['APPLICANT'])
+  })
+
+  it('refuses one whose address is no longer the account\'s', async () => {
+    const admin = await sessionHolding(['SUPER_ADMIN'])
+    const subject = await applicantAccount()
+    const { token } = await invite(admin.cookie, subject.id, 'REVIEWER')
+
+    // The mailbox that received the link is no longer this account's, so
+    // whoever holds it is no longer necessarily the account holder.
+    await env.DB.prepare('UPDATE core_user SET email = ? WHERE id = ?')
+      .bind(`moved-${crypto.randomUUID()}@example.test`, subject.id).run()
+    expect(await accept(token!)).toMatchObject({ success: false, message: UNUSABLE })
+    expect(await activeRoles(subject.id)).toEqual(['APPLICANT'])
+  })
+
+  it('stops an administrator inviting their way to more authority', async () => {
+    const admin = await sessionHolding(['ADMIN'])
+    const subject = await applicantAccount()
+
+    // The escalation this ceiling exists to prevent: an ADMIN cannot create
+    // another ADMIN, nor a SUPER_ADMIN, through a second account.
+    for (const role of ['ADMIN', 'SUPER_ADMIN']) {
+      const { result, token } = await invite(admin.cookie, subject.id, role)
+      expect(result, role).toMatchObject({
+        success: false, message: 'You cannot invite somebody to that role.',
+      })
+      expect(token, role).toBeNull()
+    }
+    // The two it may invite still work.
+    expect((await invite(admin.cookie, subject.id, 'APPROVER')).result.success).toBe(true)
+  })
+
+  it('refuses anyone without the capability to invite at all', async () => {
+    const subject = await applicantAccount()
+    for (const roles of [['REVIEWER'], ['APPROVER'], ['APPLICANT']]) {
+      const caller = await sessionHolding(roles)
+      const { result } = await invite(caller.cookie, subject.id, 'REVIEWER')
+      expect(result.success, roles.join()).toBe(false)
+    }
+  })
+
+  it('does not invite somebody who has no applicant grant to swap', async () => {
+    const admin = await sessionHolding(['SUPER_ADMIN'])
+    const staff = await sessionHolding(['REVIEWER'])
+    const { result } = await invite(admin.cookie, staff.userId, 'APPROVER')
+    expect(result).toMatchObject({ success: false })
+  })
+
+  it('settles two simultaneous acceptances as exactly one grant', async () => {
+    const admin = await sessionHolding(['SUPER_ADMIN'])
+    const subject = await applicantAccount()
+    const { token } = await invite(admin.cookie, subject.id, 'REVIEWER')
+
+    const both = await Promise.all([accept(token!), accept(token!)])
+    expect(both.filter((one) => one.success)).toHaveLength(1)
+    expect(await activeRoles(subject.id)).toEqual(['REVIEWER'])
+  })
+})
+
 describe('the vocabulary the schema publishes', () => {
   const enumValues = async (name: string): Promise<string[]> => {
     const result = await graphql<{

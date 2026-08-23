@@ -56,6 +56,8 @@ export default defineWorkersConfig({
         miniflare: {
           bindings: {
             AUTH_SECRET: 'test-secret-that-is-at-least-thirty-two-bytes',
+            ROLE_INVITE_SECRET: 'test-invite-secret-that-is-at-least-32-bytes',
+            PORTAL_BASE_URL: 'https://portal.example.test',
             FRONTEND_ORIGINS: 'https://app.example.test',
             AUTH_COOKIE_SAME_SITE: 'lax',
             APPLICANT_SIGNUP_TOKEN_ATTEMPT_COUNT: '5',
