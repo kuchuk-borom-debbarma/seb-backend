@@ -157,6 +157,16 @@ export const sebApplication = sqliteTable(
       table.status,
       table.statusChangedAt,
     ),
+    /*
+     * The administrative queue's default ordering, with no cycle or status
+     * narrowing it. Every other index containing these columns is led by one
+     * the queue does not filter on, so without these two the default console
+     * view was a full table scan and a full sort on every page.
+     */
+    index('seb_application_intake_waiting_idx').on(table.deletedAt, table.statusChangedAt),
+    index('seb_application_intake_activity_idx').on(table.deletedAt, table.updatedAt),
+    /* Prefix search on the reference number an applicant quotes. */
+    index('seb_application_reference_search_idx').on(sql`lower(${table.referenceNumber})`),
     index('seb_application_cycle_status_idx').on(
       table.programmeCycleId,
       table.status,
@@ -358,6 +368,9 @@ export const sebApplicationSubmission = sqliteTable(
     ),
     // Workflow records carry both identifiers so their composite foreign keys
     // can prove that a submission belongs to the same application.
+    /* The NEWEST_SUBMISSION ordering and the submitted-between filters both
+       seek on this column, which no index reached. */
+    index('seb_application_submission_submitted_idx').on(table.submittedAt),
     uniqueIndex('seb_application_submission_application_id_uq').on(
       table.applicationId,
       table.id,

@@ -2414,3 +2414,102 @@ describe('Mission SEP administration', () => {
     })
   })
 })
+
+describe('searching the intake queue and the cycle list', () => {
+  it('finds an application by the start of its reference or enterprise name', async () => {
+    const administrator = await adminSession(['APPLICANT', 'ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie)
+    const submitted = await createSubmittedApplication(
+      administrator.cookie, administrator.userId, cycle.id,
+    )
+    const [row] = await env.DB.prepare(
+      'SELECT reference_number AS reference FROM seb_application WHERE id = ?',
+    ).bind(submitted.applicationId).raw<[string]>()
+    const reference = row?.[0] ?? ''
+    expect(reference).not.toBe('')
+
+    const search = async (term: string) => {
+      const response = await graphql<{
+        admin: {
+          intake: {
+            queue: {
+              success: boolean
+              response: {
+                nodes: { id: string }[]
+                pageInfo: { totalCount: number }
+              } | null
+            }
+          }
+        }
+      }>(
+        `query Q($input: AdminIntakeQueueInput) {
+          admin { intake { queue(input: $input) {
+            success response { nodes { id } pageInfo { totalCount } }
+          } } }
+        }`,
+        { input: { search: term } },
+        administrator.cookie,
+      )
+      return response.data?.admin.intake.queue.response
+    }
+
+    // The reference, in the case somebody would type it.
+    const byReference = await search(reference.toLowerCase().slice(0, 8))
+    expect(byReference?.nodes.map((node) => node.id)).toContain(submitted.applicationId)
+    expect(byReference?.pageInfo.totalCount).toBeGreaterThan(0)
+
+    // Or the enterprise name, because that is the other thing on the paper.
+    const byName = await search('administrative test')
+    expect(byName?.nodes.map((node) => node.id)).toContain(submitted.applicationId)
+
+    // Prefix only, and a miss is empty rather than everything.
+    expect((await search('zzzz'))?.nodes).toEqual([])
+    expect((await search('zzzz'))?.pageInfo.totalCount).toBe(0)
+  })
+
+  it('narrows the cycle list by status, year and code, and refuses a nonsense year', async () => {
+    const administrator = await adminSession(['ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie)
+    const [row] = await env.DB.prepare(
+      'SELECT cycle_code AS code, cycle_year AS year FROM seb_programme_cycle WHERE id = ?',
+    ).bind(cycle.id).raw<[string, number]>()
+    const code = row?.[0] ?? ''
+    const year = row?.[1] ?? 0
+
+    const list = async (variables: Record<string, unknown>) => {
+      const response = await graphql<{
+        admin: {
+          programmeCycle: {
+            list: {
+              success: boolean
+              message: string | null
+              response: { nodes: { id: string }[]; pageInfo: { totalCount: number } } | null
+            }
+          }
+        }
+      }>(
+        `query L($status: ProgrammeCycleStatus, $cycleYear: Int, $search: String) {
+          admin { programmeCycle { list(status: $status, cycleYear: $cycleYear, search: $search) {
+            success message response { nodes { id } pageInfo { totalCount } }
+          } } }
+        }`,
+        variables,
+        administrator.cookie,
+      )
+      return response.data?.admin.programmeCycle.list
+    }
+
+    expect((await list({ status: 'OPEN' }))?.response?.nodes.map((node) => node.id))
+      .toContain(cycle.id)
+    expect((await list({ status: 'ARCHIVED' }))?.response?.pageInfo.totalCount).toBe(0)
+    expect((await list({ cycleYear: year }))?.response?.nodes.map((node) => node.id))
+      .toContain(cycle.id)
+    expect((await list({ search: code.slice(0, 3).toLowerCase() }))?.response?.nodes
+      .map((node) => node.id)).toContain(cycle.id)
+
+    // A year that is not a year is named rather than silently matching nothing.
+    const refused = await list({ cycleYear: 12 })
+    expect(refused?.success).toBe(false)
+    expect(refused?.message).toBe('Select a valid programme year.')
+  })
+})

@@ -349,6 +349,15 @@ export type TimelineEvent = {
 export type PageInfo = {
   endCursor: string | null
   hasNextPage: boolean
+  /**
+   * How many rows match the filters, not just this page.
+   *
+   * Keyset pagination cannot derive it — that is the price of not counting
+   * offsets — so it is a second query with the same predicates. It is what lets
+   * a screen say "1-20 of 143", and what tells "nothing matches these filters"
+   * apart from "nothing here yet".
+   */
+  totalCount: number
 }
 
 export type Connection<T> = {

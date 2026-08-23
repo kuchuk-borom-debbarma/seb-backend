@@ -8,7 +8,15 @@ type AdminQuery {
 }
 
 type AdminProgrammeCycleQuery {
-  list(first: Int, after: String, includeDeleted: Boolean): AdminCycleConnectionResult!
+  list(
+    first: Int
+    after: String
+    includeDeleted: Boolean
+    status: ProgrammeCycleStatus
+    cycleYear: Int
+    # Matches the start of the cycle code, case-insensitively.
+    search: String
+  ): AdminCycleConnectionResult!
   byId(id: ID!): AdminCycleResult!
   counts(id: ID!): AdminCycleCountsResult!
   events(id: ID!, first: Int): AdminCycleEventsResult!
@@ -46,6 +54,9 @@ input AdminIntakeQueueInput {
   submittedFrom: DateTime
   submittedTo: DateTime
   order: AdminIntakeOrder
+  # Matches the start of a reference number or an enterprise name,
+  # case-insensitively.
+  search: String
   # Mutually exclusive with `status`: two queues are subsets of one status, so
   # supplying both is refused rather than silently intersected.
   queue: AdminIntakeQueueKey

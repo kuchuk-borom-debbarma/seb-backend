@@ -96,6 +96,16 @@ export const sebProgrammeCycle = sqliteTable(
       'seb_programme_cycle_window_check',
       sql`${table.opensAt} IS NULL OR ${table.closesAt} IS NULL OR ${table.closesAt} > ${table.opensAt}`,
     ),
+    /* The cycle list's own ordering, and its status filter. `status_idx` is led
+       by status, so it could not serve a list ordered by updated_at. */
+    index('seb_programme_cycle_updated_idx').on(table.deletedAt, table.updatedAt),
+    index('seb_programme_cycle_status_updated_idx').on(
+      table.status,
+      table.deletedAt,
+      table.updatedAt,
+    ),
+    /* Prefix search on the code somebody would type. */
+    index('seb_programme_cycle_code_search_idx').on(sql`lower(${table.cycleCode})`),
     index('seb_programme_cycle_status_idx').on(
       table.status,
       table.deletedAt,

@@ -1,6 +1,7 @@
 import {
   and,
   asc,
+  count,
   desc,
   eq,
   gt,
@@ -13,6 +14,7 @@ import {
   lte,
   type SQL,
 } from 'drizzle-orm'
+import { COUNT_MISSING, requireInvariant } from '../../application/support'
 import type { Database } from '../../../db'
 import {
   coreAuditEvent,
@@ -41,7 +43,8 @@ import {
   sebAwardAssessment,
 } from '../../../db/schema'
 import { changedSections } from '../../application/sections'
-import { encodeAdminCursor } from '../pagination'
+import { encodeAdminCursor, type SortKey } from '../pagination'
+import { prefixMatchAny, prefixPattern } from '../../search'
 import { adminAudit } from '../support'
 import { intakeQueueKeys } from '../types'
 import type {
@@ -104,6 +107,23 @@ const queueKeyPredicate = (queue: IntakeQueueKey): SQL => {
 }
 
 
+export type IntakeOrder = 'OLDEST_WAITING' | 'NEWEST_SUBMISSION' | 'LAST_ACTIVITY'
+
+/**
+ * The column each ordering seeks on.
+ *
+ * Named rather than derived twice: the cursor carries this key, and the encode
+ * and decode sides used to compute it from `order` independently. When they
+ * disagreed the cursor seeked the wrong column and returned a wrong page with
+ * no error.
+ */
+export const intakeSortKey = (order: IntakeOrder | null | undefined): SortKey =>
+  order === 'NEWEST_SUBMISSION'
+    ? 'submittedAt'
+    : order === 'LAST_ACTIVITY'
+      ? 'updatedAt'
+      : 'statusChangedAt'
+
 export const listIntakeQueue = async (
   db: Database,
   input: {
@@ -121,13 +141,15 @@ export const listIntakeQueue = async (
     submittedTo?: Date | null
     order?: 'OLDEST_WAITING' | 'NEWEST_SUBMISSION' | 'LAST_ACTIVITY' | null
     queue?: IntakeQueueKey | null
+    search?: string | null
   },
 ): Promise<{ nodes: unknown[]; pageInfo: PageInfo }> => {
   const order = input.order ?? 'OLDEST_WAITING'
-  const timestampColumn = order === 'NEWEST_SUBMISSION'
+  const sortKey = intakeSortKey(order)
+  const timestampColumn = sortKey === 'submittedAt'
     ? sebApplicationSubmission.submittedAt
-    : order === 'LAST_ACTIVITY' ? sebApplication.updatedAt : sebApplication.statusChangedAt
-  const descending = order === 'NEWEST_SUBMISSION' || order === 'LAST_ACTIVITY'
+    : sortKey === 'updatedAt' ? sebApplication.updatedAt : sebApplication.statusChangedAt
+  const descending = sortKey === 'submittedAt' || sortKey === 'updatedAt'
   const cursor = input.after
     ? or(
         descending
@@ -139,6 +161,39 @@ export const listIntakeQueue = async (
         ),
       )
     : undefined
+  /*
+   * Everything the filters say, without the cursor — the page seeks from a
+   * position, the total counts the whole matching set.
+   */
+  const pattern = prefixPattern(input.search)
+  const filters = and(
+    isNull(sebApplication.deletedAt),
+    sql`${sebApplication.status} <> 'DRAFT'`,
+    input.cycleId ? eq(sebApplication.programmeCycleId, input.cycleId) : undefined,
+    input.status ? eq(sebApplication.status, input.status) : undefined,
+    input.queue ? queueKeyPredicate(input.queue) : undefined,
+    input.phaseNumber ? eq(sebApplication.phaseNumber, input.phaseNumber) : undefined,
+    input.applicationType
+      ? eq(sebApplication.applicationType, input.applicationType)
+      : undefined,
+    input.assigneeUserId
+      ? eq(sebApplication.assignedToUserId, input.assigneeUserId)
+      : undefined,
+    input.referenceNumber
+      ? eq(sebApplication.referenceNumber, input.referenceNumber)
+      : undefined,
+    // The reference number or the enterprise name: the two things somebody
+    // holding a piece of paper would type.
+    pattern
+      ? prefixMatchAny([sebApplication.referenceNumber, sebEnterprise.currentName], pattern)
+      : undefined,
+    input.sector ? sql`${sebApplicationVersion.businessSector} = ${input.sector}` : undefined,
+    input.category ? eq(sebApplicationVersion.applicationCategory, input.category) : undefined,
+    input.submittedFrom
+      ? gte(sebApplicationSubmission.submittedAt, input.submittedFrom) : undefined,
+    input.submittedTo
+      ? lte(sebApplicationSubmission.submittedAt, input.submittedTo) : undefined,
+  )
   const rows = await db
     .select({
       id: sebApplication.id,
@@ -184,32 +239,7 @@ export const listIntakeQueue = async (
         eq(sebApplicationVersion.version, sebApplicationSubmission.applicationVersion),
       ),
     )
-    .where(
-      and(
-        isNull(sebApplication.deletedAt),
-        sql`${sebApplication.status} <> 'DRAFT'`,
-        input.cycleId ? eq(sebApplication.programmeCycleId, input.cycleId) : undefined,
-        input.status ? eq(sebApplication.status, input.status) : undefined,
-        input.queue ? queueKeyPredicate(input.queue) : undefined,
-        input.phaseNumber ? eq(sebApplication.phaseNumber, input.phaseNumber) : undefined,
-        input.applicationType
-          ? eq(sebApplication.applicationType, input.applicationType)
-          : undefined,
-        input.assigneeUserId
-          ? eq(sebApplication.assignedToUserId, input.assigneeUserId)
-          : undefined,
-        input.referenceNumber
-          ? eq(sebApplication.referenceNumber, input.referenceNumber)
-          : undefined,
-        input.sector ? sql`${sebApplicationVersion.businessSector} = ${input.sector}` : undefined,
-        input.category ? eq(sebApplicationVersion.applicationCategory, input.category) : undefined,
-        input.submittedFrom
-          ? gte(sebApplicationSubmission.submittedAt, input.submittedFrom) : undefined,
-        input.submittedTo
-          ? lte(sebApplicationSubmission.submittedAt, input.submittedTo) : undefined,
-        cursor,
-      ),
-    )
+    .where(and(filters, cursor))
     .orderBy(
       descending ? desc(timestampColumn) : asc(timestampColumn),
       descending ? desc(sebApplication.id) : asc(sebApplication.id),
@@ -217,13 +247,44 @@ export const listIntakeQueue = async (
     .limit(input.first + 1)
   const selected = rows.slice(0, input.first)
   const last = selected.at(-1)
+  /*
+   * The same joins as the page, because the filters reach into all of them —
+   * the sector and category live on the submitted version, the search reaches
+   * the enterprise name, and the submitted-between range is on the submission.
+   */
+  const [total] = await db
+    .select({ value: count() })
+    .from(sebApplication)
+    .innerJoin(sebEnterprise, eq(sebEnterprise.id, sebApplication.enterpriseId))
+    .innerJoin(
+      sebApplicationSubmission,
+      and(
+        eq(sebApplicationSubmission.applicationId, sebApplication.id),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${sebApplicationSubmission} AS newer_submission
+          WHERE newer_submission.application_id = ${sebApplication.id}
+            AND newer_submission.submission_number > ${sebApplicationSubmission.submissionNumber}
+        )`,
+      ),
+    )
+    .innerJoin(
+      sebApplicationVersion,
+      and(
+        eq(sebApplicationVersion.applicationId, sebApplication.id),
+        eq(sebApplicationVersion.version, sebApplicationSubmission.applicationVersion),
+      ),
+    )
+    .where(filters)
   return {
     nodes: selected,
     pageInfo: {
       hasNextPage: rows.length > input.first,
+      totalCount: requireInvariant(total, COUNT_MISSING).value,
       endCursor: last ? encodeAdminCursor(
-        order === 'NEWEST_SUBMISSION' ? last.submittedAt
-          : order === 'LAST_ACTIVITY' ? last.updatedAt : last.statusChangedAt,
+        sortKey,
+        sortKey === 'submittedAt'
+          ? last.submittedAt
+          : sortKey === 'updatedAt' ? last.updatedAt : last.statusChangedAt,
         last.id,
       ) : null,
     },

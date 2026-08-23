@@ -59,6 +59,11 @@ export const sebEnterprise = sqliteTable(
       sql`(${table.registrationType} = 'NONE' AND ${table.registrationNumber} IS NULL)
         OR (${table.registrationType} IN ('CIN', 'UDYAM') AND ${table.registrationNumber} IS NOT NULL)`,
     ),
+    /* Prefix search on the name, within the owner's own enterprises. */
+    index('seb_enterprise_name_search_idx').on(
+      table.portalOwnerUserId,
+      sql`lower(${table.currentName})`,
+    ),
     index('seb_enterprise_owner_idx').on(
       table.portalOwnerUserId,
       table.deletedAt,

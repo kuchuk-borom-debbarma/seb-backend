@@ -46,12 +46,13 @@ import {
 import { applicationStatusGuide } from '../status-guide'
 import type {
   Application,
-  ApplicationStatusGuideEntry,
   ApplicationDraftInput,
   ApplicationOperationContext,
   ApplicationSection,
   ApplicationStatus,
+  ApplicationStatusGuideEntry,
   ApplicationSummary,
+  ApplicationType,
   Connection,
   ExpansionClaim,
   ExpansionEligibility,
@@ -163,6 +164,9 @@ export const myApplications = async (
     after?: string | null
     enterpriseId?: string | null
     status?: ApplicationStatus | null
+    programmeCycleId?: string | null
+    applicationType?: ApplicationType | null
+    search?: string | null
     includeDeleted?: boolean | null
   },
   context: ApplicationOperationContext,
@@ -170,7 +174,7 @@ export const myApplications = async (
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
   const first = pageSize(input.first)
-  const cursor = decodeCursor(input.after)
+  const cursor = decodeCursor(input.after, 'updatedAt')
   if (first === null || cursor === 'INVALID') return failure('Invalid pagination input.')
   if (input.status && !applicationStatuses.includes(input.status)) {
     return failure('Select a valid application status.')
@@ -182,6 +186,9 @@ export const myApplications = async (
       cursor,
       enterpriseId: input.enterpriseId,
       status: input.status,
+      programmeCycleId: input.programmeCycleId,
+      applicationType: input.applicationType,
+      search: input.search,
       includeDeleted: input.includeDeleted === true,
     }),
   )
@@ -704,7 +711,7 @@ export const applicationTimeline = async (
     return failure('The application was not found.')
   }
   const first = pageSize(input.first)
-  const cursor = decodeCursor(input.after)
+  const cursor = decodeCursor(input.after, 'createdAt')
   if (first === null || cursor === 'INVALID') return failure('Invalid pagination input.')
   return success(
     await listApplicationTimeline(context.db, {

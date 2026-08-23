@@ -9,6 +9,7 @@ import {
   completeDeskReviewWrite,
   insertInternalNote,
   intakeQueueSummary,
+  intakeSortKey,
   latestSubmission,
   listIntakeQueue,
   loadApplicationHead,
@@ -51,6 +52,7 @@ export const intakeQueue = async (
     submittedTo?: Date | null
     order?: 'OLDEST_WAITING' | 'NEWEST_SUBMISSION' | 'LAST_ACTIVITY' | null
     queue?: IntakeQueueKey | null
+    search?: string | null
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
@@ -62,7 +64,7 @@ export const intakeQueue = async (
     return failure('Filter by queue or by status, not both.')
   }
   const first = adminPageSize(input.first)
-  const after = decodeAdminCursor(input.after)
+  const after = decodeAdminCursor(input.after, intakeSortKey(input.order))
   if (!first || after === 'INVALID') return failure('Invalid pagination arguments.')
   if (input.phaseNumber !== null && input.phaseNumber !== undefined && input.phaseNumber < 1) {
     return failure('Phase number must be positive.')

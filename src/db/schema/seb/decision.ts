@@ -223,6 +223,9 @@ export const sebTtmMeeting = sqliteTable(
       sql`${table.status} IN ('DRAFT', 'IN_SESSION', 'FINALIZED', 'CANCELLED')`,
     ),
     index('seb_ttm_meeting_schedule_idx').on(table.status, table.scheduledAt),
+    /* The meetings list orders by this alone; the index above is led by status,
+       which that list does not constrain. */
+    index('seb_ttm_meeting_scheduled_idx').on(table.scheduledAt),
   ],
 )
 

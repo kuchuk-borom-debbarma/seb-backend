@@ -5,6 +5,7 @@
 import {
   and,
   asc,
+  count,
   desc,
   eq,
   gt,
@@ -46,8 +47,10 @@ import {
 import { foldDisbursementLedger } from '../ledger'
 import { changedSections } from '../sections'
 import { encodeCursor } from '../pagination'
+import { prefixMatch, prefixPattern } from '../../search'
 import {
   d1ChangedExactlyOne,
+  COUNT_MISSING,
   requireInvariant,
   sqlDateMilliseconds,
   sqlNullable,
@@ -411,6 +414,9 @@ export const listOwnedApplications = async (
     cursor: { timestamp: Date; id: string } | null
     enterpriseId?: string | null
     status?: ApplicationStatus | null
+    programmeCycleId?: string | null
+    applicationType?: ApplicationType | null
+    search?: string | null
     includeDeleted: boolean
   },
 ): Promise<Connection<ApplicationSummary>> => {
@@ -423,6 +429,20 @@ export const listOwnedApplications = async (
         ),
       )
     : undefined
+  // Without the cursor: the page seeks from a position, the total counts the
+  // whole matching set.
+  const pattern = prefixPattern(input.search)
+  const filters = and(
+    eq(sebApplication.applicantUserId, input.userId),
+    input.enterpriseId ? eq(sebApplication.enterpriseId, input.enterpriseId) : undefined,
+    input.status ? eq(sebApplication.status, input.status) : undefined,
+    input.programmeCycleId
+      ? eq(sebApplication.programmeCycleId, input.programmeCycleId)
+      : undefined,
+    input.applicationType ? eq(sebApplication.applicationType, input.applicationType) : undefined,
+    pattern ? prefixMatch(sebApplication.referenceNumber, pattern) : undefined,
+    input.includeDeleted ? undefined : isNull(sebApplication.deletedAt),
+  )
   const rows = await db
     .select({
       head: sebApplication,
@@ -439,20 +459,16 @@ export const listOwnedApplications = async (
       ),
     )
     .innerJoin(sebProgrammeCycle, eq(sebProgrammeCycle.id, sebApplication.programmeCycleId))
-    .where(
-      and(
-        eq(sebApplication.applicantUserId, input.userId),
-        input.enterpriseId ? eq(sebApplication.enterpriseId, input.enterpriseId) : undefined,
-        input.status ? eq(sebApplication.status, input.status) : undefined,
-        input.includeDeleted ? undefined : isNull(sebApplication.deletedAt),
-        cursorPredicate,
-      ),
-    )
+    .where(and(filters, cursorPredicate))
     .orderBy(asc(sebApplication.updatedAt), asc(sebApplication.id))
     .limit(input.first + 1)
   const hasNextPage = rows.length > input.first
   const selected = rows.slice(0, input.first)
   const last = selected.at(-1)?.head
+  const [total] = await db
+    .select({ value: count() })
+    .from(sebApplication)
+    .where(filters)
   return {
     nodes: selected.map((row) => ({
       ...applicationBase(row.head),
@@ -462,7 +478,8 @@ export const listOwnedApplications = async (
     })),
     pageInfo: {
       hasNextPage,
-      endCursor: last ? encodeCursor(last.updatedAt, last.id) : null,
+      endCursor: last ? encodeCursor('updatedAt', last.updatedAt, last.id) : null,
+      totalCount: requireInvariant(total, COUNT_MISSING).value,
     },
   }
 }
@@ -2012,11 +2029,29 @@ export const listApplicationTimeline = async (
   const hasNextPage = merged.length > input.first
   const selected = merged.slice(0, input.first)
   const last = selected.at(-1)
+  /*
+   * The timeline is two sources merged at read time, so its total is two
+   * counts added. Both are covered by their `(parent_id, created_at)` index, so
+   * this is a pair of seeks rather than a scan.
+   */
+  const [applicationTotal] = await db
+    .select({ value: count() })
+    .from(sebApplicationEvent)
+    .where(eq(sebApplicationEvent.applicationId, input.applicationId))
+  const [cycleTotal] = head
+    ? await db
+        .select({ value: count() })
+        .from(sebProgrammeCycleEvent)
+        .where(eq(sebProgrammeCycleEvent.programmeCycleId, head.cycleId))
+    : [{ value: 0 }]
   return {
     nodes: selected,
     pageInfo: {
       hasNextPage,
-      endCursor: last ? encodeCursor(last.createdAt, last.id) : null,
+      endCursor: last ? encodeCursor('createdAt', last.createdAt, last.id) : null,
+      totalCount:
+        requireInvariant(applicationTotal, COUNT_MISSING).value +
+        requireInvariant(cycleTotal, COUNT_MISSING).value,
     },
   }
 }

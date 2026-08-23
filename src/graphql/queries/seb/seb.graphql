@@ -61,7 +61,15 @@ type SebQuery {
 }
 
 type SebEnterpriseQuery {
-  mine(first: Int, after: String, includeDeleted: Boolean): EnterpriseConnectionResult!
+  mine(
+    first: Int
+    after: String
+    includeDeleted: Boolean
+    status: EnterpriseStatus
+    sector: BusinessSector
+    # Matches the start of the enterprise name, case-insensitively.
+    search: String
+  ): EnterpriseConnectionResult!
   byId(id: ID!): EnterpriseResult!
 }
 
@@ -79,6 +87,10 @@ type SebApplicationQuery {
     after: String
     enterpriseId: ID
     status: ApplicationStatus
+    programmeCycleId: ID
+    applicationType: ApplicationType
+    # Matches the start of a reference number, case-insensitively.
+    search: String
     includeDeleted: Boolean
   ): ApplicationConnectionResult!
   byId(id: ID!): ApplicationResult!
@@ -98,6 +110,11 @@ type SebApplicationQuery {
 type PageInfo {
   endCursor: String
   hasNextPage: Boolean!
+  # How many rows match the filters, not just this page. Keyset pagination
+  # cannot derive it, so it is counted with the same predicates — it is what
+  # lets a screen say "1-20 of 143" and tell an empty filter apart from an
+  # empty list.
+  totalCount: Int!
 }
 
 type Enterprise {

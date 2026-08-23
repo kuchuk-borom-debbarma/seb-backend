@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, isNull, lt, or, sql } from 'drizzle-orm'
 import {
   coreAuditEvent,
   sebApplication,
@@ -9,6 +9,7 @@ import {
   sebProgrammeCycleReason,
   sebProgrammeCycleVersion,
 } from '../../../db/schema'
+import { COUNT_MISSING, requireInvariant } from '../../application/support'
 import type { Database } from '../../../db'
 import type { AdminAuditAction } from '../support'
 import type {
@@ -17,9 +18,11 @@ import type {
   ProgrammeCycleInput,
 } from '../types'
 import { adminAudit } from '../support'
+import { prefixMatch, prefixPattern } from '../../search'
 import { encodeAdminCursor } from '../pagination'
 
 export type ProgrammeCycleRecord = typeof sebProgrammeCycle.$inferSelect
+type ProgrammeCycleStatus = ProgrammeCycleRecord['status']
 export type ProgrammeCycleVersionRecord = typeof sebProgrammeCycleVersion.$inferSelect
 
 export type ProgrammeCycleAggregate = {
@@ -85,6 +88,9 @@ export const listProgrammeCycles = async (
     first: number
     after: { timestamp: Date; id: string } | null
     includeDeleted: boolean
+    status?: ProgrammeCycleStatus | null
+    cycleYear?: number | null
+    search?: string | null
   },
 ): Promise<{ nodes: ProgrammeCycleRecord[]; pageInfo: PageInfo }> => {
   const cursor = input.after
@@ -96,19 +102,32 @@ export const listProgrammeCycles = async (
         ),
       )
     : undefined
+  const pattern = prefixPattern(input.search)
+  const filters = and(
+    input.includeDeleted ? undefined : isNull(sebProgrammeCycle.deletedAt),
+    input.status ? eq(sebProgrammeCycle.status, input.status) : undefined,
+    input.cycleYear ? eq(sebProgrammeCycle.cycleYear, input.cycleYear) : undefined,
+    // The code, which is what a cycle is called in conversation.
+    pattern ? prefixMatch(sebProgrammeCycle.cycleCode, pattern) : undefined,
+  )
   const rows = await db
     .select()
     .from(sebProgrammeCycle)
-    .where(and(input.includeDeleted ? undefined : isNull(sebProgrammeCycle.deletedAt), cursor))
+    .where(and(filters, cursor))
     .orderBy(asc(sebProgrammeCycle.updatedAt), asc(sebProgrammeCycle.id))
     .limit(input.first + 1)
   const selected = rows.slice(0, input.first)
   const last = selected.at(-1)
+  const [total] = await db
+    .select({ value: count() })
+    .from(sebProgrammeCycle)
+    .where(filters)
   return {
     nodes: selected,
     pageInfo: {
       hasNextPage: rows.length > input.first,
-      endCursor: last ? encodeAdminCursor(last.updatedAt, last.id) : null,
+      endCursor: last ? encodeAdminCursor('updatedAt', last.updatedAt, last.id) : null,
+      totalCount: requireInvariant(total, COUNT_MISSING).value,
     },
   }
 }

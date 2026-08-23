@@ -147,6 +147,9 @@ CREATE INDEX `seb_application_case_phase_idx` ON `seb_application` (`funding_cas
 CREATE INDEX `seb_application_cycle_idx` ON `seb_application` (`programme_cycle_id`,`deleted_at`,`updated_at`);
 CREATE INDEX `seb_application_status_idx` ON `seb_application` (`status`,`deleted_at`,`updated_at`);
 CREATE INDEX `seb_application_assignment_idx` ON `seb_application` (`assigned_to_user_id`,`status`,`status_changed_at`);
+CREATE INDEX `seb_application_intake_waiting_idx` ON `seb_application` (`deleted_at`,`status_changed_at`);
+CREATE INDEX `seb_application_intake_activity_idx` ON `seb_application` (`deleted_at`,`updated_at`);
+CREATE INDEX `seb_application_reference_search_idx` ON `seb_application` (lower("reference_number"));
 CREATE INDEX `seb_application_cycle_status_idx` ON `seb_application` (`programme_cycle_id`,`status`,`status_changed_at`);
 CREATE TABLE `seb_application_submission` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -163,6 +166,7 @@ CREATE TABLE `seb_application_submission` (
 
 CREATE UNIQUE INDEX `seb_application_submission_number_uq` ON `seb_application_submission` (`application_id`,`submission_number`);
 CREATE UNIQUE INDEX `seb_application_submission_version_uq` ON `seb_application_submission` (`application_id`,`application_version`);
+CREATE INDEX `seb_application_submission_submitted_idx` ON `seb_application_submission` (`submitted_at`);
 CREATE UNIQUE INDEX `seb_application_submission_application_id_uq` ON `seb_application_submission` (`application_id`,`id`);
 CREATE TABLE `seb_application_version` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -585,6 +589,7 @@ CREATE TABLE `seb_ttm_meeting` (
 
 CREATE UNIQUE INDEX `seb_ttm_meeting_meeting_reference_unique` ON `seb_ttm_meeting` (`meeting_reference`);
 CREATE INDEX `seb_ttm_meeting_schedule_idx` ON `seb_ttm_meeting` (`status`,`scheduled_at`);
+CREATE INDEX `seb_ttm_meeting_scheduled_idx` ON `seb_ttm_meeting` (`scheduled_at`);
 CREATE TABLE `seb_ttm_meeting_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`meeting_id` text NOT NULL,
@@ -631,6 +636,7 @@ CREATE TABLE `seb_enterprise` (
 CREATE UNIQUE INDEX `seb_enterprise_gstin_unique` ON `seb_enterprise` (`gstin`);
 CREATE UNIQUE INDEX `seb_enterprise_owner_id_uq` ON `seb_enterprise` (`portal_owner_user_id`,`id`);
 CREATE UNIQUE INDEX `seb_enterprise_registration_uq` ON `seb_enterprise` (`registration_type`,`registration_number`);
+CREATE INDEX `seb_enterprise_name_search_idx` ON `seb_enterprise` (`portal_owner_user_id`,lower("current_name"));
 CREATE INDEX `seb_enterprise_owner_idx` ON `seb_enterprise` (`portal_owner_user_id`,`deleted_at`,`updated_at`);
 CREATE TABLE `seb_enterprise_version` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -909,6 +915,9 @@ CREATE TABLE `seb_programme_cycle` (
 );
 
 CREATE UNIQUE INDEX `seb_programme_cycle_cycle_code_unique` ON `seb_programme_cycle` (`cycle_code`);
+CREATE INDEX `seb_programme_cycle_updated_idx` ON `seb_programme_cycle` (`deleted_at`,`updated_at`);
+CREATE INDEX `seb_programme_cycle_status_updated_idx` ON `seb_programme_cycle` (`status`,`deleted_at`,`updated_at`);
+CREATE INDEX `seb_programme_cycle_code_search_idx` ON `seb_programme_cycle` (lower("cycle_code"));
 CREATE INDEX `seb_programme_cycle_status_idx` ON `seb_programme_cycle` (`status`,`deleted_at`,`opens_at`,`closes_at`);
 CREATE TABLE `seb_programme_cycle_assessment_rule` (
 	`id` text PRIMARY KEY NOT NULL,

@@ -483,10 +483,26 @@ describe('application cursors and private upload helpers', () => {
     expect(pageSize(0)).toBeNull()
     expect(pageSize(101)).toBeNull()
     const date = new Date('2026-08-22T10:20:30Z')
-    expect(decodeCursor(encodeCursor(date, 'public-id'))).toEqual({ timestamp: date, id: 'public-id' })
-    expect(decodeCursor('not-base64')).toBe('INVALID')
-    expect(decodeCursor(btoa(JSON.stringify([Date.now()])))).toBe('INVALID')
-    expect(decodeCursor(btoa(JSON.stringify([8_640_000_000_000_001, 'id'])))).toBe('INVALID')
+    const cursor = encodeCursor('updatedAt', date, 'public-id')
+    expect(decodeCursor(cursor, 'updatedAt')).toEqual({ timestamp: date, id: 'public-id' })
+
+    /*
+     * A cursor belongs to the ordering that produced it. The administrative
+     * queue seeks on any of three columns, and one taken under a different
+     * ordering used to be accepted and seeked against the wrong column — a
+     * wrong page of results, reported as success.
+     */
+    expect(decodeCursor(cursor, 'submittedAt')).toBe('INVALID')
+    expect(decodeCursor(cursor, 'statusChangedAt')).toBe('INVALID')
+
+    expect(decodeCursor('not-base64', 'updatedAt')).toBe('INVALID')
+    expect(decodeCursor(btoa(JSON.stringify(['updatedAt'])), 'updatedAt')).toBe('INVALID')
+    expect(
+      decodeCursor(btoa(JSON.stringify(['updatedAt', 8_640_000_000_000_001, 'id'])), 'updatedAt'),
+    ).toBe('INVALID')
+    expect(decodeCursor(btoa(JSON.stringify(['updatedAt', Date.now(), ''])), 'updatedAt')).toBe(
+      'INVALID',
+    )
   })
 
   it('counts custom SEB mutations safely even for incomplete fragment documents', () => {

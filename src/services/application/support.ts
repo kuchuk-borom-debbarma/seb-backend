@@ -110,6 +110,9 @@ export const runConstraintRetry = async <T>(
 }
 
 /** Documents an invariant established by schema foreign keys or an atomic batch. */
+/** A `COUNT(*)` always returns exactly one row; if it did not, nothing is safe. */
+export const COUNT_MISSING = 'Count query returned no row.'
+
 export const requireInvariant = <T>(value: T | null | undefined, message: string): T => {
   if (value === null || value === undefined) throw new Error(message)
   return value

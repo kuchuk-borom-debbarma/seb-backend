@@ -345,17 +345,33 @@ export const setProgrammeCycleDeleted = async (
 }
 
 export const programmeCycles = async (
-  input: { first?: number | null; after?: string | null; includeDeleted?: boolean | null },
+  input: {
+    first?: number | null
+    after?: string | null
+    includeDeleted?: boolean | null
+    status?: Parameters<typeof listProgrammeCycles>[1]['status']
+    cycleYear?: number | null
+    search?: string | null
+  },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
   if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
   const first = adminPageSize(input.first)
-  const after = decodeAdminCursor(input.after)
+  const after = decodeAdminCursor(input.after, 'updatedAt')
   if (!first || after === 'INVALID') return failure('Invalid pagination arguments.')
+  // A year is a year. Anything else is a mistake worth naming rather than a
+  // filter that silently matches nothing.
+  if (input.cycleYear !== null && input.cycleYear !== undefined &&
+      (!Number.isInteger(input.cycleYear) || input.cycleYear < 2000 || input.cycleYear > 2100)) {
+    return failure('Select a valid programme year.')
+  }
   return success(await listProgrammeCycles(context.db, {
     first,
     after,
     includeDeleted: input.includeDeleted === true,
+    status: input.status,
+    cycleYear: input.cycleYear,
+    search: input.search,
   }))
 }
 

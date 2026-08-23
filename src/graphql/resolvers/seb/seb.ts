@@ -30,7 +30,10 @@ import {
   validateApplication,
   type ApplicationDraftInput,
   type ApplicationStatus,
+  type ApplicationType,
+  type BusinessSector,
   type DocumentType,
+  type EnterpriseStatus,
   type SuppliedEnterpriseProfile,
 } from '../../../services/application'
 import type { GraphQLContext } from '../../types'
@@ -49,7 +52,14 @@ export const sebResolvers = {
   SebEnterpriseQuery: {
     mine: (
       _parent: unknown,
-      args: { first?: number | null; after?: string | null; includeDeleted?: boolean | null },
+      args: {
+        first?: number | null
+        after?: string | null
+        includeDeleted?: boolean | null
+        status?: EnterpriseStatus | null
+        sector?: BusinessSector | null
+        search?: string | null
+      },
       context: GraphQLContext,
     ) => myEnterprises(args, context),
     byId: (_parent: unknown, args: { id: string }, context: GraphQLContext) =>
@@ -94,6 +104,9 @@ export const sebResolvers = {
         after?: string | null
         enterpriseId?: string | null
         status?: ApplicationStatus | null
+        programmeCycleId?: string | null
+        applicationType?: ApplicationType | null
+        search?: string | null
         includeDeleted?: boolean | null
       },
       context: GraphQLContext,

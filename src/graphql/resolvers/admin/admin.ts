@@ -73,7 +73,7 @@ export const adminResolvers = {
     funding: () => ({}),
   },
   AdminProgrammeCycleQuery: {
-    list: (_parent: unknown, args: { first?: number; after?: string; includeDeleted?: boolean }, context: GraphQLContext) => programmeCycles(args, context),
+    list: (_parent: unknown, args: Parameters<typeof programmeCycles>[0], context: GraphQLContext) => programmeCycles(args, context),
     byId: (_parent: unknown, args: { id: string }, context: GraphQLContext) => programmeCycleById(args.id, context),
     counts: (_parent: unknown, args: { id: string }, context: GraphQLContext) => programmeCycleApplicationCounts(args.id, context),
     events: (_parent: unknown, args: { id: string; first?: number }, context: GraphQLContext) => programmeCycleEvents(args, context),

@@ -1,5 +1,6 @@
 /** Drizzle persistence for the canonical enterprise aggregate. */
-import { and, asc, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, count, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { COUNT_MISSING, requireInvariant } from '../support'
 import type { Database } from '../../../db'
 import {
   coreAuditEvent,
@@ -12,12 +13,15 @@ import {
 } from '../../../db/schema'
 import { d1ChangedExactlyOne, sqlNullable, type AuditRecord } from '../support'
 import type {
+  BusinessSector,
   Connection,
   Enterprise,
   EnterpriseDeletionBlocker,
   EnterpriseProfileInput,
+  EnterpriseStatus,
 } from '../types'
 import { encodeCursor } from '../pagination'
+import { prefixMatch, prefixPattern } from '../../search'
 
 type EnterpriseRecord = typeof sebEnterprise.$inferSelect
 
@@ -79,6 +83,9 @@ export const listOwnedEnterprises = async (
     first: number
     cursor: { timestamp: Date; id: string } | null
     includeDeleted: boolean
+    search?: string | null
+    status?: EnterpriseStatus | null
+    sector?: BusinessSector | null
   },
 ): Promise<Connection<Enterprise>> => {
   const cursorPredicate = input.cursor
@@ -90,6 +97,19 @@ export const listOwnedEnterprises = async (
         ),
       )
     : undefined
+  /*
+   * Everything the filters say, without the cursor. The page seeks from a
+   * position; the total counts the whole matching set, so it must not carry
+   * the position with it.
+   */
+  const pattern = prefixPattern(input.search)
+  const filters = and(
+    eq(sebEnterprise.portalOwnerUserId, input.userId),
+    input.includeDeleted ? undefined : isNull(sebEnterprise.deletedAt),
+    input.status ? eq(sebEnterprise.status, input.status) : undefined,
+    input.sector ? eq(sebEnterpriseVersion.businessSector, input.sector) : undefined,
+    pattern ? prefixMatch(sebEnterprise.currentName, pattern) : undefined,
+  )
   const rows = await db
     .select({ head: sebEnterprise, version: sebEnterpriseVersion })
     .from(sebEnterprise)
@@ -100,23 +120,29 @@ export const listOwnedEnterprises = async (
         eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
       ),
     )
-    .where(
-      and(
-        eq(sebEnterprise.portalOwnerUserId, input.userId),
-        input.includeDeleted ? undefined : isNull(sebEnterprise.deletedAt),
-        cursorPredicate,
-      ),
-    )
+    .where(and(filters, cursorPredicate))
     .orderBy(asc(sebEnterprise.updatedAt), asc(sebEnterprise.id))
     .limit(input.first + 1)
   const hasNextPage = rows.length > input.first
   const selected = rows.slice(0, input.first)
   const last = selected.at(-1)?.head
+  const [total] = await db
+    .select({ value: count() })
+    .from(sebEnterprise)
+    .innerJoin(
+      sebEnterpriseVersion,
+      and(
+        eq(sebEnterpriseVersion.enterpriseId, sebEnterprise.id),
+        eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
+      ),
+    )
+    .where(filters)
   return {
     nodes: selected.map((row) => toEnterprise(row.head, row.version)),
     pageInfo: {
       hasNextPage,
-      endCursor: last ? encodeCursor(last.updatedAt, last.id) : null,
+      endCursor: last ? encodeCursor('updatedAt', last.updatedAt, last.id) : null,
+      totalCount: requireInvariant(total, COUNT_MISSING).value,
     },
   }
 }

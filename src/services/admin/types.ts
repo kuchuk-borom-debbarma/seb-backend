@@ -116,5 +116,5 @@ export type RevisionRequestInput = {
   note: string
 }
 
-export type PageInfo = { endCursor: string | null; hasNextPage: boolean }
+export type { PageInfo } from '../application/types'
 

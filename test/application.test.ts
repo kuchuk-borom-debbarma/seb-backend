@@ -2966,3 +2966,160 @@ describe('applicant application business service', () => {
   })
 
 })
+
+describe('searching and filtering the applicant lists', () => {
+  it('narrows enterprises by name prefix, status and sector, and reports the total', async () => {
+    const applicant = await applicantSession()
+    for (const [index, name] of [
+      'Khumulwng Food Works',
+      'Khumulwng Handloom',
+      'Agartala Textiles',
+    ].entries()) {
+      await createEnterprise(applicant.cookie, {
+        ...profile,
+        name,
+        // The registration number is unique across the table.
+        registrationNumber: `UDYAM-SEARCH-${index}`,
+      })
+    }
+
+    const list = async (variables: Record<string, unknown>) => {
+      const response = await graphql<{
+        seb: {
+          enterprise: {
+            mine: {
+              success: boolean
+              message: string | null
+              response: {
+                nodes: { name: string }[]
+                pageInfo: { totalCount: number; hasNextPage: boolean }
+              } | null
+            }
+          }
+        }
+      }>(
+        `query Mine($search: String, $status: EnterpriseStatus, $sector: BusinessSector, $first: Int) {
+          seb { enterprise { mine(search: $search, status: $status, sector: $sector, first: $first) {
+            success message response { nodes { name } pageInfo { totalCount hasNextPage } }
+          } } }
+        }`,
+        variables,
+        applicant.cookie,
+      )
+      return response.data?.seb.enterprise.mine
+    }
+
+    const all = await list({})
+    expect(all?.response?.pageInfo.totalCount).toBe(3)
+
+    // Prefix, and case-insensitive: somebody types what they remember, not what
+    // was stored.
+    const searched = await list({ search: 'khumulwng' })
+    expect(searched?.response?.nodes.map((node) => node.name).sort()).toEqual([
+      'Khumulwng Food Works',
+      'Khumulwng Handloom',
+    ])
+    expect(searched?.response?.pageInfo.totalCount).toBe(2)
+
+    // Prefix only. "Food" appears inside a name but not at the start of one.
+    expect((await list({ search: 'Food' }))?.response?.nodes).toEqual([])
+
+    // A GLOB metacharacter is a character, not a wildcard.
+    expect((await list({ search: '*' }))?.response?.nodes).toEqual([])
+
+    // Registration makes an enterprise ACTIVE, so the status filter narrows to
+    // all of them or to none — both of which prove it reaches the column.
+    expect((await list({ status: 'ACTIVE' }))?.response?.pageInfo.totalCount).toBe(3)
+    expect((await list({ status: 'INACTIVE' }))?.response?.pageInfo.totalCount).toBe(0)
+
+    // Sector lives on the version row, so this proves the filter reaches
+    // through the join.
+    expect((await list({ sector: 'FOOD_PROCESSING' }))?.response?.pageInfo.totalCount).toBe(3)
+    expect((await list({ sector: 'TOURISM_AND_HOSPITALITY' }))?.response?.pageInfo.totalCount).toBe(
+      0,
+    )
+  })
+
+  it('narrows applications by cycle, type and reference prefix', async () => {
+    const applicant = await applicantSession()
+    const enterprise = await createEnterprise(applicant.cookie, {
+      ...profile,
+      registrationNumber: 'UDYAM-APPFILTER',
+    })
+    const cycleId = await insertOpenCycle(applicant.userId)
+    const application = await startInitial(applicant.cookie, enterprise.id, cycleId)
+
+    const list = async (variables: Record<string, unknown>) => {
+      const response = await graphql<{
+        seb: {
+          application: {
+            mine: {
+              response: {
+                nodes: { id: string }[]
+                pageInfo: { totalCount: number }
+              } | null
+            }
+          }
+        }
+      }>(
+        `query Mine($programmeCycleId: ID, $applicationType: ApplicationType, $search: String) {
+          seb { application { mine(
+            programmeCycleId: $programmeCycleId
+            applicationType: $applicationType
+            search: $search
+          ) { response { nodes { id } pageInfo { totalCount } } } } }
+        }`,
+        variables,
+        applicant.cookie,
+      )
+      return response.data?.seb.application.mine.response
+    }
+
+    expect((await list({ programmeCycleId: cycleId }))?.nodes.map((node) => node.id))
+      .toContain(application.id)
+    expect((await list({ programmeCycleId: crypto.randomUUID() }))?.pageInfo.totalCount).toBe(0)
+
+    expect((await list({ applicationType: 'INITIAL' }))?.nodes.map((node) => node.id))
+      .toContain(application.id)
+    expect((await list({ applicationType: 'EXPANSION' }))?.pageInfo.totalCount).toBe(0)
+
+    // A draft has no reference number yet, so searching for one finds nothing —
+    // which is the honest answer, not an empty filter falling through to all.
+    expect((await list({ search: 'SEP-' }))?.pageInfo.totalCount).toBe(0)
+  })
+
+  it('counts the whole matching set, not the page', async () => {
+    const applicant = await applicantSession()
+    for (const index of [1, 2, 3]) {
+      await createEnterprise(applicant.cookie, {
+        ...profile,
+        name: `Counted ${index}`,
+        registrationNumber: `UDYAM-COUNT-${index}`,
+      })
+    }
+
+    const response = await graphql<{
+      seb: {
+        enterprise: {
+          mine: {
+            response: {
+              nodes: { name: string }[]
+              pageInfo: { totalCount: number; hasNextPage: boolean }
+            } | null
+          }
+        }
+      }
+    }>(
+      `query { seb { enterprise { mine(first: 2, search: "Counted") {
+        response { nodes { name } pageInfo { totalCount hasNextPage } }
+      } } } }`,
+      {},
+      applicant.cookie,
+    )
+    const page = response.data?.seb.enterprise.mine.response
+    // The point of the total: a page of two out of three matches.
+    expect(page?.nodes).toHaveLength(2)
+    expect(page?.pageInfo.hasNextPage).toBe(true)
+    expect(page?.pageInfo.totalCount).toBe(3)
+  })
+})

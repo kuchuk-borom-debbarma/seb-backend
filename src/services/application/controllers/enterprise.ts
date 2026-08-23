@@ -22,22 +22,31 @@ import {
 } from '../support'
 import type {
   ApplicationOperationContext,
+  BusinessSector,
   Connection,
   Enterprise,
   EnterpriseDeletionResult,
-  SuppliedEnterpriseProfile,
+  EnterpriseStatus,
   SebResult,
+  SuppliedEnterpriseProfile,
 } from '../types'
 import { normalizeEnterpriseProfile } from '../validation'
 
 export const myEnterprises = async (
-  input: { first?: number | null; after?: string | null; includeDeleted?: boolean | null },
+  input: {
+    first?: number | null
+    after?: string | null
+    includeDeleted?: boolean | null
+    status?: EnterpriseStatus | null
+    sector?: BusinessSector | null
+    search?: string | null
+  },
   context: ApplicationOperationContext,
 ): Promise<SebResult<Connection<Enterprise>>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
   const first = pageSize(input.first)
-  const cursor = decodeCursor(input.after)
+  const cursor = decodeCursor(input.after, 'updatedAt')
   if (first === null || cursor === 'INVALID') return failure('Invalid pagination input.')
   return success(
     await listOwnedEnterprises(context.db, {
@@ -45,6 +54,9 @@ export const myEnterprises = async (
       first,
       cursor,
       includeDeleted: input.includeDeleted === true,
+      status: input.status,
+      sector: input.sector,
+      search: input.search,
     }),
   )
 }
