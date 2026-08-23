@@ -24,6 +24,7 @@
  * talking to. Only the host in the URL differs.
  */
 import { AwsClient } from 'aws4fetch'
+import type { AppBindings } from '../../bindings'
 import type { ApplicationOperationContext } from './types'
 import {
   DOWNLOAD_TTL_SECONDS,
@@ -199,21 +200,32 @@ const localBackend = (context: ApplicationOperationContext): StorageBackend => {
 }
 
 /**
- * The backend for this environment.
+ * Whether this environment keeps documents in the Worker itself.
  *
  * Unset means local, because an unconfigured machine is a developer's — a
- * deployed environment is always told what it is. Anything else means the bytes
- * must go to the real bucket, and a missing configuration refuses rather than
- * quietly accepting documents this Worker cannot durably keep.
+ * deployed environment is always told what it is.
+ *
+ * Separate from `storage` below because a caller often needs the answer without
+ * needing a backend. Asking `storage(context).name === 'local'` would build one
+ * to read a label, and in a deployed environment building the R2 backend
+ * validates configuration and throws — so a question would become a failure.
+ */
+export const usesLocalStorage = (env: AppBindings): boolean => {
+  const environment = (env.ENVIRONMENT ?? '').trim().toLowerCase()
+  return environment === '' || environment === 'local'
+}
+
+/**
+ * The backend for this environment.
+ *
+ * Anything but local means the bytes must go to the real bucket, and a missing
+ * configuration refuses rather than quietly accepting documents this Worker
+ * cannot durably keep.
  *
  * Built per call, like every other configuration in this codebase.
  */
-export const storage = (context: ApplicationOperationContext): StorageBackend => {
-  const environment = (context.env.ENVIRONMENT ?? '').trim().toLowerCase()
-  return environment === '' || environment === 'local'
-    ? localBackend(context)
-    : r2Backend(context)
-}
+export const storage = (context: ApplicationOperationContext): StorageBackend =>
+  usesLocalStorage(context.env) ? localBackend(context) : r2Backend(context)
 
 /**
  * Authorizes one upload through whichever backend this environment uses.

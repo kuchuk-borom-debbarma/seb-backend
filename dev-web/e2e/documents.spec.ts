@@ -1,12 +1,15 @@
 /**
  * The evidence screen.
  *
- * Uploading a file end to end needs a real R2 bucket: the Worker signs a URL
- * addressed to Cloudflare's storage endpoint, and the browser puts the bytes
- * there directly. Development has no credentials, so these tests cover
- * everything either side of that — what the screen offers, what it refuses
- * before spending a request, and that the attempt reaches the API and its
- * answer is shown rather than swallowed.
+ * These run the upload for real. There is no bucket here and no credentials,
+ * but the storage seam sends the bytes to the Worker instead, which writes them
+ * and checks them exactly as the bucket would — so the whole path is exercised:
+ * the browser's own refusals, the cross-origin PUT, and the document coming
+ * back attached.
+ *
+ * The upload is genuinely cross-origin, because it is deployed too — the page
+ * is served from the client's origin and the bytes go to the bucket's. Locally
+ * the Worker answers the preflight in the bucket's place.
  */
 import { expect, test, type Page } from '@playwright/test'
 import {
@@ -103,7 +106,7 @@ test.describe('evidence', () => {
     await expect(page.getByText('This file is empty. Choose another one.')).toBeVisible()
   })
 
-  test('a file the browser accepts is sent, and the answer is shown', async ({
+  test('a file the browser accepts is stored, and comes back attached', async ({
     page,
   }) => {
     const id = await startApplication(page, {
@@ -112,31 +115,30 @@ test.describe('evidence', () => {
     })
     await page.goto(`/applications/${id}/documents`)
 
-    await choose(page, {
+    /*
+     * Scoped to one card rather than `choose`, which takes the first picker on
+     * the page. Which card receives the file only started mattering once the
+     * upload could actually succeed.
+     */
+    const card = page
+      .locator('.card')
+      .filter({ has: page.getByRole('heading', { name: 'Detailed project report' }) })
+    await expect(card.getByText('Upload the detailed project report.')).toBeVisible()
+
+    await card.locator('input[type="file"]').setInputFiles({
       name: 'dpr.pdf',
       mimeType: 'application/pdf',
       buffer: Buffer.from('%PDF-1.4 a small but real-looking file'),
     })
 
     /*
-     * Development has no bucket credentials, so this attempt fails at the
-     * signing step. What is being asserted is not the failure — it is that a
-     * file which passes the browser's own checks is actually sent, and that
-     * whatever the API answers reaches the person who chose it rather than the
-     * console. The Worker deliberately masks a configuration error, so the
-     * message here is the generic one; with a bucket configured this same path
-     * attaches the document.
+     * The whole round trip: the API issued an authorization, the browser PUT
+     * the bytes to it cross-origin, and finalization turned the intent into a
+     * document version. If the preflight were missing the PUT would never be
+     * sent, and this is what would notice.
      */
-    const alert = page.getByRole('alert')
-    await expect(alert).toBeVisible({ timeout: 15_000 })
-    await expect(alert).not.toBeEmpty()
-
-    // And nothing was recorded: a failed upload must not leave a document
-    // behind that the applicant thinks is attached.
-    await expect(
-      page.getByText('Not attached. This one is optional.').first(),
-    ).toBeVisible()
-    await expect(page.getByText('Upload the detailed project report.')).toBeVisible()
+    await expect(card.getByText('dpr.pdf')).toBeVisible({ timeout: 15_000 })
+    await expect(card.getByText('Upload the detailed project report.')).toBeHidden()
   })
 
   test('each issue in the report links to the screen that fixes it', async ({ page }) => {

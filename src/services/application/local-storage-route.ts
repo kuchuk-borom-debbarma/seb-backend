@@ -18,7 +18,7 @@
  */
 import { eq } from 'drizzle-orm'
 import { sebDocumentUploadIntent } from '../../db/schema'
-import { LOCAL_STORAGE_PATH, storage } from './storage'
+import { LOCAL_STORAGE_PATH, usesLocalStorage } from './storage'
 import type { ApplicationOperationContext } from './types'
 import { MAX_DOCUMENT_BYTES } from './uploads'
 
@@ -49,9 +49,7 @@ export const handleLocalStorageRequest = async (
   if (!url.pathname.startsWith(`${LOCAL_STORAGE_PATH}/`)) return null
 
   // The boundary. Everything below assumes a developer's machine.
-  if (storage(context).name !== 'local') {
-    return refuse(404, 'Not found.')
-  }
+  if (!usesLocalStorage(context.env)) return refuse(404, 'Not found.')
 
   if (request.method === 'PUT') {
     const uploadId = url.pathname.slice(`${LOCAL_STORAGE_PATH}/uploads/`.length)
