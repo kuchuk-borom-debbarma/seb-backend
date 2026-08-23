@@ -39,7 +39,11 @@ function SignUpPage() {
         </p>
 
         {challenge ? (
-          <VerifyStep email={email} challenge={challenge} onRestart={() => setChallenge(null)} />
+          <VerifyStep
+            email={email}
+            challenge={challenge}
+            onRestart={() => setChallenge(null)}
+          />
         ) : (
           <RequestStep
             email={email}
@@ -102,7 +106,12 @@ function RequestStep({
         </p>
       ) : null}
 
-      <button type="submit" className="button" data-variant="primary" disabled={start.isPending}>
+      <button
+        type="submit"
+        className="button"
+        data-variant="primary"
+        disabled={start.isPending}
+      >
         {start.isPending ? 'Sending code…' : 'Send verification code'}
       </button>
     </form>
@@ -154,8 +163,8 @@ function VerifyStep({
       */}
       <p className="notice" data-tone="action">
         <span className="notice-title">Read the code from the server console</span>
-        This development build prints the six-digit code to the Wrangler output
-        instead of emailing it. It expires {formatRelative(challenge.expiresAt)}.
+        This development build prints the six-digit code to the Wrangler output instead of
+        emailing it. It expires {formatRelative(challenge.expiresAt)}.
       </p>
 
       <div>
@@ -196,7 +205,12 @@ function VerifyStep({
         </p>
       ) : null}
 
-      <button type="submit" className="button" data-variant="primary" disabled={verify.isPending}>
+      <button
+        type="submit"
+        className="button"
+        data-variant="primary"
+        disabled={verify.isPending}
+      >
         {verify.isPending ? 'Creating account…' : 'Create account'}
       </button>
       <button type="button" className="button" data-variant="ghost" onClick={onRestart}>

@@ -1,0 +1,177 @@
+# Money.
+#
+# The award is the sanction order; releases are payments against it; a reversal
+# corrects a payment rather than deleting it; assessments record how the money
+# was used; a recovery case pursues money that has to come back.
+#
+# Every one of these is a ledger entry with a version, and the API refuses a
+# write built on a stale one — so the whole workspace comes back from each
+# mutation and is written straight into the cache.
+
+fragment FundingWorkspaceRecord on AdminFundingWorkspace {
+  award {
+    id
+    applicationId
+    sanctionOrderNumber
+    sanctionDate
+    sanctionedAmountPaise
+    applicantConditions
+    status
+    closureDisposition
+    currentVersion
+    ledgerVersion
+  }
+  ledger {
+    id
+    sequenceNumber
+    entryType
+    relatedDisbursementId
+    amountPaise
+    occurredAt
+    externalReference
+  }
+  obligations { id releaseDisbursementId dueAt }
+  assessments {
+    id
+    assessmentType
+    assessmentNumber
+    outcome
+    utilizationObligationId
+    evidenceReference
+    applicantSummary
+    assessedAt
+  }
+  recovery { id fundingAwardId status currentVersion ledgerVersion }
+}
+
+query FundingByApplication($applicationId: ID!) {
+  admin {
+    funding {
+      byApplication(applicationId: $applicationId) {
+        success
+        message
+        response { ...FundingWorkspaceRecord }
+      }
+    }
+  }
+}
+
+query RecoveryCase($recoveryCaseId: ID!) {
+  admin {
+    funding {
+      recoveryById(recoveryCaseId: $recoveryCaseId) {
+        success
+        message
+        response {
+          recoveryCase { id fundingAwardId status currentVersion ledgerVersion }
+          entries {
+            id
+            sequenceNumber
+            entryType
+            component
+            amountPaise
+            externalReference
+            occurredAt
+          }
+          balance {
+            principalDemanded
+            interestDemanded
+            receipts
+            waivers
+            outstanding
+          }
+        }
+      }
+    }
+  }
+}
+
+mutation CreateAward($input: CreateAwardInput!) {
+  admin {
+    funding {
+      createAward(input: $input) { success message response { ...FundingWorkspaceRecord } }
+    }
+  }
+}
+
+mutation ChangeAward($input: ChangeAwardInput!) {
+  admin {
+    funding {
+      changeAward(input: $input) { success message response { ...FundingWorkspaceRecord } }
+    }
+  }
+}
+
+mutation RecordRelease($input: RecordReleaseInput!) {
+  admin {
+    funding {
+      recordRelease(input: $input) { success message response { ...FundingWorkspaceRecord } }
+    }
+  }
+}
+
+mutation ReverseRelease($input: ReverseReleaseInput!) {
+  admin {
+    funding {
+      reverseRelease(input: $input) { success message response { ...FundingWorkspaceRecord } }
+    }
+  }
+}
+
+mutation RecordAssessment($input: RecordAssessmentInput!) {
+  admin {
+    funding {
+      recordAssessment(input: $input) { success message response { ...FundingWorkspaceRecord } }
+    }
+  }
+}
+
+fragment RecoveryWorkspaceRecord on AdminRecoveryWorkspace {
+  recoveryCase { id fundingAwardId status currentVersion ledgerVersion }
+  entries {
+    id
+    sequenceNumber
+    entryType
+    component
+    amountPaise
+    externalReference
+    occurredAt
+  }
+  balance { principalDemanded interestDemanded receipts waivers outstanding }
+}
+
+mutation OpenRecovery($input: OpenRecoveryInput!) {
+  admin {
+    funding {
+      openRecovery(input: $input) { success message response { ...RecoveryWorkspaceRecord } }
+    }
+  }
+}
+
+mutation RecordRecoveryEntry($input: RecoveryEntryInput!) {
+  admin {
+    funding {
+      recordRecoveryEntry(input: $input) {
+        success
+        message
+        response { ...RecoveryWorkspaceRecord }
+      }
+    }
+  }
+}
+
+mutation CancelRecovery($input: CloseRecoveryInput!) {
+  admin {
+    funding {
+      cancelRecovery(input: $input) { success message response { ...RecoveryWorkspaceRecord } }
+    }
+  }
+}
+
+mutation CloseRecovery($input: CloseRecoveryInput!) {
+  admin {
+    funding {
+      closeRecovery(input: $input) { success message response { ...RecoveryWorkspaceRecord } }
+    }
+  }
+}

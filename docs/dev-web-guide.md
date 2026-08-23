@@ -139,14 +139,30 @@ Built:
   review, and withdrawal of a correction request.
 - **Access** — exact-address lookup, the complete role history, and grant and
   revoke with the operator's own password as a step-up.
+- **Decisions** — referral to a partner bank, recording and correcting its
+  outcome, committee meetings with their agendas, and recording and correcting
+  a committee decision.
+- **Funding** — issuing the sanction order, the award ledger, releasing a
+  payment with every prerequisite the API demands, reversing one, assessments,
+  amending or closing an award, and recovery cases with their own ledger and
+  balance.
 
-Not built yet:
-
-- **Decisions and funding** — bank referral and outcomes, committee meetings,
-  agenda and decisions, awards, releases, assessments and recovery.
+Every operation the GraphQL schema exposes now has a screen.
 
 A screen that is not built is not in the navigation. There are no placeholder
 pages, and no control that does not do what it says.
+
+## Formatting
+
+`.prettierrc.json` pins the style the code was written in — single quotes, no
+semicolons, 90 columns. It exists because Prettier's defaults are the opposite
+on two of those, so running it without a config rewrites every file it touches
+and buries the real change in a reformat.
+
+```sh
+npm run format        # write
+npm run format:check  # verify
+```
 
 ## End-to-end tests
 

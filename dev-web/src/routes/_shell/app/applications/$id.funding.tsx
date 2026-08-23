@@ -13,10 +13,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
-import {
-  applicationQuery,
-  fundingQuery,
-} from '#/features/application/applicationQueries'
+import { applicationQuery, fundingQuery } from '#/features/application/applicationQueries'
 import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
 
 export const Route = createFileRoute('/_shell/app/applications/$id/funding')({
@@ -69,7 +66,10 @@ function FundingPage() {
         <section className="card">
           <div className="card-header">
             <p className="eyebrow">The award</p>
-            <span className="badge" data-tone={award.status === 'ACTIVE' ? 'ok' : undefined}>
+            <span
+              className="badge"
+              data-tone={award.status === 'ACTIVE' ? 'ok' : undefined}
+            >
               {humanize(award.status)}
             </span>
           </div>
@@ -107,8 +107,8 @@ function FundingPage() {
           {releases.length === 0 ? (
             <div className="card-body">
               <p className="muted">
-                No payment has been made yet. Each instalment appears here once
-                the programme office releases it.
+                No payment has been made yet. Each instalment appears here once the
+                programme office releases it.
               </p>
             </div>
           ) : (
@@ -175,7 +175,8 @@ function FundingPage() {
                       className={assessment.latest ? undefined : 'muted'}
                     >
                       <td>
-                        {humanize(assessment.assessmentType)} {assessment.assessmentNumber}
+                        {humanize(assessment.assessmentType)}{' '}
+                        {assessment.assessmentNumber}
                         {assessment.latest ? null : (
                           <span className="field-hint">Superseded</span>
                         )}

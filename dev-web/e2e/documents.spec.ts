@@ -18,7 +18,10 @@ import {
 } from './support'
 
 /** Puts a file on the page's hidden picker the way a person's chooser would. */
-const choose = async (page: Page, file: { name: string; mimeType: string; buffer: Buffer }) => {
+const choose = async (
+  page: Page,
+  file: { name: string; mimeType: string; buffer: Buffer },
+) => {
   await page.locator('input[type="file"]').first().setInputFiles(file)
 }
 
@@ -30,7 +33,10 @@ test.describe('evidence', () => {
   })
 
   test('lists every document the application can carry', async ({ page }) => {
-    const id = await startApplication(page, { prefix: 'evidence', businessName: 'Evidence Works' })
+    const id = await startApplication(page, {
+      prefix: 'evidence',
+      businessName: 'Evidence Works',
+    })
     await page.goto(`/app/applications/${id}/documents`)
 
     for (const title of [
@@ -48,7 +54,10 @@ test.describe('evidence', () => {
   })
 
   test('separates what is required from what is optional', async ({ page }) => {
-    const id = await startApplication(page, { prefix: 'evidence', businessName: 'Evidence Works' })
+    const id = await startApplication(page, {
+      prefix: 'evidence',
+      businessName: 'Evidence Works',
+    })
     await page.goto(`/app/applications/${id}/documents`)
 
     // The requirement is the API's own message, so the screen never states a
@@ -57,11 +66,18 @@ test.describe('evidence', () => {
 
     // The cycle's rules did not ask for these, and the screen says so rather
     // than leaving them looking overdue.
-    await expect(page.getByText('Not attached. This one is optional.').first()).toBeVisible()
+    await expect(
+      page.getByText('Not attached. This one is optional.').first(),
+    ).toBeVisible()
   })
 
-  test('refuses a file of the wrong type before sending it anywhere', async ({ page }) => {
-    const id = await startApplication(page, { prefix: 'evidence', businessName: 'Evidence Works' })
+  test('refuses a file of the wrong type before sending it anywhere', async ({
+    page,
+  }) => {
+    const id = await startApplication(page, {
+      prefix: 'evidence',
+      businessName: 'Evidence Works',
+    })
     await page.goto(`/app/applications/${id}/documents`)
 
     await choose(page, {
@@ -73,7 +89,10 @@ test.describe('evidence', () => {
   })
 
   test('refuses an empty file', async ({ page }) => {
-    const id = await startApplication(page, { prefix: 'evidence', businessName: 'Evidence Works' })
+    const id = await startApplication(page, {
+      prefix: 'evidence',
+      businessName: 'Evidence Works',
+    })
     await page.goto(`/app/applications/${id}/documents`)
 
     await choose(page, {
@@ -84,8 +103,13 @@ test.describe('evidence', () => {
     await expect(page.getByText('This file is empty. Choose another one.')).toBeVisible()
   })
 
-  test('a file the browser accepts is sent, and the answer is shown', async ({ page }) => {
-    const id = await startApplication(page, { prefix: 'evidence', businessName: 'Evidence Works' })
+  test('a file the browser accepts is sent, and the answer is shown', async ({
+    page,
+  }) => {
+    const id = await startApplication(page, {
+      prefix: 'evidence',
+      businessName: 'Evidence Works',
+    })
     await page.goto(`/app/applications/${id}/documents`)
 
     await choose(page, {
@@ -109,12 +133,17 @@ test.describe('evidence', () => {
 
     // And nothing was recorded: a failed upload must not leave a document
     // behind that the applicant thinks is attached.
-    await expect(page.getByText('Not attached. This one is optional.').first()).toBeVisible()
+    await expect(
+      page.getByText('Not attached. This one is optional.').first(),
+    ).toBeVisible()
     await expect(page.getByText('Upload the detailed project report.')).toBeVisible()
   })
 
   test('each issue in the report links to the screen that fixes it', async ({ page }) => {
-    const id = await startApplication(page, { prefix: 'evidence', businessName: 'Evidence Works' })
+    const id = await startApplication(page, {
+      prefix: 'evidence',
+      businessName: 'Evidence Works',
+    })
     await page.goto(`/app/applications/${id}/review`)
 
     // The row for a missing document leads to the evidence screen, not the
@@ -138,7 +167,10 @@ test.describe('evidence', () => {
   })
 
   test('is reachable from the application and from the form', async ({ page }) => {
-    const id = await startApplication(page, { prefix: 'evidence', businessName: 'Evidence Works' })
+    const id = await startApplication(page, {
+      prefix: 'evidence',
+      businessName: 'Evidence Works',
+    })
 
     await page.goto(`/app/applications/${id}`)
     await page.getByRole('link', { name: 'Evidence' }).click()

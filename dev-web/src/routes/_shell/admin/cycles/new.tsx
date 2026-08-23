@@ -22,7 +22,10 @@ function NewCyclePage() {
     },
     onSuccess: async (cycle) => {
       await queryClient.invalidateQueries({ queryKey: ['admin-cycles'] })
-      await router.navigate({ to: '/admin/cycles/$id', params: { id: cycle.id } })
+      await router.navigate({
+        to: '/admin/cycles/$id',
+        params: { id: cycle.id },
+      })
     },
   })
 
@@ -34,7 +37,12 @@ function NewCyclePage() {
       />
 
       {create.isError ? (
-        <p className="notice" data-tone="error" role="alert" style={{ marginBottom: '1rem' }}>
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginBottom: '1rem' }}
+        >
           {messageFor(create.error)}
         </p>
       ) : null}

@@ -1,4 +1,9 @@
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
@@ -117,7 +122,11 @@ function EnterprisePage() {
                 </button>
               ) : (
                 <>
-                  <button type="button" className="button" onClick={() => setEditing(true)}>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => setEditing(true)}
+                  >
                     Edit
                   </button>
                   <button
@@ -137,7 +146,12 @@ function EnterprisePage() {
       />
 
       {remove.isError ? (
-        <div className="notice" data-tone="action" role="alert" style={{ marginBottom: '1rem' }}>
+        <div
+          className="notice"
+          data-tone="action"
+          role="alert"
+          style={{ marginBottom: '1rem' }}
+        >
           <span className="notice-title">{messageFor(remove.error)}</span>
           {blockers.length > 0 ? (
             <>
@@ -161,7 +175,12 @@ function EnterprisePage() {
       ) : null}
 
       {restore.isError ? (
-        <p className="notice" data-tone="error" role="alert" style={{ marginBottom: '1rem' }}>
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginBottom: '1rem' }}
+        >
           {messageFor(restore.error)}
         </p>
       ) : null}
@@ -169,7 +188,12 @@ function EnterprisePage() {
       {editing ? (
         <>
           {update.isError ? (
-            <p className="notice" data-tone="error" role="alert" style={{ marginBottom: '1rem' }}>
+            <p
+              className="notice"
+              data-tone="error"
+              role="alert"
+              style={{ marginBottom: '1rem' }}
+            >
               {messageFor(update.error)}
             </p>
           ) : null}
@@ -219,7 +243,9 @@ function EnterprisePage() {
                     : humanize(enterprise.businessSector)
                   : '—'}
               </Detail>
-              <Detail label="Established">{formatDate(enterprise.establishmentDate)}</Detail>
+              <Detail label="Established">
+                {formatDate(enterprise.establishmentDate)}
+              </Detail>
               <Detail label="Block or village">
                 {enterprise.businessBlockOrVillage ?? '—'}
               </Detail>

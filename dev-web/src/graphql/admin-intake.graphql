@@ -129,6 +129,45 @@ query IntakeWorkspace($applicationId: ID!) {
           notes { id correctionOfNoteId note authoredByUserId createdAt }
           reviews { id submissionId outcome reviewedByUserId reviewedAt }
           reviewChecks { id deskReviewId checkType result internalNote createdAt }
+          referrals {
+            id
+            bankName
+            bankBranch
+            referralReference
+            referralDate
+            status
+            currentVersion
+          }
+          bankOutcomes {
+            id
+            outcome
+            decisionReference
+            decisionDate
+            applicantSummary
+            createdAt
+          }
+          agenda { id applicationId submissionId bankOutcomeId position status currentVersion }
+          decisions {
+            id
+            outcome
+            decisionReference
+            decisionDate
+            approvedAmountPaise
+            applicantMessage
+            createdAt
+          }
+          awards {
+            id
+            applicationId
+            sanctionOrderNumber
+            sanctionDate
+            sanctionedAmountPaise
+            applicantConditions
+            status
+            closureDisposition
+            currentVersion
+            ledgerVersion
+          }
         }
       }
     }

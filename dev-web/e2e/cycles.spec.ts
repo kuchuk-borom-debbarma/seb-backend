@@ -1,5 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
-import { PASSWORD, SUPER_ADMIN_EMAIL, signIn, signUpApplicant, uniqueEmail } from './support'
+import {
+  PASSWORD,
+  SUPER_ADMIN_EMAIL,
+  signIn,
+  signUpApplicant,
+  uniqueEmail,
+} from './support'
 
 /**
  * Creates a cycle and opens it, which is what makes the applicant journey
@@ -27,7 +33,9 @@ const createOpenCycle = async (page: Page, name: string) => {
 
   await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
   await page.getByRole('button', { name: 'Open for applications' }).click()
-  await expect(page.getByRole('button', { name: 'Close to new applications' })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Close to new applications' }),
+  ).toBeVisible()
 }
 
 test.describe('cycle administration', () => {
@@ -38,7 +46,9 @@ test.describe('cycle administration', () => {
 
     // Closing needs a reason too, and the offered actions follow the state.
     await expect(page.getByRole('button', { name: 'Open for applications' })).toBeHidden()
-    await page.getByLabel('Reason for this change').fill('The application window has ended.')
+    await page
+      .getByLabel('Reason for this change')
+      .fill('The application window has ended.')
     await page.getByRole('button', { name: 'Close to new applications' }).click()
     await expect(page.getByRole('button', { name: 'Archive' })).toBeVisible()
   })
@@ -46,7 +56,9 @@ test.describe('cycle administration', () => {
   test('refuses a lifecycle change without a reason', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin/cycles/new')
-    await page.getByLabel('Cycle code').fill(`SEP-NR-${Date.now().toString(36).toUpperCase()}`)
+    await page
+      .getByLabel('Cycle code')
+      .fill(`SEP-NR-${Date.now().toString(36).toUpperCase()}`)
     await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/02')
     await page.getByLabel('Guidance for applicants').fill('Guidance.')
     const now = new Date()
@@ -59,9 +71,13 @@ test.describe('cycle administration', () => {
 
     // Every transition retains a reason, so the action is not offered until
     // one is written rather than failing after the click.
-    await expect(page.getByRole('button', { name: 'Open for applications' })).toBeDisabled()
+    await expect(
+      page.getByRole('button', { name: 'Open for applications' }),
+    ).toBeDisabled()
     await page.getByLabel('Reason for this change').fill('Ready.')
-    await expect(page.getByRole('button', { name: 'Open for applications' })).toBeEnabled()
+    await expect(
+      page.getByRole('button', { name: 'Open for applications' }),
+    ).toBeEnabled()
   })
 
   test('an open cycle unblocks the applicant journey', async ({ page, browser }) => {
@@ -87,12 +103,16 @@ test.describe('cycle administration', () => {
     await applicantPage.goto('/app/applications/new')
     await applicantPage.getByLabel('Enterprise').selectOption({ label: 'Journey Works' })
     await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
-    await applicantPage.getByRole('button', { name: 'Start an initial application' }).click()
+    await applicantPage
+      .getByRole('button', { name: 'Start an initial application' })
+      .click()
 
     // The application exists, and the status rail says whose turn it is.
     await expect(applicantPage).toHaveURL(/\/app\/applications\/[0-9a-f-]{36}$/u)
     await expect(applicantPage.getByText('Your turn')).toBeVisible()
-    await expect(applicantPage.getByRole('heading', { name: 'Unsubmitted draft' })).toBeVisible()
+    await expect(
+      applicantPage.getByRole('heading', { name: 'Unsubmitted draft' }),
+    ).toBeVisible()
 
     await applicant.close()
   })
@@ -120,7 +140,9 @@ test.describe('cycle administration', () => {
 
     // The API's own wording, not a message invented by the client.
     await expect(
-      applicantPage.getByText('This enterprise has no sanctioned funding award to expand from.'),
+      applicantPage.getByText(
+        'This enterprise has no sanctioned funding award to expand from.',
+      ),
     ).toBeVisible()
     await expect(
       applicantPage.getByRole('button', { name: /Start (an expansion|phase)/u }),

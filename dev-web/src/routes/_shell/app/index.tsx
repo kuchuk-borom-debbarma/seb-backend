@@ -59,8 +59,8 @@ function OverviewPage() {
             {isApplicant(user) ? (
               <p className="notice" data-tone="ok">
                 <span className="notice-title">Applicant</span>
-                Register enterprises and apply for seed funding in an open
-                programme cycle.
+                Register enterprises and apply for seed funding in an open programme
+                cycle.
               </p>
             ) : null}
             {isAdministrator(user) ? (

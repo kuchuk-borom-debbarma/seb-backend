@@ -76,7 +76,9 @@ function IntakeConsole() {
                   <tr>
                     <th scope="col">Queue</th>
                     <th scope="col">Waiting on</th>
-                    <th scope="col" data-numeric>Applications</th>
+                    <th scope="col" data-numeric>
+                      Applications
+                    </th>
                   </tr>
                 </thead>
                 <tbody>

@@ -55,10 +55,8 @@ export const ensureSession = (queryClient: QueryClient) =>
 export const forgetSession = (queryClient: QueryClient) =>
   queryClient.resetQueries({ queryKey: sessionQuery.queryKey })
 
-export const hasRole = (
-  user: SignedInUser | undefined,
-  ...roles: UserRole[]
-): boolean => Boolean(user && roles.some((role) => user.roles.includes(role)))
+export const hasRole = (user: SignedInUser | undefined, ...roles: UserRole[]): boolean =>
+  Boolean(user && roles.some((role) => user.roles.includes(role)))
 
 /** `SUPER_ADMIN` carries every administrative capability; it needs no ADMIN grant. */
 export const isAdministrator = (user: SignedInUser | undefined): boolean =>

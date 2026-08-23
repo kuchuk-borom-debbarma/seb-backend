@@ -15,7 +15,10 @@ test.describe('the application form', () => {
   })
 
   test('saves answers as they are typed and says so', async ({ page }) => {
-    const id = await startApplication(page, { prefix: 'draft', businessName: 'Draft Works' })
+    const id = await startApplication(page, {
+      prefix: 'draft',
+      businessName: 'Draft Works',
+    })
     await page.goto(`/app/applications/${id}/form`)
 
     await page.getByLabel('Business name').fill('Draft Works Foods')
@@ -28,7 +31,10 @@ test.describe('the application form', () => {
   })
 
   test('shows every section of the form', async ({ page }) => {
-    const id = await startApplication(page, { prefix: 'draft', businessName: 'Draft Works' })
+    const id = await startApplication(page, {
+      prefix: 'draft',
+      businessName: 'Draft Works',
+    })
     await page.goto(`/app/applications/${id}/form`)
 
     for (const title of [
@@ -44,7 +50,10 @@ test.describe('the application form', () => {
   })
 
   test('reveals conditional questions only when they apply', async ({ page }) => {
-    const id = await startApplication(page, { prefix: 'draft', businessName: 'Draft Works' })
+    const id = await startApplication(page, {
+      prefix: 'draft',
+      businessName: 'Draft Works',
+    })
     await page.goto(`/app/applications/${id}/form`)
 
     // The API refuses details for support that was not received, so the fields
@@ -72,7 +81,10 @@ test.describe('the application form', () => {
   test('will not submit an incomplete application, and lists what is missing', async ({
     page,
   }) => {
-    const id = await startApplication(page, { prefix: 'draft', businessName: 'Draft Works' })
+    const id = await startApplication(page, {
+      prefix: 'draft',
+      businessName: 'Draft Works',
+    })
     await page.goto(`/app/applications/${id}/review`)
 
     await expect(page.getByText('Not ready yet')).toBeVisible()
@@ -85,7 +97,10 @@ test.describe('the application form', () => {
   })
 
   test('money is entered in rupees and survives a reload', async ({ page }) => {
-    const id = await startApplication(page, { prefix: 'draft', businessName: 'Draft Works' })
+    const id = await startApplication(page, {
+      prefix: 'draft',
+      businessName: 'Draft Works',
+    })
     await page.goto(`/app/applications/${id}/form`)
 
     await page.getByLabel('Total project cost (₹)').fill('500000')

@@ -95,7 +95,12 @@ export function ReferenceLookup() {
           ) : (
             // The API's own message, which distinguishes a number that does not
             // exist from one this account may not see.
-            <p className="notice" data-tone="error" role="alert" style={{ marginTop: '1rem' }}>
+            <p
+              className="notice"
+              data-tone="error"
+              role="alert"
+              style={{ marginTop: '1rem' }}
+            >
               {data?.message ?? 'No application has that reference number.'}
             </p>
           )

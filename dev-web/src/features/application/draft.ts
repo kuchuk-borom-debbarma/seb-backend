@@ -47,9 +47,7 @@ export const SECTION_TITLES: Record<string, string> = {
  * `EXPANSION` is absent on purpose: those values are derived by the server from
  * the qualifying award and are rejected if a client tries to send them.
  */
-export const draftFromSnapshot = (
-  application: Application,
-): ApplicationDraftInput => {
+export const draftFromSnapshot = (application: Application): ApplicationDraftInput => {
   const snapshot = application.snapshot
   return {
     enterprise: {

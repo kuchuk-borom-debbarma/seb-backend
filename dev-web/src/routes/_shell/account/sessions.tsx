@@ -43,7 +43,9 @@ function SessionsPage() {
    * rather than left on a screen they can no longer load.
    */
   const revoke = useMutation({
-    mutationFn: async (action: { type: 'one'; id: string } | { type: 'others' } | { type: 'all' }) => {
+    mutationFn: async (
+      action: { type: 'one'; id: string } | { type: 'others' } | { type: 'all' },
+    ) => {
       if (action.type === 'one') {
         const data = await gql(RevokeSessionDocument, { sessionId: action.id })
         assertSucceeded(data.auth.revokeSession)
@@ -102,7 +104,12 @@ function SessionsPage() {
       />
 
       {revoke.isError ? (
-        <p className="notice" data-tone="error" role="alert" style={{ marginBottom: '1rem' }}>
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginBottom: '1rem' }}
+        >
           {messageFor(revoke.error)}
         </p>
       ) : null}

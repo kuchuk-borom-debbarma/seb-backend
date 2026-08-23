@@ -12,8 +12,18 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
-import { QUEUE_PAGE_SIZE, queueQuery, queueSummaryQuery } from '#/features/admin/intakeQueries'
-import { QUEUE_DESCRIPTIONS, QUEUE_KEYS, QUEUE_TITLES, statusTone, waitingFor } from '#/features/admin/queues'
+import {
+  QUEUE_PAGE_SIZE,
+  queueQuery,
+  queueSummaryQuery,
+} from '#/features/admin/intakeQueries'
+import {
+  QUEUE_DESCRIPTIONS,
+  QUEUE_KEYS,
+  QUEUE_TITLES,
+  statusTone,
+  waitingFor,
+} from '#/features/admin/queues'
 import type {
   AdminIntakeOrder,
   AdminIntakeQueueKey,
@@ -53,7 +63,8 @@ type Search = {
 const oneOf = <TValue extends string>(
   allowed: readonly TValue[],
   value: unknown,
-): TValue | undefined => (allowed.includes(value as TValue) ? (value as TValue) : undefined)
+): TValue | undefined =>
+  allowed.includes(value as TValue) ? (value as TValue) : undefined
 
 export const Route = createFileRoute('/_shell/admin/queue')({
   validateSearch: (search: Record<string, unknown>): Search => ({
@@ -111,7 +122,9 @@ function QueuePage() {
 
   /** Resets paging: a filter change makes the old cursor meaningless. */
   const filter = (change: Partial<Search>) =>
-    navigate({ search: (previous) => ({ ...previous, ...change, after: undefined }) })
+    navigate({
+      search: (previous) => ({ ...previous, ...change, after: undefined }),
+    })
 
   return (
     <main className="page">
@@ -135,7 +148,11 @@ function QueuePage() {
       <div className="tabs" role="tablist" aria-label="Queues">
         <Link
           to="/admin/queue"
-          search={(previous) => ({ ...previous, queue: undefined, after: undefined })}
+          search={(previous) => ({
+            ...previous,
+            queue: undefined,
+            after: undefined,
+          })}
           role="tab"
           aria-selected={!search.queue}
           className="tab"
@@ -189,8 +206,7 @@ function QueuePage() {
             onChange={(event) =>
               filter({
                 applicationType: (event.target.value || undefined) as
-                  | ApplicationType
-                  | undefined,
+                  ApplicationType | undefined,
               })
             }
           >
@@ -211,8 +227,7 @@ function QueuePage() {
             onChange={(event) =>
               filter({
                 category: (event.target.value || undefined) as
-                  | ApplicationCategory
-                  | undefined,
+                  ApplicationCategory | undefined,
               })
             }
           >
@@ -231,7 +246,9 @@ function QueuePage() {
             className="select"
             value={search.sector ?? ''}
             onChange={(event) =>
-              filter({ sector: (event.target.value || undefined) as BusinessSector | undefined })
+              filter({
+                sector: (event.target.value || undefined) as BusinessSector | undefined,
+              })
             }
           >
             <option value="">Any sector</option>
@@ -247,7 +264,9 @@ function QueuePage() {
           <input
             type="checkbox"
             checked={search.mine ?? false}
-            onChange={(event) => filter({ mine: event.target.checked ? true : undefined })}
+            onChange={(event) =>
+              filter({ mine: event.target.checked ? true : undefined })
+            }
           />
           Only what I have claimed
         </label>
@@ -301,7 +320,10 @@ function QueuePage() {
                       {/* A resubmission is a different job from a first look,
                           and the number says which this is. */}
                       {row.submissionNumber > 1 ? (
-                        <span className="muted"> · submission {row.submissionNumber}</span>
+                        <span className="muted">
+                          {' '}
+                          · submission {row.submissionNumber}
+                        </span>
                       ) : null}
                     </td>
                     <td>
@@ -338,7 +360,9 @@ function QueuePage() {
                 className="button"
                 disabled={!search.after}
                 onClick={() =>
-                  navigate({ search: (previous) => ({ ...previous, after: undefined }) })
+                  navigate({
+                    search: (previous) => ({ ...previous, after: undefined }),
+                  })
                 }
               >
                 Start again

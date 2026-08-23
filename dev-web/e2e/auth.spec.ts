@@ -90,7 +90,9 @@ test.describe('signing out', () => {
 })
 
 test.describe('creating an account', () => {
-  test('registers a real applicant through the code sent by the server', async ({ page }) => {
+  test('registers a real applicant through the code sent by the server', async ({
+    page,
+  }) => {
     const email = uniqueEmail('applicant')
     await signUpApplicant(page, email)
 

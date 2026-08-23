@@ -13,7 +13,13 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import { AssignmentControls } from '#/features/admin/AssignmentControls'
-import { DeskReviewForm, checkTitle, type DeskReviewDraft } from '#/features/admin/DeskReviewForm'
+import { BankStage } from '#/features/admin/BankStage'
+import { CommitteeStage } from '#/features/admin/CommitteeStage'
+import {
+  DeskReviewForm,
+  checkTitle,
+  type DeskReviewDraft,
+} from '#/features/admin/DeskReviewForm'
 import { statusTone } from '#/features/admin/queues'
 import { cycleReasonsQuery, workspaceQuery } from '#/features/admin/workspaceQueries'
 import { DOCUMENT_TITLES, formatBytes } from '#/features/application/documents'
@@ -30,7 +36,10 @@ import { formatDateTime, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 
-export const Route = createFileRoute('/_shell/admin/applications/$id')({
+/** The statuses in which a sanction order can exist. */
+const FUNDED_STATUSES = new Set<string>(['APPROVED', 'SANCTIONED', 'DISBURSED'])
+
+export const Route = createFileRoute('/_shell/admin/applications/$id/')({
   loader: ({ context, params }) =>
     context.queryClient.ensureQueryData(workspaceQuery(params.id)),
   component: WorkspacePage,
@@ -62,6 +71,17 @@ function WorkspacePage() {
             <span className="badge" data-tone={statusTone(application.status)}>
               {humanize(application.status)}
             </span>
+            {/* Money outlives the review, so the funding screen is offered
+                from the moment a sanction order can exist. */}
+            {FUNDED_STATUSES.has(application.status) ? (
+              <Link
+                to="/admin/applications/$id/funding"
+                params={{ id }}
+                className="button"
+              >
+                Funding
+              </Link>
+            ) : null}
             <Link to="/admin/queue" className="button">
               Back to the queue
             </Link>
@@ -88,6 +108,30 @@ function WorkspacePage() {
           onChanged={refresh}
         />
 
+        <BankStage
+          applicationId={id}
+          status={application.status}
+          statusVersion={application.statusVersion}
+          latestSubmissionId={latestSubmission?.id}
+          latestDeskReviewId={workspace.reviews.at(-1)?.id}
+          referrals={workspace.referrals}
+          outcomes={workspace.bankOutcomes}
+          reasons={reasons}
+          onChanged={refresh}
+        />
+
+        <CommitteeStage
+          applicationId={id}
+          status={application.status}
+          statusVersion={application.statusVersion}
+          latestSubmissionId={latestSubmission?.id}
+          latestBankOutcomeId={workspace.bankOutcomes.at(-1)?.id}
+          agenda={workspace.agenda}
+          decisions={workspace.decisions}
+          reasons={reasons}
+          onChanged={refresh}
+        />
+
         {openRevisions.length > 0 ? (
           <OpenRevisions
             applicationId={id}
@@ -107,7 +151,9 @@ function WorkspacePage() {
           </div>
           <div className="table-wrap">
             <table className="table">
-              <caption className="visually-hidden">Submissions of this application</caption>
+              <caption className="visually-hidden">
+                Submissions of this application
+              </caption>
               <thead>
                 <tr>
                   <th scope="col">No.</th>
@@ -125,11 +171,15 @@ function WorkspacePage() {
                       <td className="tabular">{submission.submissionNumber}</td>
                       <td>{formatDateTime(submission.submittedAt)}</td>
                       <td>
-                        {change
-                          ? change.sections.map((section) => SECTION_TITLES[section]).join(', ')
-                          : // The first submission changed everything by
-                            // definition, so there is nothing to compare it to.
-                            <span className="muted">First submission</span>}
+                        {change ? (
+                          change.sections
+                            .map((section) => SECTION_TITLES[section])
+                            .join(', ')
+                        ) : (
+                          // The first submission changed everything by
+                          // definition, so there is nothing to compare it to.
+                          <span className="muted">First submission</span>
+                        )}
                       </td>
                     </tr>
                   )
@@ -145,11 +195,7 @@ function WorkspacePage() {
           latestSubmissionId={latestSubmission?.id}
         />
 
-        <InternalNotes
-          applicationId={id}
-          notes={workspace.notes}
-          onChanged={refresh}
-        />
+        <InternalNotes applicationId={id} notes={workspace.notes} onChanged={refresh} />
 
         {workspace.reviews.length > 0 ? (
           <section className="card">
@@ -272,7 +318,11 @@ function NextStep({
   const complete = useMutation({
     mutationFn: async (draft: DeskReviewDraft) => {
       const data = await gql(CompleteDeskReviewDocument, {
-        input: { applicationId, expectedStatusVersion: statusVersion, ...draft },
+        input: {
+          applicationId,
+          expectedStatusVersion: statusVersion,
+          ...draft,
+        },
       })
       unwrap(data.admin.intake.completeDeskReview)
     },
@@ -301,11 +351,16 @@ function NextStep({
         </div>
         <div className="card-body">
           <p className="muted">
-            Starting the review takes the application out of the submissions
-            queue and puts it in yours.
+            Starting the review takes the application out of the submissions queue and
+            puts it in yours.
           </p>
           {error ? (
-            <p className="notice" data-tone="error" role="alert" style={{ marginTop: '0.75rem' }}>
+            <p
+              className="notice"
+              data-tone="error"
+              role="alert"
+              style={{ marginTop: '0.75rem' }}
+            >
               {error}
             </p>
           ) : null}
@@ -361,7 +416,12 @@ function OpenRevisions({
 }: {
   applicationId: string
   statusVersion: number
-  revisions: { id: string; section: string; note: string; requestedAt: string }[]
+  revisions: {
+    id: string
+    section: string
+    note: string
+    requestedAt: string
+  }[]
   onChanged: () => Promise<unknown>
 }) {
   const [cancelling, setCancelling] = useState<string | null>(null)
@@ -451,7 +511,12 @@ function OpenRevisions({
           ))}
         </div>
         {error ? (
-          <p className="notice" data-tone="error" role="alert" style={{ marginTop: '0.75rem' }}>
+          <p
+            className="notice"
+            data-tone="error"
+            role="alert"
+            style={{ marginTop: '0.75rem' }}
+          >
             {error}
           </p>
         ) : null}
@@ -494,7 +559,9 @@ function Documents({
 
   // Documents from earlier submissions are kept, but the ones being reviewed
   // now are the ones frozen into the latest submission.
-  const current = documents.filter((document) => document.submissionId === latestSubmissionId)
+  const current = documents.filter(
+    (document) => document.submissionId === latestSubmissionId,
+  )
 
   return (
     <section className="card">
@@ -523,7 +590,9 @@ function Documents({
                   <td>
                     {DOCUMENT_TITLES[document.documentType]}
                     {document.documentVersion > 1 ? (
-                      <span className="field-hint">version {document.documentVersion}</span>
+                      <span className="field-hint">
+                        version {document.documentVersion}
+                      </span>
                     ) : null}
                   </td>
                   <td className="tabular">{document.originalFilename}</td>
@@ -569,7 +638,12 @@ function InternalNotes({
   onChanged,
 }: {
   applicationId: string
-  notes: { id: string; correctionOfNoteId?: string | null; note: string; createdAt: string }[]
+  notes: {
+    id: string
+    correctionOfNoteId?: string | null
+    note: string
+    createdAt: string
+  }[]
   onChanged: () => Promise<unknown>
 }) {
   const [text, setText] = useState('')
@@ -612,7 +686,10 @@ function InternalNotes({
         ) : (
           <div className="stack">
             {notes.map((note) => (
-              <div key={note.id} className={corrections.has(note.id) ? 'muted' : undefined}>
+              <div
+                key={note.id}
+                className={corrections.has(note.id) ? 'muted' : undefined}
+              >
                 <p style={{ whiteSpace: 'pre-wrap' }}>{note.note}</p>
                 <span className="field-hint">
                   {formatDateTime(note.createdAt)}
@@ -657,10 +734,18 @@ function InternalNotes({
               className="button"
               disabled={!text.trim() || add.isPending}
             >
-              {add.isPending ? 'Saving…' : correcting ? 'Save the correction' : 'Add the note'}
+              {add.isPending
+                ? 'Saving…'
+                : correcting
+                  ? 'Save the correction'
+                  : 'Add the note'}
             </button>
             {correcting ? (
-              <button type="button" className="button" onClick={() => setCorrecting(null)}>
+              <button
+                type="button"
+                className="button"
+                onClick={() => setCorrecting(null)}
+              >
                 Cancel
               </button>
             ) : null}
@@ -668,7 +753,12 @@ function InternalNotes({
         </form>
 
         {error ? (
-          <p className="notice" data-tone="error" role="alert" style={{ marginTop: '0.75rem' }}>
+          <p
+            className="notice"
+            data-tone="error"
+            role="alert"
+            style={{ marginTop: '0.75rem' }}
+          >
             {error}
           </p>
         ) : null}

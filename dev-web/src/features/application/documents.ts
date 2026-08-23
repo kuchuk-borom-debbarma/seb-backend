@@ -16,13 +16,13 @@
  * The checksum is what makes step 3 meaningful: the Worker verifies the stored
  * object rather than trusting the browser's account of it.
  */
-import type { DocumentType } from "#/graphql/generated/schema";
+import type { DocumentType } from '#/graphql/generated/schema'
 import {
   FinalizeDocumentUploadDocument,
   IssueDocumentUploadDocument,
-} from "#/graphql/generated/operations";
-import { gql } from "#/lib/graphql";
-import { unwrap } from "#/lib/result";
+} from '#/graphql/generated/operations'
+import { gql } from '#/lib/graphql'
+import { unwrap } from '#/lib/result'
 
 /**
  * The evidence an application can carry.
@@ -33,26 +33,26 @@ import { unwrap } from "#/lib/result";
  * evidence screen presents it.
  */
 export const DOCUMENT_TYPES: readonly DocumentType[] = [
-  "IDENTITY_AGE_PROOF",
-  "ST_CERTIFICATE",
-  "ADDRESS_PROOF",
-  "BUSINESS_REGISTRATION",
-  "GST_REGISTRATION",
-  "DPR",
-  "BANK_DETAILS",
-  "NOC",
-];
+  'IDENTITY_AGE_PROOF',
+  'ST_CERTIFICATE',
+  'ADDRESS_PROOF',
+  'BUSINESS_REGISTRATION',
+  'GST_REGISTRATION',
+  'DPR',
+  'BANK_DETAILS',
+  'NOC',
+]
 
 export const DOCUMENT_TITLES: Record<DocumentType, string> = {
-  IDENTITY_AGE_PROOF: "Identity and age proof",
-  ST_CERTIFICATE: "Scheduled Tribe certificate",
-  ADDRESS_PROOF: "Address proof",
-  BUSINESS_REGISTRATION: "Business registration",
-  GST_REGISTRATION: "GST registration",
-  DPR: "Detailed project report",
-  BANK_DETAILS: "Bank account details",
-  NOC: "No-objection certificate",
-};
+  IDENTITY_AGE_PROOF: 'Identity and age proof',
+  ST_CERTIFICATE: 'Scheduled Tribe certificate',
+  ADDRESS_PROOF: 'Address proof',
+  BUSINESS_REGISTRATION: 'Business registration',
+  GST_REGISTRATION: 'GST registration',
+  DPR: 'Detailed project report',
+  BANK_DETAILS: 'Bank account details',
+  NOC: 'No-objection certificate',
+}
 
 /*
  * Mirrored from `services/application/uploads.ts`. The server is the authority
@@ -61,14 +61,14 @@ export const DOCUMENT_TITLES: Record<DocumentType, string> = {
  * the right types.
  */
 export const ALLOWED_CONTENT_TYPES = [
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-] as const;
-export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+] as const
+export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 
 /** What the file picker accepts, so the wrong file is harder to choose. */
-export const FILE_ACCEPT = ALLOWED_CONTENT_TYPES.join(",");
+export const FILE_ACCEPT = ALLOWED_CONTENT_TYPES.join(',')
 
 /**
  * Says why a file cannot be sent, or null when it can.
@@ -78,21 +78,21 @@ export const FILE_ACCEPT = ALLOWED_CONTENT_TYPES.join(",");
  */
 export const rejectFile = (file: File): string | null => {
   if (!(ALLOWED_CONTENT_TYPES as readonly string[]).includes(file.type)) {
-    return "Choose a PDF, JPEG or PNG file.";
+    return 'Choose a PDF, JPEG or PNG file.'
   }
-  if (file.size < 1) return "This file is empty. Choose another one.";
+  if (file.size < 1) return 'This file is empty. Choose another one.'
   if (file.size > MAX_DOCUMENT_BYTES) {
-    return `This file is ${formatBytes(file.size)}. The largest a document can be is 10 MB.`;
+    return `This file is ${formatBytes(file.size)}. The largest a document can be is 10 MB.`
   }
-  return null;
-};
+  return null
+}
 
 /** File sizes, in the unit a person would use for a file that size. */
 export const formatBytes = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
+  if (bytes < 1024) return `${bytes} bytes`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 /**
  * The file's SHA-256, base64-encoded, which is the form the API expects.
@@ -101,15 +101,12 @@ export const formatBytes = (bytes: number): string => {
  * during development — which is where this runs.
  */
 const checksumOf = async (file: File): Promise<string> => {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    await file.arrayBuffer(),
-  );
-  const bytes = new Uint8Array(digest);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-};
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  const bytes = new Uint8Array(digest)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
 
 /**
  * Attaches a file as the named document type.
@@ -125,10 +122,10 @@ export const uploadDocument = async ({
   expectedVersion,
   file,
 }: {
-  applicationId: string;
-  documentType: DocumentType;
-  expectedVersion: number;
-  file: File;
+  applicationId: string
+  documentType: DocumentType
+  expectedVersion: number
+  file: File
 }): Promise<void> => {
   const issued = await gql(IssueDocumentUploadDocument, {
     input: {
@@ -140,29 +137,26 @@ export const uploadDocument = async ({
       sizeBytes: file.size,
       checksumSha256: await checksumOf(file),
     },
-  });
-  const authorization = unwrap(issued.seb.application.issueDocumentUpload);
+  })
+  const authorization = unwrap(issued.seb.application.issueDocumentUpload)
 
   const stored = await fetch(authorization.uploadUrl, {
-    method: "PUT",
+    method: 'PUT',
     // Exactly the headers the signature covers. Adding or dropping one makes
     // the signature invalid, so they are sent as given rather than assembled.
     headers: Object.fromEntries(
-      authorization.requiredHeaders.map((header) => [
-        header.name,
-        header.value,
-      ]),
+      authorization.requiredHeaders.map((header) => [header.name, header.value]),
     ),
     body: file,
-  });
+  })
   if (!stored.ok) {
     throw new Error(
       `The file could not be stored (${stored.status}). Check your connection and try again.`,
-    );
+    )
   }
 
   const finalized = await gql(FinalizeDocumentUploadDocument, {
     uploadId: authorization.uploadId,
-  });
-  unwrap(finalized.seb.application.finalizeDocumentUpload);
-};
+  })
+  unwrap(finalized.seb.application.finalizeDocumentUpload)
+}

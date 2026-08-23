@@ -31,9 +31,7 @@ type Envelope<TResponse> = {
  */
 export const unwrap = <TResponse>(envelope: Envelope<TResponse>): TResponse => {
   if (!envelope.success || envelope.response === null) {
-    throw new OperationFailed(
-      envelope.message ?? 'The operation could not be completed.',
-    )
+    throw new OperationFailed(envelope.message ?? 'The operation could not be completed.')
   }
   return envelope.response
 }
@@ -42,13 +40,12 @@ export const unwrap = <TResponse>(envelope: Envelope<TResponse>): TResponse => {
  * Throws if an operation refused, for the operations whose payload says nothing
  * useful — revoking a session reports only that it happened.
  */
-export const assertSucceeded = (
-  envelope: { success: boolean; message: string | null },
-): void => {
+export const assertSucceeded = (envelope: {
+  success: boolean
+  message: string | null
+}): void => {
   if (!envelope.success) {
-    throw new OperationFailed(
-      envelope.message ?? 'The operation could not be completed.',
-    )
+    throw new OperationFailed(envelope.message ?? 'The operation could not be completed.')
   }
 }
 

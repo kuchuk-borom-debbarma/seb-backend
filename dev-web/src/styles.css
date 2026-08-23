@@ -209,7 +209,9 @@ th.numeric {
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
 .button:hover:not(:disabled) {

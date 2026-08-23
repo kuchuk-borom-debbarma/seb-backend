@@ -19,15 +19,18 @@ import { Route as ShellAdminIndexRouteImport } from './routes/_shell/admin/index
 import { Route as ShellAdminQueueRouteImport } from './routes/_shell/admin/queue'
 import { Route as ShellAppIndexRouteImport } from './routes/_shell/app/index'
 import { Route as ShellAppCyclesRouteImport } from './routes/_shell/app/cycles'
-import { Route as ShellAdminApplicationsIdRouteImport } from './routes/_shell/admin/applications/$id'
 import { Route as ShellAdminCyclesIndexRouteImport } from './routes/_shell/admin/cycles/index'
 import { Route as ShellAdminCyclesIdRouteImport } from './routes/_shell/admin/cycles/$id'
 import { Route as ShellAdminCyclesNewRouteImport } from './routes/_shell/admin/cycles/new'
+import { Route as ShellAdminMeetingsIndexRouteImport } from './routes/_shell/admin/meetings/index'
+import { Route as ShellAdminMeetingsMeetingIdRouteImport } from './routes/_shell/admin/meetings/$meetingId'
 import { Route as ShellAppApplicationsIndexRouteImport } from './routes/_shell/app/applications/index'
 import { Route as ShellAppApplicationsNewRouteImport } from './routes/_shell/app/applications/new'
 import { Route as ShellAppEnterprisesIndexRouteImport } from './routes/_shell/app/enterprises/index'
 import { Route as ShellAppEnterprisesIdRouteImport } from './routes/_shell/app/enterprises/$id'
 import { Route as ShellAppEnterprisesNewRouteImport } from './routes/_shell/app/enterprises/new'
+import { Route as ShellAdminApplicationsIdIndexRouteImport } from './routes/_shell/admin/applications/$id.index'
+import { Route as ShellAdminApplicationsIdFundingRouteImport } from './routes/_shell/admin/applications/$id.funding'
 import { Route as ShellAppApplicationsIdIndexRouteImport } from './routes/_shell/app/applications/$id.index'
 import { Route as ShellAppApplicationsIdDocumentsRouteImport } from './routes/_shell/app/applications/$id.documents'
 import { Route as ShellAppApplicationsIdFormRouteImport } from './routes/_shell/app/applications/$id.form'
@@ -83,12 +86,6 @@ const ShellAppCyclesRoute = ShellAppCyclesRouteImport.update({
   path: '/app/cycles',
   getParentRoute: () => ShellRoute,
 } as any)
-const ShellAdminApplicationsIdRoute =
-  ShellAdminApplicationsIdRouteImport.update({
-    id: '/admin/applications/$id',
-    path: '/admin/applications/$id',
-    getParentRoute: () => ShellRoute,
-  } as any)
 const ShellAdminCyclesIndexRoute = ShellAdminCyclesIndexRouteImport.update({
   id: '/admin/cycles/',
   path: '/admin/cycles/',
@@ -104,6 +101,17 @@ const ShellAdminCyclesNewRoute = ShellAdminCyclesNewRouteImport.update({
   path: '/admin/cycles/new',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellAdminMeetingsIndexRoute = ShellAdminMeetingsIndexRouteImport.update({
+  id: '/admin/meetings/',
+  path: '/admin/meetings/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellAdminMeetingsMeetingIdRoute =
+  ShellAdminMeetingsMeetingIdRouteImport.update({
+    id: '/admin/meetings/$meetingId',
+    path: '/admin/meetings/$meetingId',
+    getParentRoute: () => ShellRoute,
+  } as any)
 const ShellAppApplicationsIndexRoute =
   ShellAppApplicationsIndexRouteImport.update({
     id: '/app/applications/',
@@ -131,6 +139,18 @@ const ShellAppEnterprisesNewRoute = ShellAppEnterprisesNewRouteImport.update({
   path: '/app/enterprises/new',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellAdminApplicationsIdIndexRoute =
+  ShellAdminApplicationsIdIndexRouteImport.update({
+    id: '/admin/applications/$id/',
+    path: '/admin/applications/$id/',
+    getParentRoute: () => ShellRoute,
+  } as any)
+const ShellAdminApplicationsIdFundingRoute =
+  ShellAdminApplicationsIdFundingRouteImport.update({
+    id: '/admin/applications/$id/funding',
+    path: '/admin/applications/$id/funding',
+    getParentRoute: () => ShellRoute,
+  } as any)
 const ShellAppApplicationsIdIndexRoute =
   ShellAppApplicationsIdIndexRouteImport.update({
     id: '/app/applications/$id/',
@@ -172,19 +192,22 @@ export interface FileRoutesByFullPath {
   '/access/': typeof ShellAccessIndexRoute
   '/admin/': typeof ShellAdminIndexRoute
   '/app/': typeof ShellAppIndexRoute
-  '/admin/applications/$id': typeof ShellAdminApplicationsIdRoute
   '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
+  '/admin/meetings/$meetingId': typeof ShellAdminMeetingsMeetingIdRoute
   '/app/applications/new': typeof ShellAppApplicationsNewRoute
   '/app/enterprises/$id': typeof ShellAppEnterprisesIdRoute
   '/app/enterprises/new': typeof ShellAppEnterprisesNewRoute
   '/admin/cycles/': typeof ShellAdminCyclesIndexRoute
+  '/admin/meetings/': typeof ShellAdminMeetingsIndexRoute
   '/app/applications/': typeof ShellAppApplicationsIndexRoute
   '/app/enterprises/': typeof ShellAppEnterprisesIndexRoute
+  '/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
   '/app/applications/$id/documents': typeof ShellAppApplicationsIdDocumentsRoute
   '/app/applications/$id/form': typeof ShellAppApplicationsIdFormRoute
   '/app/applications/$id/funding': typeof ShellAppApplicationsIdFundingRoute
   '/app/applications/$id/review': typeof ShellAppApplicationsIdReviewRoute
+  '/admin/applications/$id/': typeof ShellAdminApplicationsIdIndexRoute
   '/app/applications/$id/': typeof ShellAppApplicationsIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -197,19 +220,22 @@ export interface FileRoutesByTo {
   '/access': typeof ShellAccessIndexRoute
   '/admin': typeof ShellAdminIndexRoute
   '/app': typeof ShellAppIndexRoute
-  '/admin/applications/$id': typeof ShellAdminApplicationsIdRoute
   '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
+  '/admin/meetings/$meetingId': typeof ShellAdminMeetingsMeetingIdRoute
   '/app/applications/new': typeof ShellAppApplicationsNewRoute
   '/app/enterprises/$id': typeof ShellAppEnterprisesIdRoute
   '/app/enterprises/new': typeof ShellAppEnterprisesNewRoute
   '/admin/cycles': typeof ShellAdminCyclesIndexRoute
+  '/admin/meetings': typeof ShellAdminMeetingsIndexRoute
   '/app/applications': typeof ShellAppApplicationsIndexRoute
   '/app/enterprises': typeof ShellAppEnterprisesIndexRoute
+  '/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
   '/app/applications/$id/documents': typeof ShellAppApplicationsIdDocumentsRoute
   '/app/applications/$id/form': typeof ShellAppApplicationsIdFormRoute
   '/app/applications/$id/funding': typeof ShellAppApplicationsIdFundingRoute
   '/app/applications/$id/review': typeof ShellAppApplicationsIdReviewRoute
+  '/admin/applications/$id': typeof ShellAdminApplicationsIdIndexRoute
   '/app/applications/$id': typeof ShellAppApplicationsIdIndexRoute
 }
 export interface FileRoutesById {
@@ -224,19 +250,22 @@ export interface FileRoutesById {
   '/_shell/access/': typeof ShellAccessIndexRoute
   '/_shell/admin/': typeof ShellAdminIndexRoute
   '/_shell/app/': typeof ShellAppIndexRoute
-  '/_shell/admin/applications/$id': typeof ShellAdminApplicationsIdRoute
   '/_shell/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/_shell/admin/cycles/new': typeof ShellAdminCyclesNewRoute
+  '/_shell/admin/meetings/$meetingId': typeof ShellAdminMeetingsMeetingIdRoute
   '/_shell/app/applications/new': typeof ShellAppApplicationsNewRoute
   '/_shell/app/enterprises/$id': typeof ShellAppEnterprisesIdRoute
   '/_shell/app/enterprises/new': typeof ShellAppEnterprisesNewRoute
   '/_shell/admin/cycles/': typeof ShellAdminCyclesIndexRoute
+  '/_shell/admin/meetings/': typeof ShellAdminMeetingsIndexRoute
   '/_shell/app/applications/': typeof ShellAppApplicationsIndexRoute
   '/_shell/app/enterprises/': typeof ShellAppEnterprisesIndexRoute
+  '/_shell/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
   '/_shell/app/applications/$id/documents': typeof ShellAppApplicationsIdDocumentsRoute
   '/_shell/app/applications/$id/form': typeof ShellAppApplicationsIdFormRoute
   '/_shell/app/applications/$id/funding': typeof ShellAppApplicationsIdFundingRoute
   '/_shell/app/applications/$id/review': typeof ShellAppApplicationsIdReviewRoute
+  '/_shell/admin/applications/$id/': typeof ShellAdminApplicationsIdIndexRoute
   '/_shell/app/applications/$id/': typeof ShellAppApplicationsIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -251,19 +280,22 @@ export interface FileRouteTypes {
     | '/access/'
     | '/admin/'
     | '/app/'
-    | '/admin/applications/$id'
     | '/admin/cycles/$id'
     | '/admin/cycles/new'
+    | '/admin/meetings/$meetingId'
     | '/app/applications/new'
     | '/app/enterprises/$id'
     | '/app/enterprises/new'
     | '/admin/cycles/'
+    | '/admin/meetings/'
     | '/app/applications/'
     | '/app/enterprises/'
+    | '/admin/applications/$id/funding'
     | '/app/applications/$id/documents'
     | '/app/applications/$id/form'
     | '/app/applications/$id/funding'
     | '/app/applications/$id/review'
+    | '/admin/applications/$id/'
     | '/app/applications/$id/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -276,19 +308,22 @@ export interface FileRouteTypes {
     | '/access'
     | '/admin'
     | '/app'
-    | '/admin/applications/$id'
     | '/admin/cycles/$id'
     | '/admin/cycles/new'
+    | '/admin/meetings/$meetingId'
     | '/app/applications/new'
     | '/app/enterprises/$id'
     | '/app/enterprises/new'
     | '/admin/cycles'
+    | '/admin/meetings'
     | '/app/applications'
     | '/app/enterprises'
+    | '/admin/applications/$id/funding'
     | '/app/applications/$id/documents'
     | '/app/applications/$id/form'
     | '/app/applications/$id/funding'
     | '/app/applications/$id/review'
+    | '/admin/applications/$id'
     | '/app/applications/$id'
   id:
     | '__root__'
@@ -302,19 +337,22 @@ export interface FileRouteTypes {
     | '/_shell/access/'
     | '/_shell/admin/'
     | '/_shell/app/'
-    | '/_shell/admin/applications/$id'
     | '/_shell/admin/cycles/$id'
     | '/_shell/admin/cycles/new'
+    | '/_shell/admin/meetings/$meetingId'
     | '/_shell/app/applications/new'
     | '/_shell/app/enterprises/$id'
     | '/_shell/app/enterprises/new'
     | '/_shell/admin/cycles/'
+    | '/_shell/admin/meetings/'
     | '/_shell/app/applications/'
     | '/_shell/app/enterprises/'
+    | '/_shell/admin/applications/$id/funding'
     | '/_shell/app/applications/$id/documents'
     | '/_shell/app/applications/$id/form'
     | '/_shell/app/applications/$id/funding'
     | '/_shell/app/applications/$id/review'
+    | '/_shell/admin/applications/$id/'
     | '/_shell/app/applications/$id/'
   fileRoutesById: FileRoutesById
 }
@@ -397,13 +435,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAppCyclesRouteImport
       parentRoute: typeof ShellRoute
     }
-    '/_shell/admin/applications/$id': {
-      id: '/_shell/admin/applications/$id'
-      path: '/admin/applications/$id'
-      fullPath: '/admin/applications/$id'
-      preLoaderRoute: typeof ShellAdminApplicationsIdRouteImport
-      parentRoute: typeof ShellRoute
-    }
     '/_shell/admin/cycles/': {
       id: '/_shell/admin/cycles/'
       path: '/admin/cycles'
@@ -423,6 +454,20 @@ declare module '@tanstack/react-router' {
       path: '/admin/cycles/new'
       fullPath: '/admin/cycles/new'
       preLoaderRoute: typeof ShellAdminCyclesNewRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/admin/meetings/': {
+      id: '/_shell/admin/meetings/'
+      path: '/admin/meetings'
+      fullPath: '/admin/meetings/'
+      preLoaderRoute: typeof ShellAdminMeetingsIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/admin/meetings/$meetingId': {
+      id: '/_shell/admin/meetings/$meetingId'
+      path: '/admin/meetings/$meetingId'
+      fullPath: '/admin/meetings/$meetingId'
+      preLoaderRoute: typeof ShellAdminMeetingsMeetingIdRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/app/applications/': {
@@ -458,6 +503,20 @@ declare module '@tanstack/react-router' {
       path: '/app/enterprises/new'
       fullPath: '/app/enterprises/new'
       preLoaderRoute: typeof ShellAppEnterprisesNewRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/admin/applications/$id/': {
+      id: '/_shell/admin/applications/$id/'
+      path: '/admin/applications/$id'
+      fullPath: '/admin/applications/$id/'
+      preLoaderRoute: typeof ShellAdminApplicationsIdIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/admin/applications/$id/funding': {
+      id: '/_shell/admin/applications/$id/funding'
+      path: '/admin/applications/$id/funding'
+      fullPath: '/admin/applications/$id/funding'
+      preLoaderRoute: typeof ShellAdminApplicationsIdFundingRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/app/applications/$id/': {
@@ -505,19 +564,22 @@ interface ShellRouteChildren {
   ShellAccessIndexRoute: typeof ShellAccessIndexRoute
   ShellAdminIndexRoute: typeof ShellAdminIndexRoute
   ShellAppIndexRoute: typeof ShellAppIndexRoute
-  ShellAdminApplicationsIdRoute: typeof ShellAdminApplicationsIdRoute
   ShellAdminCyclesIdRoute: typeof ShellAdminCyclesIdRoute
   ShellAdminCyclesNewRoute: typeof ShellAdminCyclesNewRoute
+  ShellAdminMeetingsMeetingIdRoute: typeof ShellAdminMeetingsMeetingIdRoute
   ShellAppApplicationsNewRoute: typeof ShellAppApplicationsNewRoute
   ShellAppEnterprisesIdRoute: typeof ShellAppEnterprisesIdRoute
   ShellAppEnterprisesNewRoute: typeof ShellAppEnterprisesNewRoute
   ShellAdminCyclesIndexRoute: typeof ShellAdminCyclesIndexRoute
+  ShellAdminMeetingsIndexRoute: typeof ShellAdminMeetingsIndexRoute
   ShellAppApplicationsIndexRoute: typeof ShellAppApplicationsIndexRoute
   ShellAppEnterprisesIndexRoute: typeof ShellAppEnterprisesIndexRoute
+  ShellAdminApplicationsIdFundingRoute: typeof ShellAdminApplicationsIdFundingRoute
   ShellAppApplicationsIdDocumentsRoute: typeof ShellAppApplicationsIdDocumentsRoute
   ShellAppApplicationsIdFormRoute: typeof ShellAppApplicationsIdFormRoute
   ShellAppApplicationsIdFundingRoute: typeof ShellAppApplicationsIdFundingRoute
   ShellAppApplicationsIdReviewRoute: typeof ShellAppApplicationsIdReviewRoute
+  ShellAdminApplicationsIdIndexRoute: typeof ShellAdminApplicationsIdIndexRoute
   ShellAppApplicationsIdIndexRoute: typeof ShellAppApplicationsIdIndexRoute
 }
 
@@ -528,19 +590,22 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellAccessIndexRoute: ShellAccessIndexRoute,
   ShellAdminIndexRoute: ShellAdminIndexRoute,
   ShellAppIndexRoute: ShellAppIndexRoute,
-  ShellAdminApplicationsIdRoute: ShellAdminApplicationsIdRoute,
   ShellAdminCyclesIdRoute: ShellAdminCyclesIdRoute,
   ShellAdminCyclesNewRoute: ShellAdminCyclesNewRoute,
+  ShellAdminMeetingsMeetingIdRoute: ShellAdminMeetingsMeetingIdRoute,
   ShellAppApplicationsNewRoute: ShellAppApplicationsNewRoute,
   ShellAppEnterprisesIdRoute: ShellAppEnterprisesIdRoute,
   ShellAppEnterprisesNewRoute: ShellAppEnterprisesNewRoute,
   ShellAdminCyclesIndexRoute: ShellAdminCyclesIndexRoute,
+  ShellAdminMeetingsIndexRoute: ShellAdminMeetingsIndexRoute,
   ShellAppApplicationsIndexRoute: ShellAppApplicationsIndexRoute,
   ShellAppEnterprisesIndexRoute: ShellAppEnterprisesIndexRoute,
+  ShellAdminApplicationsIdFundingRoute: ShellAdminApplicationsIdFundingRoute,
   ShellAppApplicationsIdDocumentsRoute: ShellAppApplicationsIdDocumentsRoute,
   ShellAppApplicationsIdFormRoute: ShellAppApplicationsIdFormRoute,
   ShellAppApplicationsIdFundingRoute: ShellAppApplicationsIdFundingRoute,
   ShellAppApplicationsIdReviewRoute: ShellAppApplicationsIdReviewRoute,
+  ShellAdminApplicationsIdIndexRoute: ShellAdminApplicationsIdIndexRoute,
   ShellAppApplicationsIdIndexRoute: ShellAppApplicationsIdIndexRoute,
 }
 

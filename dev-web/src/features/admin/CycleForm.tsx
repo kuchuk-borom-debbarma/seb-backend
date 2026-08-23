@@ -24,7 +24,11 @@ import type {
 } from '#/graphql/generated/schema'
 import { humanize } from '#/lib/format'
 
-const ASSESSMENT_TYPES: AssessmentType[] = ['UTILIZATION', 'PERFORMANCE', 'FINANCIAL_AUDIT']
+const ASSESSMENT_TYPES: AssessmentType[] = [
+  'UTILIZATION',
+  'PERFORMANCE',
+  'FINANCIAL_AUDIT',
+]
 
 const DOCUMENT_TYPES: DocumentType[] = [
   'IDENTITY_AGE_PROOF',
@@ -146,7 +150,10 @@ export function CycleForm({
     key: TKey,
     value: ProgrammeCycleInput['policy'][TKey],
   ) =>
-    setValues((current) => ({ ...current, policy: { ...current.policy, [key]: value } }))
+    setValues((current) => ({
+      ...current,
+      policy: { ...current.policy, [key]: value },
+    }))
 
   const toggleAssessment = (type: AssessmentType) =>
     setPolicy(
@@ -166,11 +173,10 @@ export function CycleForm({
     >
       <p className="notice" data-tone="action">
         <span className="notice-title">A cycle is created as a draft</span>
-        Nothing here reaches applicants until you open it — and it can only be
-        opened once the policy reference, applicant guidance, both dates, every
-        eligibility field, a rule for every document type, at least one
-        assessment, and a reason for every administrative action are all
-        present.
+        Nothing here reaches applicants until you open it — and it can only be opened once
+        the policy reference, applicant guidance, both dates, every eligibility field, a
+        rule for every document type, at least one assessment, and a reason for every
+        administrative action are all present.
       </p>
 
       <fieldset className="fieldset">
@@ -191,8 +197,8 @@ export function CycleForm({
               onChange={(event) => set('cycleCode', event.target.value.toUpperCase())}
             />
             <span className="field-hint">
-              3–32 upper-case letters, numbers or hyphens. Unique, and shown to
-              applicants beside the name.
+              3–32 upper-case letters, numbers or hyphens. Unique, and shown to applicants
+              beside the name.
             </span>
           </div>
           <div>
@@ -232,8 +238,8 @@ export function CycleForm({
               onChange={(event) => set('policyReference', event.target.value || null)}
             />
             <span className="field-hint">
-              The order or circular this cycle implements. Required before the
-              cycle can be opened.
+              The order or circular this cycle implements. Required before the cycle can
+              be opened.
             </span>
           </div>
           <div>
@@ -276,8 +282,8 @@ export function CycleForm({
             onChange={(event) => set('applicantGuidance', event.target.value || null)}
           />
           <span className="field-hint">
-            Shown on the applicant's programme cycle page. Required before the
-            cycle can be opened.
+            Shown on the applicant's programme cycle page. Required before the cycle can
+            be opened.
           </span>
         </div>
       </fieldset>
@@ -295,7 +301,10 @@ export function CycleForm({
               type="number"
               value={values.policy.minimumApplicantAge ?? ''}
               onChange={(event) =>
-                setPolicy('minimumApplicantAge', event.target.value ? Number(event.target.value) : null)
+                setPolicy(
+                  'minimumApplicantAge',
+                  event.target.value ? Number(event.target.value) : null,
+                )
               }
             />
           </div>
@@ -309,7 +318,10 @@ export function CycleForm({
               type="number"
               value={values.policy.maximumApplicantAge ?? ''}
               onChange={(event) =>
-                setPolicy('maximumApplicantAge', event.target.value ? Number(event.target.value) : null)
+                setPolicy(
+                  'maximumApplicantAge',
+                  event.target.value ? Number(event.target.value) : null,
+                )
               }
             />
           </div>
@@ -323,7 +335,10 @@ export function CycleForm({
               type="number"
               value={values.policy.categoryAMaximumMonths ?? ''}
               onChange={(event) =>
-                setPolicy('categoryAMaximumMonths', event.target.value ? Number(event.target.value) : null)
+                setPolicy(
+                  'categoryAMaximumMonths',
+                  event.target.value ? Number(event.target.value) : null,
+                )
               }
             />
           </div>
@@ -337,7 +352,10 @@ export function CycleForm({
               type="number"
               value={values.policy.expansionWaitMonths ?? ''}
               onChange={(event) =>
-                setPolicy('expansionWaitMonths', event.target.value ? Number(event.target.value) : null)
+                setPolicy(
+                  'expansionWaitMonths',
+                  event.target.value ? Number(event.target.value) : null,
+                )
               }
             />
           </div>
@@ -350,7 +368,10 @@ export function CycleForm({
               className="select"
               value={values.policy.jurisdiction ?? ''}
               onChange={(event) =>
-                setPolicy('jurisdiction', (event.target.value || null) as ProgrammeJurisdiction | null)
+                setPolicy(
+                  'jurisdiction',
+                  (event.target.value || null) as ProgrammeJurisdiction | null,
+                )
               }
             >
               <option value="">Not stated</option>
@@ -363,9 +384,13 @@ export function CycleForm({
               id="majorityOwnershipRequired"
               type="checkbox"
               checked={values.policy.majorityOwnershipRequired ?? false}
-              onChange={(event) => setPolicy('majorityOwnershipRequired', event.target.checked)}
+              onChange={(event) =>
+                setPolicy('majorityOwnershipRequired', event.target.checked)
+              }
             />
-            <label htmlFor="majorityOwnershipRequired">Majority ST ownership required</label>
+            <label htmlFor="majorityOwnershipRequired">
+              Majority ST ownership required
+            </label>
           </div>
         </div>
 
@@ -389,9 +414,8 @@ export function CycleForm({
       <fieldset className="fieldset">
         <legend className="eyebrow">Funding ceiling</legend>
         <p className="field-hint" style={{ marginBottom: '0.75rem' }}>
-          TTAADC has not yet stated one authoritative maximum, so a cycle may be
-          published with this unresolved. Applications are then not bounded by a
-          ceiling.
+          TTAADC has not yet stated one authoritative maximum, so a cycle may be published
+          with this unresolved. Applications are then not bounded by a ceiling.
         </p>
         <div className="detail-grid">
           <div>
@@ -456,7 +480,8 @@ export function CycleForm({
                   onChange={(event) =>
                     setPolicy(
                       'fundingCeilingScope',
-                      (event.target.value || null) as ProgrammeCycleInput['policy']['fundingCeilingScope'],
+                      (event.target.value ||
+                        null) as ProgrammeCycleInput['policy']['fundingCeilingScope'],
                     )
                   }
                 >
@@ -486,7 +511,10 @@ export function CycleForm({
                     'documentRules',
                     values.policy.documentRules.map((current, position) =>
                       position === index
-                        ? { ...current, documentType: event.target.value as DocumentType }
+                        ? {
+                            ...current,
+                            documentType: event.target.value as DocumentType,
+                          }
                         : current,
                     ),
                   )
@@ -529,7 +557,9 @@ export function CycleForm({
                 onClick={() =>
                   setPolicy(
                     'documentRules',
-                    values.policy.documentRules.filter((_, position) => position !== index),
+                    values.policy.documentRules.filter(
+                      (_, position) => position !== index,
+                    ),
                   )
                 }
               >
@@ -562,10 +592,9 @@ export function CycleForm({
           </span>
         </summary>
         <p className="field-hint" style={{ margin: '0.75rem 0' }}>
-          Every later administrative action — a revision, a rejection, a
-          reversal — must choose a reason approved by this cycle. A cycle
-          without them cannot be operated, so these are filled in for you and
-          can be renamed.
+          Every later administrative action — a revision, a rejection, a reversal — must
+          choose a reason approved by this cycle. A cycle without them cannot be operated,
+          so these are filled in for you and can be renamed.
         </p>
         <div className="table-wrap">
           <table className="table">
@@ -590,7 +619,9 @@ export function CycleForm({
                         setPolicy(
                           'reasons',
                           values.policy.reasons.map((current, position) =>
-                            position === index ? { ...current, code: event.target.value } : current,
+                            position === index
+                              ? { ...current, code: event.target.value }
+                              : current,
                           ),
                         )
                       }
@@ -605,7 +636,9 @@ export function CycleForm({
                         setPolicy(
                           'reasons',
                           values.policy.reasons.map((current, position) =>
-                            position === index ? { ...current, label: event.target.value } : current,
+                            position === index
+                              ? { ...current, label: event.target.value }
+                              : current,
                           ),
                         )
                       }
@@ -619,7 +652,9 @@ export function CycleForm({
                       onClick={() =>
                         setPolicy(
                           'reasons',
-                          values.policy.reasons.filter((_, position) => position !== index),
+                          values.policy.reasons.filter(
+                            (_, position) => position !== index,
+                          ),
                         )
                       }
                     >

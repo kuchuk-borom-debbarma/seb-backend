@@ -156,7 +156,9 @@ export function EnterpriseForm({
                 className="input"
                 required
                 value={values.registrationNumber ?? ''}
-                onChange={(event) => set('registrationNumber', orNull(event.target.value))}
+                onChange={(event) =>
+                  set('registrationNumber', orNull(event.target.value))
+                }
               />
             </div>
           ) : null}
@@ -171,7 +173,9 @@ export function EnterpriseForm({
               value={values.gstin ?? ''}
               onChange={(event) => set('gstin', orNull(event.target.value))}
             />
-            <span className="field-hint">Only if the enterprise is registered for GST.</span>
+            <span className="field-hint">
+              Only if the enterprise is registered for GST.
+            </span>
           </div>
 
           <div>
@@ -207,7 +211,9 @@ export function EnterpriseForm({
                 className="input"
                 required
                 value={values.otherBusinessSector ?? ''}
-                onChange={(event) => set('otherBusinessSector', orNull(event.target.value))}
+                onChange={(event) =>
+                  set('otherBusinessSector', orNull(event.target.value))
+                }
               />
             </div>
           ) : null}
@@ -225,7 +231,9 @@ export function EnterpriseForm({
               id="businessBlockOrVillage"
               className="input"
               value={values.businessBlockOrVillage ?? ''}
-              onChange={(event) => set('businessBlockOrVillage', orNull(event.target.value))}
+              onChange={(event) =>
+                set('businessBlockOrVillage', orNull(event.target.value))
+              }
             />
           </div>
           <div>

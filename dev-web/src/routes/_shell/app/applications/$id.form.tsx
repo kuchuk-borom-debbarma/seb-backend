@@ -130,9 +130,12 @@ function DraftFormPage() {
     [save],
   )
 
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current)
-  }, [])
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current)
+    },
+    [],
+  )
 
   const update = useCallback(
     (next: ApplicationDraftInput) => {
@@ -178,7 +181,12 @@ function DraftFormPage() {
       />
 
       {saveError ? (
-        <p className="notice" data-tone="error" role="alert" style={{ marginBottom: '1rem' }}>
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginBottom: '1rem' }}
+        >
           {saveError}
         </p>
       ) : null}
@@ -204,8 +212,8 @@ function DraftFormPage() {
               */}
               {locked && application.status === 'REVISION_REQUIRED' ? (
                 <p className="field-hint" style={{ marginBottom: '0.75rem' }}>
-                  No correction was requested for this section, so it must stay
-                  exactly as it was submitted.
+                  No correction was requested for this section, so it must stay exactly as
+                  it was submitted.
                 </p>
               ) : null}
 

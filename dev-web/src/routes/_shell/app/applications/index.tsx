@@ -74,7 +74,8 @@ const enterpriseNamesQuery = queryOptions({
 export const Route = createFileRoute('/_shell/app/applications/')({
   validateSearch: (search: Record<string, unknown>): Search => ({
     after: typeof search.after === 'string' ? search.after : undefined,
-    enterpriseId: typeof search.enterpriseId === 'string' ? search.enterpriseId : undefined,
+    enterpriseId:
+      typeof search.enterpriseId === 'string' ? search.enterpriseId : undefined,
     status: STATUSES.includes(search.status as ApplicationStatus)
       ? (search.status as ApplicationStatus)
       : undefined,
@@ -159,7 +160,8 @@ function ApplicationsPage() {
               navigate({
                 search: (previous) => ({
                   ...previous,
-                  status: (event.target.value || undefined) as ApplicationStatus | undefined,
+                  status: (event.target.value || undefined) as
+                    ApplicationStatus | undefined,
                   after: undefined,
                 }),
               })
@@ -265,13 +267,15 @@ function ApplicationsPage() {
             </table>
           </div>
 
-          {(data?.pageInfo.hasNextPage || search.after) ? (
+          {data?.pageInfo.hasNextPage || search.after ? (
             <div className="pager">
               <button
                 type="button"
                 className="button"
                 disabled={!search.after}
-                onClick={() => navigate({ search: (previous) => ({ ...previous, after: undefined }) })}
+                onClick={() =>
+                  navigate({ search: (previous) => ({ ...previous, after: undefined }) })
+                }
               >
                 Start again
               </button>

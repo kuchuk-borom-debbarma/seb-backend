@@ -30,7 +30,10 @@ export const timelineQuery = (id: string) =>
   queryOptions({
     queryKey: ['application-timeline', id],
     queryFn: async () => {
-      const data = await gql(ApplicationTimelineDocument, { applicationId: id, first: 50 })
+      const data = await gql(ApplicationTimelineDocument, {
+        applicationId: id,
+        first: 50,
+      })
       return unwrap(data.seb.application.timeline).nodes
     },
   })

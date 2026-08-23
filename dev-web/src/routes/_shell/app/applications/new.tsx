@@ -1,4 +1,9 @@
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
 import { cyclesQuery } from '#/features/application/queries'
@@ -38,14 +43,18 @@ const eligibilityQuery = (enterpriseId: string, programmeCycleId: string) =>
   queryOptions({
     queryKey: ['expansion-eligibility', enterpriseId, programmeCycleId],
     queryFn: async () => {
-      const data = await gql(ExpansionEligibilityDocument, { enterpriseId, programmeCycleId })
+      const data = await gql(ExpansionEligibilityDocument, {
+        enterpriseId,
+        programmeCycleId,
+      })
       return unwrap(data.seb.application.expansionEligibility)
     },
   })
 
 export const Route = createFileRoute('/_shell/app/applications/new')({
   validateSearch: (search: Record<string, unknown>): Search => ({
-    enterpriseId: typeof search.enterpriseId === 'string' ? search.enterpriseId : undefined,
+    enterpriseId:
+      typeof search.enterpriseId === 'string' ? search.enterpriseId : undefined,
     cycleId: typeof search.cycleId === 'string' ? search.cycleId : undefined,
   }),
   loader: async ({ context }) => {
@@ -123,8 +132,8 @@ function StartApplicationPage() {
           <div className="empty">
             <h3>No cycle is open for new applications</h3>
             <p>
-              A programme cycle must be open before an application can be
-              started. Closed cycles stay readable in your history.
+              A programme cycle must be open before an application can be started. Closed
+              cycles stay readable in your history.
             </p>
             <Link to="/app/cycles" className="button" style={{ marginTop: '1rem' }}>
               See programme cycles
@@ -146,11 +155,11 @@ function StartApplicationPage() {
                     value={search.enterpriseId ?? ''}
                     onChange={(event) =>
                       navigate({
-                      search: (previous) => ({
-                        ...previous,
-                        enterpriseId: event.target.value || undefined,
-                      }),
-                    })
+                        search: (previous) => ({
+                          ...previous,
+                          enterpriseId: event.target.value || undefined,
+                        }),
+                      })
                     }
                   >
                     <option value="">Choose an enterprise</option>
@@ -172,11 +181,11 @@ function StartApplicationPage() {
                     value={search.cycleId ?? ''}
                     onChange={(event) =>
                       navigate({
-                      search: (previous) => ({
-                        ...previous,
-                        cycleId: event.target.value || undefined,
-                      }),
-                    })
+                        search: (previous) => ({
+                          ...previous,
+                          cycleId: event.target.value || undefined,
+                        }),
+                      })
                     }
                   >
                     <option value="">Choose a cycle</option>
@@ -189,7 +198,9 @@ function StartApplicationPage() {
                   {search.cycleId ? (
                     <span className="field-hint">
                       {(() => {
-                        const cycle = open.find((candidate) => candidate.id === search.cycleId)
+                        const cycle = open.find(
+                          (candidate) => candidate.id === search.cycleId,
+                        )
                         return cycle?.closesAt
                           ? `Applications close ${formatDate(cycle.closesAt)} — ${formatRelative(cycle.closesAt)}.`
                           : 'No closing date has been set.'
@@ -212,9 +223,11 @@ function StartApplicationPage() {
               <div className="card-body stack">
                 <div>
                   <h3>A first application</h3>
-                  <p className="muted" style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
-                    For an enterprise that has not been funded by Mission SEP
-                    before.
+                  <p
+                    className="muted"
+                    style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}
+                  >
+                    For an enterprise that has not been funded by Mission SEP before.
                   </p>
                   <button
                     type="button"
@@ -232,9 +245,12 @@ function StartApplicationPage() {
 
                 <div>
                   <h3>An expansion</h3>
-                  <p className="muted" style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
-                    For the next phase of an enterprise already funded by an
-                    earlier award.
+                  <p
+                    className="muted"
+                    style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}
+                  >
+                    For the next phase of an enterprise already funded by an earlier
+                    award.
                   </p>
 
                   {/*
@@ -242,7 +258,11 @@ function StartApplicationPage() {
                     blocked by three things needs to see three things.
                   */}
                   {eligibility && !eligibility.eligible ? (
-                    <div className="notice" data-tone="action" style={{ marginTop: '0.75rem' }}>
+                    <div
+                      className="notice"
+                      data-tone="action"
+                      style={{ marginTop: '0.75rem' }}
+                    >
                       <span className="notice-title">
                         This enterprise cannot start an expansion yet
                       </span>
@@ -255,7 +275,8 @@ function StartApplicationPage() {
                       </ul>
                       {eligibility.eligibleAt ? (
                         <p style={{ marginTop: '0.5rem' }}>
-                          The earliest it can apply is {formatDate(eligibility.eligibleAt)}.
+                          The earliest it can apply is{' '}
+                          {formatDate(eligibility.eligibleAt)}.
                         </p>
                       ) : null}
                     </div>

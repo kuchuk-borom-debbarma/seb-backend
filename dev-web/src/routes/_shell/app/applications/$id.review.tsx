@@ -98,7 +98,11 @@ function ReviewPage() {
                 <Link to="/app/applications/$id/form" params={{ id }} className="button">
                   Go to the form
                 </Link>
-                <Link to="/app/applications/$id/documents" params={{ id }} className="button">
+                <Link
+                  to="/app/applications/$id/documents"
+                  params={{ id }}
+                  className="button"
+                >
                   Evidence
                 </Link>
               </div>
@@ -157,14 +161,15 @@ function ReviewPage() {
           <div className="card">
             <div className="card-header">
               <p className="eyebrow">
-                What changed since submission {changes.response.comparedToSubmissionNumber}
+                What changed since submission{' '}
+                {changes.response.comparedToSubmissionNumber}
               </p>
             </div>
             <div className="card-body">
               {changedSections.length === 0 ? (
                 <p className="muted">
-                  Nothing has changed yet. Resubmitting without a change would
-                  send the same answers back.
+                  Nothing has changed yet. Resubmitting without a change would send the
+                  same answers back.
                 </p>
               ) : (
                 <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>

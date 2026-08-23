@@ -65,14 +65,20 @@ function AdminCyclesPage() {
                   <th scope="col">State</th>
                   <th scope="col">Opens</th>
                   <th scope="col">Closes</th>
-                  <th scope="col" className="numeric">Version</th>
+                  <th scope="col" className="numeric">
+                    Version
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {cycles?.map((cycle) => (
                   <tr key={cycle.id}>
                     <td>
-                      <Link to="/admin/cycles/$id" params={{ id: cycle.id }} style={{ fontWeight: 500 }}>
+                      <Link
+                        to="/admin/cycles/$id"
+                        params={{ id: cycle.id }}
+                        style={{ fontWeight: 500 }}
+                      >
                         {cycle.displayName}
                       </Link>
                       <span className="muted tabular"> · {cycle.cycleCode}</span>

@@ -14,10 +14,7 @@
  * Worker, not a round trip through our own HTTP server.
  */
 import { createServerFn } from '@tanstack/react-start'
-import {
-  getRequestHeader,
-  setResponseHeader,
-} from '@tanstack/react-start/server'
+import { getRequestHeader, setResponseHeader } from '@tanstack/react-start/server'
 import type { TypedDocumentString } from '#/graphql/generated/operations'
 import { forwardToWorker, type GraphQLRequest } from './api'
 
@@ -46,9 +43,7 @@ const execute = createServerFn({ method: 'POST' })
     if (body.errors?.length) {
       // A GraphQL error here means a malformed document or an unexpected server
       // fault. Expected failures travel inside `data` as result envelopes.
-      throw new GraphQLRequestError(
-        body.errors.map((error) => error.message).join('; '),
-      )
+      throw new GraphQLRequestError(body.errors.map((error) => error.message).join('; '))
     }
     if (!body.data) throw new GraphQLRequestError('The API returned no data.')
     return body.data

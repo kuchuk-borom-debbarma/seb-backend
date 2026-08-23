@@ -67,7 +67,9 @@
    "finished". */
 .stage[data-state='current'] .marker {
   border-color: var(--green);
-  box-shadow: inset 0 0 0 2px var(--surface), inset 0 0 0 4px var(--green);
+  box-shadow:
+    inset 0 0 0 2px var(--surface),
+    inset 0 0 0 4px var(--green);
 }
 
 .stageLabel {

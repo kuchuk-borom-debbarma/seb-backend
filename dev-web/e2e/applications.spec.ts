@@ -22,7 +22,9 @@ test.describe('applications', () => {
     await expect(page.getByText('Nothing here yet')).toBeVisible()
   })
 
-  test('asks for an enterprise before an application can be started', async ({ page }) => {
+  test('asks for an enterprise before an application can be started', async ({
+    page,
+  }) => {
     await asNewApplicant(page)
     await page.goto('/app/applications/new')
 
@@ -45,12 +47,16 @@ test.describe('applications', () => {
     await asNewApplicant(page)
     await page.goto('/app/cycles')
 
-    await expect(page.getByRole('heading', { name: 'Open for new applications' })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'Open for new applications' }),
+    ).toBeVisible()
     await expect(page.getByText('No cycle is open')).toBeVisible()
 
     // "Cycles you have applied in" only appears when there is history, so an
     // empty section is never shown.
-    await expect(page.getByRole('heading', { name: 'Cycles you have applied in' })).toBeHidden()
+    await expect(
+      page.getByRole('heading', { name: 'Cycles you have applied in' }),
+    ).toBeHidden()
   })
 
   test('filters are carried in the address so a view can be shared', async ({ page }) => {

@@ -12,10 +12,7 @@
  * are allowed to change.
  */
 import { useMemo, useState } from 'react'
-import {
-  reasonsFor,
-  type ReasonCategory,
-} from '#/features/admin/workspaceQueries'
+import { reasonsFor, type ReasonCategory } from '#/features/admin/workspaceQueries'
 import { SECTION_TITLES } from '#/features/application/draft'
 import type {
   ApplicationSection,
@@ -111,10 +108,18 @@ const REVISABLE: ApplicationSection[] = [
 
 export type DeskReviewDraft = {
   outcome: DeskReviewOutcome
-  checks: { checkType: DeskReviewCheckType; result: DeskReviewCheckResult; internalNote?: string | null }[]
+  checks: {
+    checkType: DeskReviewCheckType
+    result: DeskReviewCheckResult
+    internalNote?: string | null
+  }[]
   reasonCategoryId?: string | null
   applicantMessage?: string | null
-  revisions: { section: ApplicationSection; reasonCategoryId: string; note: string }[]
+  revisions: {
+    section: ApplicationSection
+    reasonCategoryId: string
+    note: string
+  }[]
 }
 
 export function DeskReviewForm({
@@ -128,9 +133,9 @@ export function DeskReviewForm({
   error: string | null
   onSubmit: (draft: DeskReviewDraft) => void
 }) {
-  const [results, setResults] = useState<Partial<Record<DeskReviewCheckType, DeskReviewCheckResult>>>(
-    {},
-  )
+  const [results, setResults] = useState<
+    Partial<Record<DeskReviewCheckType, DeskReviewCheckResult>>
+  >({})
   const [notes, setNotes] = useState<Partial<Record<DeskReviewCheckType, string>>>({})
   const [outcome, setOutcome] = useState<DeskReviewOutcome | ''>('')
   const [applicantMessage, setApplicantMessage] = useState('')
@@ -246,8 +251,7 @@ export function DeskReviewForm({
         </div>
         {/* Said once, under the table, rather than nine times beside it. */}
         <p className="field-hint" style={{ marginTop: '0.75rem' }}>
-          Internal notes stay inside the programme office. The applicant never
-          sees them.
+          Internal notes stay inside the programme office. The applicant never sees them.
         </p>
       </fieldset>
 
@@ -287,7 +291,10 @@ export function DeskReviewForm({
                             setRevisions((previous) => {
                               const next = { ...previous }
                               if (event.target.checked) {
-                                next[section] = { reasonCategoryId: '', note: '' }
+                                next[section] = {
+                                  reasonCategoryId: '',
+                                  note: '',
+                                }
                               } else {
                                 delete next[section]
                               }
@@ -338,7 +345,10 @@ export function DeskReviewForm({
                               onChange={(event) =>
                                 setRevisions((previous) => ({
                                   ...previous,
-                                  [section]: { ...value, note: event.target.value },
+                                  [section]: {
+                                    ...value,
+                                    note: event.target.value,
+                                  },
                                 }))
                               }
                             />
@@ -352,9 +362,9 @@ export function DeskReviewForm({
             </div>
             {revisionReasons.length === 0 ? (
               <p className="notice" data-tone="warn" style={{ marginTop: '0.75rem' }}>
-                <span className="notice-title">This cycle has no revision reasons</span>
-                A correction request must name a reason from the cycle's
-                catalogue. Add one in cycle administration first.
+                <span className="notice-title">This cycle has no revision reasons</span>A
+                correction request must name a reason from the cycle's catalogue. Add one
+                in cycle administration first.
               </p>
             ) : null}
           </div>
@@ -401,13 +411,23 @@ export function DeskReviewForm({
       </fieldset>
 
       {error ? (
-        <p className="notice" data-tone="error" role="alert" style={{ marginTop: '1rem' }}>
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginTop: '1rem' }}
+        >
           {error}
         </p>
       ) : null}
 
       <div className="row" style={{ marginTop: '1rem' }}>
-        <button type="submit" className="button" data-variant="primary" disabled={!ready || pending}>
+        <button
+          type="submit"
+          className="button"
+          data-variant="primary"
+          disabled={!ready || pending}
+        >
           {pending ? 'Recording…' : 'Complete the review'}
         </button>
         {!everyCheckAnswered ? (

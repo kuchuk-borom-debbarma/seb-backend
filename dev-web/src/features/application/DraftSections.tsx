@@ -11,8 +11,8 @@
  * the API derives from the same rule its draft-save path enforces. A locked
  * section still shows its answers; it just cannot be changed.
  */
-import { memo } from "react";
-import type { ApplicationDraftInput } from "#/graphql/generated/operations";
+import { memo } from 'react'
+import type { ApplicationDraftInput } from '#/graphql/generated/operations'
 import type {
   ApplicantDesignation,
   ApplicationCategory,
@@ -21,33 +21,32 @@ import type {
   Gender,
   RegistrationType,
   RelationshipType,
-} from "#/graphql/generated/schema";
-import { formatMoney, humanize } from "#/lib/format";
-import { paiseToRupees, rupeesToPaise } from "./draft";
+} from '#/graphql/generated/schema'
+import { formatMoney, humanize } from '#/lib/format'
+import { paiseToRupees, rupeesToPaise } from './draft'
 
-const REGISTRATION_TYPES: RegistrationType[] = ["NONE", "CIN", "UDYAM"];
-const CATEGORIES: ApplicationCategory[] = ["CATEGORY_A", "CATEGORY_B"];
+const REGISTRATION_TYPES: RegistrationType[] = ['NONE', 'CIN', 'UDYAM']
+const CATEGORIES: ApplicationCategory[] = ['CATEGORY_A', 'CATEGORY_B']
 const DESIGNATIONS: ApplicantDesignation[] = [
-  "PROPRIETOR",
-  "MANAGING_PARTNER",
-  "DIRECTOR",
-  "AUTHORIZED_SIGNATORY",
-];
-const GENDERS: Gender[] = ["MALE", "FEMALE", "OTHER"];
-const CREDIT_STATUSES: CreditStatus[] = ["STANDARD", "NPA"];
-const RELATIONSHIPS: RelationshipType[] = ["SON_OF", "DAUGHTER_OF", "WIFE_OF"];
+  'PROPRIETOR',
+  'MANAGING_PARTNER',
+  'DIRECTOR',
+  'AUTHORIZED_SIGNATORY',
+]
+const GENDERS: Gender[] = ['MALE', 'FEMALE', 'OTHER']
+const CREDIT_STATUSES: CreditStatus[] = ['STANDARD', 'NPA']
+const RELATIONSHIPS: RelationshipType[] = ['SON_OF', 'DAUGHTER_OF', 'WIFE_OF']
 const SECTORS: BusinessSector[] = [
-  "AGRICULTURE_AND_ALLIED",
-  "HANDLOOM_TEXTILE_AND_HANDICRAFTS",
-  "FOOD_PROCESSING",
-  "TOURISM_AND_HOSPITALITY",
-  "INFORMATION_TECHNOLOGY",
-  "MANUFACTURING_AND_SERVICES",
-  "OTHER",
-];
+  'AGRICULTURE_AND_ALLIED',
+  'HANDLOOM_TEXTILE_AND_HANDICRAFTS',
+  'FOOD_PROCESSING',
+  'TOURISM_AND_HOSPITALITY',
+  'INFORMATION_TECHNOLOGY',
+  'MANUFACTURING_AND_SERVICES',
+  'OTHER',
+]
 
-const orNull = (value: string): string | null =>
-  value.trim() === "" ? null : value;
+const orNull = (value: string): string | null => (value.trim() === '' ? null : value)
 
 /** One labelled control, with the API's own message for the field beneath it. */
 function Field({
@@ -57,11 +56,11 @@ function Field({
   issue,
   children,
 }: {
-  id: string;
-  label: string;
-  hint?: string;
-  issue?: string;
-  children: React.ReactNode;
+  id: string
+  label: string
+  hint?: string
+  issue?: string
+  children: React.ReactNode
 }) {
   return (
     <div>
@@ -77,7 +76,7 @@ function Field({
         <span className="field-hint">{hint}</span>
       ) : null}
     </div>
-  );
+  )
 }
 
 /**
@@ -98,13 +97,13 @@ function YesNoField({
   disabled,
   onAnswer,
 }: {
-  name: string;
-  question: string;
-  hint?: string;
-  issue?: string;
-  value: boolean | null | undefined;
-  disabled: boolean;
-  onAnswer: (answer: boolean) => void;
+  name: string
+  question: string
+  hint?: string
+  issue?: string
+  value: boolean | null | undefined
+  disabled: boolean
+  onAnswer: (answer: boolean) => void
 }) {
   return (
     <fieldset className="choice-field" disabled={disabled}>
@@ -117,7 +116,7 @@ function YesNoField({
               name={name}
               checked={value === answer.value}
               onChange={() => onAnswer(answer.value)}
-              {...(issue ? { "aria-describedby": `${name}-error` } : {})}
+              {...(issue ? { 'aria-describedby': `${name}-error` } : {})}
             />
             {answer.label}
           </label>
@@ -131,7 +130,7 @@ function YesNoField({
         <span className="field-hint">{hint}</span>
       ) : null}
     </fieldset>
-  );
+  )
 }
 
 /**
@@ -150,12 +149,12 @@ function Attestation({
   disabled,
   onChange,
 }: {
-  id: string;
-  statement: string;
-  issue?: string;
-  checked: boolean;
-  disabled: boolean;
-  onChange: (checked: boolean) => void;
+  id: string
+  statement: string
+  issue?: string
+  checked: boolean
+  disabled: boolean
+  onChange: (checked: boolean) => void
 }) {
   return (
     <div>
@@ -166,9 +165,7 @@ function Attestation({
           disabled={disabled}
           checked={checked}
           onChange={(event) => onChange(event.target.checked)}
-          {...(issue
-            ? { "aria-invalid": true, "aria-describedby": `${id}-error` }
-            : {})}
+          {...(issue ? { 'aria-invalid': true, 'aria-describedby': `${id}-error` } : {})}
         />
         <label htmlFor={id}>{statement}</label>
       </div>
@@ -178,57 +175,51 @@ function Attestation({
         </span>
       ) : null}
     </div>
-  );
+  )
 }
 
 const ANSWERS = [
-  { label: "Yes", value: true },
-  { label: "No", value: false },
-] as const;
+  { label: 'Yes', value: true },
+  { label: 'No', value: false },
+] as const
 
-export type SectionIssues = Record<string, string>;
+export type SectionIssues = Record<string, string>
 
 type SectionProps<TSlice> = {
-  value: TSlice;
-  issues: SectionIssues;
-  disabled: boolean;
-  onChange: (value: TSlice) => void;
-};
+  value: TSlice
+  issues: SectionIssues
+  disabled: boolean
+  onChange: (value: TSlice) => void
+}
 
 /** Marks a control invalid so the browser and assistive technology agree. */
 const invalid = (issues: SectionIssues, field: string) =>
   issues[field]
-    ? ({ "aria-invalid": true, "aria-describedby": `${field}-error` } as const)
-    : {};
+    ? ({ 'aria-invalid': true, 'aria-describedby': `${field}-error` } as const)
+    : {}
 
 export const EnterpriseSection = memo(function EnterpriseSection({
   value,
   issues,
   disabled,
   onChange,
-}: SectionProps<ApplicationDraftInput["enterprise"]>) {
-  const set = <TKey extends keyof ApplicationDraftInput["enterprise"]>(
+}: SectionProps<ApplicationDraftInput['enterprise']>) {
+  const set = <TKey extends keyof ApplicationDraftInput['enterprise']>(
     key: TKey,
-    next: ApplicationDraftInput["enterprise"][TKey],
-  ) => onChange({ ...value, [key]: next });
+    next: ApplicationDraftInput['enterprise'][TKey],
+  ) => onChange({ ...value, [key]: next })
 
   return (
     <div className="stack">
       <div className="detail-grid">
-        <Field
-          id="businessName"
-          label="Business name"
-          issue={issues.businessName}
-        >
+        <Field id="businessName" label="Business name" issue={issues.businessName}>
           <input
             id="businessName"
             className="input"
             disabled={disabled}
-            value={value.businessName ?? ""}
-            onChange={(event) =>
-              set("businessName", orNull(event.target.value))
-            }
-            {...invalid(issues, "businessName")}
+            value={value.businessName ?? ''}
+            onChange={(event) => set('businessName', orNull(event.target.value))}
+            {...invalid(issues, 'businessName')}
           />
         </Field>
 
@@ -242,11 +233,9 @@ export const EnterpriseSection = memo(function EnterpriseSection({
             className="input"
             type="date"
             disabled={disabled}
-            value={value.establishmentDate ?? ""}
-            onChange={(event) =>
-              set("establishmentDate", orNull(event.target.value))
-            }
-            {...invalid(issues, "establishmentDate")}
+            value={value.establishmentDate ?? ''}
+            onChange={(event) => set('establishmentDate', orNull(event.target.value))}
+            {...invalid(issues, 'establishmentDate')}
           />
         </Field>
 
@@ -259,14 +248,14 @@ export const EnterpriseSection = memo(function EnterpriseSection({
             id="applicationCategory"
             className="select"
             disabled={disabled}
-            value={value.applicationCategory ?? ""}
+            value={value.applicationCategory ?? ''}
             onChange={(event) =>
               set(
-                "applicationCategory",
+                'applicationCategory',
                 orNull(event.target.value) as ApplicationCategory | null,
               )
             }
-            {...invalid(issues, "applicationCategory")}
+            {...invalid(issues, 'applicationCategory')}
           >
             <option value="">Not stated</option>
             {CATEGORIES.map((category) => (
@@ -277,36 +266,31 @@ export const EnterpriseSection = memo(function EnterpriseSection({
           </select>
         </Field>
 
-        <Field
-          id="registrationType"
-          label="Registration"
-          issue={issues.registrationType}
-        >
+        <Field id="registrationType" label="Registration" issue={issues.registrationType}>
           <select
             id="registrationType"
             className="select"
             disabled={disabled}
-            value={value.registrationType ?? "NONE"}
+            value={value.registrationType ?? 'NONE'}
             onChange={(event) => {
-              const next = event.target.value as RegistrationType;
+              const next = event.target.value as RegistrationType
               // An unregistered enterprise must not carry a number.
               onChange({
                 ...value,
                 registrationType: next,
-                registrationNumber:
-                  next === "NONE" ? null : value.registrationNumber,
-              });
+                registrationNumber: next === 'NONE' ? null : value.registrationNumber,
+              })
             }}
           >
             {REGISTRATION_TYPES.map((type) => (
               <option key={type} value={type}>
-                {type === "NONE" ? "Not registered" : type}
+                {type === 'NONE' ? 'Not registered' : type}
               </option>
             ))}
           </select>
         </Field>
 
-        {value.registrationType && value.registrationType !== "NONE" ? (
+        {value.registrationType && value.registrationType !== 'NONE' ? (
           <Field
             id="registrationNumber"
             label={`${value.registrationType} number`}
@@ -316,11 +300,9 @@ export const EnterpriseSection = memo(function EnterpriseSection({
               id="registrationNumber"
               className="input"
               disabled={disabled}
-              value={value.registrationNumber ?? ""}
-              onChange={(event) =>
-                set("registrationNumber", orNull(event.target.value))
-              }
-              {...invalid(issues, "registrationNumber")}
+              value={value.registrationNumber ?? ''}
+              onChange={(event) => set('registrationNumber', orNull(event.target.value))}
+              {...invalid(issues, 'registrationNumber')}
             />
           </Field>
         ) : null}
@@ -330,9 +312,9 @@ export const EnterpriseSection = memo(function EnterpriseSection({
             id="gstin"
             className="input"
             disabled={disabled}
-            value={value.gstin ?? ""}
-            onChange={(event) => set("gstin", orNull(event.target.value))}
-            {...invalid(issues, "gstin")}
+            value={value.gstin ?? ''}
+            onChange={(event) => set('gstin', orNull(event.target.value))}
+            {...invalid(issues, 'gstin')}
           />
         </Field>
 
@@ -341,17 +323,16 @@ export const EnterpriseSection = memo(function EnterpriseSection({
             id="businessSector"
             className="select"
             disabled={disabled}
-            value={value.businessSector ?? ""}
+            value={value.businessSector ?? ''}
             onChange={(event) => {
-              const next = orNull(event.target.value) as BusinessSector | null;
+              const next = orNull(event.target.value) as BusinessSector | null
               onChange({
                 ...value,
                 businessSector: next,
-                otherBusinessSector:
-                  next === "OTHER" ? value.otherBusinessSector : null,
-              });
+                otherBusinessSector: next === 'OTHER' ? value.otherBusinessSector : null,
+              })
             }}
-            {...invalid(issues, "businessSector")}
+            {...invalid(issues, 'businessSector')}
           >
             <option value="">Not stated</option>
             {SECTORS.map((sector) => (
@@ -362,7 +343,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
           </select>
         </Field>
 
-        {value.businessSector === "OTHER" ? (
+        {value.businessSector === 'OTHER' ? (
           <Field
             id="otherBusinessSector"
             label="Describe the sector"
@@ -372,11 +353,9 @@ export const EnterpriseSection = memo(function EnterpriseSection({
               id="otherBusinessSector"
               className="input"
               disabled={disabled}
-              value={value.otherBusinessSector ?? ""}
-              onChange={(event) =>
-                set("otherBusinessSector", orNull(event.target.value))
-              }
-              {...invalid(issues, "otherBusinessSector")}
+              value={value.otherBusinessSector ?? ''}
+              onChange={(event) => set('otherBusinessSector', orNull(event.target.value))}
+              {...invalid(issues, 'otherBusinessSector')}
             />
           </Field>
         ) : null}
@@ -388,22 +367,22 @@ export const EnterpriseSection = memo(function EnterpriseSection({
         issue={issues.majorityOwnershipConfirmed}
         checked={value.majorityOwnershipConfirmed ?? false}
         disabled={disabled}
-        onChange={(checked) => set("majorityOwnershipConfirmed", checked)}
+        onChange={(checked) => set('majorityOwnershipConfirmed', checked)}
       />
     </div>
-  );
-});
+  )
+})
 
 export const ApplicantSection = memo(function ApplicantSection({
   value,
   issues,
   disabled,
   onChange,
-}: SectionProps<ApplicationDraftInput["applicantProfile"]>) {
-  const set = <TKey extends keyof ApplicationDraftInput["applicantProfile"]>(
+}: SectionProps<ApplicationDraftInput['applicantProfile']>) {
+  const set = <TKey extends keyof ApplicationDraftInput['applicantProfile']>(
     key: TKey,
-    next: ApplicationDraftInput["applicantProfile"][TKey],
-  ) => onChange({ ...value, [key]: next });
+    next: ApplicationDraftInput['applicantProfile'][TKey],
+  ) => onChange({ ...value, [key]: next })
 
   return (
     <div className="detail-grid">
@@ -416,11 +395,9 @@ export const ApplicantSection = memo(function ApplicantSection({
           id="primaryApplicantName"
           className="input"
           disabled={disabled}
-          value={value.primaryApplicantName ?? ""}
-          onChange={(event) =>
-            set("primaryApplicantName", orNull(event.target.value))
-          }
-          {...invalid(issues, "primaryApplicantName")}
+          value={value.primaryApplicantName ?? ''}
+          onChange={(event) => set('primaryApplicantName', orNull(event.target.value))}
+          {...invalid(issues, 'primaryApplicantName')}
         />
       </Field>
 
@@ -433,14 +410,11 @@ export const ApplicantSection = memo(function ApplicantSection({
           id="designation"
           className="select"
           disabled={disabled}
-          value={value.designation ?? ""}
+          value={value.designation ?? ''}
           onChange={(event) =>
-            set(
-              "designation",
-              orNull(event.target.value) as ApplicantDesignation | null,
-            )
+            set('designation', orNull(event.target.value) as ApplicantDesignation | null)
           }
-          {...invalid(issues, "designation")}
+          {...invalid(issues, 'designation')}
         >
           <option value="">Not stated</option>
           {DESIGNATIONS.map((designation) => (
@@ -457,9 +431,9 @@ export const ApplicantSection = memo(function ApplicantSection({
           className="input"
           type="date"
           disabled={disabled}
-          value={value.dateOfBirth ?? ""}
-          onChange={(event) => set("dateOfBirth", orNull(event.target.value))}
-          {...invalid(issues, "dateOfBirth")}
+          value={value.dateOfBirth ?? ''}
+          onChange={(event) => set('dateOfBirth', orNull(event.target.value))}
+          {...invalid(issues, 'dateOfBirth')}
         />
       </Field>
 
@@ -468,11 +442,9 @@ export const ApplicantSection = memo(function ApplicantSection({
           id="gender"
           className="select"
           disabled={disabled}
-          value={value.gender ?? ""}
-          onChange={(event) =>
-            set("gender", orNull(event.target.value) as Gender | null)
-          }
-          {...invalid(issues, "gender")}
+          value={value.gender ?? ''}
+          onChange={(event) => set('gender', orNull(event.target.value) as Gender | null)}
+          {...invalid(issues, 'gender')}
         >
           <option value="">Not stated</option>
           {GENDERS.map((gender) => (
@@ -492,95 +464,73 @@ export const ApplicantSection = memo(function ApplicantSection({
           id="businessBlockOrVillage"
           className="input"
           disabled={disabled}
-          value={value.businessBlockOrVillage ?? ""}
-          onChange={(event) =>
-            set("businessBlockOrVillage", orNull(event.target.value))
-          }
-          {...invalid(issues, "businessBlockOrVillage")}
+          value={value.businessBlockOrVillage ?? ''}
+          onChange={(event) => set('businessBlockOrVillage', orNull(event.target.value))}
+          {...invalid(issues, 'businessBlockOrVillage')}
         />
       </Field>
 
-      <Field
-        id="businessDistrict"
-        label="District"
-        issue={issues.businessDistrict}
-      >
+      <Field id="businessDistrict" label="District" issue={issues.businessDistrict}>
         <input
           id="businessDistrict"
           className="input"
           disabled={disabled}
-          value={value.businessDistrict ?? ""}
-          onChange={(event) =>
-            set("businessDistrict", orNull(event.target.value))
-          }
-          {...invalid(issues, "businessDistrict")}
+          value={value.businessDistrict ?? ''}
+          onChange={(event) => set('businessDistrict', orNull(event.target.value))}
+          {...invalid(issues, 'businessDistrict')}
         />
       </Field>
 
-      <Field
-        id="businessPinCode"
-        label="PIN code"
-        issue={issues.businessPinCode}
-      >
+      <Field id="businessPinCode" label="PIN code" issue={issues.businessPinCode}>
         <input
           id="businessPinCode"
           className="input tabular"
           inputMode="numeric"
           maxLength={6}
           disabled={disabled}
-          value={value.businessPinCode ?? ""}
-          onChange={(event) =>
-            set("businessPinCode", orNull(event.target.value))
-          }
-          {...invalid(issues, "businessPinCode")}
+          value={value.businessPinCode ?? ''}
+          onChange={(event) => set('businessPinCode', orNull(event.target.value))}
+          {...invalid(issues, 'businessPinCode')}
         />
       </Field>
 
-      <Field
-        id="contactNumber"
-        label="Contact number"
-        issue={issues.contactNumber}
-      >
+      <Field id="contactNumber" label="Contact number" issue={issues.contactNumber}>
         <input
           id="contactNumber"
           className="input"
           type="tel"
           disabled={disabled}
-          value={value.contactNumber ?? ""}
-          onChange={(event) => set("contactNumber", orNull(event.target.value))}
-          {...invalid(issues, "contactNumber")}
+          value={value.contactNumber ?? ''}
+          onChange={(event) => set('contactNumber', orNull(event.target.value))}
+          {...invalid(issues, 'contactNumber')}
         />
       </Field>
 
-      <Field
-        id="contactEmail"
-        label="Contact email"
-        issue={issues.contactEmail}
-      >
+      <Field id="contactEmail" label="Contact email" issue={issues.contactEmail}>
         <input
           id="contactEmail"
           className="input"
           type="email"
           disabled={disabled}
-          value={value.contactEmail ?? ""}
-          onChange={(event) => set("contactEmail", orNull(event.target.value))}
-          {...invalid(issues, "contactEmail")}
+          value={value.contactEmail ?? ''}
+          onChange={(event) => set('contactEmail', orNull(event.target.value))}
+          {...invalid(issues, 'contactEmail')}
         />
       </Field>
     </div>
-  );
-});
+  )
+})
 
 export const FinancialSection = memo(function FinancialSection({
   value,
   issues,
   disabled,
   onChange,
-}: SectionProps<ApplicationDraftInput["financial"]>) {
-  const set = <TKey extends keyof ApplicationDraftInput["financial"]>(
+}: SectionProps<ApplicationDraftInput['financial']>) {
+  const set = <TKey extends keyof ApplicationDraftInput['financial']>(
     key: TKey,
-    next: ApplicationDraftInput["financial"][TKey],
-  ) => onChange({ ...value, [key]: next });
+    next: ApplicationDraftInput['financial'][TKey],
+  ) => onChange({ ...value, [key]: next })
 
   /**
    * Every amount is entered in rupees and sent in paise.
@@ -589,10 +539,7 @@ export const FinancialSection = memo(function FinancialSection({
    * a bare "1000000" in a number input is genuinely hard to check and these are
    * the figures the whole application turns on.
    */
-  const money = (
-    id: keyof ApplicationDraftInput["financial"],
-    label: string,
-  ) => (
+  const money = (id: keyof ApplicationDraftInput['financial'], label: string) => (
     <Field
       id={id}
       label={label}
@@ -611,7 +558,7 @@ export const FinancialSection = memo(function FinancialSection({
         {...invalid(issues, id)}
       />
     </Field>
-  );
+  )
 
   /*
    * The API requires the three parts to add up to the total exactly. Doing the
@@ -623,17 +570,17 @@ export const FinancialSection = memo(function FinancialSection({
   const parts =
     Number(value.seedFundRequestedPaise ?? 0) +
     Number(value.bankLoanProposedPaise ?? 0) +
-    Number(value.promoterContributionPaise ?? 0);
-  const total = Number(value.totalProjectCostPaise ?? 0);
-  const difference = total - parts;
+    Number(value.promoterContributionPaise ?? 0)
+  const total = Number(value.totalProjectCostPaise ?? 0)
+  const difference = total - parts
 
   return (
     <div className="stack">
       <div className="detail-grid">
-        {money("totalProjectCostPaise", "Total project cost (₹)")}
-        {money("seedFundRequestedPaise", "Seed fund requested (₹)")}
-        {money("bankLoanProposedPaise", "Bank loan proposed (₹)")}
-        {money("promoterContributionPaise", "Your own contribution (₹)")}
+        {money('totalProjectCostPaise', 'Total project cost (₹)')}
+        {money('seedFundRequestedPaise', 'Seed fund requested (₹)')}
+        {money('bankLoanProposedPaise', 'Bank loan proposed (₹)')}
+        {money('promoterContributionPaise', 'Your own contribution (₹)')}
       </div>
 
       {total > 0 || parts > 0 ? (
@@ -646,24 +593,24 @@ export const FinancialSection = memo(function FinancialSection({
         </p>
       ) : (
         <p className="field-hint">
-          Seed fund, bank loan and your own contribution must add up to the
-          total project cost.
+          Seed fund, bank loan and your own contribution must add up to the total project
+          cost.
         </p>
       )}
     </div>
-  );
-});
+  )
+})
 
 export const PriorFundingSection = memo(function PriorFundingSection({
   value,
   issues,
   disabled,
   onChange,
-}: SectionProps<ApplicationDraftInput["priorFunding"]>) {
-  const set = <TKey extends keyof ApplicationDraftInput["priorFunding"]>(
+}: SectionProps<ApplicationDraftInput['priorFunding']>) {
+  const set = <TKey extends keyof ApplicationDraftInput['priorFunding']>(
     key: TKey,
-    next: ApplicationDraftInput["priorFunding"][TKey],
-  ) => onChange({ ...value, [key]: next });
+    next: ApplicationDraftInput['priorFunding'][TKey],
+  ) => onChange({ ...value, [key]: next })
 
   return (
     <div className="stack">
@@ -701,11 +648,11 @@ export const PriorFundingSection = memo(function PriorFundingSection({
               id="governmentSchemeName"
               className="input"
               disabled={disabled}
-              value={value.governmentSchemeName ?? ""}
+              value={value.governmentSchemeName ?? ''}
               onChange={(event) =>
-                set("governmentSchemeName", orNull(event.target.value))
+                set('governmentSchemeName', orNull(event.target.value))
               }
-              {...invalid(issues, "governmentSchemeName")}
+              {...invalid(issues, 'governmentSchemeName')}
             />
           </Field>
           <Field
@@ -722,12 +669,9 @@ export const PriorFundingSection = memo(function PriorFundingSection({
               disabled={disabled}
               value={paiseToRupees(value.governmentFundingAmountPaise)}
               onChange={(event) =>
-                set(
-                  "governmentFundingAmountPaise",
-                  rupeesToPaise(event.target.value),
-                )
+                set('governmentFundingAmountPaise', rupeesToPaise(event.target.value))
               }
-              {...invalid(issues, "governmentFundingAmountPaise")}
+              {...invalid(issues, 'governmentFundingAmountPaise')}
             />
           </Field>
           <Field
@@ -740,14 +684,14 @@ export const PriorFundingSection = memo(function PriorFundingSection({
               className="input tabular"
               type="number"
               disabled={disabled}
-              value={value.governmentFundingSanctionYear ?? ""}
+              value={value.governmentFundingSanctionYear ?? ''}
               onChange={(event) =>
                 set(
-                  "governmentFundingSanctionYear",
+                  'governmentFundingSanctionYear',
                   event.target.value ? Number(event.target.value) : null,
                 )
               }
-              {...invalid(issues, "governmentFundingSanctionYear")}
+              {...invalid(issues, 'governmentFundingSanctionYear')}
             />
           </Field>
         </div>
@@ -776,20 +720,14 @@ export const PriorFundingSection = memo(function PriorFundingSection({
 
       {value.hasExistingBankCredit ? (
         <div className="detail-grid">
-          <Field
-            id="existingBankName"
-            label="Bank"
-            issue={issues.existingBankName}
-          >
+          <Field id="existingBankName" label="Bank" issue={issues.existingBankName}>
             <input
               id="existingBankName"
               className="input"
               disabled={disabled}
-              value={value.existingBankName ?? ""}
-              onChange={(event) =>
-                set("existingBankName", orNull(event.target.value))
-              }
-              {...invalid(issues, "existingBankName")}
+              value={value.existingBankName ?? ''}
+              onChange={(event) => set('existingBankName', orNull(event.target.value))}
+              {...invalid(issues, 'existingBankName')}
             />
           </Field>
           <Field
@@ -806,12 +744,9 @@ export const PriorFundingSection = memo(function PriorFundingSection({
               disabled={disabled}
               value={paiseToRupees(value.existingCreditAmountPaise)}
               onChange={(event) =>
-                set(
-                  "existingCreditAmountPaise",
-                  rupeesToPaise(event.target.value),
-                )
+                set('existingCreditAmountPaise', rupeesToPaise(event.target.value))
               }
-              {...invalid(issues, "existingCreditAmountPaise")}
+              {...invalid(issues, 'existingCreditAmountPaise')}
             />
           </Field>
           <Field
@@ -823,19 +758,19 @@ export const PriorFundingSection = memo(function PriorFundingSection({
               id="existingCreditStatus"
               className="select"
               disabled={disabled}
-              value={value.existingCreditStatus ?? ""}
+              value={value.existingCreditStatus ?? ''}
               onChange={(event) =>
                 set(
-                  "existingCreditStatus",
+                  'existingCreditStatus',
                   orNull(event.target.value) as CreditStatus | null,
                 )
               }
-              {...invalid(issues, "existingCreditStatus")}
+              {...invalid(issues, 'existingCreditStatus')}
             >
               <option value="">Not stated</option>
               {CREDIT_STATUSES.map((status) => (
                 <option key={status} value={status}>
-                  {status === "NPA" ? "Non-performing (NPA)" : "Standard"}
+                  {status === 'NPA' ? 'Non-performing (NPA)' : 'Standard'}
                 </option>
               ))}
             </select>
@@ -843,15 +778,15 @@ export const PriorFundingSection = memo(function PriorFundingSection({
         </div>
       ) : null}
     </div>
-  );
-});
+  )
+})
 
 export const DocumentsSection = memo(function DocumentsSection({
   value,
   issues,
   disabled,
   onChange,
-}: SectionProps<ApplicationDraftInput["documents"]>) {
+}: SectionProps<ApplicationDraftInput['documents']>) {
   return (
     <div className="stack">
       <YesNoField
@@ -864,40 +799,36 @@ export const DocumentsSection = memo(function DocumentsSection({
         onAnswer={(answer) => onChange({ ...value, nocRequired: answer })}
       />
     </div>
-  );
-});
+  )
+})
 
 export const DeclarationSection = memo(function DeclarationSection({
   value,
   issues,
   disabled,
   onChange,
-}: SectionProps<ApplicationDraftInput["declaration"]>) {
-  const set = <TKey extends keyof ApplicationDraftInput["declaration"]>(
+}: SectionProps<ApplicationDraftInput['declaration']>) {
+  const set = <TKey extends keyof ApplicationDraftInput['declaration']>(
     key: TKey,
-    next: ApplicationDraftInput["declaration"][TKey],
-  ) => onChange({ ...value, [key]: next });
+    next: ApplicationDraftInput['declaration'][TKey],
+  ) => onChange({ ...value, [key]: next })
 
   return (
     <div className="stack">
       <div className="detail-grid">
-        <Field
-          id="relationshipType"
-          label="Relationship"
-          issue={issues.relationshipType}
-        >
+        <Field id="relationshipType" label="Relationship" issue={issues.relationshipType}>
           <select
             id="relationshipType"
             className="select"
             disabled={disabled}
-            value={value.relationshipType ?? ""}
+            value={value.relationshipType ?? ''}
             onChange={(event) =>
               set(
-                "relationshipType",
+                'relationshipType',
                 orNull(event.target.value) as RelationshipType | null,
               )
             }
-            {...invalid(issues, "relationshipType")}
+            {...invalid(issues, 'relationshipType')}
           >
             <option value="">Not stated</option>
             {RELATIONSHIPS.map((relationship) => (
@@ -908,37 +839,25 @@ export const DeclarationSection = memo(function DeclarationSection({
           </select>
         </Field>
 
-        <Field
-          id="relatedPersonName"
-          label="Of (name)"
-          issue={issues.relatedPersonName}
-        >
+        <Field id="relatedPersonName" label="Of (name)" issue={issues.relatedPersonName}>
           <input
             id="relatedPersonName"
             className="input"
             disabled={disabled}
-            value={value.relatedPersonName ?? ""}
-            onChange={(event) =>
-              set("relatedPersonName", orNull(event.target.value))
-            }
-            {...invalid(issues, "relatedPersonName")}
+            value={value.relatedPersonName ?? ''}
+            onChange={(event) => set('relatedPersonName', orNull(event.target.value))}
+            {...invalid(issues, 'relatedPersonName')}
           />
         </Field>
 
-        <Field
-          id="declarationPlace"
-          label="Place"
-          issue={issues.declarationPlace}
-        >
+        <Field id="declarationPlace" label="Place" issue={issues.declarationPlace}>
           <input
             id="declarationPlace"
             className="input"
             disabled={disabled}
-            value={value.declarationPlace ?? ""}
-            onChange={(event) =>
-              set("declarationPlace", orNull(event.target.value))
-            }
-            {...invalid(issues, "declarationPlace")}
+            value={value.declarationPlace ?? ''}
+            onChange={(event) => set('declarationPlace', orNull(event.target.value))}
+            {...invalid(issues, 'declarationPlace')}
           />
         </Field>
       </div>
@@ -949,8 +868,8 @@ export const DeclarationSection = memo(function DeclarationSection({
         issue={issues.declarationAccepted}
         checked={value.declarationAccepted ?? false}
         disabled={disabled}
-        onChange={(checked) => set("declarationAccepted", checked)}
+        onChange={(checked) => set('declarationAccepted', checked)}
       />
     </div>
-  );
-});
+  )
+})

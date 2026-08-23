@@ -16,20 +16,23 @@ import {
   signUpApplicant,
 } from './support'
 
-setup('the first super administrator can be created and can sign in', async ({ page }) => {
-  await signUpApplicant(page, SUPER_ADMIN_EMAIL)
+setup(
+  'the first super administrator can be created and can sign in',
+  async ({ page }) => {
+    await signUpApplicant(page, SUPER_ADMIN_EMAIL)
 
-  // Before promotion this is an ordinary applicant.
-  await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-  await expect(page).toHaveURL(/\/app$/u)
-  expect(await navigationSections(page)).toContain('portal')
+    // Before promotion this is an ordinary applicant.
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await expect(page).toHaveURL(/\/app$/u)
+    expect(await navigationSections(page)).toContain('portal')
 
-  await page.context().clearCookies()
-  await bootstrapSuperAdmin()
+    await page.context().clearCookies()
+    await bootstrapSuperAdmin()
 
-  // The bootstrap swaps APPLICANT for SUPER_ADMIN rather than adding to it, and
-  // destroys existing sessions, so this is a genuinely fresh administrative
-  // sign-in.
-  await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-  await expect(page.getByText('Super administrator')).toBeVisible()
-});
+    // The bootstrap swaps APPLICANT for SUPER_ADMIN rather than adding to it, and
+    // destroys existing sessions, so this is a genuinely fresh administrative
+    // sign-in.
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await expect(page.getByText('Super administrator')).toBeVisible()
+  },
+)

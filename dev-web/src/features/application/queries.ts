@@ -6,7 +6,10 @@
  * application does not refetch a catalogue the client already has.
  */
 import { queryOptions } from '@tanstack/react-query'
-import { ProgrammeCyclesDocument, StatusGuideDocument } from '#/graphql/generated/operations'
+import {
+  ProgrammeCyclesDocument,
+  StatusGuideDocument,
+} from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
 

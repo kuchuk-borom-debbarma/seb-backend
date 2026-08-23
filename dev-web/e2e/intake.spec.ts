@@ -36,7 +36,9 @@ test.describe('the intake console', () => {
 
     // The rest are listed with counts but not given the same weight.
     await expect(page.getByRole('row').filter({ hasText: 'With the bank' })).toBeVisible()
-    await expect(page.getByRole('row').filter({ hasText: 'For the committee' })).toBeVisible()
+    await expect(
+      page.getByRole('row').filter({ hasText: 'For the committee' }),
+    ).toBeVisible()
   })
 
   test('shows every queue even when it is empty', async ({ page }) => {
@@ -177,7 +179,9 @@ test.describe('access', () => {
     await page.getByRole('button', { name: 'Grant it' }).click()
 
     await expect(page.getByRole('alert')).toBeVisible()
-    await expect(page.getByRole('row').filter({ hasText: 'Should not go through.' })).toHaveCount(0)
+    await expect(
+      page.getByRole('row').filter({ hasText: 'Should not go through.' }),
+    ).toHaveCount(0)
   })
 
   test('revokes a role and keeps the closed grant in the history', async ({ page }) => {
@@ -201,7 +205,9 @@ test.describe('access', () => {
     // Revocation closes the grant rather than deleting it: the record of why
     // somebody had the role survives.
     await expect(page.getByText('Cover has ended.')).toBeVisible()
-    await expect(page.getByRole('row').filter({ hasText: 'Temporary cover.' })).toBeVisible()
+    await expect(
+      page.getByRole('row').filter({ hasText: 'Temporary cover.' }),
+    ).toBeVisible()
   })
 
   test('does not offer a role the account already holds', async ({ page }) => {
@@ -222,7 +228,9 @@ test.describe('access', () => {
 })
 
 test.describe('the application workspace', () => {
-  test('refuses an application that does not exist, inside the shell', async ({ page }) => {
+  test('refuses an application that does not exist, inside the shell', async ({
+    page,
+  }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await openProgrammeCycle(page, { prefix: 'SEP-W' })
 
@@ -231,5 +239,70 @@ test.describe('the application workspace', () => {
     // The refusal stays inside the shell rather than blanking the page.
     await expect(page.getByRole('navigation', { name: 'Portal sections' })).toBeVisible()
     await expect(page.getByRole('alert')).toBeVisible()
+  })
+})
+
+test.describe('committee meetings', () => {
+  test.beforeEach(async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+  })
+
+  test('schedules a meeting and opens it', async ({ page }) => {
+    await page.goto('/admin/meetings')
+    await page.getByRole('button', { name: 'Schedule a meeting' }).click()
+
+    const reference = `TTM-${Date.now().toString(36).toUpperCase()}`
+    await page.getByLabel('Meeting reference').fill(reference)
+    await page
+      .getByLabel('When')
+      .fill(new Date(Date.now() + 604_800_000).toISOString().slice(0, 16))
+    await page.getByLabel('Where').fill('TTAADC headquarters, Khumulwng')
+    await page.getByRole('button', { name: 'Schedule it' }).click()
+
+    // Scheduling lands on the meeting, because building the agenda is the next
+    // thing anyone does.
+    await expect(page).toHaveURL(/\/admin\/meetings\/[0-9a-f-]{36}$/u)
+    await expect(page.getByRole('heading', { name: reference })).toBeVisible()
+  })
+
+  test('will not start a meeting with an empty agenda, and says why', async ({
+    page,
+  }) => {
+    await page.goto('/admin/meetings')
+    await page.getByRole('button', { name: 'Schedule a meeting' }).click()
+    await page.getByLabel('Meeting reference').fill(`TTM-E${Date.now().toString(36)}`)
+    await page
+      .getByLabel('When')
+      .fill(new Date(Date.now() + 604_800_000).toISOString().slice(0, 16))
+    await page.getByLabel('Where').fill('Khumulwng')
+    await page.getByRole('button', { name: 'Schedule it' }).click()
+    await expect(page).toHaveURL(/\/admin\/meetings\/[0-9a-f-]{36}$/u)
+
+    await expect(page.getByText('The agenda is empty')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Start the meeting' })).toBeDisabled()
+  })
+
+  test('changing the time of a scheduled meeting is recorded', async ({ page }) => {
+    await page.goto('/admin/meetings')
+    await page.getByRole('button', { name: 'Schedule a meeting' }).click()
+    const reference = `TTM-C${Date.now().toString(36).toUpperCase()}`
+    await page.getByLabel('Meeting reference').fill(reference)
+    await page
+      .getByLabel('When')
+      .fill(new Date(Date.now() + 604_800_000).toISOString().slice(0, 16))
+    await page.getByLabel('Where').fill('Khumulwng')
+    await page.getByRole('button', { name: 'Schedule it' }).click()
+    await expect(page).toHaveURL(/\/admin\/meetings\/[0-9a-f-]{36}$/u)
+
+    await page.getByRole('button', { name: 'Change the details' }).click()
+    await page.getByLabel('Where').fill('Agartala circuit house')
+
+    // People have been told where the meeting is, so a change needs a reason
+    // and the button refuses without one.
+    await expect(page.getByRole('button', { name: 'Save the change' })).toBeDisabled()
+    await page.getByLabel('Why it is changing').fill('The venue was double-booked.')
+    await page.getByRole('button', { name: 'Save the change' }).click()
+
+    await expect(page.getByText('Agartala circuit house')).toBeVisible()
   })
 })

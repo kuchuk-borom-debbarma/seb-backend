@@ -87,8 +87,8 @@ function EnterprisesPage() {
           <div className="empty">
             <h3>No enterprises yet</h3>
             <p>
-              Register the enterprise you are applying for, then start an
-              application in an open programme cycle.
+              Register the enterprise you are applying for, then start an application in
+              an open programme cycle.
             </p>
             <Link
               to="/app/enterprises/new"
@@ -159,13 +159,15 @@ function EnterprisesPage() {
             provides. "Start again" replaces a back button that could not be
             made correct.
           */}
-          {(data?.pageInfo.hasNextPage || search.after) ? (
+          {data?.pageInfo.hasNextPage || search.after ? (
             <div className="pager">
               <button
                 type="button"
                 className="button"
                 disabled={!search.after}
-                onClick={() => navigate({ search: (previous) => ({ ...previous, after: undefined }) })}
+                onClick={() =>
+                  navigate({ search: (previous) => ({ ...previous, after: undefined }) })
+                }
               >
                 Start again
               </button>

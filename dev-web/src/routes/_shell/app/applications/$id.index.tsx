@@ -96,7 +96,11 @@ function ApplicationPage() {
                   ? 'Make the corrections'
                   : 'Fill in the form'}
               </Link>
-              <Link to="/app/applications/$id/documents" params={{ id }} className="button">
+              <Link
+                to="/app/applications/$id/documents"
+                params={{ id }}
+                className="button"
+              >
                 Evidence
               </Link>
               <Link to="/app/applications/$id/review" params={{ id }} className="button">
@@ -124,7 +128,10 @@ function ApplicationPage() {
                 <div key={request.id} className="notice" data-tone="action">
                   <span className="notice-title">{SECTION_TITLES[request.section]}</span>
                   {request.note}
-                  <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.75rem' }}>
+                  <p
+                    className="muted"
+                    style={{ marginTop: '0.5rem', fontSize: '0.75rem' }}
+                  >
                     Requested {formatDateTime(request.requestedAt)}
                   </p>
                 </div>
@@ -152,11 +159,15 @@ function ApplicationPage() {
                 {formatDate(application.firstSubmittedAt)}
               </Detail>
               <Detail label="Started">{formatDate(application.createdAt)}</Detail>
-              <Detail label="Last changed">{formatDateTime(application.updatedAt)}</Detail>
+              <Detail label="Last changed">
+                {formatDateTime(application.updatedAt)}
+              </Detail>
               <Detail label="Sections you can edit">
                 {editableFormSections.length === 0
                   ? 'None — this application is read-only'
-                  : editableFormSections.map((section) => SECTION_TITLES[section]).join(', ')}
+                  : editableFormSections
+                      .map((section) => SECTION_TITLES[section])
+                      .join(', ')}
               </Detail>
               <Detail label="Documents attached">
                 <span className="tabular">
@@ -188,7 +199,9 @@ function ApplicationPage() {
                         {formatDateTime(event.createdAt)}
                       </td>
                       <td>
-                        <span style={{ fontWeight: 500 }}>{humanize(event.eventType)}</span>
+                        <span style={{ fontWeight: 500 }}>
+                          {humanize(event.eventType)}
+                        </span>
                         {event.message ? (
                           <p className="muted" style={{ marginTop: '0.25rem' }}>
                             {event.message}
@@ -202,7 +215,9 @@ function ApplicationPage() {
             </div>
           ) : (
             <div className="empty">
-              <p>Nothing has happened yet. Events appear here as your application moves.</p>
+              <p>
+                Nothing has happened yet. Events appear here as your application moves.
+              </p>
             </div>
           )}
         </div>

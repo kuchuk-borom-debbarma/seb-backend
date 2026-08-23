@@ -1,4 +1,9 @@
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
@@ -31,7 +36,8 @@ const cycleQuery = (id: string) =>
   })
 
 export const Route = createFileRoute('/_shell/admin/cycles/$id')({
-  loader: ({ context, params }) => context.queryClient.ensureQueryData(cycleQuery(params.id)),
+  loader: ({ context, params }) =>
+    context.queryClient.ensureQueryData(cycleQuery(params.id)),
   component: AdminCyclePage,
 })
 
@@ -129,7 +135,13 @@ function AdminCyclePage() {
         actions={
           <span
             className="badge"
-            data-tone={head.status === 'OPEN' ? 'ok' : head.status === 'DRAFT' ? 'action' : undefined}
+            data-tone={
+              head.status === 'OPEN'
+                ? 'ok'
+                : head.status === 'DRAFT'
+                  ? 'action'
+                  : undefined
+            }
           >
             {humanize(head.status)}
           </span>
@@ -137,7 +149,12 @@ function AdminCyclePage() {
       />
 
       {error ? (
-        <p className="notice" data-tone="error" role="alert" style={{ marginBottom: '1rem' }}>
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginBottom: '1rem' }}
+        >
           {messageFor(error)}
         </p>
       ) : null}
@@ -272,7 +289,10 @@ function AdminCyclePage() {
                 {data.cycle.documentRules.length === 0
                   ? 'None'
                   : data.cycle.documentRules
-                      .map((rule) => `${humanize(rule.documentType)} (${humanize(rule.condition)})`)
+                      .map(
+                        (rule) =>
+                          `${humanize(rule.documentType)} (${humanize(rule.condition)})`,
+                      )
                       .join(', ')}
               </Detail>
               <Detail label="Assessments an expansion must pass">
@@ -299,7 +319,9 @@ function AdminCyclePage() {
                 <thead>
                   <tr>
                     <th scope="col">Status</th>
-                    <th scope="col" className="numeric">Applications</th>
+                    <th scope="col" className="numeric">
+                      Applications
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -325,9 +347,13 @@ function AdminCyclePage() {
                 <tbody>
                   {data.events.map((event) => (
                     <tr key={event.id}>
-                      <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(event.createdAt)}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {formatDateTime(event.createdAt)}
+                      </td>
                       <td>
-                        <span style={{ fontWeight: 500 }}>{humanize(event.eventType)}</span>
+                        <span style={{ fontWeight: 500 }}>
+                          {humanize(event.eventType)}
+                        </span>
                         {event.message ? (
                           <p className="muted" style={{ marginTop: '0.25rem' }}>
                             {event.message}

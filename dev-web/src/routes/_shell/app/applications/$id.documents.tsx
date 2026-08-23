@@ -7,14 +7,14 @@
  * requirement shown against each row is the validation report's own message,
  * not a rule restated here.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, createFileRoute } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
-import { PageHeader } from "#/components/PageHeader";
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, createFileRoute } from '@tanstack/react-router'
+import { useMemo, useRef, useState } from 'react'
+import { PageHeader } from '#/components/PageHeader'
 import {
   applicationQuery,
   validationQuery,
-} from "#/features/application/applicationQueries";
+} from '#/features/application/applicationQueries'
 import {
   DOCUMENT_TITLES,
   DOCUMENT_TYPES,
@@ -22,70 +22,70 @@ import {
   formatBytes,
   rejectFile,
   uploadDocument,
-} from "#/features/application/documents";
+} from '#/features/application/documents'
 import {
   DocumentDownloadUrlDocument,
   RestoreDocumentDocument,
   SoftDeleteDocumentDocument,
-} from "#/graphql/generated/operations";
-import type { ApplicationByIdQuery } from "#/graphql/generated/operations";
-import type { DocumentType } from "#/graphql/generated/schema";
-import { formatDateTime } from "#/lib/format";
-import { gql } from "#/lib/graphql";
-import { assertSucceeded, messageFor, unwrap } from "#/lib/result";
+} from '#/graphql/generated/operations'
+import type { ApplicationByIdQuery } from '#/graphql/generated/operations'
+import type { DocumentType } from '#/graphql/generated/schema'
+import { formatDateTime } from '#/lib/format'
+import { gql } from '#/lib/graphql'
+import { assertSucceeded, messageFor, unwrap } from '#/lib/result'
 
 type Application = NonNullable<
-  ApplicationByIdQuery["seb"]["application"]["byId"]["response"]
->;
-type Document = Application["documents"][number];
+  ApplicationByIdQuery['seb']['application']['byId']['response']
+>
+type Document = Application['documents'][number]
 
-export const Route = createFileRoute("/_shell/app/applications/$id/documents")({
+export const Route = createFileRoute('/_shell/app/applications/$id/documents')({
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(applicationQuery(params.id)),
       context.queryClient.ensureQueryData(validationQuery(params.id)),
-    ]);
+    ])
   },
   component: DocumentsPage,
-});
+})
 
 function DocumentsPage() {
-  const { id } = Route.useParams();
-  const queryClient = useQueryClient();
-  const { data: application } = useQuery(applicationQuery(id));
-  const { data: validation } = useQuery(validationQuery(id));
+  const { id } = Route.useParams()
+  const queryClient = useQueryClient()
+  const { data: application } = useQuery(applicationQuery(id))
+  const { data: validation } = useQuery(validationQuery(id))
 
   /** The API's message for each document type it says is missing. */
   const requirements = useMemo(() => {
-    const byType: Partial<Record<DocumentType, string>> = {};
+    const byType: Partial<Record<DocumentType, string>> = {}
     for (const issue of validation?.issues ?? []) {
-      if (issue.section === "DOCUMENTS" && issue.code === "DOCUMENT_REQUIRED") {
-        byType[issue.field as DocumentType] = issue.message;
+      if (issue.section === 'DOCUMENTS' && issue.code === 'DOCUMENT_REQUIRED') {
+        byType[issue.field as DocumentType] = issue.message
       }
     }
-    return byType;
-  }, [validation]);
+    return byType
+  }, [validation])
 
   /** The document attached for each type, deleted ones included. */
   const attached = useMemo(() => {
-    const byType: Partial<Record<DocumentType, Document>> = {};
+    const byType: Partial<Record<DocumentType, Document>> = {}
     for (const document of application?.documents ?? []) {
-      byType[document.documentType] = document;
+      byType[document.documentType] = document
     }
-    return byType;
-  }, [application]);
+    return byType
+  }, [application])
 
   /** Both queries are stale the moment any document changes. */
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["application", id] }),
-      queryClient.invalidateQueries({ queryKey: ["validation", id] }),
-    ]);
-  };
+      queryClient.invalidateQueries({ queryKey: ['application', id] }),
+      queryClient.invalidateQueries({ queryKey: ['validation', id] }),
+    ])
+  }
 
-  if (!application) return null;
+  if (!application) return null
 
-  const editable = application.editableSections.includes("DOCUMENTS");
+  const editable = application.editableSections.includes('DOCUMENTS')
 
   return (
     <main className="page">
@@ -93,8 +93,8 @@ function DocumentsPage() {
         title="Evidence"
         description={
           editable
-            ? "Attach a PDF, JPEG or PNG for each document, up to 10 MB."
-            : "These documents are part of a submitted application and can no longer be changed."
+            ? 'Attach a PDF, JPEG or PNG for each document, up to 10 MB.'
+            : 'These documents are part of a submitted application and can no longer be changed.'
         }
       />
 
@@ -112,7 +112,7 @@ function DocumentsPage() {
         ))}
       </div>
 
-      <div className="row" style={{ marginTop: "1.5rem" }}>
+      <div className="row" style={{ marginTop: '1.5rem' }}>
         <Link
           to="/app/applications/$id/review"
           params={{ id }}
@@ -121,16 +121,12 @@ function DocumentsPage() {
         >
           Check and submit
         </Link>
-        <Link
-          to="/app/applications/$id/form"
-          params={{ id }}
-          className="button"
-        >
+        <Link to="/app/applications/$id/form" params={{ id }} className="button">
           Back to the form
         </Link>
       </div>
     </main>
-  );
+  )
 }
 
 /**
@@ -149,18 +145,18 @@ function DocumentRow({
   editable,
   onChanged,
 }: {
-  applicationId: string;
-  documentType: DocumentType;
-  document: Document | undefined;
-  requirement: string | undefined;
-  editable: boolean;
-  onChanged: () => Promise<void>;
+  applicationId: string
+  documentType: DocumentType
+  document: Document | undefined
+  requirement: string | undefined
+  editable: boolean
+  onChanged: () => Promise<void>
 }) {
-  const picker = useRef<HTMLInputElement>(null);
-  const [error, setError] = useState<string | null>(null);
+  const picker = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const present = document && !document.deletedAt ? document : undefined;
-  const removed = document?.deletedAt ? document : undefined;
+  const present = document && !document.deletedAt ? document : undefined
+  const removed = document?.deletedAt ? document : undefined
 
   const upload = useMutation({
     mutationFn: (file: File) =>
@@ -174,7 +170,7 @@ function DocumentRow({
       }),
     onSuccess: onChanged,
     onError: (cause) => setError(messageFor(cause)),
-  });
+  })
 
   const remove = useMutation({
     mutationFn: async (target: Document) => {
@@ -184,12 +180,12 @@ function DocumentRow({
           documentId: target.id,
           expectedVersion: target.currentVersion,
         },
-      });
-      assertSucceeded(data.seb.application.softDeleteDocument);
+      })
+      assertSucceeded(data.seb.application.softDeleteDocument)
     },
     onSuccess: onChanged,
     onError: (cause) => setError(messageFor(cause)),
-  });
+  })
 
   const restore = useMutation({
     mutationFn: async (target: Document) => {
@@ -199,12 +195,12 @@ function DocumentRow({
           documentId: target.id,
           expectedVersion: target.currentVersion,
         },
-      });
-      assertSucceeded(data.seb.application.restoreDocument);
+      })
+      assertSucceeded(data.seb.application.restoreDocument)
     },
     onSuccess: onChanged,
     onError: (cause) => setError(messageFor(cause)),
-  });
+  })
 
   /*
    * The download URL is signed and short-lived, so it is fetched at the moment
@@ -215,25 +211,25 @@ function DocumentRow({
     mutationFn: async (target: Document) => {
       const data = await gql(DocumentDownloadUrlDocument, {
         documentId: target.id,
-      });
-      return unwrap(data.seb.application.documentDownloadUrl).downloadUrl;
+      })
+      return unwrap(data.seb.application.documentDownloadUrl).downloadUrl
     },
-    onSuccess: (url) => window.open(url, "_blank", "noopener,noreferrer"),
+    onSuccess: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
     onError: (cause) => setError(messageFor(cause)),
-  });
+  })
 
-  const busy = upload.isPending || remove.isPending || restore.isPending;
+  const busy = upload.isPending || remove.isPending || restore.isPending
 
   const choose = (file: File | undefined) => {
-    setError(null);
-    if (!file) return;
-    const refusal = rejectFile(file);
+    setError(null)
+    if (!file) return
+    const refusal = rejectFile(file)
     if (refusal) {
-      setError(refusal);
-      return;
+      setError(refusal)
+      return
     }
-    upload.mutate(file);
-  };
+    upload.mutate(file)
+  }
 
   return (
     <section className="card">
@@ -242,12 +238,10 @@ function DocumentRow({
           <h3>{DOCUMENT_TITLES[documentType]}</h3>
           {present ? (
             <p className="field-hint">
-              <span className="tabular">{present.originalFilename}</span> ·{" "}
-              {formatBytes(present.sizeBytes)} · attached{" "}
+              <span className="tabular">{present.originalFilename}</span> ·{' '}
+              {formatBytes(present.sizeBytes)} · attached{' '}
               {formatDateTime(present.createdAt)}
-              {present.currentVersion > 1
-                ? ` · version ${present.currentVersion}`
-                : ""}
+              {present.currentVersion > 1 ? ` · version ${present.currentVersion}` : ''}
             </p>
           ) : removed ? (
             <p className="field-hint">
@@ -268,7 +262,7 @@ function DocumentRow({
               disabled={download.isPending}
               onClick={() => download.mutate(present)}
             >
-              {download.isPending ? "Opening…" : "Open"}
+              {download.isPending ? 'Opening…' : 'Open'}
             </button>
           ) : null}
 
@@ -279,7 +273,7 @@ function DocumentRow({
               disabled={busy}
               onClick={() => restore.mutate(removed)}
             >
-              {restore.isPending ? "Putting back…" : "Put back"}
+              {restore.isPending ? 'Putting back…' : 'Put back'}
             </button>
           ) : null}
 
@@ -291,9 +285,9 @@ function DocumentRow({
                 accept={FILE_ACCEPT}
                 hidden
                 onChange={(event) => {
-                  choose(event.target.files?.[0]);
+                  choose(event.target.files?.[0])
                   // Cleared so choosing the same file twice still fires.
-                  event.target.value = "";
+                  event.target.value = ''
                 }}
               />
               <button
@@ -302,11 +296,7 @@ function DocumentRow({
                 disabled={busy}
                 onClick={() => picker.current?.click()}
               >
-                {upload.isPending
-                  ? "Uploading…"
-                  : present
-                    ? "Replace"
-                    : "Attach a file"}
+                {upload.isPending ? 'Uploading…' : present ? 'Replace' : 'Attach a file'}
               </button>
             </>
           ) : null}
@@ -319,7 +309,7 @@ function DocumentRow({
               disabled={busy}
               onClick={() => remove.mutate(present)}
             >
-              {remove.isPending ? "Removing…" : "Remove"}
+              {remove.isPending ? 'Removing…' : 'Remove'}
             </button>
           ) : null}
         </div>
@@ -333,5 +323,5 @@ function DocumentRow({
         </div>
       ) : null}
     </section>
-  );
+  )
 }

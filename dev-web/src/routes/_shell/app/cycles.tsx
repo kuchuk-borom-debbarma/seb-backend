@@ -30,7 +30,10 @@ function CyclesPage() {
           <div className="card">
             <div className="empty">
               <h3>No cycle is open</h3>
-              <p>New applications can be started when the programme office opens the next cycle.</p>
+              <p>
+                New applications can be started when the programme office opens the next
+                cycle.
+              </p>
             </div>
           </div>
         ) : (
@@ -59,7 +62,9 @@ function CyclesPage() {
                         {cycle.closesAt ? (
                           <>
                             {formatDate(cycle.closesAt)}{' '}
-                            <span className="muted">({formatRelative(cycle.closesAt)})</span>
+                            <span className="muted">
+                              ({formatRelative(cycle.closesAt)})
+                            </span>
                           </>
                         ) : (
                           'No closing date set'

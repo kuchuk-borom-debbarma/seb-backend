@@ -65,7 +65,11 @@ export const signUpApplicant = async (page: Page, email: string): Promise<void> 
   await page.waitForURL('**/sign-in')
 }
 
-export const signIn = async (page: Page, email: string, password = PASSWORD): Promise<void> => {
+export const signIn = async (
+  page: Page,
+  email: string,
+  password = PASSWORD,
+): Promise<void> => {
   await page.goto('/sign-in')
   await page.getByLabel('Email address').fill(email)
   await page.getByLabel('Password').fill(password)
@@ -129,15 +133,21 @@ export const openProgrammeCycle = async (
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(name ?? code)
   await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/07')
-  await page.getByLabel('Guidance for applicants').fill('Attach a detailed project report.')
+  await page
+    .getByLabel('Guidance for applicants')
+    .fill('Attach a detailed project report.')
   const local = (value: Date) => value.toISOString().slice(0, 16)
   await page.getByLabel('Applications open').fill(local(new Date(Date.now() - 3_600_000)))
-  await page.getByLabel('Applications close').fill(local(new Date(Date.now() + 2_592_000_000)))
+  await page
+    .getByLabel('Applications close')
+    .fill(local(new Date(Date.now() + 2_592_000_000)))
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
   await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
   await page.getByRole('button', { name: 'Open for applications' }).click()
-  await expect(page.getByRole('button', { name: 'Close to new applications' })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Close to new applications' }),
+  ).toBeVisible()
   return code
 }
 

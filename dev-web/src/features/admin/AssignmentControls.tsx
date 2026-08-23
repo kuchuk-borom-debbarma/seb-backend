@@ -12,10 +12,7 @@
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import {
-  reasonsFor,
-  type ReasonCategory,
-} from '#/features/admin/workspaceQueries'
+import { reasonsFor, type ReasonCategory } from '#/features/admin/workspaceQueries'
 import {
   ClaimApplicationDocument,
   ManagedUserByEmailDocument,
@@ -101,7 +98,11 @@ export function AssignmentControls({
             </button>
           )}
           {assignedToUserId ? (
-            <button type="button" className="button" onClick={() => setShowReassign(true)}>
+            <button
+              type="button"
+              className="button"
+              onClick={() => setShowReassign(true)}
+            >
               Hand it to someone
             </button>
           ) : null}
@@ -112,8 +113,8 @@ export function AssignmentControls({
         <div className="card-body">
           <p className="notice" data-tone="warn">
             <span className="notice-title">Already claimed</span>
-            Taking it over is recorded against your account, and the person who
-            had it loses it immediately.
+            Taking it over is recorded against your account, and the person who had it
+            loses it immediately.
           </p>
         </div>
       ) : null}
@@ -205,7 +206,11 @@ function ReasonedAction({
   reasons: ReasonCategory[]
   needsPerson?: boolean
   onCancel: () => void
-  onConfirm: (reasonCategoryId: string, reason: string, toUserId?: string) => Promise<void>
+  onConfirm: (
+    reasonCategoryId: string,
+    reason: string,
+    toUserId?: string,
+  ) => Promise<void>
 }) {
   const [categoryId, setCategoryId] = useState('')
   const [reason, setReason] = useState('')
@@ -215,7 +220,9 @@ function ReasonedAction({
 
   const find = useMutation({
     mutationFn: async () => {
-      const data = await gql(ManagedUserByEmailDocument, { email: email.trim() })
+      const data = await gql(ManagedUserByEmailDocument, {
+        email: email.trim(),
+      })
       return unwrap(data.access.user)
     },
     onMutate: () => setError(null),
@@ -265,7 +272,11 @@ function ReasonedAction({
           >
             {find.isPending ? 'Looking…' : 'Find them'}
           </button>
-          {person ? <span className="badge" data-tone="ok">Found {person.email}</span> : null}
+          {person ? (
+            <span className="badge" data-tone="ok">
+              Found {person.email}
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -310,7 +321,12 @@ function ReasonedAction({
       ) : null}
 
       {error ? (
-        <p className="notice" data-tone="error" role="alert" style={{ marginTop: '0.75rem' }}>
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginTop: '0.75rem' }}
+        >
           {error}
         </p>
       ) : null}

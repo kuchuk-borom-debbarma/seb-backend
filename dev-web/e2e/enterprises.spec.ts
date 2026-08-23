@@ -37,7 +37,9 @@ test.describe('enterprises', () => {
 
     // Registration lands on the new enterprise, not back on the list.
     await expect(page).toHaveURL(/\/app\/enterprises\/[0-9a-f-]{36}$/u)
-    await expect(page.getByRole('heading', { name: 'Khumulwng Food Works' })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'Khumulwng Food Works' }),
+    ).toBeVisible()
     await expect(page.getByText('Food processing')).toBeVisible()
     await expect(page.getByText('West Tripura')).toBeVisible()
 

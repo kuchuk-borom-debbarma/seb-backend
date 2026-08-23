@@ -120,6 +120,7 @@ function Sidebar({ user }: { user: SignedInUser }) {
         {isAdministrator(user) ? (
           <NavGroup title="Programme office">
             <NavLink to="/admin">Intake</NavLink>
+            <NavLink to="/admin/meetings">Committee meetings</NavLink>
             <NavLink to="/admin/cycles">Cycle administration</NavLink>
           </NavGroup>
         ) : null}

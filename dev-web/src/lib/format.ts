@@ -80,7 +80,19 @@ export const formatRelative = (value: string | null | undefined): string => {
  * — which look like typos to the people who work with these documents daily.
  */
 const ACRONYMS = new Set([
-  'ST', 'DPR', 'GST', 'GSTIN', 'NOC', 'TTM', 'TTAADC', 'SEP', 'IT', 'PIN', 'ID', 'A', 'B',
+  'ST',
+  'DPR',
+  'GST',
+  'GSTIN',
+  'NOC',
+  'TTM',
+  'TTAADC',
+  'SEP',
+  'IT',
+  'PIN',
+  'ID',
+  'A',
+  'B',
 ])
 
 /**

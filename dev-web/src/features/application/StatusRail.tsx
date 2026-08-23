@@ -94,7 +94,10 @@ export function StatusRail({
         >
           <p className={styles.summaryTitle}>
             {entry.label}
-            <span className="badge" data-tone={entry.nextActor === 'APPLICANT' ? 'action' : undefined}>
+            <span
+              className="badge"
+              data-tone={entry.nextActor === 'APPLICANT' ? 'action' : undefined}
+            >
               {entry.nextActor === 'APPLICANT'
                 ? 'Your turn'
                 : entry.nextActor === 'PROGRAMME_OFFICE'

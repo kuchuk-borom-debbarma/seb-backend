@@ -36,7 +36,9 @@ test.describe('the signed-in shell', () => {
   test('every navigation link leads to a real page', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL)
 
-    const links = page.getByRole('navigation', { name: 'Portal sections' }).getByRole('link')
+    const links = page
+      .getByRole('navigation', { name: 'Portal sections' })
+      .getByRole('link')
     // `evaluateAll` does not auto-wait, so the navigation has to be on screen
     // before the hrefs are collected.
     await expect(links.first()).toBeVisible()
@@ -63,7 +65,9 @@ test.describe('the signed-in shell', () => {
     await expect(current).toHaveAttribute('data-status', 'active')
   })
 
-  test('an unknown address shows the not-found page rather than an error', async ({ page }) => {
+  test('an unknown address shows the not-found page rather than an error', async ({
+    page,
+  }) => {
     await signIn(page, SUPER_ADMIN_EMAIL)
     await page.goto('/no-such-page')
     await expect(page.getByText('There is nothing at this address')).toBeVisible()

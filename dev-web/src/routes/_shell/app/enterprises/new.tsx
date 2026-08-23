@@ -42,7 +42,12 @@ function NewEnterprisePage() {
       />
 
       {create.isError ? (
-        <p className="notice" data-tone="error" role="alert" style={{ marginBottom: '1rem' }}>
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginBottom: '1rem' }}
+        >
           {messageFor(create.error)}
         </p>
       ) : null}

@@ -80,8 +80,8 @@ function AccessPage() {
                   onChange={(event) => setTyped(event.target.value)}
                 />
                 <span className="field-hint">
-                  The whole address, exactly. There is no partial search — this
-                  namespace deliberately cannot list accounts.
+                  The whole address, exactly. There is no partial search — this namespace
+                  deliberately cannot list accounts.
                 </span>
               </div>
               <button
@@ -111,7 +111,11 @@ function AccessPage() {
                   <p className="eyebrow">Account</p>
                   <h2 style={{ marginTop: '0.25rem' }}>{user.email}</h2>
                 </div>
-                {user.deleted ? <span className="badge" data-tone="error">Closed</span> : null}
+                {user.deleted ? (
+                  <span className="badge" data-tone="error">
+                    Closed
+                  </span>
+                ) : null}
               </div>
               <div className="card-body">
                 <div className="detail-grid">
@@ -144,7 +148,9 @@ function AccessPage() {
               </div>
               <div className="table-wrap">
                 <table className="table">
-                  <caption className="visually-hidden">Every role grant, open and closed</caption>
+                  <caption className="visually-hidden">
+                    Every role grant, open and closed
+                  </caption>
                   <thead>
                     <tr>
                       <th scope="col">Role</th>
@@ -156,7 +162,10 @@ function AccessPage() {
                   </thead>
                   <tbody>
                     {user.grants.map((grant) => (
-                      <tr key={grant.id} className={grant.revokedAt ? 'muted' : undefined}>
+                      <tr
+                        key={grant.id}
+                        className={grant.revokedAt ? 'muted' : undefined}
+                      >
                         <td>{humanize(grant.role)}</td>
                         <td>
                           {formatDateTime(grant.grantedAt)}
@@ -177,12 +186,18 @@ function AccessPage() {
                               </span>
                             </>
                           ) : (
-                            <span className="badge" data-tone="ok">Active</span>
+                            <span className="badge" data-tone="ok">
+                              Active
+                            </span>
                           )}
                         </td>
                         <td>
                           {!grant.revokedAt && grant.role !== 'APPLICANT' ? (
-                            <RevokeRole grantId={grant.id} role={grant.role} onChanged={refresh} />
+                            <RevokeRole
+                              grantId={grant.id}
+                              role={grant.role}
+                              onChanged={refresh}
+                            />
                           ) : null}
                         </td>
                       </tr>
@@ -306,7 +321,12 @@ function GrantRole({
             </div>
 
             {error ? (
-              <p className="notice" data-tone="error" role="alert" style={{ marginTop: '0.75rem' }}>
+              <p
+                className="notice"
+                data-tone="error"
+                role="alert"
+                style={{ marginTop: '0.75rem' }}
+              >
                 {error}
               </p>
             ) : null}
@@ -371,7 +391,12 @@ function RevokeRole({
 
   if (!open) {
     return (
-      <button type="button" className="button" data-variant="danger" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className="button"
+        data-variant="danger"
+        onClick={() => setOpen(true)}
+      >
         Revoke
       </button>
     )
