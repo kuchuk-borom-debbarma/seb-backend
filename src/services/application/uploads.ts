@@ -1,9 +1,14 @@
-/** Direct, private R2 upload/download signing and object verification. */
-import type { ApplicationOperationContext, DocumentType } from './types'
+/**
+ * What the programme accepts as a document, and how it is checked.
+ *
+ * These are the programme's rules — which types, how large, what a filename may
+ * contain, what the first bytes must be. Where the file physically goes is the
+ * storage service's business and is deliberately not decided here.
+ */
+import type { StorageBackend } from '../storage'
+import type { DocumentType } from './types'
 
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
-export const UPLOAD_TTL_SECONDS = 10 * 60
-export const DOWNLOAD_TTL_SECONDS = 5 * 60
 export const ALLOWED_DOCUMENT_CONTENT_TYPES = [
   'application/pdf',
   'image/jpeg',
@@ -29,18 +34,6 @@ export const createDocumentObjectKey = (
   documentType: DocumentType,
 ): string => `applications/${applicationId}/documents/${documentType}/${crypto.randomUUID()}`
 
-export const attachmentHeader = (filename: string): string => {
-  const ascii = filename.replace(/[^A-Za-z0-9._ -]/gu, '_').replace(/["\\]/gu, '_')
-  return `attachment; filename="${ascii}"`
-}
-
-const arrayBufferToBase64 = (value: ArrayBuffer): string => {
-  const bytes = new Uint8Array(value)
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary)
-}
-
 const fileSignatureMatches = (bytes: Uint8Array, contentType: AllowedContentType): boolean => {
   if (contentType === 'application/pdf') {
     return bytes.length >= 5 && new TextDecoder().decode(bytes.slice(0, 5)) === '%PDF-'
@@ -56,8 +49,16 @@ const fileSignatureMatches = (bytes: Uint8Array, contentType: AllowedContentType
   )
 }
 
+/**
+ * Whether what arrived is what was promised.
+ *
+ * Takes the storage interface rather than a bucket, so the programme's rules
+ * live here and the application service never holds a vendor's handle. The
+ * backend reports what the object *is*; deciding whether that is acceptable is
+ * this function's job, because acceptability is a programme rule.
+ */
 export const verifyUploadedObject = async (
-  bucket: R2Bucket,
+  backend: StorageBackend,
   input: {
     objectKey: string
     contentType: AllowedContentType
@@ -65,24 +66,28 @@ export const verifyUploadedObject = async (
     checksumSha256: string
   },
 ): Promise<{ valid: true } | { valid: false; message: string }> => {
-  const object = await bucket.head(input.objectKey)
-  if (!object) return { valid: false, message: 'The uploaded object was not found.' }
-  if (object.size !== input.sizeBytes || object.size < 1 || object.size > MAX_DOCUMENT_BYTES) {
+  const facts = await backend.describe(input.objectKey)
+  if (!facts) return { valid: false, message: 'The uploaded object was not found.' }
+  if (
+    facts.sizeBytes !== input.sizeBytes ||
+    facts.sizeBytes < 1 ||
+    facts.sizeBytes > MAX_DOCUMENT_BYTES
+  ) {
     return { valid: false, message: 'The uploaded file size does not match the authorization.' }
   }
-  if (object.httpMetadata?.contentType !== input.contentType) {
+  if (facts.contentType !== input.contentType) {
     return { valid: false, message: 'The uploaded file type does not match the authorization.' }
   }
-  if (
-    !object.checksums.sha256 ||
-    arrayBufferToBase64(object.checksums.sha256) !== input.checksumSha256
-  ) return { valid: false, message: 'The uploaded file checksum does not match.' }
+  if (facts.checksumSha256 !== input.checksumSha256) {
+    return { valid: false, message: 'The uploaded file checksum does not match.' }
+  }
 
-  const prefix = await bucket.get(input.objectKey, { range: { offset: 0, length: 8 } })
-  if (!prefix || !('body' in prefix)) {
+  // The declared type is a claim; the first bytes are evidence. A file renamed
+  // to .pdf is caught here rather than by whatever opens it later.
+  const bytes = await backend.readPrefix(input.objectKey, 8)
+  if (!bytes) {
     return { valid: false, message: 'The uploaded file could not be inspected.' }
   }
-  const bytes = new Uint8Array(await prefix.arrayBuffer())
   if (!fileSignatureMatches(bytes, input.contentType)) {
     return { valid: false, message: 'The uploaded file content does not match its type.' }
   }

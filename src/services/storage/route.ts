@@ -18,16 +18,17 @@
  */
 import { eq } from 'drizzle-orm'
 import { sebDocumentUploadIntent } from '../../db/schema'
-import { LOCAL_STORAGE_PATH, usesLocalStorage } from './storage'
-import type { ApplicationOperationContext } from './types'
-import { MAX_DOCUMENT_BYTES } from './uploads'
+import type { AppBindings } from '../../bindings'
+import type { Database } from '../../db'
+import { usesLocalStorage } from './index'
+import { base64FromBytes, LOCAL_STORAGE_PATH } from './policy'
 
-const base64 = (value: ArrayBuffer): string => {
-  const bytes = new Uint8Array(value)
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary)
-}
+/**
+ * All this route needs. Deliberately narrower than a service context: it reads
+ * one row and writes one object, and taking a whole operation context would
+ * make it look like it could do more.
+ */
+export type StorageRouteContext = { db: Database; env: AppBindings }
 
 const refuse = (status: number, message: string): Response =>
   new Response(JSON.stringify({ success: false, message, response: null }), {
@@ -43,7 +44,7 @@ const refuse = (status: number, message: string): Response =>
  */
 export const handleLocalStorageRequest = async (
   request: Request,
-  context: ApplicationOperationContext,
+  context: StorageRouteContext,
 ): Promise<Response | null> => {
   const url = new URL(request.url)
   if (!url.pathname.startsWith(`${LOCAL_STORAGE_PATH}/`)) return null
@@ -63,7 +64,7 @@ export const handleLocalStorageRequest = async (
 
 const putObject = async (
   request: Request,
-  context: ApplicationOperationContext,
+  context: StorageRouteContext,
   uploadId: string,
 ): Promise<Response> => {
   const [intent] = await context.db
@@ -78,8 +79,24 @@ const putObject = async (
     return refuse(403, 'This upload authorization is not usable.')
   }
 
+  /*
+   * Checked before the body is read, not after.
+   *
+   * The retained authorization already fixes the exact size, so a request
+   * declaring anything else is refused without this Worker buffering a single
+   * byte of it. Reading first and measuring afterwards means an oversized
+   * payload has already been held in memory by the time it is rejected.
+   *
+   * An absent Content-Length is not refused here — the length is still checked
+   * against the buffered body below, which is what actually binds it.
+   */
+  const declared = request.headers.get('content-length')
+  if (declared !== null && Number(declared) !== intent.sizeBytes) {
+    return refuse(400, 'The uploaded file size does not match the authorization.')
+  }
+
   const body = await request.arrayBuffer()
-  if (body.byteLength !== intent.sizeBytes || body.byteLength > MAX_DOCUMENT_BYTES) {
+  if (body.byteLength !== intent.sizeBytes) {
     return refuse(400, 'The uploaded file size does not match the authorization.')
   }
   if (request.headers.get('content-type') !== intent.contentType) {
@@ -94,7 +111,7 @@ const putObject = async (
    * environment, which is the worst kind of difference to have.
    */
   const digest = await crypto.subtle.digest('SHA-256', body)
-  if (base64(digest) !== intent.checksumSha256) {
+  if (base64FromBytes(digest) !== intent.checksumSha256) {
     return refuse(400, 'The uploaded file checksum does not match.')
   }
 
@@ -112,7 +129,7 @@ const putObject = async (
 }
 
 const getObject = async (
-  context: ApplicationOperationContext,
+  context: StorageRouteContext,
   url: URL,
 ): Promise<Response> => {
   const key = url.searchParams.get('key')

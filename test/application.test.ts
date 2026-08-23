@@ -1702,14 +1702,68 @@ describe('applicant application business service', () => {
      * URL the authorization named. That is the whole point of the local
      * backend — no bucket, no credentials, and the bytes still arrive.
      */
-    const uploaded = await SELF.fetch(
-      issue.data!.seb.application.issueDocumentUpload.response!.uploadUrl,
-      {
-        method: 'PUT',
-        headers: { 'content-type': 'application/pdf' },
-        body: bytes,
+    const uploadUrl = issue.data!.seb.application.issueDocumentUpload.response!.uploadUrl
+
+    /*
+     * The refusals first, against a genuinely issued authorization. Each is a
+     * constraint the bucket would apply, re-applied here so a document cannot
+     * behave one way locally and another once deployed.
+     *
+     * None of these consumes the authorization: a rejected attempt leaves it
+     * usable, which is what lets the real upload below succeed.
+     */
+    const badPut = (init: RequestInit) => SELF.fetch(uploadUrl, { method: 'PUT', ...init })
+
+    // A declared length that disagrees with the authorization, refused before
+    // a single byte of the body is read.
+    expect((await badPut({
+      headers: { 'content-type': 'application/pdf', 'content-length': '999999' },
+      body: bytes,
+    })).status).toBe(400)
+
+    // A body that disagrees with the authorization once measured.
+    expect((await badPut({
+      headers: { 'content-type': 'application/pdf' },
+      body: new Uint8Array([1, 2, 3]),
+    })).status).toBe(400)
+
+    // The right size, the wrong type.
+    expect((await badPut({
+      headers: { 'content-type': 'image/png' },
+      body: bytes,
+    })).status).toBe(400)
+
+    /*
+     * A streamed body carries no Content-Length, so the cheap check before
+     * buffering has nothing to work with. The measurement after buffering is
+     * what actually binds the size, and this is the path that proves it.
+     */
+    const oversized = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(bytes.length + 32).fill(37))
+        controller.close()
       },
-    )
+    })
+    expect((await SELF.fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/pdf' },
+      body: oversized,
+      // @ts-expect-error duplex is required for a streaming body and is absent
+      // from the DOM types the Worker build uses.
+      duplex: 'half',
+    })).status).toBe(400)
+
+    // The right size and type, different bytes — so a different checksum.
+    expect((await badPut({
+      headers: { 'content-type': 'application/pdf' },
+      body: new Uint8Array(bytes.length).fill(65),
+    })).status).toBe(400)
+
+    const uploaded = await SELF.fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/pdf' },
+      body: bytes,
+    })
     expect(uploaded.status).toBe(200)
     expect(await (await env.STORAGE.get(intent.objectKey))?.arrayBuffer())
       .toEqual(bytes.buffer)

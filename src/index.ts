@@ -9,8 +9,9 @@ import {
   isValidBootstrapSecret,
 } from './services/auth'
 import { cleanupExpiredDocumentUploads } from './services/application'
-import { handleLocalStorageRequest } from './services/application/local-storage-route'
-import { usesLocalStorage } from './services/application/storage'
+import { handleLocalStorageRequest } from './services/storage/route'
+import type { QueueMessage } from './services/queue'
+import { usesLocalStorage } from './services/storage'
 import { closeExpiredProgrammeCycles } from './services/admin'
 
 const app = new Hono<{ Bindings: AppBindings }>()
@@ -231,9 +232,6 @@ app.on(['GET', 'PUT'], '/internal/storage/*', async (c) => {
   const response = await handleLocalStorageRequest(c.req.raw, {
     env: c.env,
     db: createDatabase(c.env.DB),
-    requestHeaders: c.req.raw.headers,
-    requestUrl: c.req.url,
-    responseHeaders: new Headers(),
   })
   if (!response) return c.notFound()
 
@@ -290,11 +288,24 @@ export default {
       ]).then(() => undefined),
     )
   },
-  async queue(batch: MessageBatch, _env: CloudflareBindings) {
+  /**
+   * Deployed consumer for queued work.
+   *
+   * Only one kind of message exists: a request to scan a stored document. It
+   * cannot be completed, because no scanner has been chosen — an open
+   * public-launch blocker — so this acknowledges the request and stops.
+   *
+   * **It deliberately records nothing.** Marking a document scanned because
+   * this ran would make it readable by staff without anything having inspected
+   * it, which is worse than no scanner at all. Administrative download stays
+   * closed until a real ACCEPTED result is appended.
+   */
+  async queue(batch: MessageBatch<QueueMessage>, _env: CloudflareBindings) {
     for (const message of batch.messages) {
-      // Queue payloads may eventually contain notification data. Log only the
-      // Cloudflare message identifier so production logs cannot retain it.
-      console.log('Processing queue message', message.id)
+      // Only the Cloudflare message id and the kind. The body names a stored
+      // object, and an object key is a sensitive identifier.
+      console.log('Queue message received', message.id, message.body?.kind)
+      message.ack()
     }
   },
 }

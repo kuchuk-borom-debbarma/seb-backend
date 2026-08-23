@@ -37,12 +37,16 @@ import {
   createDocumentObjectKey,
   MAX_DOCUMENT_BYTES,
   sanitizeFilename,
-  UPLOAD_TTL_SECONDS,
   validSha256Base64,
   verifyUploadedObject,
   type AllowedContentType,
 } from '../uploads'
-import { createDownloadAuthorization, createUploadAuthorization } from '../storage'
+import { queue, sendBestEffort } from '../../queue'
+import {
+  storage,
+  UPLOAD_TTL_SECONDS,
+  type UploadRequest,
+} from '../../storage'
 
 const canEditDocuments = async (
   context: ApplicationOperationContext,
@@ -104,7 +108,7 @@ export const issueDocumentUpload = async (
   const uploadId = crypto.randomUUID()
   const objectKey = createDocumentObjectKey(application.id, input.documentType)
   const expiresAt = new Date(now.getTime() + UPLOAD_TTL_SECONDS * 1000)
-  const authorization = await createUploadAuthorization(context, {
+  const authorization = await storage(context.env, context.requestUrl).authorizeUpload({
     uploadId,
     objectKey,
     originalFilename,
@@ -172,7 +176,7 @@ export const finalizeDocumentUpload = async (
   if (!application || !(await canEditDocuments(context, intent.applicationId, application.status))) {
     return failure('Documents cannot be changed in the application’s current status.')
   }
-  const verification = await verifyUploadedObject(context.env.STORAGE, {
+  const verification = await verifyUploadedObject(storage(context.env, context.requestUrl), {
     objectKey: intent.objectKey,
     contentType: intent.contentType as AllowedContentType,
     sizeBytes: intent.sizeBytes,
@@ -211,6 +215,25 @@ export const finalizeDocumentUpload = async (
       }),
     }))
   if (!finalized) return failure('The document changed. Refresh it and try again.')
+
+  /*
+   * The document is stored and immutable, so it can be scanned. Queued rather
+   * than done here: scanning is somebody else's work and however long it takes
+   * must not be time the applicant spends waiting.
+   *
+   * A failure to queue is deliberately swallowed. The document is already
+   * finalized and the applicant's upload genuinely succeeded — telling them it
+   * failed would be untrue, and would invite them to upload it again. What the
+   * unscanned document cannot do is be opened by staff: administrative
+   * download fails closed until an ACCEPTED scan result is appended, so the
+   * consequence of a lost message is a document nobody can read, not a
+   * document nobody checked.
+   */
+  await sendBestEffort(
+    queue(context.env),
+    { kind: 'DOCUMENT_SCAN_REQUESTED', documentVersionId },
+    'The document scan',
+  )
   return success({ documentId, version: nextVersion })
 }
 
@@ -223,8 +246,7 @@ export const documentDownloadUrl = async (
   const document = await findOwnedDocumentVersion(context.db, applicant.id, documentId)
   if (!document) return failure('The document was not found.')
   return success(
-    await createDownloadAuthorization(
-      context,
+    await storage(context.env, context.requestUrl).authorizeDownload(
       document.version.r2ObjectKey,
       document.version.originalFilename,
       new Date(),

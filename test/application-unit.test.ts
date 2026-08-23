@@ -21,10 +21,7 @@ import {
   validSha256Base64,
   verifyUploadedObject,
 } from '../src/services/application/uploads'
-import {
-  createDownloadAuthorization,
-  createUploadAuthorization,
-} from '../src/services/application/storage'
+import { storage } from '../src/services/storage'
 import {
   addUtcCalendarMonths,
   fullUtcCalendarMonths,
@@ -103,15 +100,13 @@ const allEvidence = new Set([
   'BANK_DETAILS',
 ] as const)
 
-const signingContext = (): ApplicationOperationContext => ({
-  db: createDatabase(env.DB),
-  // Says it is deployed, because signing is what a deployed environment does.
-  // Locally the bytes come to the Worker and nothing is signed.
-  env: { ...env, ENVIRONMENT: 'develop' } as typeof env,
-  requestHeaders: new Headers(),
-  requestUrl: 'https://api.example.test/graphql',
-  responseHeaders: new Headers(),
-})
+// Says it is deployed, because signing is what a deployed environment does.
+// Locally the bytes come to the Worker and nothing is signed.
+const signingBackend = (extra: Partial<typeof env> = {}) =>
+  storage(
+    { ...env, ENVIRONMENT: 'develop', ...extra } as typeof env,
+    'https://api.example.test/graphql',
+  )
 
 const digest = async (bytes: Uint8Array) => {
   const input = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
@@ -567,9 +562,9 @@ describe('application cursors and private upload helpers', () => {
   })
 
   it('signs private upload and attachment-only download authorizations', async () => {
-    const context = signingContext()
+    const backend = signingBackend()
     const checksum = 'A'.repeat(43) + '='
-    const upload = await createUploadAuthorization(context, {
+    const upload = await backend.authorizeUpload({
       uploadId: 'upload-1',
       objectKey: 'applications/a/documents/DPR/object',
       originalFilename: 'DPR “final”.pdf',
@@ -588,8 +583,7 @@ describe('application cursors and private upload helpers', () => {
       .toContain('content-length')
     expect(upload.requiredHeaders.find((item) => item.name === 'Content-Disposition')?.value)
       .not.toContain('“')
-    const download = await createDownloadAuthorization(
-      context,
+    const download = await backend.authorizeDownload(
       'applications/a/documents/DPR/object',
       'project-report.pdf',
       new Date('2026-08-22T10:00:00Z'),
@@ -598,18 +592,10 @@ describe('application cursors and private upload helpers', () => {
     expect(new URL(download.downloadUrl).searchParams.get('response-content-disposition'))
       .toBe('attachment; filename="project-report.pdf"')
     expect(download.expiresAt.toISOString()).toBe('2026-08-22T10:05:00.000Z')
-    const missingConfiguration = signingContext()
-    missingConfiguration.env =
-      { ...env, ENVIRONMENT: 'develop', R2_ACCESS_KEY_ID: undefined } as never
-    await expect(createUploadAuthorization(missingConfiguration, {
-      uploadId: 'upload-3',
-      objectKey: 'object',
-      originalFilename: 'file.pdf',
-      contentType: 'application/pdf',
-      sizeBytes: 10,
-      checksumSha256: checksum,
-      expiresAt: new Date(),
-    })).rejects.toThrow('R2 signing configuration is required.')
+    // A deployed environment missing its credentials refuses rather than
+    // quietly accepting documents it cannot durably keep.
+    expect(() => signingBackend({ R2_ACCESS_KEY_ID: undefined }))
+      .toThrow('R2 signing configuration is required.')
   })
 
   it('verifies size, MIME, checksum, and magic bytes against private R2', async () => {
@@ -620,31 +606,31 @@ describe('application cursors and private upload helpers', () => {
       httpMetadata: { contentType: 'application/pdf' },
       sha256: checksum.buffer,
     })
-    expect(await verifyUploadedObject(env.STORAGE, {
+    expect(await verifyUploadedObject(storage(env, 'https://api.example.test/graphql'), {
       objectKey: key,
       contentType: 'application/pdf',
       sizeBytes: bytes.length,
       checksumSha256: checksum.base64,
     })).toEqual({ valid: true })
-    expect((await verifyUploadedObject(env.STORAGE, {
+    expect((await verifyUploadedObject(storage(env, 'https://api.example.test/graphql'), {
       objectKey: 'missing',
       contentType: 'application/pdf',
       sizeBytes: 1,
       checksumSha256: checksum.base64,
     })).valid).toBe(false)
-    expect((await verifyUploadedObject(env.STORAGE, {
+    expect((await verifyUploadedObject(storage(env, 'https://api.example.test/graphql'), {
       objectKey: key,
       contentType: 'application/pdf',
       sizeBytes: MAX_DOCUMENT_BYTES,
       checksumSha256: checksum.base64,
     })).valid).toBe(false)
-    expect((await verifyUploadedObject(env.STORAGE, {
+    expect((await verifyUploadedObject(storage(env, 'https://api.example.test/graphql'), {
       objectKey: key,
       contentType: 'image/png',
       sizeBytes: bytes.length,
       checksumSha256: checksum.base64,
     })).valid).toBe(false)
-    expect((await verifyUploadedObject(env.STORAGE, {
+    expect((await verifyUploadedObject(storage(env, 'https://api.example.test/graphql'), {
       objectKey: key,
       contentType: 'application/pdf',
       sizeBytes: bytes.length,
@@ -658,7 +644,7 @@ describe('application cursors and private upload helpers', () => {
       httpMetadata: { contentType: 'application/pdf' },
       sha256: fakeChecksum.buffer,
     })
-    expect((await verifyUploadedObject(env.STORAGE, {
+    expect((await verifyUploadedObject(storage(env, 'https://api.example.test/graphql'), {
       objectKey: fakePdfKey,
       contentType: 'application/pdf',
       sizeBytes: fakeBytes.length,
@@ -675,7 +661,7 @@ describe('application cursors and private upload helpers', () => {
         httpMetadata: { contentType },
         sha256: imageChecksum.buffer,
       })
-      expect(await verifyUploadedObject(env.STORAGE, {
+      expect(await verifyUploadedObject(storage(env, 'https://api.example.test/graphql'), {
         objectKey: imageKey,
         contentType,
         sizeBytes: fileBytes.length,
@@ -683,15 +669,18 @@ describe('application cursors and private upload helpers', () => {
       })).toEqual({ valid: true })
     }
 
-    const uninspectableBucket = {
-      head: async () => ({
-        size: 1,
-        httpMetadata: { contentType: 'application/pdf' },
-        checksums: { sha256: checksum.buffer },
+    // A backend that can describe an object but not read it back. Rare, and
+    // the answer must still be a refusal rather than an unchecked pass.
+    const uninspectable = {
+      ...storage(env, 'https://api.example.test/graphql'),
+      describe: async () => ({
+        sizeBytes: 1,
+        contentType: 'application/pdf',
+        checksumSha256: checksum.base64,
       }),
-      get: async () => null,
-    } as unknown as R2Bucket
-    expect((await verifyUploadedObject(uninspectableBucket, {
+      readPrefix: async () => null,
+    }
+    expect((await verifyUploadedObject(uninspectable, {
       objectKey: 'object',
       contentType: 'application/pdf',
       sizeBytes: 1,

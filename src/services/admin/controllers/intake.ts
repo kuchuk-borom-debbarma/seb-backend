@@ -7,7 +7,7 @@
  * `queries/intake.ts` are what decide concurrent attempts.
  */
 import { deskReviewChecks } from '../../../db/schema'
-import { createDownloadAuthorization } from '../../application/storage'
+import { storage } from '../../storage'
 import { adminPageSize, decodeAdminCursor } from '../pagination'
 import {
   acceptedPinnedDocument,
@@ -580,8 +580,7 @@ export const adminDocumentDownloadUrl = async (
   }
   const document = await acceptedPinnedDocument(context.db, input)
   if (!document) return failure('The submitted document has not passed malware scanning.')
-  return success(await createDownloadAuthorization(
-    context,
+  return success(await storage(context.env, context.requestUrl).authorizeDownload(
     document.file.r2ObjectKey,
     document.file.originalFilename,
     new Date(),
