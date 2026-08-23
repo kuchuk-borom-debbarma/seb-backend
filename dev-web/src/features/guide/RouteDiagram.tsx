@@ -182,7 +182,7 @@ export function RouteDiagram() {
                 {/* The applicant's own wording, when this account may read it. */}
                 {entry ? (
                   <p className={styles.told}>
-                    <span className={styles.toldLabel}>The applicant is told</span>
+                    <span className={styles.toldLabel}>Shown to the applicant</span>
                     {entry.explanation}{' '}
                     <span className={styles.actor}>
                       Waiting on {ACTOR_WORDS[entry.nextActor] ?? 'the programme office'}
