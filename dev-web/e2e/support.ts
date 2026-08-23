@@ -29,16 +29,25 @@ export const uniqueEmail = (prefix: string): string =>
 /**
  * Reads the six-digit signup code out of the Worker's console output.
  *
- * Notification delivery is a `console.log` transport in development (roadmap
- * §18), so this is the only place the code exists. Polling rather than reading
- * once, because the Worker writes the line asynchronously through `tee`.
+ * Locally the notification transport prints rather than delivers, so this is
+ * the only place the code exists. It marks its line `DEV_EMAIL` precisely so
+ * this can find it. Polling rather than reading once, because the Worker writes
+ * the line asynchronously through `tee`.
  */
 export const latestOtp = async (afterByteOffset = 0): Promise<string> => {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const log = await readFile(WORKER_LOG, 'utf8').catch(() => '')
-    const codes = [...log.slice(afterByteOffset).matchAll(/\b(\d{6})\b/gu)]
-    const last = codes.at(-1)
-    if (last?.[1]) return last[1]
+    /*
+     * Anchored on the transport's own marker, not on "six digits somewhere".
+     * The previous version took the last six-digit run anywhere in the log,
+     * which silently returns the wrong code as soon as anything else logs six
+     * consecutive digits — a request id, a timestamp fragment, a provider
+     * reference. Reading the marked line means the code is found by where it
+     * is rather than by what it looks like.
+     */
+    const lines = [...log.slice(afterByteOffset).matchAll(/^DEV_EMAIL (.*)$/gmu)]
+    const code = lines.at(-1)?.[1]?.match(/\b(\d{6})\b/u)
+    if (code?.[1]) return code[1]
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
   throw new Error('No signup code appeared in the Worker log within 10 seconds.')

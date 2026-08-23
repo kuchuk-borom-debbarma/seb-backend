@@ -4,7 +4,7 @@
  */
 import { z } from 'zod'
 import { auditActions, type UserRole } from '../../../db/schema'
-import { sendEmail } from '../../external-notification'
+import { sendNotification } from '../../external-notification'
 import { clearSessionCookie, readSessionToken, setSessionCookie } from '../cookies'
 import {
   createChallengeToken,
@@ -270,11 +270,11 @@ export const startApplicantSignup = async (
   if (!challengeCreated) return success(response, START_SIGNUP_MESSAGE)
 
   try {
-    await sendEmail({
+    await sendNotification({
       to: email,
       subject: 'Your applicant signup code',
-      text: `Your applicant signup code is ${otp}. It expires in 10 minutes.`,
-    })
+      body: `Your applicant signup code is ${otp}. It expires in 10 minutes.`,
+    }, context.env)
   } catch (error) {
     // An undelivered OTP remains auditable but is immediately made unusable.
     const failedAt = new Date()
@@ -290,7 +290,13 @@ export const startApplicantSignup = async (
         createdAt: failedAt,
       }),
     )
-    console.error('Applicant signup notification failed', error)
+    /*
+     * Deliberately not logging the error object. A transport failure can carry
+     * the request it was making — recipient, subject, and the code itself — and
+     * these logs are readable in CI on a public repository. The audit row above
+     * is the durable record; this line only says it happened.
+     */
+    console.error('Applicant signup notification failed')
     return failure('The verification code could not be sent. Please try again.')
   }
 

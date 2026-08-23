@@ -90,9 +90,13 @@ const cookieHeaderFrom = (response: Response): string => {
 }
 
 const extractOtp = (log: ReturnType<typeof vi.spyOn>): string => {
+  // The development transport prints one marked, single-line JSON payload.
   for (const call of log.mock.calls) {
-    const payload = call[1] as { text?: string } | undefined
-    const match = payload?.text?.match(/\b(\d{6})\b/u)
+    const line = typeof call[0] === 'string' ? call[0] : ''
+    const marked = line.match(/^DEV_EMAIL (.*)$/u)
+    if (!marked?.[1]) continue
+    const payload = JSON.parse(marked[1]) as { text?: string }
+    const match = payload.text?.match(/\b(\d{6})\b/u)
     if (match) return match[1]
   }
   throw new Error('Console notification did not contain an OTP.')
