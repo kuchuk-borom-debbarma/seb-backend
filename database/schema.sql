@@ -384,7 +384,7 @@ CREATE TABLE `seb_document_upload_intent` (
 	CONSTRAINT "seb_document_upload_intent_type_check" CHECK("seb_document_upload_intent"."document_type" IN ('IDENTITY_AGE_PROOF', 'ST_CERTIFICATE', 'ADDRESS_PROOF', 'BUSINESS_REGISTRATION', 'GST_REGISTRATION', 'DPR', 'BANK_DETAILS', 'NOC')),
 	CONSTRAINT "seb_document_upload_intent_status_check" CHECK("seb_document_upload_intent"."status" IN ('ISSUED', 'FINALIZED', 'REJECTED', 'CLEANUP_PENDING', 'EXPIRED')),
 	CONSTRAINT "seb_document_upload_intent_expected_version_check" CHECK("seb_document_upload_intent"."expected_document_version" >= 0),
-	CONSTRAINT "seb_document_upload_intent_size_check" CHECK("seb_document_upload_intent"."size_bytes" > 0 AND "seb_document_upload_intent"."size_bytes" <= 10485760),
+	CONSTRAINT "seb_document_upload_intent_size_check" CHECK("seb_document_upload_intent"."size_bytes" > 0 AND "seb_document_upload_intent"."size_bytes" <= 5242880),
 	CONSTRAINT "seb_document_upload_intent_lifecycle_check" CHECK(("seb_document_upload_intent"."status" = 'FINALIZED'
           AND "seb_document_upload_intent"."finalized_document_version_id" IS NOT NULL
           AND "seb_document_upload_intent"."cleanup_target_status" IS NULL)

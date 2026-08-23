@@ -106,6 +106,37 @@ test.describe('evidence', () => {
     await expect(page.getByText('This file is empty. Choose another one.')).toBeVisible()
   })
 
+  test('refuses a file over the limit, and one whose name lies', async ({ page }) => {
+    const id = await startApplication(page, {
+      prefix: 'evidence',
+      businessName: 'Evidence Works',
+    })
+    await page.goto(`/applications/${id}/documents`)
+
+    // Refused in the browser, so a six-megabyte file is never uploaded only to
+    // be rejected after the wait.
+    await choose(page, {
+      name: 'big.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.alloc(6 * 1024 * 1024, 0x20),
+    })
+    await expect(page.getByText('The largest a document can be is 5 MB.')).toBeVisible()
+
+    /*
+     * The name is the one thing about an upload that is stored and served back
+     * later. This passes the type check and would pass the signature check too
+     * — the bytes really are a PDF. The name is what lies.
+     */
+    await choose(page, {
+      name: 'report.pdf.exe',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4 a small but real-looking file'),
+    })
+    await expect(
+      page.getByText('The file name must end in .pdf, .jpg, .jpeg or .png, matching the file.'),
+    ).toBeVisible()
+  })
+
   test('a file the browser accepts is stored, and comes back attached', async ({
     page,
   }) => {

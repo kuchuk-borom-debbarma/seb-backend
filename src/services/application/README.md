@@ -130,7 +130,7 @@ This service is the single owner of the upload rules.
 | | |
 | --- | --- |
 | Types | PDF, JPEG, PNG |
-| Maximum | 10 MB |
+| Maximum | 5 MB |
 | Upload URL | valid 10 minutes |
 | Download URL | valid 5 minutes, always forced to attachment |
 

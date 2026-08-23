@@ -261,7 +261,7 @@ The signed request includes content length, content type, SHA-256, and
 `If-None-Match: *`. The browser derives the signed content length from the Blob;
 frontend code does not manually set that forbidden header. Opaque object keys
 contain no applicant name or original filename. PDF, JPEG, and PNG files are
-allowed up to 10 MB. Download links last five minutes, force
+allowed up to 5 MB. Download links last five minutes, force
 attachment, and never make the bucket public. Replacing or logically deleting a
 slot does not delete immutable finalized objects.
 

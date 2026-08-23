@@ -1870,10 +1870,15 @@ describe('applicant application business service', () => {
     for (const input of [
       { ...baseInput, expectedDocumentVersion: -1 },
       { ...baseInput, sizeBytes: 0 },
-      { ...baseInput, sizeBytes: 10 * 1024 * 1024 + 1 },
+      { ...baseInput, sizeBytes: 5 * 1024 * 1024 + 1 },
       { ...baseInput, contentType: 'text/html' },
       { ...baseInput, checksumSha256: 'not-a-checksum' },
       { ...baseInput, originalFilename: ' ' },
+      // A name that describes something the file is not. This passes the type
+      // check and would pass the signature check too, because the bytes really
+      // are a PDF — the name is what lies.
+      { ...baseInput, originalFilename: 'report.pdf.exe' },
+      { ...baseInput, originalFilename: 'report' },
       { ...baseInput, applicationId: 'missing-application' },
     ]) {
       const response = await graphql<{

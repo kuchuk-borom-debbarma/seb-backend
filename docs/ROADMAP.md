@@ -337,7 +337,8 @@ submitted in an older cycle.
 
 ### 6.2 Upload, replacement, and access
 
-- [x] Accept PDF, JPEG, and PNG files up to 10 MB each.
+- [x] Accept PDF, JPEG, and PNG files up to 5 MB each, with the file name's
+  extension required to match the file's declared type.
 - [x] Reject a file whose actual type does not match its declared type.
 - [x] Reject incomplete, altered, oversized, or expired upload attempts.
 - [x] Keep application documents private.

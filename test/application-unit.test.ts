@@ -17,6 +17,7 @@ import {
   ALLOWED_DOCUMENT_CONTENT_TYPES,
   MAX_DOCUMENT_BYTES,
   createDocumentObjectKey,
+  extensionMatchesContentType,
   sanitizeFilename,
   validSha256Base64,
   verifyUploadedObject,
@@ -559,6 +560,34 @@ describe('application cursors and private upload helpers', () => {
     expect(validSha256Base64('bad')).toBe(false)
     const key = createDocumentObjectKey('application-id', 'DPR')
     expect(key).toMatch(/^applications\/application-id\/documents\/DPR\/[0-9a-f-]+$/u)
+  })
+
+
+  it('refuses a name that describes something the file is not', async () => {
+    /*
+     * The third check on an upload, and the only one that concerns the name.
+     * The MIME type is what the browser claims and the magic bytes are what
+     * the file is — but the filename is the one of the three that gets stored
+     * and later served back.
+     *
+     * `report.pdf.exe` passes both the others: the browser reports
+     * application/pdf and the bytes begin %PDF-.
+     */
+    expect(extensionMatchesContentType('report.pdf.exe', 'application/pdf')).toBe(false)
+    expect(extensionMatchesContentType('scan.png', 'application/pdf')).toBe(false)
+
+    // Only the final extension is judged. Dots earlier in a name are ordinary.
+    expect(extensionMatchesContentType('annual.report.2026.pdf', 'application/pdf')).toBe(true)
+    expect(extensionMatchesContentType('PROOF.PDF', 'application/pdf')).toBe(true)
+    expect(extensionMatchesContentType('photo.JPEG', 'image/jpeg')).toBe(true)
+    expect(extensionMatchesContentType('photo.jpg', 'image/jpeg')).toBe(true)
+    expect(extensionMatchesContentType('logo.png', 'image/png')).toBe(true)
+
+    // No extension is refused rather than waved through: a stored document
+    // with no extension is one nobody can open by clicking it.
+    expect(extensionMatchesContentType('report', 'application/pdf')).toBe(false)
+    expect(extensionMatchesContentType('report.', 'application/pdf')).toBe(false)
+    expect(extensionMatchesContentType('.pdf', 'application/pdf')).toBe(false)
   })
 
   it('signs private upload and attachment-only download authorizations', async () => {

@@ -45,6 +45,7 @@ import {
   sebRevisionRequest,
 } from '../../../db/schema'
 import { foldDisbursementLedger } from '../ledger'
+import { MAX_COLLECTION_ROWS } from '../pagination'
 import { changedSections } from '../sections'
 import { encodeCursor } from '../pagination'
 import { prefixMatch, prefixPattern } from '../../search'
@@ -718,6 +719,15 @@ const eligibleAwardForCase = async (
   return { blockedBy: 'NO_POSITIVE_RELEASE' }
 }
 
+/**
+ * Identifies one assessment group: a type, and the obligation it belongs to.
+ *
+ * Utilization assessments are per obligation; the others have none, and an
+ * empty second half is what distinguishes them rather than a separate map.
+ */
+const assessmentKey = (assessmentType: string, obligationId: string | null): string =>
+  `${assessmentType}:${obligationId ?? ''}`
+
 const hasCompetingPhase = async (
   db: Database,
   fundingCaseId: string,
@@ -828,6 +838,35 @@ export const evaluateExpansionEligibility = async (
         { type: 'FINANCIAL_AUDIT' as const },
       ]
   const required = new Set(requiredAssessments.map((rule) => rule.type))
+
+  /*
+   * Every assessment for this award, read once.
+   *
+   * Each check below wants the latest assessment of one kind — utilization per
+   * obligation, and one each for performance and financial audit. Asked
+   * separately that is one query per obligation plus two, all of them small
+   * and all of them sequential. One read ordered newest-first answers all of
+   * them, because the first row seen for a group is that group's latest.
+   *
+   * Bounded by the same backstop every unpaginated child collection uses. An
+   * award with more assessments than that is not a real one.
+   */
+  const assessmentRows = await db
+    .select({
+      assessmentType: sebAwardAssessment.assessmentType,
+      obligationId: sebAwardAssessment.utilizationObligationId,
+      outcome: sebAwardAssessment.outcome,
+    })
+    .from(sebAwardAssessment)
+    .where(eq(sebAwardAssessment.fundingAwardId, award.awardId))
+    .orderBy(desc(sebAwardAssessment.assessmentNumber))
+    .limit(MAX_COLLECTION_ROWS)
+  const latestOutcomes = new Map<string, string>()
+  for (const row of assessmentRows) {
+    const key = assessmentKey(row.assessmentType, row.obligationId)
+    // Newest first, so the first row seen for a key is the one that counts.
+    if (!latestOutcomes.has(key)) latestOutcomes.set(key, row.outcome)
+  }
   if (required.has('UTILIZATION')) {
     const obligations = await db
       .select({
@@ -851,38 +890,14 @@ export const evaluateExpansionEligibility = async (
       // The obligation has a restrictive composite foreign key to this exact
       // award/release pair, so a matching immutable release always exists.
       if (retainedByRelease.get(obligation.releaseId)! <= 0) continue
-      const [latest] = await db
-        .select({ outcome: sebAwardAssessment.outcome })
-        .from(sebAwardAssessment)
-        .where(
-          and(
-            eq(sebAwardAssessment.fundingAwardId, award.awardId),
-            eq(sebAwardAssessment.assessmentType, 'UTILIZATION'),
-            eq(sebAwardAssessment.utilizationObligationId, obligation.id),
-          ),
-        )
-        .orderBy(desc(sebAwardAssessment.assessmentNumber))
-        .limit(1)
-      if (latest?.outcome !== 'PASSED') {
+      if (latestOutcomes.get(assessmentKey('UTILIZATION', obligation.id)) !== 'PASSED') {
         reasons.push(expansionReason('UTILIZATION_NOT_PASSED', obligation.id))
       }
     }
   }
   for (const assessmentType of ['PERFORMANCE', 'FINANCIAL_AUDIT'] as const) {
     if (!required.has(assessmentType)) continue
-    const [latest] = await db
-      .select({ outcome: sebAwardAssessment.outcome })
-      .from(sebAwardAssessment)
-      .where(
-        and(
-          eq(sebAwardAssessment.fundingAwardId, award.awardId),
-          eq(sebAwardAssessment.assessmentType, assessmentType),
-          isNull(sebAwardAssessment.utilizationObligationId),
-        ),
-      )
-      .orderBy(desc(sebAwardAssessment.assessmentNumber))
-      .limit(1)
-    if (latest?.outcome !== 'PASSED') {
+    if (latestOutcomes.get(assessmentKey(assessmentType, null)) !== 'PASSED') {
       reasons.push(expansionReason(`${assessmentType}_NOT_PASSED`))
     }
   }

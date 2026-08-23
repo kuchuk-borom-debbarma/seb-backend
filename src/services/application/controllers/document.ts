@@ -35,7 +35,9 @@ import type {
 import {
   ALLOWED_DOCUMENT_CONTENT_TYPES,
   createDocumentObjectKey,
+  extensionMatchesContentType,
   MAX_DOCUMENT_BYTES,
+  MAX_DOCUMENT_MEGABYTES,
   sanitizeFilename,
   validSha256Base64,
   verifyUploadedObject,
@@ -79,7 +81,7 @@ export const issueDocumentUpload = async (
     !Number.isSafeInteger(input.sizeBytes) ||
     input.sizeBytes < 1 ||
     input.sizeBytes > MAX_DOCUMENT_BYTES
-  ) return failure('Documents must contain 1 byte through 10 MB.')
+  ) return failure(`Documents must contain 1 byte through ${MAX_DOCUMENT_MEGABYTES} MB.`)
   if (!ALLOWED_DOCUMENT_CONTENT_TYPES.includes(input.contentType as AllowedContentType)) {
     return failure('Documents must be PDF, JPEG, or PNG.')
   }
@@ -88,6 +90,14 @@ export const issueDocumentUpload = async (
   }
   const originalFilename = sanitizeFilename(input.originalFilename)
   if (!originalFilename) return failure('The original filename is invalid.')
+  /*
+   * The name is the one thing about an upload that is stored and served back,
+   * so it must not describe something the file is not. `report.pdf.exe` passes
+   * the type and signature checks and fails here.
+   */
+  if (!extensionMatchesContentType(originalFilename, input.contentType as AllowedContentType)) {
+    return failure('The file name must end in .pdf, .jpg, .jpeg or .png, matching the file.')
+  }
   const application = await findOwnedApplicationHead(
     context.db,
     applicant.id,

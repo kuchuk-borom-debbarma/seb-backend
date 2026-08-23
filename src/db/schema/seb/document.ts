@@ -249,7 +249,7 @@ export const sebDocumentUploadIntent = sqliteTable(
     ),
     check(
       'seb_document_upload_intent_size_check',
-      sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 10485760`,
+      sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 5242880`,
     ),
     check(
       'seb_document_upload_intent_lifecycle_check',

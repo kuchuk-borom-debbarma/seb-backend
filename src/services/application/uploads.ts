@@ -8,7 +8,19 @@
 import type { StorageBackend } from '../storage'
 import type { DocumentType } from './types'
 
-export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
+/**
+ * The largest a document may be.
+ *
+ * Five megabytes is generous for a scanned certificate or a project report and
+ * small enough that a poor connection can still finish one. It is also the
+ * number the browser refuses at, so almost nothing oversized reaches the API at
+ * all — `dev-web` derives its message from this same constant so the two
+ * cannot drift.
+ */
+export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
+
+/** For messages, so the limit is stated once and read everywhere. */
+export const MAX_DOCUMENT_MEGABYTES = MAX_DOCUMENT_BYTES / (1024 * 1024)
 export const ALLOWED_DOCUMENT_CONTENT_TYPES = [
   'application/pdf',
   'image/jpeg',
@@ -16,6 +28,43 @@ export const ALLOWED_DOCUMENT_CONTENT_TYPES = [
 ] as const
 
 export type AllowedContentType = (typeof ALLOWED_DOCUMENT_CONTENT_TYPES)[number]
+
+/**
+ * The extensions each accepted type may carry.
+ *
+ * The MIME type is what the browser claims and the magic bytes are what the
+ * file actually is, so this looks like a third copy of the same check. It is
+ * not, because the filename is the one of the three that gets **stored and
+ * later served back**.
+ *
+ * `report.pdf.exe` passes both other checks today: the browser reports
+ * `application/pdf`, the bytes begin `%PDF-`, and the name is kept as given.
+ * Requiring the final extension to agree with the declared type is what stops
+ * a file arriving with a name that describes something else entirely.
+ */
+const EXTENSIONS_BY_CONTENT_TYPE: Record<AllowedContentType, readonly string[]> = {
+  'application/pdf': ['pdf'],
+  'image/jpeg': ['jpg', 'jpeg'],
+  'image/png': ['png'],
+}
+
+/**
+ * Whether the filename's final extension matches the type it claims to be.
+ *
+ * Only the last extension is considered: everything before it is an ordinary
+ * part of the name, and `annual.report.2026.pdf` is a perfectly good filename.
+ */
+export const extensionMatchesContentType = (
+  filename: string,
+  contentType: AllowedContentType,
+): boolean => {
+  const lastDot = filename.lastIndexOf('.')
+  // No extension at all is refused rather than waved through: a stored
+  // document with no extension is one a person cannot open by clicking it.
+  if (lastDot <= 0 || lastDot === filename.length - 1) return false
+  const extension = filename.slice(lastDot + 1).toLowerCase()
+  return EXTENSIONS_BY_CONTENT_TYPE[contentType].includes(extension)
+}
 
 export const sanitizeFilename = (value: string): string | null => {
   const filename = value

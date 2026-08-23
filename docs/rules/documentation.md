@@ -91,7 +91,7 @@ worked example rather than an abstract warning:
 
 | Subject | Was in | Now owned by |
 | --- | --- | --- |
-| R2 upload rules — MIME types, 10 MB, the signed headers, the cleanup retry | four places | `src/services/application/README.md` |
+| Upload rules — MIME types, 5 MB, the signed headers, the cleanup retry | four places | `src/services/application/README.md` |
 | Transcribed identifiers and the key-rotation warning | three places | `docs/admin-workflow-guide.md` for the rule, `src/services/admin/README.md` for the mechanism |
 | The named-queue rationale | two places, near-verbatim | `docs/admin-workflow-guide.md` |
 | What bounds a request | the client's guide, describing server limits | `src/graphql/README.md` |

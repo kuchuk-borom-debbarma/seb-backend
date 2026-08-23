@@ -76,7 +76,23 @@ export const ALLOWED_CONTENT_TYPES = [
   'image/jpeg',
   'image/png',
 ] as const
-export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
+export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
+
+/** Stated once, so the limit and the sentence describing it cannot drift. */
+export const MAX_DOCUMENT_MEGABYTES = MAX_DOCUMENT_BYTES / (1024 * 1024)
+
+/**
+ * The extensions each accepted type may carry, matching the API exactly.
+ *
+ * The name is the one thing about an upload that is stored and served back, so
+ * it must not describe something the file is not. Checking here means a person
+ * is told before the upload rather than after it.
+ */
+const EXTENSIONS_BY_CONTENT_TYPE: Record<string, readonly string[]> = {
+  'application/pdf': ['pdf'],
+  'image/jpeg': ['jpg', 'jpeg'],
+  'image/png': ['png'],
+}
 
 /** What the file picker accepts, so the wrong file is harder to choose. */
 export const FILE_ACCEPT = ALLOWED_CONTENT_TYPES.join(',')
@@ -93,7 +109,14 @@ export const rejectFile = (file: File): string | null => {
   }
   if (file.size < 1) return 'This file is empty. Choose another one.'
   if (file.size > MAX_DOCUMENT_BYTES) {
-    return `This file is ${formatBytes(file.size)}. The largest a document can be is 10 MB.`
+    return `This file is ${formatBytes(file.size)}. The largest a document can be is ${
+      MAX_DOCUMENT_MEGABYTES
+    } MB.`
+  }
+  const lastDot = file.name.lastIndexOf('.')
+  const extension = lastDot > 0 ? file.name.slice(lastDot + 1).toLowerCase() : ''
+  if (!EXTENSIONS_BY_CONTENT_TYPE[file.type]?.includes(extension)) {
+    return 'The file name must end in .pdf, .jpg, .jpeg or .png, matching the file.'
   }
   return null
 }
