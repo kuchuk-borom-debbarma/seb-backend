@@ -88,6 +88,17 @@ how many times the server will resolve it.
 `documentCostRule` is registered **first**, so an oversized document is refused
 before the other rules walk it.
 
+### Collections without a cursor
+
+An application's notes, its events and its assignment history are capped at 500
+rows, read newest-first so the cap keeps the recent end. Signed-in devices are
+capped at 100 — the one collection a person can inflate on purpose.
+
+**Two are deliberately uncapped**: the disbursement ledger and a recovery
+case's entries. Their totals are folded from exactly those rows, so truncating
+them would report a wrong figure rather than a short list. They are bounded by
+the instalments the programme office actually pays, which no caller controls.
+
 ## The single-mutation rules
 
 Four rules — one per namespace — refuse a mutation document that selects

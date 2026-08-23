@@ -1,157 +1,225 @@
-# seb-backend
+# Mission SEP
 
-Cloudflare Worker API built with Hono, GraphQL Yoga, Drizzle, D1, R2, and Queues.
+TTAADC's Mission SEP gives seed funding to first-generation Scheduled Tribe
+entrepreneurs in Tripura's autonomous district areas. This repository is the
+API that runs it, plus a browser client for demonstrating and exercising it.
 
-## Local development
+One idea holds the whole system together: **an application is a file, and at
+every moment somebody is holding it.** It carries one reference number from the
+day it is submitted until the last rupee is accounted for, and every screen and
+every operation answers the same question — whose turn is it now?
 
-The checked-in `.env.example` is intentionally empty. `.env` is gitignored and
-may contain local-only secrets such as the temporary first-administrator
-bootstrap values; never commit it. Regular local values may also be passed to
-Wrangler without writing an environment file:
+## The route a file takes
 
-```sh
+Four desks, eleven states.
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT
+    DRAFT --> SUBMITTED: applicant submits
+    SUBMITTED --> DESK_REVIEW: officer starts the review
+    DESK_REVIEW --> REVISION_REQUIRED: corrections asked for
+    REVISION_REQUIRED --> SUBMITTED: applicant resubmits
+    DESK_REVIEW --> PARTNER_BANK_EVALUATION: referred to a bank
+    DESK_REVIEW --> REJECTED: closed at the desk
+    PARTNER_BANK_EVALUATION --> TTM_REVIEW: the bank has answered
+    PARTNER_BANK_EVALUATION --> REVISION_REQUIRED: bank wants more
+    TTM_REVIEW --> APPROVED: committee approves
+    TTM_REVIEW --> REJECTED: committee rejects
+    TTM_REVIEW --> REVISION_REQUIRED: committee wants more
+    APPROVED --> SANCTIONED: sanction order issued
+    SANCTIONED --> DISBURSED: first instalment released
+    DISBURSED --> CANCELLED: award cancelled
+    REJECTED --> [*]
+    DISBURSED --> [*]
+```
+
+| Desk | Holds |
+| --- | --- |
+| **Applicant** | `DRAFT`, `REVISION_REQUIRED` |
+| **Programme office** | `SUBMITTED`, `DESK_REVIEW`, `APPROVED`, `SANCTIONED`, `DISBURSED`, `REJECTED`, `CANCELLED` |
+| **Partner bank** | `PARTNER_BANK_EVALUATION` |
+| **Committee** | `TTM_REVIEW` |
+
+---
+
+## What an applicant can do
+
+In the order they do it. Every action names the operation that performs it, and
+all of them require the `APPLICANT` role.
+
+| # | What they do | Operation |
+| --- | --- | --- |
+| 1 | Sign up with an emailed one-time code, then set a password | `auth.startApplicantSignup`, `auth.verifyApplicantSignup` |
+| 2 | Register the enterprise the application is for | `seb.enterprise.create` |
+| 3 | See which programme cycles are open to apply in | `seb.application.availableProgrammeCycles` |
+| 4 | Start an application — a first one, or a later phase | `seb.application.startInitial`, `startExpansion` |
+| 5 | Answer six sections, saved as they type | `seb.application.saveDraft` |
+| 6 | Attach evidence, uploaded straight to storage | `seb.application.issueDocumentUpload`, `finalizeDocumentUpload` |
+| 7 | Check what is still missing before sending | `seb.application.validate` |
+| 8 | Submit, which freezes a copy and issues the reference number | `seb.application.submit` |
+| 9 | Watch where it is, in plain language | `seb.application.byId`, `statusGuide`, `timeline` |
+| 10 | Answer a correction request — only the named sections unlock | `seb.application.saveDraft`, then `resubmit` |
+| 11 | See the award, what has been paid, and what is still to come | `seb.application.funding` |
+| 12 | Check whether they qualify for a later phase | `seb.application.expansionEligibility` |
+
+They can also edit or remove an enterprise, delete and restore a draft, and see
+their own signed-in devices. What they **cannot** reach is anything under
+`admin` or `access` — an applicant opening the programme office is refused, and
+told which portal their account can use.
+
+## What the programme office can do
+
+Three fixed roles. There is no reviewer role and none will be invented — adding
+one requires a schema and service change rather than a production data edit.
+
+### Administrator
+
+| Stage | What they do | Operation |
+| --- | --- | --- |
+| Intake | Work the nine named queues | `admin.intake.queue`, `queues` |
+| | Claim a file before working on it | `admin.intake.claim` |
+| | Hand it on, or give it back, with a reason | `admin.intake.reassign`, `release` |
+| | Write a note nobody outside the office sees | `admin.intake.addInternalNote` |
+| Desk review | Start it | `admin.intake.startDeskReview` |
+| | Record nine checks, transcribe the numbers on the documents, and choose an outcome | `admin.intake.completeDeskReview` |
+| | Withdraw a correction request made in error | `admin.intake.cancelRevision` |
+| Bank | Refer the file to a partner bank | `admin.decision.referToBank` |
+| | Record what the bank wrote back | `admin.decision.recordBankOutcome` |
+| | Correct that record without erasing it | `admin.decision.correctBankOutcome` |
+| Committee | Schedule a meeting and build its agenda | `admin.decision.createMeeting`, `addAgendaItem` |
+| | Reorder or remove an item, with a reason | `admin.decision.reorderAgendaItem`, `removeAgendaItem` |
+| | Sit, decide, and finalize | `admin.decision.startMeeting`, `recordDecision`, `finalizeMeeting` |
+| Money | Issue the sanction order | `admin.funding.createAward` |
+| | Release an instalment | `admin.funding.recordRelease` |
+| | Correct a payment with a reversal | `admin.funding.reverseRelease` |
+| | Record how the money was used | `admin.funding.recordAssessment` |
+| | Open, work and close a recovery case | `admin.funding.openRecovery`, `recordRecoveryEntry`, `closeRecovery` |
+| Cycles | Write a programme year's policy and open it | `admin.programmeCycle.create`, `open` |
+| | Change the closing time or the guidance shown | `admin.programmeCycle.changeClosingTime`, `updateOpenGuidance` |
+| | Close and archive it | `admin.programmeCycle.close`, `archive` |
+
+### Super administrator
+
+Everything an administrator can do, **plus** the four operations an ordinary
+administrator must not inherit — granting and revoking authority:
+
+| What they do | Operation |
+| --- | --- |
+| Look somebody up by their exact address | `access.userByEmail`, `access.userById` |
+| Grant `ADMIN` or `SUPER_ADMIN`, confirming with their own password | `access.grantRole` |
+| Revoke a named grant, confirming with their own password | `access.revokeRole` |
+
+Those four are the **only** operations that require `SUPER_ADMIN`. Everything
+under `admin` accepts either administrative role.
+
+Three rules make this safe: `APPLICANT` can never be granted, because only
+verified signup creates it and one revocation would otherwise strip somebody
+permanently; the last usable super administrator cannot be revoked; and there is
+deliberately no way to list accounts, so the namespace cannot be used to
+enumerate them.
+
+---
+
+## Running it
+
+```bash
 npm install
-npm run db:setup:local
-npx wrangler dev \
-  --var AUTH_SECRET:replace-with-a-long-random-secret \
-  --var FRONTEND_ORIGINS:http://localhost:3000
+cp .env.example .env.local          # then fill in the required values
+npm run db:setup:local              # applies database/schema.sql
+npm run local                       # the Worker, on http://localhost:9999
+cd dev-web && npm install && npm run local   # the client, on :9990
 ```
 
-GraphQL is served at `http://localhost:8787/graphql`. Applicant authentication
-uses GraphQL. The one-time first-super-administrator promotion is deliberately
-available only through a direct curl endpoint documented below.
+GraphQL is at `http://localhost:9999/graphql`. The client points at the Worker
+automatically.
 
-Useful checks:
+### Configuration
 
-```sh
-npm run typecheck
-npm test
-npm run check
-npx wrangler deploy --dry-run
-```
+`.env.example` is the checked-in template and documents every variable. Wrangler
+loads `.env` then `.env.local`, the later winning, and both are gitignored.
 
-## Development web client
+**A leftover `.dev.vars` beats both.** Wrangler reads it first and ignores the
+`.env` files entirely when it exists — the first thing to suspect when a change
+appears to do nothing.
 
-`dev-web/` is a browser client covering the API, used to demonstrate and
-exercise the programme by hand. It is a development tool, but it is not a mock:
-every control maps to a real operation, and nothing appears on screen that does
-not work.
+`AUTH_SECRET` and `IDENTIFIER_SECRET` are required, at least 32 bytes each. The
+second is read at first use rather than at startup, so a deployment missing it
+looks healthy until the first desk review is completed, which then fails.
 
-```sh
-npm run local                  # the Worker, on http://localhost:9999
-cd dev-web && npm run local    # the client, on http://localhost:9990
-```
+Uploads need four `R2_*` values for a real bucket. Without them everything else
+runs and the evidence screen refuses — there is no local substitute, because the
+Worker signs a URL addressed to Cloudflare and the browser uploads directly.
 
-It is a separate package with its own dependency tree, excluded from this
-package's TypeScript, Vitest and `fallow` runs. See the
-[development web client guide](docs/dev-web-guide.md) for first-run setup, the
-session-forwarding design, and its end-to-end suite.
+### The first administrator
 
-`npm run check` runs the typecheck, the coverage suite at a 100% threshold,
-`fallow --type-aware`, and the D1 schema drift check. Duplication analysis is
-configured with `minOccurrences: 3`: a *pair* of structurally parallel functions
-— create/update, record/correct — is context-specific rather than copy-paste,
-while a third copy is worth consolidating and still fails the check.
+The database starts with no administrator, by design. Create one the way a real
+deployment does — see the
+[bootstrap guide](docs/first-super-admin-bootstrap.md). Once that one-time
+route has been used it is closed permanently; for a local database whose
+bootstrap is already spent, `npm run seed:super-admin` is the way back in.
 
-## Cloudflare configuration
+### Scripts
 
-Provision production values through Cloudflare rather than the empty env files:
+| Script | Does |
+| --- | --- |
+| `local` | The Worker on port 9999 |
+| `check` | Typecheck, tests with coverage, `fallow`, and the schema check |
+| `typecheck` | `tsc --noEmit` |
+| `test`, `test:coverage` | Vitest, in the Workers pool |
+| `fallow` | Dead code, duplication and complexity |
+| `test:worker` | The isolated Worker the end-to-end suite drives |
+| `db:setup:local` | Applies the canonical schema to the local database |
+| `db:schema:generate` | Rewrites `database/schema.sql` from the Drizzle schema |
+| `db:schema:check` | Fails if the two have diverged |
+| `seed:super-admin` | Creates an administrator when bootstrap is spent |
+| `cf-typegen` | Regenerates `worker-configuration.d.ts` |
+| `deploy` | `wrangler deploy --minify` |
 
-```sh
-npx wrangler secret put AUTH_SECRET
-npx wrangler secret put FRONTEND_ORIGINS
-npx wrangler secret put APPLICANT_SIGNUP_TOKEN_ATTEMPT_COUNT
-npx wrangler secret put AUTH_COOKIE_SAME_SITE
-```
+`database/schema.sql` is generated, never hand-edited: change the Drizzle schema
+and run `db:schema:generate`.
 
-The first administrator temporarily also requires:
+---
 
-```sh
-npx wrangler secret put FIRST_SUPER_ADMIN_EMAIL
-npx wrangler secret put FIRST_SUPER_ADMIN_SECRET
-```
+## Where everything is written down
 
-Remove both values immediately after a successful bootstrap.
+Four layers, and each subject has exactly one owner. The rule is
+[`docs/rules/documentation.md`](docs/rules/documentation.md).
 
-- `AUTH_SECRET` is required. It keys challenge, OTP, and session-token HMAC digests.
-- `FRONTEND_ORIGINS` is a comma-separated allowlist used for credentialed CORS and origin validation.
-- `APPLICANT_SIGNUP_TOKEN_ATTEMPT_COUNT` is optional, defaults to `5`, and must be an integer from `1` through `20`.
-- `AUTH_COOKIE_SAME_SITE` is optional and defaults to `lax`. `none` is accepted only for HTTPS requests and produces Secure cookies.
+**The programme — what the rules are**
 
-Initialize a new remote D1 database from the base schema before deploying:
+- [Application guide](docs/application-guide.md) — the applicant's journey
+- [Administrator workflow guide](docs/admin-workflow-guide.md) — the office's
+- [RBAC](docs/admin-rbac.md) — roles, grants, and the bootstrap
+- [Bootstrap runbook](docs/first-super-admin-bootstrap.md) — the first
+  administrator
+- [Policy crosswalk](docs/policy-alignment.md) — which rules came from TTAADC,
+  which are product decisions, and what is still undecided
+- [Roadmap](docs/ROADMAP.md) — what is built and what is not
 
-```sh
-npx wrangler d1 execute DB --remote --file=database/schema.sql
-npm run deploy
-```
+**The code — how it implements them**
 
-The D1, R2, and Queue bindings in `wrangler.jsonc` use Cloudflare automatic provisioning. An hourly cron marks pending signup challenges as expired and hard-deletes expired sessions outside public request paths. `wrangler.test.jsonc` contains local-only placeholder resource metadata for the Cloudflare Vitest runtime.
-
-## Database domains
-
-Drizzle tables are grouped by responsibility under `src/db/schema`:
-
-- `core` owns reusable users, transient sessions, signup challenges, and the shared audit trail.
-- `seb` owns enterprises, programme cycles, funding cases, versioned
-  applications/submissions/documents, administrative review and decisions,
-  awards, releases, assessments, and recovery.
-
-Physical SQLite table names use the same `core_` and `seb_` prefixes. Business records and signup challenges are retained through lifecycle or soft-deletion fields; sessions are deliberately hard-deleted on sign-out, revocation, and expiry. Version rows, submissions, audit/workflow events, disbursements, and assessments are append-only service contracts.
-
-The checked-in `database/schema.sql` file is the canonical baseline for an empty database. It is intentionally not an incremental migration or an upgrade path for an existing deployment.
-
-Read the [schema guide](src/db/schema/README.md) for persistence design and the
-[combined application guide](docs/application-guide.md) for the complete
-business journey, API behavior, validation, R2 flow, assumptions, and examples.
-
-## Applicant authentication
-
-Signup and session operations are under the GraphQL `auth` namespace
-and return a typed envelope with `success`, optional `message`, and an
-operation-specific `response`. Expected authentication failures remain in that
-envelope; malformed GraphQL documents and unexpected faults use GraphQL errors.
-The one-time administrator bootstrap is the documented direct-HTTP exception.
-
-```graphql
-mutation StartSignup {
-  auth {
-    startApplicantSignup(input: { email: "applicant@example.com" }) {
-      success
-      message
-      response {
-        challengeToken
-        expiresAt
-      }
-    }
-  }
-}
-```
-
-The console external-notification service prints the six-digit OTP during development. Only HMAC digests of OTPs and challenge tokens are stored. Signup grants `APPLICANT` and does not create a session. Password sign-in accepts any person holding at least one active role, so an administrator who is not an applicant signs in through the same operation; it creates an HttpOnly browser-session cookie while the D1 session expires after seven days.
-
-## Role administration
-
-After the one-time bootstrap, a super administrator provisions and demotes
-further administrators under the GraphQL `access` namespace. Grant and revoke
-cover `ADMIN` and `SUPER_ADMIN` only, each requires a fresh password
-confirmation and a retained reason, and the last usable `SUPER_ADMIN` grant
-cannot be revoked. See the
-[administrator RBAC guide](docs/admin-rbac.md#role-administration).
-
-Focused implementation guides:
-
-- [Mission SEP product roadmap](docs/ROADMAP.md)
-- [Development web client](docs/dev-web-guide.md)
-- [First super administrator bootstrap](docs/first-super-admin-bootstrap.md)
-- [Authentication service](src/services/auth/README.md)
-- [External notification service](src/services/external-notification/README.md)
-- [Applicant application service](src/services/application/README.md)
-- [Mission SEP business and technical guide](docs/application-guide.md)
-- [Application integrity and failure recovery](docs/application-integrity.md)
-- [Administrator identity and fixed-role RBAC](docs/admin-rbac.md)
-- [Administrator workflow](docs/admin-workflow-guide.md)
-- [TTAADC policy alignment](docs/policy-alignment.md)
+- [Services](src/services/README.md) — the layering rule, and why two layers
+  check the same things
+- [Applicant service](src/services/application/README.md)
 - [Administrative service](src/services/admin/README.md)
-- [Database schema](src/db/schema/README.md)
+- [Authentication service](src/services/auth/README.md)
+- [Notifications](src/services/external-notification/README.md)
+- [GraphQL layer](src/graphql/README.md) — the API surface and its limits
+- [Database schema](src/db/schema/README.md) — tables, versions, constraints
 
-Do not expose this version publicly until request and notification rate limiting is implemented.
+**The client** — [dev-web](dev-web/README.md)
+
+**The rules** — [docs/rules](docs/rules/README.md)
+
+## How it is built
+
+Cloudflare Workers, Hono, GraphQL Yoga, Drizzle over D1, R2 for documents, and a
+Queue binding reserved for notification delivery. The Worker has three
+entrypoints: `fetch`, an hourly `scheduled` handler running three cleanup jobs,
+and a `queue` consumer that is currently a stub.
+
+Everything is refused server-side. The client's role checks decide what is
+*offered*; they are never the security boundary.
+
+The working agreement for changing any of this is [`AGENTS.md`](AGENTS.md).

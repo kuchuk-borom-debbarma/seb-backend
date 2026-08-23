@@ -1,9 +1,12 @@
-# Development web client
+# Mission SEP web client
 
-`dev-web/` is a browser client for the Mission SEP API. It exists so the
-programme can be demonstrated and exercised by hand rather than only through
-tests and curl, and it is built to production standards — but it is a
+A browser client for the Mission SEP API, built with TanStack Start. It exists
+so the programme can be demonstrated and exercised by hand rather than only
+through tests and curl, and it is built to production standards — but it is a
 development tool, not a deployed portal.
+
+The Worker it talks to is the repository root; start there for what the
+programme is and what each role can do.
 
 ## The rule it is built on
 
@@ -34,22 +37,8 @@ cd dev-web && npm run local    # the client, on http://localhost:9990
 The client's `local` script sets `SEB_API_URL` to the Worker's port, so the two
 stay wired together with no further configuration.
 
-`npm run local` reads `.env.local`. Start from the checked-in template, which
-documents every variable and holds no values:
-
-```bash
-cp .env.example .env.local
-```
-
-Wrangler loads `.env` and then `.env.local`, the later winning, and both are
-gitignored — `.env.example` is the only one checked in.
-
-**A leftover `.dev.vars` beats all of them.** Wrangler reads that file first and,
-when it exists, ignores `.env` and `.env.local` entirely. If an edit here seems
-to have no effect, that is the first thing to look for.
-
-Never put a production secret in these files. Production values are provisioned
-as Cloudflare secrets, and the two bootstrap values are removed after use.
+The Worker reads its configuration from `.env.local`; the client needs none of
+its own. See [configuring the Worker](../README.md#configuration).
 
 ### First run
 
@@ -61,7 +50,7 @@ the same way a real deployment does:
 3. Read the six-digit code from the Wrangler console (see the limitation
    below) and finish signing up.
 4. Run the curl promotion in the
-   [bootstrap operator guide](first-super-admin-bootstrap.md). It is absent from
+   [bootstrap operator guide][bootstrap]. It is absent from
    GraphQL deliberately, so it can never be a screen.
 5. Sign in. The account now holds `SUPER_ADMIN` alone, because bootstrap swaps
    the applicant grant rather than adding to it.
@@ -260,7 +249,7 @@ knows what it means, while an officer reads two queues that both hold
 
 Office copy lives in `src/features/admin/officeGuidance.ts`, in one module
 reviewable as copy, each entry naming the section of the
-[administrator workflow guide](admin-workflow-guide.md) it is drawn from. It is
+[administrator workflow guide][office] it is drawn from. It is
 deliberately **not** a rendering of `features/admin/states.ts`: those doc
 comments are a maintainer's gloss, uneven in coverage and free to say things a
 reader should not be told. The office's description of a thing is not a
@@ -312,40 +301,12 @@ which page number it is on.
 
 ## What bounds a request
 
-Four limits, each sized from a measurement rather than a guess:
+The client is built to stay well inside the server's limits — its largest
+operation selects 114 fields at depth 7, and its largest request is under 16 KB,
+against limits of 500, 12 and 64 KB.
 
-| Limit | Value | Why that number |
-| --- | --- | --- |
-| `first` on any connection | 1–100, refused outside | A page nobody scrolls past |
-| Fields in one document | 500 | The client's largest operation selects 114 |
-| Nesting depth | 12 | The client's deepest is 7 |
-| Request body | 64 KB | The largest real request is under 16 KB |
-
-The field limit is the one that is not obvious. `first` already stops anybody
-asking a single list for a million rows — but aliases make a field repeatable,
-so one document can ask for a modest list five hundred times:
-
-```graphql
-query { admin { intake {
-  a: workspace(applicationId: "…") { …ten collections… }
-  b: workspace(applicationId: "…") { …ten collections… }
-  …five hundred more…
-} } }
-```
-
-Each `workspace` is a dozen database reads. A per-field limit cannot see this;
-only the whole document can. It is counted at validation, before any resolver
-runs, and fragments are expanded so the selections cannot be hidden in one.
-
-**Collections without a cursor** — an application's notes, its events, its
-assignment history — are capped at 500 rows, read newest-first so the cap keeps
-the recent end. Signed-in devices are capped at 100, the one collection a person
-can inflate on purpose.
-
-**Two collections are deliberately uncapped**: the disbursement ledger and a
-recovery case's entries. Their totals are folded from the rows, so truncating
-them would report a wrong figure rather than a short list. They are bounded by
-the instalments the programme office actually pays, which no caller controls.
+Those limits, and why a document-wide field limit exists at all, belong to the
+Worker: see [the GraphQL layer](../src/graphql/README.md#what-bounds-a-request).
 
 ## The quality floor
 
@@ -407,7 +368,11 @@ fails there with a clear message rather than mysteriously later.
 backend's 100% coverage gate and dead-code analysis continue to cover only the
 Worker.
 
-See the [combined application guide](application-guide.md) for what the
+See the [combined application guide][applicant] for what the
 applicant screens are doing, and the
-[administrator workflow guide](admin-workflow-guide.md) for the programme-office
+[administrator workflow guide][office] for the programme-office
 side.
+
+[bootstrap]: ../docs/first-super-admin-bootstrap.md
+[office]: ../docs/admin-workflow-guide.md
+[applicant]: ../docs/application-guide.md
