@@ -47,7 +47,8 @@ The expected application lifecycle is:
    `2` or greater.
 4. Meaningful saves create complete immutable `seb_application_version`
    snapshots, including the exact programme-cycle version and phase
-   classification. Draft form fields remain nullable until submission validation runs.
+   classification. Draft form fields remain nullable until submission
+   validation runs.
 5. Documents occupy stable logical slots in `seb_application_document`.
    Replacements create new immutable file versions with new R2 object keys.
 6. Submission creates an append-only `seb_application_submission` and
@@ -76,8 +77,8 @@ The expected application lifecycle is:
 ## Why the schema has both current rows and versions
 
 Mutable business roots—enterprise, programme cycle, funding case, application,
-document, award, and qualifying-award link—store stable IDs and the small set of
-current fields needed for fast lists, ownership checks, uniqueness, and
+document, award, and qualifying-award link—store stable IDs and the small
+set of current fields needed for fast lists, ownership checks, uniqueness, and
 optimistic concurrency. Each root also has a dedicated immutable version table
 containing the complete state accepted at that version.
 
@@ -114,6 +115,11 @@ for optimistic concurrency.
   tokens.
 - `core_audit_event`: append-only security and administrative audit trail. It
   must never contain credentials, OTPs, tokens, digests, or document contents.
+  Two rules make that structural rather than a matter of care: `changes_json` is
+  written as `NULL` unconditionally by every builder, and metadata is typed as a
+  flat `Record<string, string | number | boolean | null>`, so a form object
+  cannot be logged by accident. `action` comes from a closed catalogue of names
+  rather than a free string, so audit queries cannot be defeated by a typo.
 
 ### `seb`: enterprise and application workflow
 
@@ -142,6 +148,13 @@ for optimistic concurrency.
 - `seb_application_internal_note`: staff-only append-only notes and corrections.
 - `seb_desk_review` / `seb_desk_review_check`: frozen submission outcome and
   fixed initial scrutiny checklist.
+- `seb_desk_review_identifier`: append-only record of the numbers a reviewer
+  read off the documents a check passed. Stores a normalized value for public
+  instruments and a keyed digest for identity and bank numbers, never the whole
+  number — only the last four digits, so a reviewer can confirm by eye.
+  Carries a copy of `funding_case_id` so the duplicate question is one seek
+  rather than a walk through reviews and applications; the copy cannot drift
+  because an application's funding case is fixed when it is created.
 - `seb_partner_bank_referral` / version / outcome: offline bank identity,
   referral lifecycle, feedback, and superseding corrections.
 - `seb_ttm_meeting` / version / agenda / decision: formal meetings, pinned
@@ -228,6 +241,70 @@ as arbitrary JSON. This makes each pinned policy version queryable and gives
 D1 explicit uniqueness and value constraints. JSON text remains reserved for
 small allow-listed audit/event metadata.
 
+## Versions and concurrency
+
+Every write in this system is optimistic: the caller says which version it read,
+and the write refuses if that is no longer true. There are **six kinds of
+version column**, deliberately separate so that unrelated concurrent work does
+not collide.
+
+| Column | On | Guards |
+| --- | --- | --- |
+| `current_version` | every versioned head | content edits |
+| `status_version` | `seb_application` | workflow transitions |
+| `assignment_version` | `seb_application` | queue ownership |
+| `ledger_version` | `seb_funding_award`, `seb_recovery_case` | money entries |
+| `row_version` | `core_user` | identity edits |
+| sequence numbers | every append-only table | ordering, unique-indexed |
+
+Separating them is what lets two officers work without fighting: claiming an
+application bumps `assignment_version` and nothing else, so it cannot invalidate
+a colleague's in-flight desk review, and recording a payment bumps
+`ledger_version` without manufacturing an award-policy version for an accounting
+entry.
+
+These surface at the API as mandatory `expectedVersion`,
+`expectedStatusVersion`, `expectedAssignmentVersion`, `expectedLedgerVersion`,
+`expectedReferralVersion` and `expectedDocumentVersion` inputs.
+
+### The guarded-write shape
+
+One `db.batch`, which D1 executes as one transaction:
+
+1. `UPDATE … WHERE current_version = :expected` on the head, plus every term
+   that must still hold — the owner, the status, the assignee.
+2. Each dependent row as `INSERT … SELECT … WHERE EXISTS (…)`, where the
+   predicate proves the head reached the new version at this exact timestamp.
+3. The first statement's result decides the outcome.
+
+A losing request therefore writes nothing at all — no half-applied referral,
+no orphaned audit row — and is told `The record changed. Reload and try
+again.`
+
+The audit row doubles as the operation's unique claim: dependent writes require
+its exact ID rather than correlating on `updated_at`, because two independent
+requests may legitimately share the same millisecond.
+
+Some rules cannot be a row-level check because they are a decision across many
+rows — expansion eligibility, sanction limits, over-reversal, zero-balance
+closure. Those live in the guarded service predicates, described in
+[the services README](../../services/README.md).
+
+## Searching
+
+Three expression indexes support prefix search on the fields a person actually
+types: `lower(seb_enterprise.current_name)` scoped by owner,
+`lower(seb_application.reference_number)`, and
+`lower(seb_programme_cycle.cycle_code)`.
+
+Queries use `GLOB` rather than `LIKE` because only `GLOB` can use a
+`BINARY`-collated expression index — `LIKE` falls back to a full scan.
+Confirmed with `EXPLAIN QUERY PLAN` rather than assumed.
+
+Search is therefore **prefix-only**, and the interface says so. Full-text search
+would need an FTS5 virtual table, which `drizzle-kit export` cannot emit and the
+byte-exact schema check would reject.
+
 ## D1 conventions
 
 - IDs are opaque `TEXT` values generated by the application.
@@ -261,8 +338,8 @@ small allow-listed audit/event metadata.
   submission validation.
 - No programme cycle is seeded by the base schema.
 - Administrative cycle, intake, desk review, offline-bank, TTM, award, release,
-  assessment, and recovery services exist. Role management, account recovery,
-  a production scanner, notifications, and payment integration remain
+  assessment, recovery, and role-management services exist. Account recovery, a
+  production scanner, notification delivery, and payment integration remain
   public-launch blockers.
 - The database is not deployed with production data, so `database/schema.sql`
   remains a replaceable canonical baseline rather than an incremental migration.
@@ -303,5 +380,6 @@ write-time race guards and failure-recovery rules built on this schema.
 Administrative authorization is documented separately in the
 [fixed-role RBAC guide](../../../docs/admin-rbac.md).
 The [administrator workflow guide](../../../docs/admin-workflow-guide.md)
-explains staff use, and the [policy crosswalk](../../../docs/policy-alignment.md)
-records authoritative-source differences.
+explains staff use, and the
+[policy crosswalk](../../../docs/policy-alignment.md) records
+authoritative-source differences.
