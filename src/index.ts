@@ -9,6 +9,7 @@ import {
   isValidBootstrapSecret,
 } from './services/auth'
 import { cleanupExpiredDocumentUploads } from './services/application'
+import { handleLocalStorageRequest } from './services/application/local-storage-route'
 import { closeExpiredProgrammeCycles } from './services/admin'
 
 const app = new Hono<{ Bindings: AppBindings }>()
@@ -193,6 +194,22 @@ app.options('/graphql', (c) => {
   headers.set('access-control-allow-headers', 'Content-Type')
   headers.set('access-control-max-age', '86400')
   return new Response(null, { status: 204, headers })
+})
+
+/*
+ * Uploads on a developer's machine, where there is no bucket to sign a URL for.
+ * The handler refuses unless the local storage backend is the selected one, so
+ * this is not a second way into a deployed environment.
+ */
+app.on(['GET', 'PUT'], '/internal/storage/*', async (c) => {
+  const response = await handleLocalStorageRequest(c.req.raw, {
+    env: c.env,
+    db: createDatabase(c.env.DB),
+    requestHeaders: c.req.raw.headers,
+    requestUrl: c.req.url,
+    responseHeaders: new Headers(),
+  })
+  return response ?? c.notFound()
 })
 
 app.on(['GET', 'POST'], '/graphql', async (c) => {

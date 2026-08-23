@@ -1683,18 +1683,36 @@ describe('applicant application business service', () => {
       sizeBytes: bytes.length,
       checksumSha256: checksum,
     } }, applicant.cookie)
+    /*
+     * The suite runs as a developer's machine does — no ENVIRONMENT — so the
+     * bytes come to the Worker rather than to a bucket. Signing is asserted in
+     * `application-unit.test.ts`, where the context says it is deployed.
+     */
     expect(issue.data?.seb.application.issueDocumentUpload.response?.uploadUrl)
-      .toContain('X-Amz-Signature=')
+      .toContain('/internal/storage/uploads/')
     const uploadId = issue.data?.seb.application.issueDocumentUpload.response?.uploadId
     if (!uploadId) throw new Error('upload intent missing')
     const intent = await env.DB.prepare(
       'SELECT object_key AS objectKey FROM seb_document_upload_intent WHERE id = ?',
     ).bind(uploadId).first<{ objectKey: string }>()
     if (!intent) throw new Error('stored intent missing')
-    await env.STORAGE.put(intent.objectKey, bytes, {
-      httpMetadata: { contentType: 'application/pdf' },
-      sha256: hash,
-    })
+
+    /*
+     * The upload itself, the way a browser performs it locally: a PUT to the
+     * URL the authorization named. That is the whole point of the local
+     * backend — no bucket, no credentials, and the bytes still arrive.
+     */
+    const uploaded = await SELF.fetch(
+      issue.data!.seb.application.issueDocumentUpload.response!.uploadUrl,
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/pdf' },
+        body: bytes,
+      },
+    )
+    expect(uploaded.status).toBe(200)
+    expect(await (await env.STORAGE.get(intent.objectKey))?.arrayBuffer())
+      .toEqual(bytes.buffer)
 
     const finalized = await graphql<{
       seb: { application: { finalizeDocumentUpload: { success: boolean; response: { documentId: string; version: number } | null } } }
@@ -1735,7 +1753,7 @@ describe('applicant application business service', () => {
       success response { downloadUrl }
     } } } }`, {}, applicant.cookie)
     expect(download.data?.seb.application.documentDownloadUrl.response?.downloadUrl)
-      .toContain('X-Amz-Signature=')
+      .toContain('/internal/storage/objects?key=')
 
     for (const action of ['softDeleteDocument', 'restoreDocument']) {
       const changed = await graphql<{

@@ -17,12 +17,14 @@ import {
   ALLOWED_DOCUMENT_CONTENT_TYPES,
   MAX_DOCUMENT_BYTES,
   createDocumentObjectKey,
-  createDownloadAuthorization,
-  createUploadAuthorization,
   sanitizeFilename,
   validSha256Base64,
   verifyUploadedObject,
 } from '../src/services/application/uploads'
+import {
+  createDownloadAuthorization,
+  createUploadAuthorization,
+} from '../src/services/application/storage'
 import {
   addUtcCalendarMonths,
   fullUtcCalendarMonths,
@@ -103,7 +105,9 @@ const allEvidence = new Set([
 
 const signingContext = (): ApplicationOperationContext => ({
   db: createDatabase(env.DB),
-  env,
+  // Says it is deployed, because signing is what a deployed environment does.
+  // Locally the bytes come to the Worker and nothing is signed.
+  env: { ...env, ENVIRONMENT: 'develop' } as typeof env,
   requestHeaders: new Headers(),
   requestUrl: 'https://api.example.test/graphql',
   responseHeaders: new Headers(),
@@ -566,6 +570,7 @@ describe('application cursors and private upload helpers', () => {
     const context = signingContext()
     const checksum = 'A'.repeat(43) + '='
     const upload = await createUploadAuthorization(context, {
+      uploadId: 'upload-1',
       objectKey: 'applications/a/documents/DPR/object',
       originalFilename: 'DPR “final”.pdf',
       contentType: ALLOWED_DOCUMENT_CONTENT_TYPES[0],
@@ -594,8 +599,10 @@ describe('application cursors and private upload helpers', () => {
       .toBe('attachment; filename="project-report.pdf"')
     expect(download.expiresAt.toISOString()).toBe('2026-08-22T10:05:00.000Z')
     const missingConfiguration = signingContext()
-    missingConfiguration.env = { ...env, R2_ACCESS_KEY_ID: undefined } as never
+    missingConfiguration.env =
+      { ...env, ENVIRONMENT: 'develop', R2_ACCESS_KEY_ID: undefined } as never
     await expect(createUploadAuthorization(missingConfiguration, {
+      uploadId: 'upload-3',
       objectKey: 'object',
       originalFilename: 'file.pdf',
       contentType: 'application/pdf',

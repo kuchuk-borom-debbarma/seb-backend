@@ -365,6 +365,24 @@ Do not add an incremental migration until a real deployed database requires an
 upgrade path. Keep this README's inventory, lifecycle, assumptions, and current
 state synchronized whenever tables or application rules change.
 
+### The gap this leaves
+
+`database/schema.sql` is 48 bare `CREATE TABLE` statements with no
+`IF NOT EXISTS` and no version marker. It applies exactly once, to an empty
+database. **The first schema change after a deployed database holds real data
+has no story**, and that is stated here rather than discovered then.
+
+Two honest options exist at that point, and neither is built:
+
+| | Costs |
+| --- | --- |
+| Hand-written `ALTER` statements alongside the regenerated file | Two things to keep in step, with nothing checking that they agree |
+| Recreate the database | Only acceptable while it holds nothing anybody needs |
+
+Migration tooling is a
+[roadmap item](../../../docs/ROADMAP.md), not something to improvise during a
+deployment.
+
 ## Current state
 
 The schema foundation, applicant authentication/application flow, private R2

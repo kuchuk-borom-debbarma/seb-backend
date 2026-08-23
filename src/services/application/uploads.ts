@@ -1,10 +1,9 @@
 /** Direct, private R2 upload/download signing and object verification. */
-import { AwsClient } from 'aws4fetch'
 import type { ApplicationOperationContext, DocumentType } from './types'
 
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 export const UPLOAD_TTL_SECONDS = 10 * 60
-const DOWNLOAD_TTL_SECONDS = 5 * 60
+export const DOWNLOAD_TTL_SECONDS = 5 * 60
 export const ALLOWED_DOCUMENT_CONTENT_TYPES = [
   'application/pdf',
   'image/jpeg',
@@ -12,33 +11,6 @@ export const ALLOWED_DOCUMENT_CONTENT_TYPES = [
 ] as const
 
 export type AllowedContentType = (typeof ALLOWED_DOCUMENT_CONTENT_TYPES)[number]
-
-const requireR2Configuration = (context: ApplicationOperationContext) => {
-  const { R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY } =
-    context.env
-  if (!R2_ACCOUNT_ID || !R2_BUCKET_NAME || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY) {
-    throw new Error('R2 signing configuration is required.')
-  }
-  return { R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY }
-}
-
-const signer = (context: ApplicationOperationContext) => {
-  const configuration = requireR2Configuration(context)
-  return {
-    configuration,
-    client: new AwsClient({
-      service: 's3',
-      region: 'auto',
-      accessKeyId: configuration.R2_ACCESS_KEY_ID,
-      secretAccessKey: configuration.R2_SECRET_ACCESS_KEY,
-    }),
-  }
-}
-
-const objectUrl = (accountId: string, bucket: string, objectKey: string): URL => {
-  const encodedKey = objectKey.split('/').map(encodeURIComponent).join('/')
-  return new URL(`https://${accountId}.r2.cloudflarestorage.com/${encodeURIComponent(bucket)}/${encodedKey}`)
-}
 
 export const sanitizeFilename = (value: string): string | null => {
   const filename = value
@@ -57,75 +29,9 @@ export const createDocumentObjectKey = (
   documentType: DocumentType,
 ): string => `applications/${applicationId}/documents/${documentType}/${crypto.randomUUID()}`
 
-const attachmentHeader = (filename: string): string => {
+export const attachmentHeader = (filename: string): string => {
   const ascii = filename.replace(/[^A-Za-z0-9._ -]/gu, '_').replace(/["\\]/gu, '_')
   return `attachment; filename="${ascii}"`
-}
-
-export const createUploadAuthorization = async (
-  context: ApplicationOperationContext,
-  input: {
-    objectKey: string
-    originalFilename: string
-    contentType: AllowedContentType
-    sizeBytes: number
-    checksumSha256: string
-    expiresAt: Date
-  },
-) => {
-  const { client, configuration } = signer(context)
-  const url = objectUrl(
-    configuration.R2_ACCOUNT_ID,
-    configuration.R2_BUCKET_NAME,
-    input.objectKey,
-  )
-  url.searchParams.set('X-Amz-Expires', String(UPLOAD_TTL_SECONDS))
-  const requiredHeaders = [
-    { name: 'Content-Type', value: input.contentType },
-    { name: 'Content-Disposition', value: attachmentHeader(input.originalFilename) },
-    // Binding Content-Length makes R2 reject a payload that differs from the
-    // applicant's validated declaration. Browsers generate this forbidden
-    // request header from the Blob/body; callers must ensure that body has this
-    // exact size rather than trying to override the header manually.
-    { name: 'Content-Length', value: String(input.sizeBytes) },
-    { name: 'If-None-Match', value: '*' },
-    { name: 'x-amz-checksum-sha256', value: input.checksumSha256 },
-  ]
-  const signed = await client.sign(
-    new Request(url, {
-      method: 'PUT',
-      headers: Object.fromEntries(requiredHeaders.map((header) => [header.name, header.value])),
-    }),
-    // aws4fetch excludes Content-Length and Content-Type by default. allHeaders
-    // is required here because these values are security constraints, not
-    // optional request metadata.
-    { aws: { signQuery: true, allHeaders: true } },
-  )
-  return {
-    uploadUrl: signed.url,
-    expiresAt: input.expiresAt,
-    requiredHeaders,
-  }
-}
-
-export const createDownloadAuthorization = async (
-  context: ApplicationOperationContext,
-  objectKey: string,
-  originalFilename: string,
-  now: Date,
-) => {
-  const { client, configuration } = signer(context)
-  const url = objectUrl(
-    configuration.R2_ACCOUNT_ID,
-    configuration.R2_BUCKET_NAME,
-    objectKey,
-  )
-  url.searchParams.set('X-Amz-Expires', String(DOWNLOAD_TTL_SECONDS))
-  // Override object metadata on every signed GET so even legacy objects that
-  // lack stored disposition metadata remain attachment-only in browsers.
-  url.searchParams.set('response-content-disposition', attachmentHeader(originalFilename))
-  const signed = await client.sign(new Request(url), { aws: { signQuery: true } })
-  return { downloadUrl: signed.url, expiresAt: new Date(now.getTime() + DOWNLOAD_TTL_SECONDS * 1000) }
 }
 
 const arrayBufferToBase64 = (value: ArrayBuffer): string => {

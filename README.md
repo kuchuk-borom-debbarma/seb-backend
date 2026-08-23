@@ -147,9 +147,17 @@ appears to do nothing.
 second is read at first use rather than at startup, so a deployment missing it
 looks healthy until the first desk review is completed, which then fails.
 
-Uploads need four `R2_*` values for a real bucket. Without them everything else
-runs and the evidence screen refuses — there is no local substitute, because the
-Worker signs a URL addressed to Cloudflare and the browser uploads directly.
+`ENVIRONMENT` decides two things: where documents go, and whether one-time
+codes are really sent. Unset means local — a deployed environment is always told
+what it is — and locally uploads are written by the Worker itself and signup
+codes are printed to its log on a line marked `DEV_EMAIL`. Nothing else needs
+configuring for either to work.
+
+Set it to `develop` and both want the real thing: four `R2_*` values for a
+bucket, and `PINGRAM_API_KEY` with `PINGRAM_NOTIFICATION_TYPE` for delivery.
+Missing either, the affected path refuses and says so, rather than quietly
+falling back — a deployed system must not write live one-time codes to a log,
+and must not accept documents it cannot durably keep.
 
 ### The first administrator
 

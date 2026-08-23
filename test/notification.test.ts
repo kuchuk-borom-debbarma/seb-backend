@@ -9,8 +9,13 @@
  * deployed environment cannot silently fall back to printing one-time codes,
  * and that a provider failure cannot carry its own words into a log.
  */
+import { env } from 'cloudflare:test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AppBindings } from '../src/bindings'
+import { createDatabase } from '../src/db'
+import { handleLocalStorageRequest } from '../src/services/application/local-storage-route'
+import { storage } from '../src/services/application/storage'
+import type { ApplicationOperationContext } from '../src/services/application/types'
 import {
   notificationTransport,
   type Delivery,
@@ -184,5 +189,108 @@ describe('the provider adapter', () => {
     expect(thrown).toContain('(unreachable)')
     expect(thrown).not.toContain('pingram_sk_secret_value')
     expect(thrown).not.toContain(message.to)
+  })
+})
+
+describe('storage on a machine with no bucket', () => {
+  /*
+   * Uploads have to work locally. Signing addresses the real bucket, so it
+   * needs credentials — but the STORAGE binding works locally on its own, so
+   * the bytes come to the Worker instead and it writes them. These prove the
+   * round trip, and that the path is closed everywhere else.
+   */
+  const context = (extra: Partial<AppBindings> = {}) =>
+    ({
+      db: createDatabase(env.DB),
+      env: { ...env, ...extra },
+      requestHeaders: new Headers(),
+      requestUrl: 'http://localhost:9999/graphql',
+      responseHeaders: new Headers(),
+    }) as unknown as ApplicationOperationContext
+
+  it('sends the browser to the Worker rather than to a bucket', async () => {
+    const backend = storage(context())
+    expect(backend.name).toBe('local')
+
+    const grant = await backend.authorizeUpload({
+      uploadId: 'upload-abc',
+      objectKey: 'applications/a/DPR/1',
+      originalFilename: 'plan.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 4,
+      checksumSha256: `${'A'.repeat(43)}=`,
+      expiresAt: new Date('2026-01-01T00:00:00Z'),
+    })
+    expect(grant.uploadUrl).toBe(
+      'http://localhost:9999/internal/storage/uploads/upload-abc',
+    )
+    // The same constraints a bucket would be given, re-checked on arrival.
+    expect(grant.requiredHeaders.map((header) => header.name)).toEqual([
+      'Content-Type',
+      'Content-Disposition',
+      'Content-Length',
+    ])
+  })
+
+  it('signs for the bucket once the environment says it is deployed', async () => {
+    const backend = storage(context({ ENVIRONMENT: 'develop' }))
+    expect(backend.name).toBe('r2')
+  })
+
+  it('refuses rather than accepting documents it cannot durably keep', () => {
+    // Deployed and unconfigured. Falling back to the Worker's own bucket would
+    // take an applicant's evidence into storage that may not exist.
+    expect(() =>
+      storage(context({ ENVIRONMENT: 'develop', R2_ACCESS_KEY_ID: undefined })),
+    ).toThrowError(/R2 signing configuration is required/u)
+  })
+
+  it('refuses an upload id that was never issued', async () => {
+    // A missing authorization and a spent one are refused identically, so the
+    // path cannot be used to discover which upload ids exist.
+    const response = await handleLocalStorageRequest(
+      new Request(
+        `http://localhost:9999/internal/storage/uploads/${crypto.randomUUID()}`,
+        { method: 'PUT', body: new Uint8Array([1]) },
+      ),
+      context(),
+    )
+    expect(response?.status).toBe(403)
+  })
+
+  it('serves nothing for an object key that does not exist', async () => {
+    const response = await handleLocalStorageRequest(
+      new Request('http://localhost:9999/internal/storage/objects?key=missing'),
+      context(),
+    )
+    expect(response?.status).toBe(404)
+  })
+
+  it('accepts only the two methods it implements', async () => {
+    const response = await handleLocalStorageRequest(
+      new Request('http://localhost:9999/internal/storage/objects', { method: 'POST' }),
+      context(),
+    )
+    expect(response?.status).toBe(405)
+  })
+
+  it('is closed in a deployed environment', async () => {
+    // The whole security boundary of that route: it exists in the deployed
+    // Worker's code and must never accept bytes there.
+    const deployed = context({ ENVIRONMENT: 'develop' })
+    const response = await handleLocalStorageRequest(
+      new Request('http://localhost:9999/internal/storage/uploads/anything', {
+        method: 'PUT',
+        body: new Uint8Array([1]),
+      }),
+      deployed,
+    )
+    expect(response?.status).toBe(404)
+  })
+
+  it('leaves requests that are not its own alone', async () => {
+    expect(await handleLocalStorageRequest(
+      new Request('http://localhost:9999/graphql'), context(),
+    )).toBeNull()
   })
 })

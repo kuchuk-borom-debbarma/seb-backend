@@ -35,8 +35,6 @@ import type {
 import {
   ALLOWED_DOCUMENT_CONTENT_TYPES,
   createDocumentObjectKey,
-  createDownloadAuthorization,
-  createUploadAuthorization,
   MAX_DOCUMENT_BYTES,
   sanitizeFilename,
   UPLOAD_TTL_SECONDS,
@@ -44,6 +42,7 @@ import {
   verifyUploadedObject,
   type AllowedContentType,
 } from '../uploads'
+import { createDownloadAuthorization, createUploadAuthorization } from '../storage'
 
 const canEditDocuments = async (
   context: ApplicationOperationContext,
@@ -106,6 +105,7 @@ export const issueDocumentUpload = async (
   const objectKey = createDocumentObjectKey(application.id, input.documentType)
   const expiresAt = new Date(now.getTime() + UPLOAD_TTL_SECONDS * 1000)
   const authorization = await createUploadAuthorization(context, {
+    uploadId,
     objectKey,
     originalFilename,
     contentType: input.contentType as AllowedContentType,

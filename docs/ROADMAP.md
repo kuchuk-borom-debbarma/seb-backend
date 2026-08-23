@@ -813,7 +813,11 @@ Notifications communicate completed business events. Failure to send a message
 must not reverse an otherwise successful submission, decision, or payment
 record.
 
-- [ ] Send production email for signup verification codes.
+- [x] Put outbound delivery behind an interface that names no provider, so the
+  transport is chosen by environment and no caller knows which one it got.
+- [ ] Provision a provider key for the deployed environment. The adapter exists
+  and refuses rather than printing codes when the key is absent, so a deployed
+  environment currently cannot send signup verification codes at all.
 - [ ] Send a submission acknowledgement containing the application reference and
   submission number.
 - [ ] Notify the applicant when a revision is requested, including the affected
@@ -887,7 +891,11 @@ record.
 The portal must not be publicly launched until every item in this section is
 complete.
 
-- [ ] Replace console-only email delivery with the approved production provider.
+- [ ] Provision the approved provider's key. The console transport cannot be
+  reached from a delivering environment, but nothing is sent without a key.
+- [ ] Build a forward path for the schema. `database/schema.sql` applies once to
+  an empty database, so the first change after real data lands has no upgrade
+  story — see the [schema README](../src/db/schema/README.md).
 - [ ] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits.
 - [ ] Enable malware scanning before staff can open applicant documents.
 - [ ] Complete administrator recovery procedures. Provisioning is delivered.

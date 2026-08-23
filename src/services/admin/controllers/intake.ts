@@ -7,7 +7,7 @@
  * `queries/intake.ts` are what decide concurrent attempts.
  */
 import { deskReviewChecks } from '../../../db/schema'
-import { createDownloadAuthorization } from '../../application/uploads'
+import { createDownloadAuthorization } from '../../application/storage'
 import { adminPageSize, decodeAdminCursor } from '../pagination'
 import {
   acceptedPinnedDocument,

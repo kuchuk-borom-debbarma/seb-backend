@@ -38,7 +38,9 @@ the code implements it.
 | `controllers/funding.ts` | The applicant's read of their own award |
 | `queries/*` | Drizzle reads and every guarded write |
 | `validation.ts` | Pure form normalization and policy rules — no D1, no R2 |
-| `uploads.ts` | R2 signing and object verification |
+| `uploads.ts` | The upload rules — types, size, keys, object verification |
+| `storage.ts` | The storage interface and its two backends |
+| `local-storage-route.ts` | Receives uploaded bytes when there is no bucket |
 | `ownership.ts` | The ownership preamble every read starts from |
 | `ledger.ts` | The release/reversal fold |
 | `sections.ts` | Which form sections differ between two snapshots |
@@ -121,12 +123,9 @@ award status is classified rather than filtered in SQL — "never sanctioned",
 "award suspended" and "nothing actually paid out" are three different things
 for an applicant to act on.
 
-## Documents and R2
+## Documents and storage
 
 This service is the single owner of the upload rules.
-
-Uploads never pass through the Worker. It signs a URL and the browser PUTs
-directly to R2.
 
 | | |
 | --- | --- |
@@ -135,27 +134,65 @@ directly to R2.
 | Upload URL | valid 10 minutes |
 | Download URL | valid 5 minutes, always forced to attachment |
 
-The signature binds `Content-Type`, `Content-Disposition`, **`Content-Length`**,
-`If-None-Match: *` and `x-amz-checksum-sha256`, and is signed with
-`allHeaders: true` because these are security constraints rather than hints.
-Binding the length makes R2 reject a payload differing from the applicant's
-declaration — browsers generate that header from the body, so a caller must
-send a body of exactly that size rather than trying to set the header.
-
 Finalization verifies size, MIME type, checksum and magic bytes against the
 stored object. **It never makes a file staff-readable**: it queues the immutable
 object for the scanner, and administrative download fails closed until an
 `ACCEPTED` result is appended.
 
 An upload intent moves `ISSUED → FINALIZED | REJECTED | CLEANUP_PENDING →
-EXPIRED`. A failed R2 delete leaves the row `CLEANUP_PENDING` rather than
-starving the batch, so cleanup can span cron runs. Object keys are never
-logged — a storage identifier is sensitive.
+EXPIRED`. A failed delete leaves the row `CLEANUP_PENDING` rather than starving
+the batch, so cleanup can span cron runs. Object keys are never logged — a
+storage identifier is sensitive.
 
-Configuration lives in [`.env.example`](../../../.env.example); without it the
-evidence screen refuses with `R2 signing configuration is required.` There is no
-local substitute, because the signed URL addresses Cloudflare and a Miniflare
-bucket is never contacted.
+### The storage seam
+
+`storage.ts` states what the programme needs — authorize an upload the browser
+performs itself, authorize a download — and names no vendor. S3, R2, Azure and
+Google all satisfy it, and so does this Worker. Both backends return the same
+grant shape, so the client cannot tell which it is talking to; only the host in
+the URL differs.
+
+| Backend | Receives the upload | Needs | Selected when |
+| --- | --- | --- | --- |
+| `r2` | the bucket, straight from the browser | the four `R2_*` values | `ENVIRONMENT` is anything else |
+| `local` | this Worker, which writes to the `STORAGE` binding | nothing | `ENVIRONMENT` is unset or `local` |
+
+Deployed, uploads never pass through the Worker: it signs a URL and the browser
+`PUT`s directly to the bucket. The signature binds `Content-Type`,
+`Content-Disposition`, **`Content-Length`**, `If-None-Match: *` and
+`x-amz-checksum-sha256`, and is signed with `allHeaders: true` because these are
+security constraints rather than hints. Binding the length makes the bucket
+reject a payload differing from the applicant's declaration — browsers generate
+that header from the body, so a caller must send a body of exactly that size
+rather than trying to set the header.
+
+A deployed environment missing any of the four refuses with `R2 signing
+configuration is required.` rather than accepting documents it cannot durably
+keep. Configuration lives in [`.env.example`](../../../.env.example).
+
+### Why a local backend exists
+
+Signing addresses `r2.cloudflarestorage.com` for real, so the direct-to-bucket
+path needs credentials and a bucket that exists. The `STORAGE` binding itself
+does not: the development runtime provides it with no account feature and no
+keys. So locally the bytes come to the Worker and it writes them, and uploads
+work on a machine that has nothing configured.
+
+`local-storage-route.ts` receives them. **It refuses unless the local backend is
+the selected one** — that check is its entire security boundary, it comes first,
+and there is no way past it. A deployed environment sends the browser to the
+bucket, and this path must not become a second way in.
+
+Authorization is possession of the upload id, exactly as it is possession of a
+signed URL. The id is unguessable, and the route re-checks the retained
+authorization before writing a byte: still `ISSUED`, unexpired, and matching on
+size and content type. A missing intent and a spent one are refused
+identically, so the path cannot be used to discover which upload ids exist.
+
+It then verifies the SHA-256 digest against the applicant's declaration and
+stores it against the object, which is what the bucket would do. That matters
+more than it looks: without it a document would verify locally and fail once
+deployed, which is the worst kind of difference to have.
 
 ## Bounds
 
@@ -189,7 +226,9 @@ a file worked on for years should not make one request read ten thousand rows.
 | `changedSections` | `sections.ts` | Which sections differ between snapshots |
 | `ownedApplication`, `ownedApplicationAtVersion` | `ownership.ts` | The ownership preamble |
 | `pageSize`, `encodeCursor`, `decodeCursor`, `MAX_COLLECTION_ROWS` | `pagination.ts` | Paging |
-| `createUploadAuthorization`, `createDownloadAuthorization`, `verifyUploadedObject` | `uploads.ts` | R2 |
+| `verifyUploadedObject`, `createDocumentObjectKey`, `sanitizeFilename` | `uploads.ts` | The upload rules |
+| `storage`, `createUploadAuthorization`, `createDownloadAuthorization` | `storage.ts` | Whichever backend this environment uses |
+| `handleLocalStorageRequest` | `local-storage-route.ts` | Receives bytes locally; closed everywhere else |
 
 ## Elsewhere
 

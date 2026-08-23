@@ -809,7 +809,10 @@ describe('Mission SEP administration', () => {
       ) { success response { downloadUrl expiresAt } } } }
     }`, { applicationId, documentId: submissionDocumentId }, administrator.cookie)
     expect(download.data.admin.intake.documentDownloadUrl).toMatchObject({
-      success: true, response: { downloadUrl: expect.stringContaining('X-Amz-Signature=') },
+      // Local environment: served by the Worker. Signing is covered where the
+      // context says it is deployed.
+      success: true,
+      response: { downloadUrl: expect.stringContaining('/internal/storage/objects?key=') },
     })
   })
 
