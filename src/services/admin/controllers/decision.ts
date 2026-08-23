@@ -21,7 +21,7 @@ import { approvedReason, latestSubmission, loadApplicationHead, loadWorkspace } 
 import {
   ADMIN_REQUIRED_MESSAGE,
   constraintSafe,
-  currentAdministrator,
+  currentStaff,
   failure,
   normalizeOptionalText,
   normalizeRequiredText,
@@ -99,7 +99,7 @@ export const referApplicationToBank = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const bankName = normalizeRequiredText(input.bankName, 200)
   const branch = normalizeOptionalText(input.bankBranch, 200)
@@ -139,7 +139,7 @@ export const recordBankOutcome = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reference = normalizeRequiredText(input.decisionReference, 100)
   const summary = normalizeRequiredText(input.applicantSummary, 1_000)
@@ -186,7 +186,7 @@ export const cancelBankReferral = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const submission = await latestSubmission(context.db, input.applicationId)
   const reason = normalizeRequiredText(input.reason, 1_000)
@@ -213,7 +213,7 @@ export const correctBankOutcome = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const submission = await latestSubmission(context.db, input.applicationId)
   const reference = normalizeRequiredText(input.decisionReference, 100)
@@ -262,7 +262,7 @@ export const ttmMeetings = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
   const first = adminPageSize(input.first)
   const after = decodeAdminCursor(input.after, 'scheduledAt')
   if (!first || after === 'INVALID') return failure('Invalid pagination arguments.')
@@ -273,7 +273,7 @@ export const ttmMeetingById = async (
   meetingId: string,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
   const workspace = await meetingWorkspace(context.db, meetingId)
   return workspace ? success(workspace) : failure('The TTM meeting was not found.')
 }
@@ -282,7 +282,7 @@ export const createTtmMeeting = async (
   input: { meetingReference: string; scheduledAt: Date; venue: string; description?: string | null },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reference = normalizeRequiredText(input.meetingReference, 100)
   const venue = normalizeRequiredText(input.venue, 500)
@@ -306,7 +306,7 @@ export const updateTtmMeeting = async (
   input: { meetingId: string; expectedVersion: number; meetingReference: string; scheduledAt: Date; venue: string; description?: string | null; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reference = normalizeRequiredText(input.meetingReference, 100)
   const venue = normalizeRequiredText(input.venue, 500)
@@ -327,7 +327,7 @@ export const cancelTtmMeeting = async (
   input: { meetingId: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reason = normalizeRequiredText(input.reason, 1_000)
   if (!validExpected(input.expectedVersion) || !reason) return failure('Enter a cancellation reason.')
@@ -347,7 +347,7 @@ export const addTtmAgendaItem = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   if (!Number.isInteger(input.position) || input.position < 1) return failure('Agenda position must be positive.')
   const id = await constraintSafe(() => addAgendaItemWrite(context, {
@@ -363,7 +363,7 @@ const changeAgendaItem = async (
   context: AdminOperationContext,
   remove: boolean,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reason = normalizeRequiredText(input.reason, 1_000)
   // GraphQL requires a position for reordering; removal uses a harmless fixed
@@ -393,7 +393,7 @@ const transitionMeeting = async (
   context: AdminOperationContext,
   finishing: boolean,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   if (!validExpected(input.expectedVersion)) return failure('Expected version must be positive.')
   const changed = await constraintSafe(() => transitionMeetingWrite(context, {
@@ -466,7 +466,7 @@ export const recordTtmDecision = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'DECIDE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const application = await loadApplicationHead(context.db, input.applicationId)
   const submission = await latestSubmission(context.db, input.applicationId)
@@ -530,7 +530,7 @@ export const correctTtmDecision = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'DECIDE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const submission = await latestSubmission(context.db, input.applicationId)
   const reference = normalizeRequiredText(input.decisionReference, 100)

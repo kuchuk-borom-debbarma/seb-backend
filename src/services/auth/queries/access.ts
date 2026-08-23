@@ -30,7 +30,7 @@ import {
  * and no operation can grant it back, so exposing it here would let one
  * revocation strip an applicant permanently with no recovery path.
  */
-const manageableRoles = ['ADMIN', 'SUPER_ADMIN'] as const
+const manageableRoles = ['REVIEWER', 'APPROVER', 'ADMIN', 'SUPER_ADMIN'] as const
 export type ManageableRole = (typeof manageableRoles)[number]
 
 export const isManageableRole = (role: UserRole): role is ManageableRole =>

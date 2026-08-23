@@ -17,7 +17,13 @@ import { softDeleteColumns } from '../shared'
  * keeps authorization reviewable: adding a role requires a schema and service
  * change instead of an arbitrary production data edit.
  */
-export const userRoles = ['APPLICANT', 'ADMIN', 'SUPER_ADMIN'] as const
+export const userRoles = [
+  'APPLICANT',
+  'REVIEWER',
+  'APPROVER',
+  'ADMIN',
+  'SUPER_ADMIN',
+] as const
 export type UserRole = (typeof userRoles)[number]
 export const signupChallengeStatuses = [
   'PENDING',
@@ -84,7 +90,7 @@ export const coreUserRoleGrant = sqliteTable(
   (table) => [
     check(
       'core_user_role_grant_role_check',
-      sql`${table.role} IN ('APPLICANT', 'ADMIN', 'SUPER_ADMIN')`,
+      sql`${table.role} IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'SUPER_ADMIN')`,
     ),
     // Active grants contain no revocation metadata. Automated revocation may
     // have no user actor, but every closed grant must retain when and why.

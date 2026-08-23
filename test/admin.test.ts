@@ -28,7 +28,9 @@ import { adminResolvers } from '../src/graphql/resolvers/admin/admin'
 
 type GraphQLBody<T> = { data?: T; errors?: Array<{ message: string }> }
 
-const adminSession = async (roles: Array<'APPLICANT' | 'ADMIN' | 'SUPER_ADMIN'>) => {
+const adminSession = async (
+  roles: Array<'APPLICANT' | 'REVIEWER' | 'APPROVER' | 'ADMIN' | 'SUPER_ADMIN'>,
+) => {
   const userId = crypto.randomUUID()
   const token = crypto.randomUUID()
   const now = Date.now()
@@ -268,7 +270,7 @@ describe('Mission SEP administration', () => {
     }>('query { admin { programmeCycle { list { success message } } } }', {}, applicant.cookie)
     expect(denied.data?.admin.programmeCycle.list).toEqual({
       success: false,
-      message: 'Administrator access is required.',
+      message: 'You do not have permission to do that.',
     })
 
     const administrator = await adminSession(['ADMIN'])
@@ -284,7 +286,85 @@ describe('Mission SEP administration', () => {
     const revoked = await graphql<{
       admin: { programmeCycle: { list: { success: boolean; message: string } } }
     }>('query { admin { programmeCycle { list { success message } } } }', {}, administrator.cookie)
-    expect(revoked.data?.admin.programmeCycle.list.message).toBe('Administrator access is required.')
+    expect(revoked.data?.admin.programmeCycle.list.message).toBe('You do not have permission to do that.')
+  })
+
+  /*
+   * The role boundaries, tested by what each role is *refused*.
+   *
+   * The refusal is the interesting half: a reviewer who can read is only
+   * useful if they genuinely cannot write, and a capability that silently
+   * widened would still pass every test that only checks the happy path.
+   *
+   * These assert against the permission refusal specifically rather than
+   * `success: false`, because almost anything returns `success: false` when
+   * handed an id that does not exist — including an operation the caller was
+   * in fact allowed to attempt.
+   */
+  describe('what each staff role may do', () => {
+    const DENIED = 'You do not have permission to do that.'
+
+    const messageOf = async (query: string, cookie: string): Promise<string | null> => {
+      const result = await graphql<any>(query, {}, cookie)
+      expect(result.errors, query).toBeUndefined()
+      // The one message is wherever the single operation's envelope landed.
+      const found = JSON.stringify(result.data).match(/"message":("[^"]*"|null)/u)
+      return found ? (JSON.parse(found[1]) as string | null) : null
+    }
+
+    const READ = 'query { admin { programmeCycle { list { success message } } } }'
+    const WRITE = `mutation { admin { intake { startDeskReview(input: {
+      applicationId: "${crypto.randomUUID()}", expectedStatusVersion: 1
+    }) { success message } } } }`
+    const DECIDE = `mutation { admin { decision { recordDecision(input: {
+      applicationId: "${crypto.randomUUID()}", agendaItemId: "${crypto.randomUUID()}",
+      expectedStatusVersion: 1, outcome: APPROVED, decisionReference: "TTM/1",
+      decisionDate: "2026-01-01", applicantMessage: "Recorded.", revisions: []
+    }) { success message } } } }`
+
+    it('lets a reviewer read, and refuses every write', async () => {
+      const reviewer = await adminSession(['REVIEWER'])
+      const read = await graphql<{
+        admin: { programmeCycle: { list: { success: boolean } } }
+      }>(READ, {}, reviewer.cookie)
+      expect(read.data?.admin.programmeCycle.list.success).toBe(true)
+
+      // Read-only means read-only: not the desk review its name suggests, and
+      // not the decision either.
+      expect(await messageOf(WRITE, reviewer.cookie)).toBe(DENIED)
+      expect(await messageOf(DECIDE, reviewer.cookie)).toBe(DENIED)
+    })
+
+    it('lets an approver decide, and nothing else that writes', async () => {
+      const approver = await adminSession(['APPROVER'])
+      const read = await graphql<{
+        admin: { programmeCycle: { list: { success: boolean } } }
+      }>(READ, {}, approver.cookie)
+      expect(read.data?.admin.programmeCycle.list.success).toBe(true)
+
+      expect(await messageOf(WRITE, approver.cookie)).toBe(DENIED)
+      /*
+       * Past the permission gate. The application id is invented, so this
+       * still refuses — but for a business reason rather than an authorization
+       * one, which is exactly the difference being asserted.
+       */
+      expect(await messageOf(DECIDE, approver.cookie)).not.toBe(DENIED)
+    })
+
+    it('gives an administrator every staff capability', async () => {
+      const administrator = await adminSession(['ADMIN'])
+      for (const query of [WRITE, DECIDE]) {
+        expect(await messageOf(query, administrator.cookie)).not.toBe(DENIED)
+      }
+    })
+
+    it('unions the capabilities of somebody holding two roles', async () => {
+      // Holding a role must never subtract one. A reviewer who is also an
+      // approver can do both, and neither role narrows the other.
+      const both = await adminSession(['REVIEWER', 'APPROVER'])
+      expect(await messageOf(DECIDE, both.cookie)).not.toBe(DENIED)
+      expect(await messageOf(WRITE, both.cookie)).toBe(DENIED)
+    })
   })
 
   it('creates and opens a complete versioned cycle through GraphQL', async () => {
@@ -2414,7 +2494,7 @@ describe('Mission SEP administration', () => {
     const applicantOnly = await adminSession(['APPLICANT'])
     const refused = await graphql<any>(summaryQuery, { cycleId: null }, applicantOnly.cookie)
     expect(refused.data.admin.intake.queues).toMatchObject({
-      success: false, message: 'Administrator access is required.',
+      success: false, message: 'You do not have permission to do that.',
     })
   })
 

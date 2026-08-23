@@ -5,9 +5,10 @@ export {
   revokeRole,
 } from './controllers/access'
 export type { ManageableRole } from './queries/access'
+export type { Capability } from './capabilities'
 export {
   authenticatedApplicant,
-  authenticatedAdministrator,
+  authenticatedWithCapability,
   bootstrapFirstSuperAdmin,
   cleanupExpiredAuthentication,
   currentSession,

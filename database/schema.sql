@@ -88,7 +88,7 @@ CREATE TABLE `core_user_role_grant` (
 	FOREIGN KEY (`user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`granted_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`revoked_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
-	CONSTRAINT "core_user_role_grant_role_check" CHECK("core_user_role_grant"."role" IN ('APPLICANT', 'ADMIN', 'SUPER_ADMIN')),
+	CONSTRAINT "core_user_role_grant_role_check" CHECK("core_user_role_grant"."role" IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'SUPER_ADMIN')),
 	CONSTRAINT "core_user_role_grant_revocation_check" CHECK(("core_user_role_grant"."revoked_at" IS NULL AND "core_user_role_grant"."revoked_by_user_id" IS NULL AND "core_user_role_grant"."revocation_reason" IS NULL)
         OR ("core_user_role_grant"."revoked_at" IS NOT NULL
           AND "core_user_role_grant"."revocation_reason" IS NOT NULL

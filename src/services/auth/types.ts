@@ -1,6 +1,7 @@
 import type { AppBindings } from '../../bindings'
 import type { Database } from '../../db'
 import type { UserRole } from '../../db/schema'
+import type { Capability } from './capabilities'
 
 export type { AppBindings } from '../../bindings'
 
@@ -22,6 +23,8 @@ export type AuthUser = {
   email: string
   emailVerified: boolean
   roles: UserRole[]
+  /** Derived from `roles`, never stored. What a screen may offer. */
+  capabilities: Capability[]
   createdAt: Date
 }
 

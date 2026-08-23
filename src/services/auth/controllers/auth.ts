@@ -5,6 +5,7 @@
 import { z } from 'zod'
 import { auditActions, type UserRole } from '../../../db/schema'
 import { sendNotification } from '../../external-notification'
+import { capabilitiesOf, rolesHaveCapability, type Capability } from '../capabilities'
 import { clearSessionCookie, readSessionToken, setSessionCookie } from '../cookies'
 import {
   createChallengeToken,
@@ -131,6 +132,10 @@ const toAuthUser = (value: PublicUserRecord, roles: UserRole[]): AuthUser => ({
   email: value.email,
   emailVerified: value.emailVerifiedAt !== null,
   roles,
+  // Derived here so a client never has to reimplement the policy to decide
+  // which navigation to draw. It still cannot grant anything: every operation
+  // re-checks server-side.
+  capabilities: capabilitiesOf(roles),
   createdAt: value.createdAt,
 })
 
@@ -202,14 +207,22 @@ export const authenticatedApplicant = async (
   return current?.roles.includes(APPLICANT_ROLE) ? current : null
 }
 
-/** ADMIN and SUPER_ADMIN share operational capabilities in this delivery. */
-export const authenticatedAdministrator = async (
+/**
+ * The guard every administrative operation goes through.
+ *
+ * It asks what the caller needs to *do* rather than who they are, because the
+ * office holds four staff roles and only `capabilities.ts` knows which of them
+ * carries which authority. An operation that named roles directly would be a
+ * second copy of that policy, and the two would drift.
+ *
+ * A caller holding several roles gets the union of their capabilities.
+ */
+export const authenticatedWithCapability = async (
   context: AuthOperationContext,
+  capability: Capability,
 ): Promise<AuthenticatedAdministratorRequest | null> => {
   const current = await getCurrentSession(context)
-  return current?.roles.some((role) => role === 'ADMIN' || role === 'SUPER_ADMIN')
-    ? current
-    : null
+  return current && rolesHaveCapability(current.roles, capability) ? current : null
 }
 
 /**

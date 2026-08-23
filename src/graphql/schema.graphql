@@ -8,6 +8,8 @@ interface BaseResponse {
 
 enum UserRole {
   APPLICANT
+  REVIEWER
+  APPROVER
   ADMIN
   SUPER_ADMIN
 }
@@ -17,6 +19,17 @@ type StartApplicantSignupResponse {
   expiresAt: DateTime!
 }
 
+# What the roles held add up to. A screen uses this to decide what to offer;
+# it is never what authorizes anything, which stays a server-side refusal.
+enum Capability {
+  STAFF_READ
+  STAFF_WRITE
+  DECIDE
+  ROLE_ADMIN
+  ROLE_INVITE
+  AUDIT_READ
+}
+
 # Roles are the caller's live grants. A person may hold more than one, and an
 # administrator may hold none of APPLICANT.
 type User {
@@ -24,6 +37,7 @@ type User {
   email: String!
   emailVerified: Boolean!
   roles: [UserRole!]!
+  capabilities: [Capability!]!
   createdAt: DateTime!
 }
 

@@ -9,10 +9,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDatabase } from '../src/db'
 import { auditActions } from '../src/db/schema'
 import worker from '../src/index'
+import { userRoles } from '../src/db/schema'
+import { capabilities } from '../src/services/auth/capabilities'
 import { createDigest, hashPassword } from '../src/services/auth/crypto'
 import {
-  authenticatedAdministrator,
   authenticatedApplicant,
+  authenticatedWithCapability,
   bootstrapFirstSuperAdmin,
 } from '../src/services/auth'
 import {
@@ -406,6 +408,30 @@ const runScheduledCleanup = async () => {
   await waitOnExecutionContext(context)
 }
 
+
+/*
+ * The authorization vocabulary exists twice — once in TypeScript, once in the
+ * GraphQL schema a client reads. Nothing makes them agree, so a role or
+ * capability added to one and forgotten in the other would be invisible until
+ * somebody could not be granted a role that plainly exists.
+ */
+describe('the vocabulary the schema publishes', () => {
+  const enumValues = async (name: string): Promise<string[]> => {
+    const result = await graphql<{
+      __type: { enumValues: Array<{ name: string }> }
+    }>(`query { __type(name: "${name}") { enumValues { name } } }`)
+    return result.body.data!.__type.enumValues.map((value) => value.name).sort()
+  }
+
+  it('offers exactly the roles the database accepts', async () => {
+    expect(await enumValues('UserRole')).toEqual([...userRoles].sort())
+  })
+
+  it('offers exactly the capabilities the policy defines', async () => {
+    expect(await enumValues('Capability')).toEqual([...capabilities].sort())
+  })
+})
+
 describe('authentication', () => {
   afterEach(() => vi.restoreAllMocks())
 
@@ -744,7 +770,7 @@ describe('authentication', () => {
     })
     const roleContext = cookieAuthContext(cookie)
     expect(await authenticatedApplicant(roleContext)).toBeNull()
-    expect(await authenticatedAdministrator(roleContext)).not.toBeNull()
+    expect(await authenticatedWithCapability(roleContext, 'STAFF_WRITE')).not.toBeNull()
   })
 
   it('signs in an administrator holding no applicant grant and refuses applicant operations', async () => {
@@ -2439,7 +2465,7 @@ describe('administrative role management', () => {
     `, reviewerCookie)
     expect(refused.body.data?.admin.intake.queue).toMatchObject({
       success: false,
-      message: 'Administrator access is required.',
+      message: 'You do not have permission to do that.',
     })
     const stillSignedIn = await graphql<CurrentSessionBody>(/* GraphQL */ `
       query { auth { currentSession { success response { user { roles } } } } }

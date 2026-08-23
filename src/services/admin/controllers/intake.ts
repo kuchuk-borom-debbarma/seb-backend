@@ -30,7 +30,7 @@ import {
   ADMIN_REQUIRED_MESSAGE,
   constraintSafe,
   authorizeReasonedTransition,
-  currentAdministrator,
+  currentStaff,
   failure,
   normalizeRequiredText,
   STALE_MESSAGE,
@@ -74,7 +74,7 @@ export const intakeQueue = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
   // Two named queues are subsets of one status, so combining the filters could
   // silently return an empty page instead of the queue that was asked for.
   // Refusing says which one to drop rather than leaving the caller guessing.
@@ -98,7 +98,7 @@ export const intakeQueues = async (
   cycleId: string | null | undefined,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
   return success({ queues: await intakeQueueSummary(context.db, cycleId) })
 }
 
@@ -106,7 +106,7 @@ export const intakeByReference = async (
   referenceNumber: string,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
   const normalized = normalizeRequiredText(referenceNumber, 64)
   if (!normalized) return failure('Enter an application reference number.')
   const result = await listIntakeQueue(context.db, {
@@ -122,7 +122,7 @@ export const intakeWorkspace = async (
   applicationId: string,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentAdministrator(context)) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
   const workspace = await loadWorkspace(context.db, applicationId)
   return workspace ? success(workspace) : failure('The application was not found.')
 }
@@ -157,7 +157,7 @@ const administratorWithApplication = async (
   | { administrator: { id: string }; head: NonNullable<Awaited<ReturnType<typeof loadApplicationHead>>> }
   | { refusal: AdminResult<never> }
 > => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_READ')
   if (!administrator) return { refusal: failure(ADMIN_REQUIRED_MESSAGE) }
   const head = await loadApplicationHead(context.db, applicationId)
   if (!head) return { refusal: failure(notFoundMessage) }
@@ -205,7 +205,7 @@ export const releaseApplication = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reason = normalizeRequiredText(input.reason, 500)
   if (!reason || !await reasonForApplication(context, {
@@ -240,7 +240,7 @@ export const reassignApplication = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const head = await loadApplicationHead(context.db, input.applicationId)
   const reason = normalizeRequiredText(input.reason, 500)
@@ -272,7 +272,7 @@ export const addInternalNote = async (
   input: { applicationId: string; note: string; correctionOfNoteId?: string | null },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const note = normalizeRequiredText(input.note, 5_000)
   if (!note) return failure('Enter an internal note.')
@@ -291,7 +291,7 @@ export const startDeskReview = async (
   input: { applicationId: string; expectedStatusVersion: number },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const changed = await constraintSafe(() => startDeskReviewWrite(context, {
     ...input,
@@ -467,7 +467,7 @@ export const completeDeskReview = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentAdministrator(context)
+  const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const head = await loadApplicationHead(context.db, input.applicationId)
   const submission = await latestSubmission(context.db, input.applicationId)
@@ -550,6 +550,7 @@ export const cancelRevisionRequest = async (
 ): Promise<AdminResult<unknown>> => {
   const authorized = await authorizeReasonedTransition(
     context,
+    'STAFF_WRITE',
     { reason: input.reason, expectedVersion: input.expectedStatusVersion },
     'Enter a valid cancellation reason and expected version.',
   )
