@@ -8,13 +8,12 @@ import {
   loadApplication,
   validationQuery,
 } from '#/features/application/applicationQueries'
-import { DOCUMENT_TITLES } from '#/features/application/documents'
+import { DOCUMENT_TITLES, isDocumentIssue } from '#/features/application/documents'
 import { SECTION_TITLES, fieldLabel } from '#/features/application/draft'
 import {
   ResubmitApplicationDocument,
   SubmitApplicationDocument,
 } from '#/graphql/generated/operations'
-import type { DocumentType } from '#/graphql/generated/schema'
 import { humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
@@ -123,15 +122,21 @@ function ReviewPage() {
                   {issues.map((issue) => (
                     <tr key={`${issue.section}-${issue.field}-${issue.code}`}>
                       {/*
-                        Each issue links to the screen that fixes it. Missing
-                        evidence is not fixed on the form: the files live on the
-                        evidence screen, and sending someone to the wrong one is
-                        worse than not linking at all.
+                        Each issue links to the screen that fixes it, decided by
+                        the field rather than by the section.
+
+                        The evidence section carries two different kinds of
+                        issue: a missing file, which is fixed on the evidence
+                        screen, and the question asking whether a no-objection
+                        certificate applies at all, which is a form question
+                        like any other. Routing by section sent the second one
+                        to a screen with no such control on it — the applicant
+                        was told to fix something in a place it does not exist.
                       */}
                       <td>
                         <Link
                           to={
-                            issue.section === 'DOCUMENTS'
+                            isDocumentIssue(issue.field)
                               ? '/applications/$id/documents'
                               : '/applications/$id/form'
                           }
@@ -144,17 +149,18 @@ function ReviewPage() {
                            * difference between being told what is wrong and
                            * being taken to it.
                            */
-                          hash={issue.section === 'DOCUMENTS' ? undefined : issue.field}
+                          hash={isDocumentIssue(issue.field) ? undefined : issue.field}
                         >
-                          {SECTION_TITLES[issue.section] ?? humanize(issue.section)}
+                          {isDocumentIssue(issue.field)
+                            ? 'Evidence'
+                            : SECTION_TITLES[issue.section] ?? humanize(issue.section)}
                         </Link>
                       </td>
                       {/* The question as the form asks it, so somebody sent to
                           fix it is looking for the same words. */}
                       <td className="muted">
-                        {issue.section === 'DOCUMENTS'
-                          ? (DOCUMENT_TITLES[issue.field as DocumentType] ??
-                            humanize(issue.field))
+                        {isDocumentIssue(issue.field)
+                          ? DOCUMENT_TITLES[issue.field]
                           : fieldLabel(issue.field)}
                       </td>
                       <td>{issue.message}</td>

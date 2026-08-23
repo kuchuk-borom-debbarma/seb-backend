@@ -124,7 +124,14 @@ function YesNoField({
   onAnswer: (answer: boolean) => void
 }) {
   return (
-    <fieldset className="choice-field" disabled={disabled}>
+    /*
+     * The id and tabIndex are what let the review report link to this control.
+     * Every issue there addresses `#<field>`, and a fieldset carries no id of
+     * its own — so before this, "take me to the answer that is wrong" silently
+     * did nothing for every yes/no question on the form. tabIndex makes it
+     * focusable as well as scrollable, so arriving here also moves the caret.
+     */
+    <fieldset className="choice-field" id={name} tabIndex={-1} disabled={disabled}>
       <legend className="field-label">{question}</legend>
       <div className="choice-row">
         {ANSWERS.map((answer) => (

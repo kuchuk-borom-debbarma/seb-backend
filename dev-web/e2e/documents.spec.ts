@@ -170,6 +170,36 @@ test.describe('evidence', () => {
     await expect(page).toHaveURL(new RegExp(`/applications/${id}/form#\\w+$`, 'u'))
   })
 
+  test('sends the no-objection question to the form, not to the evidence screen', async ({
+    page,
+  }) => {
+    /*
+     * The evidence section carries two different kinds of issue. "Upload the
+     * detailed project report" is a file and belongs on the evidence screen.
+     * "Is a no-objection certificate needed for these premises?" is a form
+     * question that happens to be filed under the same section — and routing
+     * by section sent it to a screen with no such control, so the applicant
+     * was told to fix something where it does not exist.
+     */
+    const id = await startApplication(page, {
+      prefix: 'evidence',
+      businessName: 'Evidence Works',
+    })
+    await page.goto(`/applications/${id}/review`)
+
+    const row = page.getByRole('row').filter({ hasText: 'no-objection certificate' })
+    // Asked as the form asks it, rather than as the field is spelled. The old
+    // label was "Noc required", which is not a question anybody was asked.
+    await expect(row).toContainText(
+      'Is a no-objection certificate needed for these premises?',
+    )
+
+    await row.getByRole('link').click()
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/form#nocRequired$`, 'u'))
+    // And the control is genuinely there.
+    await expect(page.locator('#nocRequired')).toBeVisible()
+  })
+
   test('is reachable from the application and from the form', async ({ page }) => {
     const id = await startApplication(page, {
       prefix: 'evidence',

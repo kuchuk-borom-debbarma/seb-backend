@@ -43,6 +43,17 @@ export const DOCUMENT_TYPES: readonly DocumentType[] = [
   'NOC',
 ]
 
+/**
+ * Whether a validation issue is about a file rather than a form answer.
+ *
+ * The evidence section carries both. A missing file is fixed on the evidence
+ * screen; the question asking whether a no-objection certificate applies is a
+ * form question, and telling somebody to fix it under Evidence sent them to a
+ * screen with no such control on it.
+ */
+export const isDocumentIssue = (field: string): field is DocumentType =>
+  field in DOCUMENT_TITLES
+
 export const DOCUMENT_TITLES: Record<DocumentType, string> = {
   IDENTITY_AGE_PROOF: 'Identity and age proof',
   ST_CERTIFICATE: 'Scheduled Tribe certificate',
