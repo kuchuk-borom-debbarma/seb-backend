@@ -52,6 +52,14 @@ export type Destination = {
   to: string
   params?: Record<string, string>
   search?: Record<string, string>
+  /**
+   * The concrete address this resolves to.
+   *
+   * Carried rather than rebuilt by the caller, because it was rebuilt once —
+   * with a different rule for which held file fills the parameter — and the two
+   * disagreed the moment somebody had both a cycle and an application open.
+   */
+  pathname: string
 }
 
 /**
@@ -78,7 +86,12 @@ export const resolve = (
   if (to.includes('$')) {
     if (!needed) return null
     const param = to.includes('$meetingId') ? 'meetingId' : 'id'
-    return { to, params: { [param]: needed }, ...(search ? { search } : {}) }
+    return {
+      to,
+      params: { [param]: needed },
+      pathname: to.replace(/\$\w+/u, needed),
+      ...(search ? { search } : {}),
+    }
   }
-  return { to, ...(search ? { search } : {}) }
+  return { to, pathname: to, ...(search ? { search } : {}) }
 }

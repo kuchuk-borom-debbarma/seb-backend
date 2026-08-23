@@ -33,6 +33,23 @@ const STORAGE_KEY = 'seb.guide'
  */
 const HELD_KEY = 'seb.guide.held'
 
+/**
+ * Forgets everything the guide remembers about this person.
+ *
+ * Called on sign-out for the same reason the query cache is cleared there: the
+ * next person at this browser should not inherit which application was open,
+ * nor resume a route halfway through somebody else's work.
+ */
+export const forgetGuide = (): void => {
+  try {
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith('seb.guide')) window.localStorage.removeItem(key)
+    }
+  } catch {
+    // A browser refusing storage has nothing to forget.
+  }
+}
+
 type Position = { tourId: string; step: number }
 
 type Guide = {
@@ -138,6 +155,13 @@ export function GuideProvider({ children, user }: { children: ReactNode; user: W
   const tour = position ? (tourById(position.tourId) ?? null) : null
   const step = tour?.steps[position?.step ?? 0] ?? null
 
+  /*
+   * Where the current step wants the reader to be, if it can be followed at
+   * all. Resolved once and shared, so the offer to go there and the navigation
+   * that goes there can never disagree about which file fills the address.
+   */
+  const here = step ? resolve(step.to, step.search, held) : null
+
   /** Moves to a step and, if it happens on a screen, goes there. */
   const goTo = useCallback(
     (tourId: string, index: number) => {
@@ -154,7 +178,13 @@ export function GuideProvider({ children, user }: { children: ReactNode; user: W
        */
       const moving = target.steps[bounded]
       const destination = resolve(moving?.to, moving?.search, held)
-      if (destination) void navigate(destination)
+      if (destination) {
+        // `pathname` is this module's own bookkeeping, not a router option —
+        // handing it to navigate would be passing it something it never asked
+        // for, next to a `to` it might contradict.
+        const { pathname: _address, ...navigation } = destination
+        void navigate(navigation)
+      }
     },
     [navigate, user, held],
   )
@@ -175,20 +205,10 @@ export function GuideProvider({ children, user }: { children: ReactNode; user: W
        * rather than remembered, so opening the file the step was waiting for
        * turns the offer on by itself.
        */
-      adrift: Boolean(
-        step?.to &&
-        resolve(step.to, step.search, held) &&
-        pathname !==
-          resolve(step.to, step.search, held)?.to?.replace(
-            /\$\w+/u,
-            (name) =>
-              (name === '$meetingId' ? held.meeting : (held.cycle ?? held.application)) ??
-              '',
-          ),
-      ),
+      adrift: Boolean(here && pathname !== here.pathname),
       again: () => position && goTo(position.tourId, position.step),
     }),
-    [goTo, position, step, tour, held, pathname],
+    [goTo, position, step, tour, here, pathname],
   )
 
   return <GuideChannel.Provider value={value}>{children}</GuideChannel.Provider>

@@ -221,6 +221,15 @@ export function DeskReviewForm({
    * another file. It is a question rather than a verdict — the same promoter
    * legitimately returns for a later phase — so the answer appears only after
    * it has been asked.
+   *
+   * Shown but never demanded. A reviewer who realises they mistyped the number
+   * should be able to correct it and carry on; requiring the reason as well
+   * would offer only one way out of two honest ones. The API decides, and it
+   * refuses again with the same sentence if the value really is a repeat.
+   *
+   * The phrase is matched rather than flagged structurally because the result
+   * envelope carries only a message. `e2e/duplicates.spec.ts` walks the whole
+   * refusal through the interface, so the two sides cannot drift apart quietly.
    */
   const flagged = Boolean(error?.includes('already recorded against'))
 
@@ -252,8 +261,7 @@ export function DeskReviewForm({
         (entered?.value.trim().length ?? 0) >= 4 &&
         (!entry.branch || (entered?.branchCode.trim().length ?? 0) >= 4)
       )
-    }) &&
-    (!flagged || notSameClaim.trim().length > 0)
+    })
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()

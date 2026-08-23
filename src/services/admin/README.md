@@ -75,6 +75,39 @@ scan for the file must be `ACCEPTED`; missing, pending, rejected, and errored
 states fail closed. Only the future trusted scanner may call
 `recordDocumentScanResult`. Never add a public scan-acceptance mutation.
 
+## Transcribed identifiers and duplicate detection
+
+A passed desk-review check also records the number on the document it was read
+from (`identifiers.ts`). Without it a review is an attestation with nothing
+behind it — it cannot be asked *which* certificate was seen, and so cannot be
+asked whether the same one has been seen before.
+
+- `ST_ELIGIBILITY`, `IDENTITY_KYC` and `DOCUMENT_COMPLETENESS` each require
+  their number when the check is passed. A failed or not-applicable check
+  requires nothing. `BUSINESS_REGISTRATION` is accepted but never demanded,
+  because an unregistered enterprise has none.
+- Values compare with case and separators stripped, so one certificate written
+  two ways is one certificate.
+- `IDENTITY_DOCUMENT` and `BANK_ACCOUNT` are stored as an HMAC digest, never in
+  the clear, with the last four digits kept so a reviewer can confirm by eye.
+- A value found on a different **funding case** refuses the write and names both
+  the identifier and the application it was found on. The reviewer either fails
+  the check or states why it is not the same claim; that answer is retained.
+
+### Configuration
+
+- `IDENTIFIER_SECRET` is **required** and must contain at least 32 bytes. It
+  keys the digest of identity and bank numbers, and is deliberately not
+  `AUTH_SECRET`: rotating session signing must never silently stop the duplicate
+  check from matching what is already recorded.
+- It is effectively **set once**. Every stored digest was made with it, so a new
+  value stops matching everything recorded under the old one — and the check
+  would then pass everything, quietly. Changing it means re-transcribing every
+  document.
+- It is read at first use rather than at startup, so a deployment missing it
+  looks healthy until the first desk review is completed, which then fails.
+  Provision it with the rest of the secrets, not afterwards.
+
 ## Safe audit construction
 
 Audit events contain public record IDs, fixed actions/outcomes, request ID,

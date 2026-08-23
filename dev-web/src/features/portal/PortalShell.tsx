@@ -14,6 +14,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useRouter } from '@tanstack/react-router'
 import { SignOutDocument } from '#/graphql/generated/operations'
+import { forgetGuide } from '#/features/guide/GuideContext'
 import { gql } from '#/lib/graphql'
 import {
   isAdministrator,
@@ -194,8 +195,10 @@ function AccountFooter({ user }: { user: SignedInUser }) {
     },
     onSuccess: async () => {
       // Everything cached was fetched as this person. Clearing rather than
-      // invalidating prevents the next visitor briefly seeing their data.
+      // invalidating prevents the next visitor briefly seeing their data — and
+      // the guide remembers which file was open, which is the same fact.
       queryClient.clear()
+      forgetGuide()
       await router.navigate({ to: '/sign-in' })
     },
   })

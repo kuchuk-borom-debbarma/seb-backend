@@ -684,20 +684,27 @@ export const identifierMatches = async (
   fundingCaseId: string,
   candidates: { kind: IdentifierKind; comparableValue: string }[],
 ): Promise<Map<IdentifierKind, string>> => {
+  /*
+   * Asked together rather than one after another. The questions are independent
+   * and this sits in the middle of completing a review, so four sequential
+   * round trips would be three waits nobody needs. Order is preserved, so the
+   * refusal still names whichever identifier the reviewer listed first.
+   */
+  const rows = await Promise.all(candidates.map((candidate) => db
+    .select({ referenceNumber: sebApplication.referenceNumber })
+    .from(sebDeskReviewIdentifier)
+    .innerJoin(sebDeskReview, eq(sebDeskReview.id, sebDeskReviewIdentifier.deskReviewId))
+    .innerJoin(sebApplication, eq(sebApplication.id, sebDeskReview.applicationId))
+    .where(and(
+      eq(sebDeskReviewIdentifier.kind, candidate.kind),
+      eq(sebDeskReviewIdentifier.comparableValue, candidate.comparableValue),
+      ne(sebDeskReviewIdentifier.fundingCaseId, fundingCaseId),
+    ))
+    .orderBy(desc(sebDeskReviewIdentifier.createdAt))
+    .limit(1)))
+
   const found = new Map<IdentifierKind, string>()
-  for (const candidate of candidates) {
-    const [row] = await db
-      .select({ referenceNumber: sebApplication.referenceNumber })
-      .from(sebDeskReviewIdentifier)
-      .innerJoin(sebDeskReview, eq(sebDeskReview.id, sebDeskReviewIdentifier.deskReviewId))
-      .innerJoin(sebApplication, eq(sebApplication.id, sebDeskReview.applicationId))
-      .where(and(
-        eq(sebDeskReviewIdentifier.kind, candidate.kind),
-        eq(sebDeskReviewIdentifier.comparableValue, candidate.comparableValue),
-        ne(sebDeskReviewIdentifier.fundingCaseId, fundingCaseId),
-      ))
-      .orderBy(desc(sebDeskReviewIdentifier.createdAt))
-      .limit(1)
+  rows.forEach(([row], index) => {
     /*
      * A desk review only exists for a submitted application, and submission is
      * what issues the reference number — so a match always has one. Asserted
@@ -705,9 +712,12 @@ export const identifierMatches = async (
      * invariant behind a plausible-looking message.
      */
     if (row) {
-      found.set(candidate.kind, requireInvariant(row.referenceNumber, REFERENCE_MISSING))
+      found.set(
+        candidates[index]!.kind,
+        requireInvariant(row.referenceNumber, REFERENCE_MISSING),
+      )
     }
-  }
+  })
   return found
 }
 

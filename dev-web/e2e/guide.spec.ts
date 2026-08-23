@@ -504,6 +504,50 @@ test.describe('the office is led to the work, not only to the console', () => {
     await expect(page.getByText('Assignment', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Claim it' })).toBeEnabled()
   })
+
+  test('knows it has arrived, even after another kind of file was opened', async ({
+    page,
+  }) => {
+    /*
+     * A regression. The offer to jump to a step was decided by rebuilding the
+     * step's address from the file in hand — with a different rule for which
+     * held file fills the parameter than the navigation itself used. Open a
+     * cycle first and an application step's expected address was built with the
+     * cycle's id, so it never matched where the reader actually was, and the
+     * rail offered to take them somewhere they already were, permanently.
+     */
+    const { id } = await submitApplication(page, { prefix: 'arrive' })
+    await page.context().clearCookies()
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await forgetGuide(page)
+
+    // A cycle is opened first, so the guide is holding one of those too.
+    await page.goto('/admin/cycles')
+    // By href, not by name: the link carries the cycle's display name, and
+    // "Create a cycle" also lives under /admin/cycles/.
+    await page.locator('table a[href^="/admin/cycles/"]').first().click()
+    await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
+
+    await page.goto(`/admin/applications/${id}`)
+    await page.goto('/guide')
+    await page
+      .getByRole('article')
+      .filter({ hasText: 'Reviewing what comes in' })
+      .getByRole('button', { name: 'Walk this route' })
+      .click()
+
+    const rail = page.getByRole('complementary', { name: /Guided route/u })
+    for (const step of [2, 3, 4]) {
+      await rail.getByRole('button', { name: 'Next' }).click()
+      await expect(rail.getByText(`Step ${step} of 9`)).toBeVisible()
+    }
+
+    await expect(page).toHaveURL(new RegExp(`/admin/applications/${id}$`, 'u'))
+    // Arrived: there is nowhere to be taken to.
+    await expect(rail.getByRole('button', { name: 'Take me to this step' })).toHaveCount(
+      0,
+    )
+  })
 })
 
 test.describe('the office reads its own words', () => {
