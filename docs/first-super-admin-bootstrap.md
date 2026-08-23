@@ -46,14 +46,16 @@ openssl rand -hex 32
 ```
 
 For local development, place the email and generated value in the gitignored
-`.env` file:
+`.env.local` file:
 
 ```dotenv
 FIRST_SUPER_ADMIN_EMAIL=administrator@example.com
 FIRST_SUPER_ADMIN_SECRET=replace-with-the-generated-value
 ```
 
-`.env.example` intentionally remains empty. Never commit `.env`.
+`.env.example` is the checked-in template and documents both values; it never
+holds one. Never commit `.env.local`. Note that a leftover `.dev.vars` beats
+these files entirely — see [configuring the Worker](../README.md#configuration).
 
 For a deployed Worker, provision both values temporarily through Cloudflare:
 
@@ -95,12 +97,12 @@ jq -n --arg currentPassword "$ADMIN_PASSWORD" '{currentPassword: $currentPasswor
       --header 'Content-Type: application/json' \
       --header "Authorization: Bearer $ADMIN_BOOTSTRAP_SECRET" \
       --data-binary @- \
-      http://localhost:8787/internal/bootstrap/first-super-admin
+      http://localhost:9999/internal/bootstrap/first-super-admin
 
 unset ADMIN_PASSWORD ADMIN_BOOTSTRAP_SECRET
 ```
 
-Replace `http://localhost:8787` with the deployed HTTPS API origin when
+Replace `http://localhost:9999` with the deployed HTTPS API origin when
 bootstrapping a deployed environment. Do not add an `Origin` header; the route
 rejects browser-originated requests.
 
@@ -140,6 +142,11 @@ cannot revoke their own. Promote a second super administrator through
 `access.grantRole` as soon as bootstrap completes, and this section becomes
 unnecessary.
 
+**Locally, use `npm run seed:super-admin`.** It creates an administrator
+directly against the local database and is the intended way back in when
+bootstrap has already been spent. The rest of this section is for a deployed
+Worker, where that script is not an option.
+
 It still applies if the sole account is lost some other way — a forgotten
 password, or a soft deletion applied directly to D1. Sign-in requires at least
 one active role, and bootstrap stays permanently closed once any historical
@@ -162,7 +169,8 @@ audit event.
 
 ## 5. Remove the temporary configuration
 
-After success, remove both lines from the local `.env`. For a deployed Worker:
+After success, remove both lines from the local `.env.local`. For a deployed
+Worker:
 
 ```sh
 npx wrangler secret delete FIRST_SUPER_ADMIN_EMAIL

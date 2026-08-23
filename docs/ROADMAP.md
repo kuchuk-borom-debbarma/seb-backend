@@ -84,8 +84,8 @@ These rules are already agreed and must remain true throughout the roadmap.
   or super-administrator access.
 - [ ] Replace development-only email output with a production notification
   provider that actually delivers the code to the applicant's mailbox.
-- [ ] Limit repeated registration and code requests by email, device, and network
-  so attackers cannot flood applicants or the notification provider.
+- [ ] Limit repeated registration and code requests by email, device, and
+  network so attackers cannot flood applicants or the notification provider.
 - [ ] Add a human-verification challenge after suspicious or excessive signup
   activity without blocking normal first-time applicants.
 
@@ -164,8 +164,8 @@ submitted in an older cycle.
 
 - [x] Applicants can see currently open programme cycles available for new
   applications.
-- [x] A new application records the exact cycle rules that applied when its draft
-  was started.
+- [x] A new application records the exact cycle rules that applied when its
+  draft was started.
 - [x] Closing a cycle prevents new applications from starting in it.
 - [x] An applicant responding to an official revision request may resubmit after
   the original cycle closes.
@@ -189,8 +189,8 @@ submitted in an older cycle.
 
 - [x] The applicant chooses one owned, active enterprise and one open programme
   cycle.
-- [x] Starting an initial application creates phase 1 and copies the enterprise's
-  current profile into the first draft.
+- [x] Starting an initial application creates phase 1 and copies the
+  enterprise's current profile into the first draft.
 - [x] The application remains attached to the selected enterprise and its
   funding case for its entire life.
 - [x] Only one non-rejected attempt for the same phase may remain active across
@@ -283,8 +283,8 @@ submitted in an older cycle.
 
 - [x] Record name, designation, birth date, gender, business address, PIN code,
   phone, and email.
-- [x] Require the applicant to be at least 18 and no older than 60 on the date of
-  formal submission.
+- [x] Require the applicant to be at least 18 and no older than 60 on the date
+  of formal submission.
 - [x] Accept real calendar dates only, including correct leap-day handling.
 - [x] Validate the email, phone, and PIN formats before submission.
 - [x] Do not collect an ST certificate number.
@@ -305,7 +305,8 @@ submitted in an older cycle.
 
 - [x] Ask whether the applicant has received prior government funding.
 - [x] If yes, require scheme, positive amount, and sanction year.
-- [x] If no, allow the dependent scheme, amount, and year fields to remain empty.
+- [x] If no, allow the dependent scheme, amount, and year fields to remain
+  empty.
 - [x] Ask whether the enterprise has existing bank credit.
 - [x] If yes, require the bank, positive sanctioned amount, and `STANDARD` or
   `NPA` status.
@@ -331,7 +332,8 @@ submitted in an older cycle.
 - [x] Require business-registration evidence when the enterprise is registered.
 - [x] Require GST evidence when a GSTIN is supplied.
 - [x] Require an NOC when the applicant declares that an NOC applies.
-- [x] Do not require optional document types when their condition does not apply.
+- [x] Do not require optional document types when their condition does not
+  apply.
 
 ### 6.2 Upload, replacement, and access
 
@@ -343,7 +345,8 @@ submitted in an older cycle.
   the document belongs to their application.
 - [x] Force downloads as attachments rather than displaying untrusted files in
   the portal page.
-- [x] Replacing a document creates a new historical version and makes it current.
+- [x] Replacing a document creates a new historical version and makes it
+  current.
 - [x] Deleting a document is reversible and does not erase earlier uploaded
   versions.
 - [x] A concurrent replacement based on an old document version is rejected.
@@ -365,25 +368,25 @@ submitted in an older cycle.
 ### 7.1 Validation
 
 - [x] The applicant can validate a draft without submitting it.
-- [x] Validation groups issues by form section and identifies the exact field and
-  correction needed.
+- [x] Validation groups issues by form section and identifies the exact field
+  and correction needed.
 - [x] Validation checks required and conditional answers, dates, age, category,
   contact formats, money, declarations, and documents.
 - [x] An invalid validation result does not change the draft or application
   status.
 - [x] Submission repeats validation so an earlier successful check cannot bypass
   later changes.
-- [x] Add a clickable validation summary that takes the applicant to each invalid
-  field or document slot in form order. Each row links to the screen that fixes
-  it — the form for an answer, the evidence screen for a document — and names
-  the field in the address, so the control is scrolled to and focused on
-  arrival.
+- [x] Add a clickable validation summary that takes the applicant to each
+  invalid field or document slot in form order. Each row links to the screen
+  that fixes it — the form for an answer, the evidence screen for a document —
+  and names the field in the address, so the control is scrolled to and focused
+  on arrival.
 
 ### 7.2 First submission
 
 - [x] A valid draft can be submitted once as submission number 1.
-- [x] Submission creates a new frozen formal snapshot, even if the last draft was
-  already valid.
+- [x] Submission creates a new frozen formal snapshot, even if the last draft
+  was already valid.
 - [x] The first submission receives one stable Mission SEP reference number.
 - [x] The reference number remains unchanged through review, revision, award,
   and later status changes.
@@ -408,8 +411,8 @@ submitted in an older cycle.
 - [x] The applicant can see the application's current status.
 - [x] The applicant can see a chronological, applicant-safe timeline for events
   already recorded on the application.
-- [x] The timeline does not expose internal secrets, staff-only notes, or another
-  applicant's information.
+- [x] The timeline does not expose internal secrets, staff-only notes, or
+  another applicant's information.
 - [x] A status guide defines a label, plain-language explanation, and next
   action for every status, built from the schema's own status list so a new
   status cannot be missing from it.
@@ -426,7 +429,8 @@ The applicant response and the staff issuance/cancellation workflow both exist.
   readable correction note.
 - [x] While revision is required, the applicant may edit only sections named by
   unresolved requests.
-- [x] Fields outside those sections must remain identical to the last submission.
+- [x] Fields outside those sections must remain identical to the last
+  submission.
 - [x] Resubmission validates the complete application and all required evidence.
 - [x] Resubmission creates a new formal snapshot and the next submission number.
 - [x] A successful resubmission resolves all open revision requests through that
@@ -437,8 +441,8 @@ The applicant response and the staff issuance/cancellation workflow both exist.
 - [x] Revision requests carry their section, issue date, note, and resolved or
   cancelled state, ready to group by section.
 - [x] The application reports which sections are editable right now, derived
-  from the same rule the draft-save path enforces, so a locked section can
-  never be shown as editable.
+  from the same rule the draft-save path enforces, so a locked section can never
+  be shown as editable.
 - [x] The applicant can list the sections their draft changes relative to the
   submission under revision, using the same comparison a reviewer sees.
 
@@ -487,8 +491,8 @@ namespace. Account recovery remains incomplete.
 - [x] Give administrators a sign-in journey that works for an `ADMIN` or
   `SUPER_ADMIN` who is not also an applicant.
 - [x] Refuse sign-in for a person whose every role grant has been revoked, and
-  destroy their existing sessions rather than only refusing them, so restoring
-  a role cannot revive a previously issued token.
+  destroy their existing sessions rather than only refusing them, so restoring a
+  role cannot revive a previously issued token.
 - [x] Require fresh password confirmation before a super administrator changes
   another person's roles.
 - [x] Provide administrative session listing, sign-out, and revoke-all controls.
@@ -503,13 +507,14 @@ only by verified signup and cannot be granted back by any operation, so allowing
 its revocation here would strip an applicant permanently with no recovery path.
 
 - [x] Let a super administrator search users by exact email or public user ID.
-- [x] Show verified email, active roles, account state, and retained role history
-  without exposing passwords or private application answers.
+- [x] Show verified email, active roles, account state, and retained role
+  history without exposing passwords or private application answers.
 - [x] Let a super administrator grant `ADMIN` or `SUPER_ADMIN` with a mandatory
   reason.
 - [x] Let a super administrator revoke a role with a mandatory reason.
 - [x] Prevent duplicate active grants of the same role.
-- [x] Permit a previously revoked role to be granted again as a new history item.
+- [x] Permit a previously revoked role to be granted again as a new history
+  item.
 - [x] Prevent removal of the last usable `SUPER_ADMIN` account, decided by the
   guarded write itself so two concurrent revocations cannot both succeed.
 - [x] Prevent a super administrator from removing their own super administrator
@@ -519,6 +524,25 @@ its revocation here would strip an applicant permanently with no recovery path.
 - [ ] Notify the affected person after an administrative role is granted or
   revoked; the notification must not be required for the role change to take
   effect.
+
+---
+
+### 9.4 Two portals
+
+- [x] Separate the applicant portal at `/` from the programme office at
+  `/admin`, so the two audiences do not share one navigation list filtered by
+  role.
+- [x] Send each account to the portal its roles fit at sign-in, so an officer
+  holding no applicant grant never reads a refusal after signing in.
+- [x] Refuse a portal in place rather than redirecting: name the roles the
+  account does hold, link to the portal it can use, and when it holds neither,
+  give the exact sentence to send a super administrator.
+- [x] Show the navigation that *works* beside a refusal, never four links that
+  would each refuse in turn.
+- [x] Keep one design system at two densities — an applicant applies once in a
+  lifetime and needs room; an officer works all day and needs density.
+- [x] Keep the gates advisory: every operation is still refused server-side, so
+  the client is never the security boundary.
 
 ---
 
@@ -537,8 +561,8 @@ its revocation here would strip an applicant permanently with no recovery path.
   the stated opening time.
 - [x] Let an administrator close a cycle immediately with a required reason, or
   allow it to close automatically at its stated closing time.
-- [x] Closing a cycle blocks new applications but does not alter existing drafts,
-  submissions, reviews, or requested resubmissions.
+- [x] Closing a cycle blocks new applications but does not alter existing
+  drafts, submissions, reviews, or requested resubmissions.
 - [x] Let an administrator archive a closed cycle only after no active intake or
   review action depends on changing that cycle.
 - [x] Archived cycles remain readable in histories and reports.
@@ -574,8 +598,8 @@ its revocation here would strip an applicant permanently with no recovery path.
 - [x] Show the current assignee and assignment time to all administrators.
 - [x] Let the assignee release it back to the queue with a mandatory reason.
 - [x] Let another administrator reassign it with a mandatory reason.
-- [x] Warn when the reviewer is also the applicant or enterprise owner; allow the
-  action under the selected policy and retain the acknowledgement.
+- [x] Warn when the reviewer is also the applicant or enterprise owner; allow
+  the action under the selected policy and retain the acknowledgement.
 - [x] Prevent two administrators from unknowingly completing the same review
   transition from the same old status.
 
@@ -584,7 +608,8 @@ its revocation here would strip an applicant permanently with no recovery path.
 - [x] Show the exact submitted snapshot, not the applicant's later canonical
   enterprise profile.
 - [x] Show every submitted document version associated with that submission.
-- [x] Show prior submissions and clearly highlight sections changed in a revision.
+- [x] Show prior submissions and clearly highlight sections changed in a
+  revision.
 - [x] Separate applicant-visible timeline entries from staff-only notes.
 - [x] Let staff add a dated internal note that cannot alter an applicant answer.
 - [x] Internal notes identify their author and cannot be edited or deleted; a
@@ -598,16 +623,17 @@ its revocation here would strip an applicant permanently with no recovery path.
   reviewer and time.
 - [x] A reviewer checks completeness, eligibility declarations, required
   evidence, and consistency between answers and documents.
-- [x] The reviewer records one outcome: request revision, advance to partner-bank
-  evaluation, or reject.
-- [x] A revision request names exactly one editable section and contains a clear,
-  applicant-safe correction instruction.
+- [x] The reviewer records one outcome: request revision, advance to
+  partner-bank evaluation, or reject.
+- [x] A revision request names exactly one editable section and contains a
+  clear, applicant-safe correction instruction.
 - [x] Multiple sections require separate revision requests so each issue can be
   tracked and resolved.
 - [x] Issuing one or more requests changes the application to
   `REVISION_REQUIRED` and exposes the requests in the applicant workflow.
 - [ ] Send a notification when one or more revision requests are issued.
-- [x] A reviewer cannot request edits to server-derived award or expansion facts.
+- [x] A reviewer cannot request edits to server-derived award or expansion
+  facts.
 - [x] A mistaken open request can be cancelled with a reason and replaced; its
   original text remains in history.
 - [x] A revision response returns to the submitted queue and may be reviewed by
@@ -618,6 +644,25 @@ its revocation here would strip an applicant permanently with no recovery path.
   visible to the applicant.
 - [x] Rejection is final for that cycle attempt but does not erase the
   application or prevent an eligible later-cycle retry.
+
+---
+
+### 12.1 Transcribed identifiers and duplicate detection
+
+- [x] Record the number on the document behind every passed check — the
+  Scheduled Tribe certificate, the identity document, and the bank account with
+  its branch code. A result alone is an attestation with nothing behind it.
+- [x] Compare values with case and separators stripped, so one certificate
+  written two ways is one certificate.
+- [x] Store identity and bank numbers as a keyed digest, never in the clear,
+  keeping only the last four digits so a reviewer can confirm by eye.
+- [x] Refuse a review whose identifier already exists on a **different funding
+  case**, naming both the identifier and the application it was found on.
+- [x] Treat that refusal as a question rather than a verdict: a second-phase
+  expansion by the same promoter is expected, so the reviewer either fails the
+  check or states why it is not the same claim, and the answer is retained.
+- [ ] Decide with TTAADC whether any identifier should be a hard bar rather than
+  a reviewer judgement.
 
 ---
 
@@ -647,16 +692,16 @@ is no separate bank user or bank portal in this roadmap.
 ## 14. TTM review and programme decision
 
 - [x] Administrators can place applications with either positive or negative
-  bank feedback into a TTM meeting
-  agenda identified by meeting reference and date.
+  bank feedback into a TTM meeting agenda identified by meeting reference and
+  date.
 - [x] The agenda shows the exact submission and bank outcome being considered.
-- [x] Each application receives one recorded meeting outcome: approved, rejected,
-  deferred, or revision required.
+- [x] Each application receives one recorded meeting outcome: approved,
+  rejected, deferred, or revision required.
 - [x] Approval records the approved amount, decision reference, decision date,
   conditions, and authorized actor.
 - [x] Rejection records a standard category and applicant-safe reason.
-- [x] Deferral records the next required programme action and does not pretend the
-  application is approved or rejected.
+- [x] Deferral records the next required programme action and does not pretend
+  the application is approved or rejected.
 - [x] Revision required uses the existing section-specific applicant revision
   flow.
 - [x] A decision correction creates a superseding decision with a mandatory
@@ -693,8 +738,8 @@ is no separate bank user or bank portal in this roadmap.
 
 ## 16. Disbursements and corrections
 
-- [x] Administrators can record a positive release against an active
-  award with occurrence date, external payment reference, amount, and recorder.
+- [x] Administrators can record a positive release against an active award with
+  occurrence date, external payment reference, amount, and recorder.
 - [x] External payment references are unique so the same payment is not recorded
   twice.
 - [x] Releases appear in chronological programme history with an unambiguous
@@ -708,7 +753,8 @@ is no separate bank user or bank portal in this roadmap.
   append-only ledger rather than stored.
 - [x] Recording the first successful release changes the application to
   `DISBURSED` and records an applicant-visible event.
-- [x] Later releases keep the status `DISBURSED` and add separate timeline items.
+- [x] Later releases keep the status `DISBURSED` and add separate timeline
+  items.
 - [x] Every release records its TTM approval reference/date, verified payment
   prerequisites, and actual payment in one transition.
 - [x] Every release creates its own utilization obligation due 180 UTC calendar
@@ -726,8 +772,8 @@ is no separate bank user or bank portal in this roadmap.
 
 - [x] Administrators can record utilization, performance, and financial-audit
   assessments against an award.
-- [x] Each assessment has a type, assessment number, date, passed/failed outcome,
-  assessor, evidence reference, and applicant-safe summary.
+- [x] Each assessment has a type, assessment number, date, passed/failed
+  outcome, assessor, evidence reference, and applicant-safe summary.
 - [x] A reassessment creates the next assessment number for that type and does
   not overwrite the earlier result.
 - [x] The current result of each assessment series is clearly identified while
@@ -788,25 +834,51 @@ record.
 
 ## 19. Search, reports, and programme oversight
 
+- [x] Let staff and applicants find a record by the start of a reference number,
+  an enterprise name, or a cycle code, backed by an index rather than a table
+  scan.
+- [x] State the limit honestly: it is a prefix match, and the interface says
+  "starts with" rather than "search". Full-text search is not available, because
+  the canonical schema is generated and compared byte-exact, which rules out an
+  FTS5 virtual table.
+- [x] Report a total alongside every paged list, so a page can say where it sits
+  in the set and an empty result can distinguish "nothing matches these filters"
+  from "nothing here yet".
 - [ ] Provide cycle-level counts for started drafts, submitted, under review,
   revision required, approved, rejected, sanctioned, and disbursed applications.
 - [ ] Report unique applicants and enterprises separately so one person with two
   enterprises is not counted as two people.
-- [ ] Break down applications by category, sector, phase, gender, and application
-  outcome using only authorized programme views.
+- [ ] Break down applications by category, sector, phase, gender, and
+  application outcome using only authorized programme views.
 - [ ] Report sanctioned amount, gross releases, reversals, and net disbursement
   without treating reversals as new payments.
 - [ ] Provide ageing reports showing time spent in each review stage.
-- [ ] Provide a revision report by section and reason category to identify common
-  applicant difficulties.
+- [ ] Provide a revision report by section and reason category to identify
+  common applicant difficulties.
 - [ ] Allow exports only to authorized administrators and record who exported,
   when, which filters were used, and the purpose.
 - [ ] Exports exclude passwords, authentication secrets, private document links,
   and staff-only security data.
-- [ ] Provide a complete application history showing submissions, status changes,
-  revision requests, decisions, awards, releases, reversals, and assessments in
-  event order.
+- [ ] Provide a complete application history showing submissions, status
+  changes, revision requests, decisions, awards, releases, reversals, and
+  assessments in event order.
 - [x] Provide a role-change history for super administrators.
+
+---
+
+### 19.1 Bounding what one request may ask for
+
+- [x] Clamp `first` on every connection to 1–100 and refuse anything outside,
+  rather than silently capping it.
+- [x] Limit one document to 500 fields and depth 12, counted at validation
+  before any resolver runs. Aliases make a field repeatable, so a per-field
+  limit cannot see a document that asks for one expensive operation five hundred
+  times; only the whole document can.
+- [x] Limit the request body to 64 KB, refused before parsing.
+- [x] Cap collections that have no cursor at 500 rows, and signed-in devices at
+  100 — while leaving the disbursement and recovery ledgers uncapped, because
+  their totals are folded from those rows and a truncated ledger would report a
+  wrong figure rather than a short list.
 
 ---
 
@@ -863,10 +935,10 @@ must be supplied before the affected feature can be completed.
   rejection, case closure, account closure, and programme archival, including
   document retention. No irreversible business-record deletion should be added
   before this is approved.
-- [ ] **Conflict-of-interest oversight:** The current rule allows an administrator
-  to act on their own application with a visible warning and history. TTAADC
-  must either approve this or define a recusal/second-approval rule before admin
-  review launches.
+- [ ] **Conflict-of-interest oversight:** The current rule allows an
+  administrator to act on their own application with a visible warning and
+  history. TTAADC must either approve this or define a recusal/second-approval
+  rule before admin review launches.
 - [ ] **Applicant-visible reasons:** Programme owners must approve reason
   categories and safe message templates for revision, rejection, suspension,
   cancellation, and payment reversal before those actions are exposed.

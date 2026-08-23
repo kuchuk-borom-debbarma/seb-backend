@@ -374,8 +374,8 @@ Administrator role management exists; account recovery, a production malware
 scanner, notification delivery, and public-launch protections remain future
 work. See the
 [combined application guide](../../../docs/application-guide.md)
-for the end-to-end business and API behavior, and the focused
-[application integrity guide](../../../docs/application-integrity.md) for the
+for the end-to-end business and API behavior, and the
+[applicant service README](../../services/application/README.md) for the
 write-time race guards and failure-recovery rules built on this schema.
 Administrative authorization is documented separately in the
 [fixed-role RBAC guide](../../../docs/admin-rbac.md).

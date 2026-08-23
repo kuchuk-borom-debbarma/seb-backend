@@ -73,7 +73,8 @@ necessary — a rule with a scar attached is followed; an abstract one is not.
 - **Mermaid** for sequence and state. Rendered by GitHub; there is precedent in
   [`../application-guide.md`](../application-guide.md).
 - **Relative links only.** Never an absolute filesystem path. This repository
-  has already shipped `](/Users/…/Downloads/…)` in a committed document,
+  has already shipped a link to `/Users/<somebody>/Downloads/…` in a
+  committed document,
   which is broken for every other reader and leaks a home directory.
 - **Every claim checked against the code**, not memory. Ports against
   `package.json`, environment variables against `src/bindings.ts`, roles against

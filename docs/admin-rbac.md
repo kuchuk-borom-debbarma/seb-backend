@@ -18,8 +18,11 @@ three fixed roles:
 
 There is no permission registry or role table. The role vocabulary is defined
 by TypeScript and enforced by a D1 `CHECK`, making every possible authority
-visible in code review. `SUPER_ADMIN` implies `ADMIN` in future authorization
-helpers; a super administrator does not need a duplicate `ADMIN` grant.
+visible in code review. `SUPER_ADMIN` implies `ADMIN` in the authorization
+helpers, so a super administrator does not need a duplicate `ADMIN` grant. The
+one exception is role administration itself, which requires `SUPER_ADMIN`
+specifically — granting and revoking authority is the capability a plain
+administrator must not inherit.
 
 A user may be both applicant and administrator. The selected policy permits an
 administrator to act on their own application; the append-only audit trail must
@@ -43,9 +46,9 @@ retaining both historical `ADMIN` grants. A revocation cannot predate its grant.
 `RESTRICT` foreign keys preserve the subject and any recorded granting or
 revoking actor.
 
-`granted_by_user_id` is null only for trusted system transitions, currently
-verified applicant signup and the first-super-admin bootstrap. Future
-administrative grant services must provide their authenticated actor. Automated
+`granted_by_user_id` is null only for trusted system transitions: verified
+applicant signup and the first-super-admin bootstrap. Every grant made through
+`access.grantRole` records the super administrator who made it. Automated
 revocation may have no user actor, but every revocation retains a reason and
 time.
 

@@ -2,8 +2,10 @@
 
 This crosswalk separates the authoritative six-page TTAADC Mission SEP policy
 and application form from product decisions made for the portal. The source is
-[`TTAADC_Mission_SEP_Policy_and_Application Form (1).pdf`](</Users/kuku/Downloads/TTAADC_Mission_SEP_Policy_and_Application Form (1).pdf>).
-The UI/UX flow guide may improve presentation, but it is not a policy source.
+the TTAADC Mission SEP policy and application form — the six-page document
+issued by the council. It is not checked into this repository; obtain it from
+the programme office. The UI/UX flow guide may improve presentation, but it is
+not a policy source.
 
 The PDF establishes the business sequence used here: TTAADC desk scrutiny,
 partner-bank appraisal, TTM consideration and decision, sanction and release,

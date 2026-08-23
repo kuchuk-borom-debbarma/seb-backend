@@ -77,6 +77,16 @@ flowchart LR
   X --> P2
 ```
 
+## Finding things in a list
+
+An applicant's enterprises and applications are both paged lists. Enterprises
+can be narrowed by status and sector, applications by enterprise, status, cycle
+and type, and both by the start of a name or reference number — a prefix match,
+which is what the label promises.
+
+Each list reports its total, so a page says where it sits and an empty result
+can distinguish "nothing matches these filters" from "nothing here yet".
+
 ## Entity glossary
 
 | Entity | Meaning and owner | Storage behavior | Example |
@@ -206,7 +216,8 @@ seed-fund ceiling from the source documents is hard-coded.
 ## Expansion calculations and retries
 
 The service selects an active award from the immediately preceding phase in the
-same enterprise/funding case. For each release, related reversals are subtracted.
+same enterprise/funding case. For each release, related reversals are
+subtracted.
 At least one release must retain a positive amount, total net disbursement must
 be positive, and the target cycle’s UTC calendar waiting period after the first
 retained release must have arrived. Every retained release’s latest utilization
@@ -342,7 +353,7 @@ revision sections.
 ## Concurrency, history, and audit
 
 D1 batches are atomic, but a zero-row guarded update is not itself an error.
-The focused [application integrity guide](application-integrity.md) explains
+The [applicant service README](../src/services/application/README.md) explains
 the write-time predicates and failure-recovery state machines in detail.
 Dependent inserts therefore use `INSERT ... SELECT ... WHERE EXISTS` predicates
 tied to the winning root update. Batches remain bounded; cleanup is paginated.
@@ -356,7 +367,8 @@ session/challenge digests.
 ## Setup, testing, and limitations
 
 Regenerate the canonical empty-database schema with `npm run db:schema:generate`
-and verify drift with `npm run db:schema:check`. Use `npm run db:setup:local` for
+and verify drift with `npm run db:schema:check`. Use `npm run db:setup:local`
+for
 local D1, `npm test` for Worker integration tests, `npm run test:coverage` for
 the application coverage gate, and `npm run check` for the complete gate.
 

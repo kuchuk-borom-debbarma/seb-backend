@@ -1,8 +1,10 @@
 # Mission SEP administrator workflow
 
 This guide explains the staff journey in business language and connects it to
-the current administrative API. It complements the [application guide](application-guide.md),
-the [policy crosswalk](policy-alignment.md), and the [RBAC guide](admin-rbac.md).
+the current administrative API. It complements the
+[application guide](application-guide.md), the
+[policy crosswalk](policy-alignment.md), and the
+[RBAC guide](admin-rbac.md).
 
 ## Access after sign-in
 
@@ -47,7 +49,15 @@ unknown application is. The queue exposes the latest formal submission,
 reference, enterprise, applicant, pinned cycle, phase/type, category, sector,
 status, assignee, submission time, and activity time. Staff may filter by those
 dimensions and order by oldest waiting, newest submission, or last activity.
-Pagination uses a stable timestamp-and-ID cursor.
+
+Staff may also search by the start of a reference number or an enterprise name.
+It is a prefix match, not a free-text search, and the interface says so — a box
+labelled "search" that silently means "starts with" would be discovered by
+somebody typing a word from the middle of a name and getting nothing.
+
+Pagination uses a stable timestamp-and-ID cursor, and every list reports how
+many results there are in total, so a page can say where it sits in the set and
+"nothing matches these filters" can be told apart from "nothing here yet".
 
 ### Named queues
 
@@ -118,21 +128,22 @@ the bank account with its branch code for `DOCUMENT_COMPLETENESS`. A business
 registration number is accepted but never demanded, because an unregistered
 enterprise has none. A check that is failed or not applicable asks for nothing.
 
-Values are compared after case and separators are stripped, so `tr/st/2019-004471`
-and `TR-ST-2019-004471` are one certificate. Identity and bank numbers are stored
-as a keyed digest and never rendered back; the reviewer confirms against the last
-four digits. The key is set once — every stored digest was made with it, so
-changing it would silently stop the check matching anything already recorded.
+Values are compared after case and separators are stripped, so
+`tr/st/2019-004471` and `TR-ST-2019-004471` are one certificate. Identity and
+bank numbers are stored as a keyed digest and never rendered back; the reviewer
+confirms against the last four digits. The key is set once — every stored
+digest was made with it, so changing it would silently stop the check matching
+anything already recorded.
 
 If a value already exists on a **different funding case**, the review is refused
 and names both the identifier and the application it was found on. This is a
 question, not a verdict: a second-phase expansion by the same promoter is
-expected, so the reviewer either fails the check or states why it is not the same
-claim, and that answer is retained beside the value that raised it.
+expected, so the reviewer either fails the check or states why it is not the
+same claim, and that answer is retained beside the value that raised it.
 
 Before this, the only identity-based duplicate guard in the programme was the
-unique index on an enterprise's GSTIN — which an unregistered enterprise does not
-have, so one person could carry two enterprises and two funding cases with
+unique index on an enterprise's GSTIN — which an unregistered enterprise does
+not have, so one person could carry two enterprises and two funding cases with
 nothing linking them.
 
 A financial inconsistency might produce a `FINANCIAL` revision request with an
