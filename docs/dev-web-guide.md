@@ -34,18 +34,21 @@ cd dev-web && npm run local    # the client, on http://localhost:9990
 The client's `local` script sets `SEB_API_URL` to the Worker's port, so the two
 stay wired together with no further configuration.
 
-`npm run local` reads `.dev.vars`, which is gitignored and must be created
-locally. It needs:
+`npm run local` reads `.env.local`. Start from the checked-in template, which
+documents every variable and holds no values:
 
-```ini
-AUTH_SECRET = "at least thirty-two bytes of local-only randomness"
-AUTH_COOKIE_SAME_SITE = "lax"
-FRONTEND_ORIGINS = "http://localhost:9990"
-FIRST_SUPER_ADMIN_EMAIL = "founder@example.com"
-FIRST_SUPER_ADMIN_SECRET = "a temporary local-only bootstrap secret"
+```bash
+cp .env.example .env.local
 ```
 
-Never put a production secret in that file. Production values are provisioned
+Wrangler loads `.env` and then `.env.local`, the later winning, and both are
+gitignored — `.env.example` is the only one checked in.
+
+**A leftover `.dev.vars` beats all of them.** Wrangler reads that file first and,
+when it exists, ignores `.env` and `.env.local` entirely. If an edit here seems
+to have no effect, that is the first thing to look for.
+
+Never put a production secret in these files. Production values are provisioned
 as Cloudflare secrets, and the two bootstrap values are removed after use.
 
 ### First run

@@ -17,7 +17,7 @@ export const PASSWORD = 'correct horse battery staple'
 /**
  * The account the suite bootstraps as the first super administrator.
  *
- * It must match `FIRST_SUPER_ADMIN_EMAIL` in `.dev.vars`, because the Worker
+ * It must match `FIRST_SUPER_ADMIN_EMAIL` in `.env.local`, because the Worker
  * will only ever promote that exact address.
  */
 export const SUPER_ADMIN_EMAIL = 'founder@example.com'
