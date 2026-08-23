@@ -36,6 +36,7 @@ import {
   sebApplicationInternalNote,
   sebDeskReview,
   sebDeskReviewCheck,
+  sebDeskReviewIdentifier,
 } from './seb/review'
 import {
   sebPartnerBankOutcome,
@@ -94,6 +95,7 @@ export const schema = {
   sebApplicationInternalNote,
   sebDeskReview,
   sebDeskReviewCheck,
+  sebDeskReviewIdentifier,
   sebPartnerBankReferral,
   sebPartnerBankReferralVersion,
   sebPartnerBankOutcome,

@@ -8,7 +8,7 @@ import {
   type SelectionNode,
   type SelectionSetNode,
   type ValidationContext,
-} from "graphql";
+} from 'graphql'
 
 /**
  * Expands fields through inline and named fragments. GraphQL fragments may be
@@ -22,46 +22,46 @@ const collectFields = (
 ): FieldNode[] => {
   // Inline fragments and named fragments still represent sibling operations,
   // so expand them while guarding against recursive fragment definitions.
-  const fields: FieldNode[] = [];
+  const fields: FieldNode[] = []
   for (const selection of selectionSet.selections) {
-    if (selection.kind === "Field") {
-      fields.push(selection);
-      continue;
+    if (selection.kind === 'Field') {
+      fields.push(selection)
+      continue
     }
-    if (selection.kind === "InlineFragment") {
+    if (selection.kind === 'InlineFragment') {
       fields.push(
         ...collectFields(selection.selectionSet, fragments, visitedFragments),
-      );
-      continue;
+      )
+      continue
     }
-    if (visitedFragments.has(selection.name.value)) continue;
+    if (visitedFragments.has(selection.name.value)) continue
 
-    const fragment = fragments.get(selection.name.value);
+    const fragment = fragments.get(selection.name.value)
     if (fragment) {
-      visitedFragments.add(selection.name.value);
+      visitedFragments.add(selection.name.value)
       fields.push(
         ...collectFields(fragment.selectionSet, fragments, visitedFragments),
-      );
+      )
     }
   }
-  return fields;
-};
+  return fields
+}
 
 const fragmentMap = (document: DocumentNode) =>
   new Map(
     document.definitions
       .filter(
         (definition): definition is FragmentDefinitionNode =>
-          definition.kind === "FragmentDefinition",
+          definition.kind === 'FragmentDefinition',
       )
       .map((fragment) => [fragment.name.value, fragment]),
-  );
+  )
 
 // GraphQL clients commonly add __typename automatically. Meta-fields describe
 // the response shape and never invoke a business action, so they must not count
 // toward the one-mutation limit.
 const actionFields = (fields: FieldNode[]): FieldNode[] =>
-  fields.filter((field) => field.name.value !== "__typename");
+  fields.filter((field) => field.name.value !== '__typename')
 
 /*
  * How much work one document may ask for.
@@ -86,8 +86,8 @@ const actionFields = (fields: FieldNode[]): FieldNode[] =>
  * 12 is nearly twice the deepest. Both are generous enough that a screen can
  * grow without tripping them, and small enough that amplification is bounded.
  */
-const MAX_FIELDS = 500;
-const MAX_DEPTH = 12;
+const MAX_FIELDS = 500
+const MAX_DEPTH = 12
 
 /**
  * Refuses a document that asks for too much at once.
@@ -102,15 +102,15 @@ const MAX_DEPTH = 12;
  * recursion.
  */
 /** What a selection asks for: how many fields, and how deep it reaches. */
-type Cost = { fields: number; depth: number };
+type Cost = { fields: number; depth: number }
 
-type Fragments = Map<string, FragmentDefinitionNode>;
+type Fragments = Map<string, FragmentDefinitionNode>
 
 /** Folds one selection's cost into the running total for its selection set. */
 const combineCost = (total: Cost, part: Cost): Cost => ({
   fields: total.fields + part.fields,
   depth: Math.max(total.depth, part.depth),
-});
+})
 
 /**
  * What a whole selection set costs, with fragments expanded.
@@ -128,7 +128,7 @@ const measureSelectionSet = (
     (total, selection) =>
       combineCost(total, measureSelection(selection, depth, fragments, seen)),
     { fields: 0, depth },
-  );
+  )
 
 /** What one selection costs — a field, an inline fragment, or a named spread. */
 const measureSelection = (
@@ -137,20 +137,20 @@ const measureSelection = (
   fragments: Fragments,
   seen: Set<string>,
 ): Cost => {
-  if (selection.kind === "InlineFragment") {
-    return measureSelectionSet(selection.selectionSet, depth, fragments, seen);
+  if (selection.kind === 'InlineFragment') {
+    return measureSelectionSet(selection.selectionSet, depth, fragments, seen)
   }
-  if (selection.kind === "FragmentSpread") {
-    return measureSpread(selection, depth, fragments, seen);
+  if (selection.kind === 'FragmentSpread') {
+    return measureSpread(selection, depth, fragments, seen)
   }
   // __typename describes the response shape rather than invoking anything, so
   // it costs the server nothing and must not count against the limit.
-  if (selection.name.value === "__typename") return { fields: 0, depth };
+  if (selection.name.value === '__typename') return { fields: 0, depth }
   const inner = selection.selectionSet
     ? measureSelectionSet(selection.selectionSet, depth + 1, fragments, seen)
-    : { fields: 0, depth: depth + 1 };
-  return { fields: inner.fields + 1, depth: inner.depth };
-};
+    : { fields: 0, depth: depth + 1 }
+  return { fields: inner.fields + 1, depth: inner.depth }
+}
 
 /**
  * What a named fragment costs where it is spread.
@@ -166,22 +166,22 @@ const measureSpread = (
   fragments: Fragments,
   seen: Set<string>,
 ): Cost => {
-  const name = spread.name.value;
-  const fragment = seen.has(name) ? undefined : fragments.get(name);
-  if (!fragment) return { fields: 0, depth };
-  seen.add(name);
+  const name = spread.name.value
+  const fragment = seen.has(name) ? undefined : fragments.get(name)
+  if (!fragment) return { fields: 0, depth }
+  seen.add(name)
   const cost = measureSelectionSet(
     fragment.selectionSet,
     depth,
     fragments,
     seen,
-  );
-  seen.delete(name);
-  return cost;
-};
+  )
+  seen.delete(name)
+  return cost
+}
 
 export const documentCostRule = (context: ValidationContext): ASTVisitor => {
-  const fragments = fragmentMap(context.getDocument());
+  const fragments = fragmentMap(context.getDocument())
 
   return {
     OperationDefinition(operation) {
@@ -190,14 +190,14 @@ export const documentCostRule = (context: ValidationContext): ASTVisitor => {
         0,
         fragments,
         new Set(),
-      );
+      )
       if (fields > MAX_FIELDS) {
         context.reportError(
           new GraphQLError(
             `This query asks for ${fields} fields; the limit is ${MAX_FIELDS}. Ask for less in one request.`,
             { nodes: operation },
           ),
-        );
+        )
       }
       if (depth > MAX_DEPTH) {
         context.reportError(
@@ -205,42 +205,42 @@ export const documentCostRule = (context: ValidationContext): ASTVisitor => {
             `This query nests ${depth} levels deep; the limit is ${MAX_DEPTH}.`,
             { nodes: operation },
           ),
-        );
+        )
       }
     },
-  };
-};
+  }
+}
 
 /** Builds the shared one-action rule used by the auth and SEB namespaces. */
 const singleMutationNamespaceRule = (
   context: ValidationContext,
-  namespaceName: "auth" | "access" | "seb" | "admin",
+  namespaceName: 'auth' | 'access' | 'seb' | 'admin',
   nestedNamespaces: boolean,
   message: string,
 ): ASTVisitor => ({
   Document: {
     leave(document: DocumentNode) {
-      const fragments = fragmentMap(document);
+      const fragments = fragmentMap(document)
       for (const definition of document.definitions) {
         if (
-          definition.kind !== "OperationDefinition" ||
-          definition.operation !== "mutation"
+          definition.kind !== 'OperationDefinition' ||
+          definition.operation !== 'mutation'
         ) {
-          continue;
+          continue
         }
 
         const namespaceFields = collectFields(
           definition.selectionSet,
           fragments,
           new Set(),
-        ).filter((field) => field.name.value === namespaceName);
+        ).filter((field) => field.name.value === namespaceName)
         const selectedFields = actionFields(
           namespaceFields.flatMap((field) =>
             field.selectionSet
               ? collectFields(field.selectionSet, fragments, new Set())
               : [],
           ),
-        );
+        )
         const actionCount = nestedNamespaces
           ? selectedFields.reduce(
               (count, namespace) =>
@@ -256,18 +256,18 @@ const singleMutationNamespaceRule = (
                   : 0),
               0,
             )
-          : selectedFields.length;
+          : selectedFields.length
         if (actionCount > 1) {
           context.reportError(
             new GraphQLError(message, {
               nodes: namespaceFields,
             }),
-          );
+          )
         }
       }
     },
   },
-});
+})
 
 /** Enforces one side-effecting operation below each `mutation.auth` document. */
 export const singleAuthMutationRule = (
@@ -275,10 +275,10 @@ export const singleAuthMutationRule = (
 ): ASTVisitor =>
   singleMutationNamespaceRule(
     context,
-    "auth",
+    'auth',
     false,
-    "Only one field may be selected beneath mutation.auth.",
-  );
+    'Only one field may be selected beneath mutation.auth.',
+  )
 
 /**
  * Enforces one side-effecting operation below each `mutation.access` document.
@@ -290,10 +290,10 @@ export const singleAccessMutationRule = (
 ): ASTVisitor =>
   singleMutationNamespaceRule(
     context,
-    "access",
+    'access',
     false,
-    "Only one field may be selected beneath mutation.access.",
-  );
+    'Only one field may be selected beneath mutation.access.',
+  )
 
 /**
  * Allows one side-effecting field across `mutation.seb.enterprise` and
@@ -303,10 +303,10 @@ export const singleAccessMutationRule = (
 export const singleSebMutationRule = (context: ValidationContext): ASTVisitor =>
   singleMutationNamespaceRule(
     context,
-    "seb",
+    'seb',
     true,
-    "Only one action may be selected beneath mutation.seb.",
-  );
+    'Only one action may be selected beneath mutation.seb.',
+  )
 
 /** Allows exactly one action across the four administrative subdomains. */
 export const singleAdminMutationRule = (
@@ -314,7 +314,7 @@ export const singleAdminMutationRule = (
 ): ASTVisitor =>
   singleMutationNamespaceRule(
     context,
-    "admin",
+    'admin',
     true,
-    "Only one action may be selected beneath mutation.admin.",
-  );
+    'Only one action may be selected beneath mutation.admin.',
+  )

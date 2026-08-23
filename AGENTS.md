@@ -34,6 +34,11 @@ A change is not complete while its roadmap status or description is stale.
 Every implementation, fix, refactor, and configuration change requires a
 documentation-impact review.
 
+The standard itself — who owns which subject, the shape each kind of document
+takes, and what must never be written down twice — is
+[`docs/rules/documentation.md`](docs/rules/documentation.md). This section says
+*when* to do the review; that rule says what the result should look like.
+
 1. Search the existing root README, `docs/`, service READMEs, and schema README
    for descriptions affected by the change.
 2. Update the existing focused document when one already owns the subject. Do

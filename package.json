@@ -2,7 +2,6 @@
   "name": "seb-backend",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
     "local": "wrangler dev --port 9999",
     "test:worker": "node scripts/reset-e2e-db.mjs && wrangler dev --port 9899 --persist-to dev-web/.playwright/state 2>&1 | tee dev-web/.playwright/worker.log",
     "deploy": "wrangler deploy --minify",
@@ -12,7 +11,6 @@
     "test:coverage": "vitest run --coverage",
     "fallow": "fallow --type-aware",
     "check": "npm run typecheck && npm run test:coverage && npm run fallow && npm run db:schema:check",
-    "db:schema:print": "drizzle-kit export --config drizzle.config.ts",
     "db:schema:generate": "node scripts/check-schema.mjs --write",
     "db:schema:check": "node scripts/check-schema.mjs",
     "db:setup:local": "wrangler d1 execute DB --local --file=database/schema.sql",
