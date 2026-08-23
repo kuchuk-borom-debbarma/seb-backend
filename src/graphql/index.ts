@@ -16,6 +16,7 @@ import { sebResolvers } from './resolvers/seb/seb'
 import baseTypeDefs from './schema.graphql'
 import type { GraphQLContext } from './types'
 import {
+  documentCostRule,
   singleAccessMutationRule,
   singleAdminMutationRule,
   singleAuthMutationRule,
@@ -144,6 +145,9 @@ const graphqlServer = createYoga<GraphQLContext>({
       }: {
         addValidationRule: (rule: typeof singleAuthMutationRule) => void
       }) {
+        // Cost first: a document that asks for too much is refused before any
+        // other rule spends time walking it.
+        addValidationRule(documentCostRule)
         addValidationRule(singleAuthMutationRule)
         addValidationRule(singleAccessMutationRule)
         addValidationRule(singleSebMutationRule)

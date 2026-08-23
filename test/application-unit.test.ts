@@ -2,7 +2,11 @@ import { env } from 'cloudflare:test'
 import { buildSchema, parse, validate } from 'graphql'
 import { describe, expect, it } from 'vitest'
 import { createDatabase } from '../src/db'
-import { singleAuthMutationRule, singleSebMutationRule } from '../src/graphql/validation'
+import {
+  documentCostRule,
+  singleAuthMutationRule,
+  singleSebMutationRule,
+} from '../src/graphql/validation'
 import { decodeCursor, encodeCursor, pageSize } from '../src/services/application/pagination'
 import type {
   ApplicationOperationContext,
@@ -686,5 +690,88 @@ describe('application cursors and private upload helpers', () => {
       sizeBytes: 1,
       checksumSha256: checksum.base64,
     })).valid).toBe(false)
+  })
+})
+
+describe('limits on how much one request may ask for', () => {
+  const schema = buildSchema(`
+    type Query { seb: SebQuery! }
+    type SebQuery { application: SebApplicationQuery! }
+    type SebApplicationQuery { byId(id: ID!): Application! }
+    type Application { id: ID!, child: Application }
+  `)
+
+  const errorsFor = (source: string) =>
+    validate(schema, parse(source), [documentCostRule]).map((error) => error.message)
+
+  it('accepts a document the size the real client sends', () => {
+    // The client's largest operation selects 114 fields at depth 7. This builds
+    // something comfortably larger and still expects it through.
+    const fields = Array.from({ length: 150 }, (_, index) => `f${index}: id`).join(' ')
+    expect(errorsFor(`query { seb { application { byId(id: "x") { ${fields} } } } }`))
+      .toEqual([])
+  })
+
+  it('refuses a document that asks for the same work hundreds of times', () => {
+    /*
+     * `first` is clamped to 100 on every connection, so no single list can be
+     * asked for a million rows. Aliases are how that clamp is evaded: one
+     * modest field, repeated. A per-field limit cannot see it.
+     */
+    const aliases = Array.from(
+      { length: 300 },
+      (_, index) => `a${index}: byId(id: "x") { id }`,
+    ).join(' ')
+    const [message] = errorsFor(`query { seb { application { ${aliases} } } }`)
+    expect(message).toMatch(/asks for \d+ fields; the limit is 500/u)
+  })
+
+  it('refuses a document nested past the limit', () => {
+    // Deeper than any real screen: the deepest the client sends is 7.
+    const open = 'child { '.repeat(20)
+    const close = '}'.repeat(20)
+    const [message] = errorsFor(
+      `query { seb { application { byId(id: "x") { ${open} id ${close} } } } }`,
+    )
+    expect(message).toMatch(/nests \d+ levels deep; the limit is 12/u)
+  })
+
+  it('counts through fragments, and counts a fragment once per use', () => {
+    // Moving the selections into a fragment must not evade the limit.
+    const fields = Array.from({ length: 260 }, (_, index) => `f${index}: id`).join(' ')
+    const spread = `
+      query { seb { application {
+        one: byId(id: "x") { ...big }
+        two: byId(id: "x") { ...big }
+      } } }
+      fragment big on Application { ${fields} }
+    `
+    const [message] = errorsFor(spread)
+    expect(message).toMatch(/asks for \d+ fields; the limit is 500/u)
+  })
+
+  it('ignores __typename, which clients add on their own', () => {
+    const fields = Array.from({ length: 400 }, (_, index) => `f${index}: __typename`).join(' ')
+    expect(errorsFor(`query { seb { application { byId(id: "x") { ${fields} } } } }`))
+      .toEqual([])
+  })
+
+  it('tolerates a spread of a fragment that is not there', () => {
+    /*
+     * Standard validation reports the unknown fragment — but this rule is
+     * registered first, so it walks the document before that report exists and
+     * must not fall over on the gap.
+     */
+    expect(errorsFor('query { seb { application { byId(id: "x") { ...missing } } } }'))
+      .toEqual([])
+  })
+
+  it('does not recurse forever on a self-referential fragment', () => {
+    // Standard validation reports the cycle; this rule must not hang first.
+    const source = `
+      query { seb { application { byId(id: "x") { ...loop } } } }
+      fragment loop on Application { id child { ...loop } }
+    `
+    expect(() => errorsFor(source)).not.toThrow()
   })
 })

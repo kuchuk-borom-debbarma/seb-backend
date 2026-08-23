@@ -3,21 +3,7 @@
  * boundaries stay here so controllers can express policy without weakening
  * the race guarantees of signup or session ownership checks.
  */
-import {
-  and,
-  eq,
-  exists,
-  gt,
-  isNotNull,
-  isNull,
-  lte,
-  ne,
-  not,
-  notExists,
-  sql,
-  type AnyColumn,
-  type SQL,
-} from 'drizzle-orm'
+import { and, desc, eq, exists, gt, isNotNull, isNull, lte, ne, not, notExists, sql, type AnyColumn, type SQL } from 'drizzle-orm'
 import type { Database } from '../../../db'
 import {
   coreAuditEvent,
@@ -786,7 +772,18 @@ export const listUserSessions = async (
     })
     .from(coreSession)
     .where(and(eq(coreSession.userId, userId), gt(coreSession.expiresAt, now)))
-    .orderBy(coreSession.createdAt)
+    /*
+     * Newest first and capped. This is the one collection a person can inflate
+     * on purpose — every sign-in mints a session — and nobody manages a
+     * thousand devices from a list. "Sign out everywhere" still ends all of
+     * them, capped or not, because that is a bulk write rather than a walk of
+     * this array. The id breaks ties so the order is stable between reads.
+     */
+    .orderBy(desc(coreSession.createdAt), desc(coreSession.id))
+    .limit(MAX_SESSIONS_SHOWN)
+
+/** Enough to recognise and revoke a device; more is a list nobody reads. */
+const MAX_SESSIONS_SHOWN = 100
 
 /** Deletes only an owned public session ID and atomically audits a successful match. */
 export const deleteUserSession = async (

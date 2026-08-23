@@ -26,6 +26,13 @@ export const fundingWorkspace = async (db: Database, applicationId: string) => {
     db.select().from(sebFundingAwardVersion)
       .where(eq(sebFundingAwardVersion.fundingAwardId, award.id))
       .orderBy(asc(sebFundingAwardVersion.version)),
+    /*
+     * Deliberately uncapped, unlike the display-only histories elsewhere: the
+     * released totals are folded from these rows, so a truncated ledger would
+     * report a wrong figure rather than a short list. Bounded in practice by
+     * the instalments the programme office actually pays, which no caller
+     * controls.
+     */
     db.select().from(sebDisbursement)
       .where(eq(sebDisbursement.fundingAwardId, award.id))
       .orderBy(asc(sebDisbursement.sequenceNumber)),
@@ -479,6 +486,8 @@ export const recoveryWorkspace = async (db: Database, recoveryCaseId: string) =>
     db.select().from(sebRecoveryCaseVersion)
       .where(eq(sebRecoveryCaseVersion.recoveryCaseId, recoveryCaseId))
       .orderBy(asc(sebRecoveryCaseVersion.version)),
+    // Uncapped for the same reason as the disbursement ledger: the outstanding
+    // balance is folded from these entries, so a cap would corrupt it.
     db.select().from(sebRecoveryEntry)
       .where(eq(sebRecoveryEntry.recoveryCaseId, recoveryCaseId))
       .orderBy(asc(sebRecoveryEntry.sequenceNumber)),

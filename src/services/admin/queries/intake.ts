@@ -43,6 +43,7 @@ import {
   sebAwardAssessment,
 } from '../../../db/schema'
 import { changedSections } from '../../application/sections'
+import { MAX_COLLECTION_ROWS } from '../../application/pagination'
 import { encodeAdminCursor, type SortKey } from '../pagination'
 import { prefixMatchAny, prefixPattern } from '../../search'
 import { adminAudit } from '../support'
@@ -372,13 +373,16 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
       .orderBy(asc(sebRevisionRequest.requestedAt)),
     db.select().from(sebApplicationEvent)
       .where(eq(sebApplicationEvent.applicationId, applicationId))
-      .orderBy(asc(sebApplicationEvent.createdAt)),
+      .orderBy(desc(sebApplicationEvent.createdAt))
+      .limit(MAX_COLLECTION_ROWS),
     db.select().from(sebApplicationAssignmentEvent)
       .where(eq(sebApplicationAssignmentEvent.applicationId, applicationId))
-      .orderBy(asc(sebApplicationAssignmentEvent.assignmentVersion)),
+      .orderBy(desc(sebApplicationAssignmentEvent.assignmentVersion))
+      .limit(MAX_COLLECTION_ROWS),
     db.select().from(sebApplicationInternalNote)
       .where(eq(sebApplicationInternalNote.applicationId, applicationId))
-      .orderBy(asc(sebApplicationInternalNote.createdAt)),
+      .orderBy(desc(sebApplicationInternalNote.createdAt))
+      .limit(MAX_COLLECTION_ROWS),
     db.select().from(sebDeskReview)
       .where(eq(sebDeskReview.applicationId, applicationId))
       .orderBy(asc(sebDeskReview.reviewedAt)),
@@ -441,9 +445,13 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
     submissionChanges,
     documents,
     revisions,
-    timeline,
-    assignments,
-    internalNotes: notes,
+    /*
+     * Read newest-first so the cap keeps the recent end of a long history, then
+     * reversed here because the screen reads a file from the top down.
+     */
+    timeline: [...timeline].reverse(),
+    assignments: [...assignments].reverse(),
+    internalNotes: [...notes].reverse(),
     reviews,
     reviewChecks,
     referrals,

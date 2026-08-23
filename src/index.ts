@@ -59,6 +59,18 @@ const BOOTSTRAP_FAILURE_MESSAGE =
 const BOOTSTRAP_BODY_LIMIT_BYTES = 1_024
 
 /**
+ * The largest GraphQL request the service will buffer.
+ *
+ * Measured, not guessed: the client's largest document is 2.4 KB and its
+ * largest variables — a programme cycle's whole frozen policy, with its
+ * document rules, assessment rules and reason catalogue — are a few kilobytes
+ * more. 64 KB is several times the largest legitimate request and small enough
+ * that nobody can make the Worker buffer a platform-sized body before a single
+ * validation rule has run.
+ */
+const GRAPHQL_BODY_LIMIT_BYTES = 64 * 1_024
+
+/**
  * One deliberately non-GraphQL bootstrap route for trusted command-line use.
  *
  * Browsers are denied by the Origin check and receive no CORS opt-in. The route
@@ -146,14 +158,24 @@ app.post(
   },
 )
 
-app.use('/graphql', async (c, next) => {
-  // Reject an untrusted browser origin before Yoga parses or executes GraphQL.
-  const origin = c.req.header('Origin')
-  if (origin && !allowedOrigins(c.env, c.req.url).has(origin)) {
-    return c.json({ success: false, message: 'Origin is not allowed.' }, 403)
-  }
-  await next()
-})
+app.use(
+  '/graphql',
+  bodyLimit({
+    maxSize: GRAPHQL_BODY_LIMIT_BYTES,
+    onError: (c) => c.json(
+      { success: false, message: 'The request is too large.', response: null },
+      413,
+    ),
+  }),
+  async (c, next) => {
+    // Reject an untrusted browser origin before Yoga parses or executes GraphQL.
+    const origin = c.req.header('Origin')
+    if (origin && !allowedOrigins(c.env, c.req.url).has(origin)) {
+      return c.json({ success: false, message: 'Origin is not allowed.' }, 403)
+    }
+    await next()
+  },
+)
 
 app.options('/graphql', (c) => {
   // Credentialed CORS must echo a concrete trusted origin; `*` is invalid when

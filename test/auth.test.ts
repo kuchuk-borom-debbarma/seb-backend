@@ -2550,3 +2550,44 @@ describe('administrative role management', () => {
     })
   })
 })
+
+describe('limits on request size and shape', () => {
+  it('refuses an oversized body before parsing it', async () => {
+    // Far larger than the biggest legitimate request, which is a few kilobytes.
+    const padding = 'x'.repeat(100_000)
+    const response = await SELF.fetch('https://api.example.test/graphql', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      body: JSON.stringify({ query: `query { __typename # ${padding}\n }` }),
+    })
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({
+      success: false,
+      message: 'The request is too large.',
+      response: null,
+    })
+  })
+
+  it('refuses a document that asks for the same work hundreds of times', async () => {
+    /*
+     * Every connection clamps `first` to 100, so no one list can be asked for a
+     * million rows. Aliases are the way around that clamp — one modest field,
+     * repeated — and it is refused at validation, before a resolver runs.
+     */
+    const aliases = Array.from(
+      { length: 400 },
+      (_, index) => `a${index}: health { name status }`,
+    ).join(' ')
+    const { body } = await graphql<unknown>(`query { ${aliases} }`)
+    expect(body.errors?.[0]?.message).toMatch(/the limit is 500/u)
+    expect(body.data).toBeFalsy()
+  })
+
+  it('lets an ordinary request through untouched', async () => {
+    const { body } = await graphql<{ health: { status: string } }>(
+      'query { health { name status } }',
+    )
+    expect(body.errors).toBeUndefined()
+    expect(body.data?.health.status).toBeTruthy()
+  })
+})

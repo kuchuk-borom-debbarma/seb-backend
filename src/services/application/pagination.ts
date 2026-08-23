@@ -54,3 +54,20 @@ export const decodeCursor = (
     return 'INVALID'
   }
 }
+
+/**
+ * The most rows any un-paginated child collection will return.
+ *
+ * Some collections have no cursor because they belong to one parent and are
+ * read whole: an application's notes, its events, the entries in a recovery
+ * ledger. Those are bounded by real work rather than by anything a caller
+ * sends, so they are not an attack — but "bounded by real work" is not bounded,
+ * and a file worked on for years should not be able to make one request read
+ * ten thousand rows.
+ *
+ * Far above any realistic history, so the cap is a backstop rather than a
+ * limit anybody meets. Where it could bite, the query orders newest-first so
+ * the rows that survive are the ones that matter, and the caller reverses for
+ * display.
+ */
+export const MAX_COLLECTION_ROWS = 500

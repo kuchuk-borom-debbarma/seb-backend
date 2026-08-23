@@ -262,6 +262,43 @@ Shared controls live in `src/components/ListControls.tsx` — `SearchBox` and
 and says "continued" past the first page because a keyset cursor cannot know
 which page number it is on.
 
+## What bounds a request
+
+Four limits, each sized from a measurement rather than a guess:
+
+| Limit | Value | Why that number |
+| --- | --- | --- |
+| `first` on any connection | 1–100, refused outside | A page nobody scrolls past |
+| Fields in one document | 500 | The client's largest operation selects 114 |
+| Nesting depth | 12 | The client's deepest is 7 |
+| Request body | 64 KB | The largest real request is under 16 KB |
+
+The field limit is the one that is not obvious. `first` already stops anybody
+asking a single list for a million rows — but aliases make a field repeatable,
+so one document can ask for a modest list five hundred times:
+
+```graphql
+query { admin { intake {
+  a: workspace(applicationId: "…") { …ten collections… }
+  b: workspace(applicationId: "…") { …ten collections… }
+  …five hundred more…
+} } }
+```
+
+Each `workspace` is a dozen database reads. A per-field limit cannot see this;
+only the whole document can. It is counted at validation, before any resolver
+runs, and fragments are expanded so the selections cannot be hidden in one.
+
+**Collections without a cursor** — an application's notes, its events, its
+assignment history — are capped at 500 rows, read newest-first so the cap keeps
+the recent end. Signed-in devices are capped at 100, the one collection a person
+can inflate on purpose.
+
+**Two collections are deliberately uncapped**: the disbursement ledger and a
+recovery case's entries. Their totals are folded from the rows, so truncating
+them would report a wrong figure rather than a short list. They are bounded by
+the instalments the programme office actually pays, which no caller controls.
+
 ## The quality floor
 
 Held by tests rather than asserted in a document:
