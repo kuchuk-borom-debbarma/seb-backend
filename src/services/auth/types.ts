@@ -1,4 +1,8 @@
 import type { AppBindings } from '../../bindings'
+import type { Loaders } from '../../loaders'
+
+// Re-exported because the operation contexts below name it.
+export type { Loaders } from '../../loaders'
 import type { Database } from '../../db'
 import type { UserRole } from '../../db/schema'
 import type { Capability } from './capabilities'
@@ -11,6 +15,8 @@ export type { AppBindings } from '../../bindings'
  */
 export type AuthOperationContext = {
   db: Database
+  /** Per-request batched lookups. Never shared between requests. */
+  loaders: Loaders
   env: AppBindings
   requestHeaders: Headers
   requestUrl: string

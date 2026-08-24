@@ -7,6 +7,7 @@ import {
 } from 'cloudflare:test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDatabase } from '../src/db'
+import { createLoaders } from '../src/loaders'
 import { auditActions } from '../src/db/schema'
 import worker from '../src/index'
 import { userRoles } from '../src/db/schema'
@@ -226,7 +227,7 @@ const bootstrapFirstAdmin = async (input?: {
 const directAuthContext = (
   bindings: Partial<AuthOperationContext['env']> = {},
 ): AuthOperationContext => ({
-  db: createDatabase(env.DB),
+  db: createDatabase(env.DB), loaders: createLoaders(createDatabase(env.DB)),
   env: {
     AUTH_SECRET: env.AUTH_SECRET,
     FIRST_SUPER_ADMIN_EMAIL: env.FIRST_SUPER_ADMIN_EMAIL,
@@ -255,7 +256,7 @@ const revokeEveryRoleGrant = () => env.DB.prepare(
 
 /** Minimal service-layer context carrying one browser cookie. */
 const cookieAuthContext = (cookie: string): AuthOperationContext => ({
-  db: createDatabase(env.DB),
+  db: createDatabase(env.DB), loaders: createLoaders(createDatabase(env.DB)),
   env,
   requestHeaders: new Headers({ cookie }),
   requestUrl: 'https://api.example.test/graphql',

@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { AppBindings } from './bindings'
 import { createDatabase } from './db'
+import { createLoaders } from './loaders'
 import { handleGraphQLRequest } from './graphql'
 import {
   bootstrapFirstSuperAdmin,
@@ -16,6 +17,25 @@ import { usesLocalStorage } from './services/storage'
 import { closeExpiredProgrammeCycles } from './services/admin'
 
 const app = new Hono<{ Bindings: AppBindings }>()
+
+/**
+ * Everything a service operation needs, built fresh for one request.
+ *
+ * The point of a single builder is the loaders. They are a cache, and one
+ * shared between requests would answer one person's query with another's data
+ * — so "new every time" has to be structural rather than remembered at four
+ * call sites. See `src/loaders.ts`.
+ */
+const operationContext = (
+  env: AppBindings,
+  requestHeaders: Headers,
+  requestUrl: string,
+  responseHeaders = new Headers(),
+) => {
+  const db = createDatabase(env.DB)
+  return { env, db, loaders: createLoaders(db), requestHeaders, requestUrl, responseHeaders }
+}
+
 
 // FRONTEND_ORIGINS is parsed on demand so tests and local Wrangler overrides can
 // supply different bindings without global mutable configuration.
@@ -150,13 +170,7 @@ app.post(
         currentPassword: (body as { currentPassword: string }).currentPassword,
         bootstrapSecret,
       },
-      {
-        env: c.env,
-        db: createDatabase(c.env.DB),
-        requestHeaders: c.req.raw.headers,
-        requestUrl: c.req.url,
-        responseHeaders: new Headers(),
-      },
+      operationContext(c.env, c.req.raw.headers, c.req.url),
     )
     return result.success ? c.json(result) : c.json(result, 403)
   },
@@ -270,13 +284,10 @@ app.on(['GET', 'POST'], '/graphql', async (c) => {
   // Controllers append session cookies here. The Worker merges them into
   // Yoga's immutable response after GraphQL execution completes.
   const responseHeaders = new Headers()
-  const response = await handleGraphQLRequest(c.req.raw, {
-    env: c.env,
-    db: createDatabase(c.env.DB),
-    requestHeaders: c.req.raw.headers,
-    requestUrl: c.req.url,
-    responseHeaders,
-  })
+  const response = await handleGraphQLRequest(
+    c.req.raw,
+    operationContext(c.env, c.req.raw.headers, c.req.url, responseHeaders),
+  )
   if (usesLocalQueue(c.env)) c.executionCtx.waitUntil(deliverLocalQueue(c.env))
 
   const headers = new Headers(response.headers)
@@ -303,13 +314,11 @@ export default {
       Promise.all([
         cleanupExpiredAuthentication(db),
         cleanupExpiredDocumentUploads({ db, env }),
-        closeExpiredProgrammeCycles({
-          db,
-          env,
-          requestHeaders: new Headers(),
-          requestUrl: 'https://scheduled.internal/',
-          responseHeaders: new Headers(),
-        }),
+        // Its own loaders, for the same reason a request gets its own: a
+        // scheduled run is a separate instant from anybody's request.
+        closeExpiredProgrammeCycles(
+          operationContext(env, new Headers(), 'https://scheduled.internal/'),
+        ),
       ]).then(() => undefined),
     )
   },

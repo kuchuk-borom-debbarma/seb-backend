@@ -1,6 +1,7 @@
 import { env, SELF } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
 import { createDatabase } from '../src/db'
+import { createLoaders } from '../src/loaders'
 import {
   sebApplication,
   sebApplicationSubmission,
@@ -64,7 +65,7 @@ const adminSession = async (
 }
 
 const adminContext = (cookie: string) => ({
-  db: createDatabase(env.DB), env,
+  db: createDatabase(env.DB), loaders: createLoaders(createDatabase(env.DB)), env,
   requestHeaders: new Headers({ cookie, origin: 'https://app.example.test' }),
   requestUrl: 'https://api.example.test/graphql', responseHeaders: new Headers(),
 })
@@ -385,6 +386,60 @@ describe('Mission SEP administration', () => {
     // nothing to write down, rather than an invented result.
     expect(await scanDocumentVersion(createDatabase(env.DB), env, crypto.randomUUID()))
       .toBe(false)
+  })
+
+
+  it('names who holds an application, resolved once for the whole page', async () => {
+    /*
+     * Before this the queue returned only an id, so the office could see that
+     * an application was claimed but never by whom.
+     *
+     * Resolved as a field through the request's loader rather than joined into
+     * the queue query — a join would duplicate an application once per role
+     * its assignee holds, which is the bug the audit query already had to
+     * avoid.
+     */
+    const administrator = await adminSession(['APPLICANT', 'REVIEWER', 'ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie)
+    const { applicationId } = await createSubmittedApplication(
+      administrator.cookie, administrator.userId, cycle.id,
+    )
+
+    const queueRow = async () => {
+      const result = await graphql<{
+        admin: { intake: { queue: { response: { nodes: Array<{
+          id: string
+          assignedToUserId: string | null
+          assignedTo: { id: string; email: string; roles: string[] } | null
+        }> } } } }
+      }>(`query { admin { intake { queue(input: { first: 50 }) { response { nodes {
+        id assignedToUserId assignedTo { id email roles }
+      } } } } } }`, {}, administrator.cookie)
+      return result.data!.admin.intake.queue.response.nodes
+        .filter((node) => node.id === applicationId)
+    }
+
+    // Nobody holds it, so there is nobody to name — rather than a lookup of an
+    // id that is not there.
+    const before = await queueRow()
+    expect(before).toHaveLength(1)
+    expect(before[0]).toMatchObject({ assignedToUserId: null, assignedTo: null })
+
+    await graphql<any>(`mutation($input: ClaimApplicationInput!) {
+      admin { intake { claim(input: $input) { success } } }
+    }`, { input: {
+      applicationId, expectedAssignmentVersion: 0, conflictAcknowledged: true,
+    } }, administrator.cookie)
+
+    const after = await queueRow()
+    expect(after[0]?.assignedTo).toMatchObject({
+      id: administrator.userId,
+      email: `${administrator.userId}@example.test`,
+    })
+    // Three roles, still one row: folded rather than joined.
+    expect(after[0]?.assignedTo?.roles.sort()).toEqual(['ADMIN', 'APPLICANT', 'REVIEWER'])
+    expect(after).toHaveLength(1)
+
   })
 
   describe('what each staff role may do', () => {
@@ -816,7 +871,7 @@ describe('Mission SEP administration', () => {
       ).bind(crypto.randomUUID(), cycleId, code, now - 10_000, now - 1_000, administrator.userId, now),
     ])
     await closeExpiredProgrammeCycles({
-      db: createDatabase(env.DB), env,
+      db: createDatabase(env.DB), loaders: createLoaders(createDatabase(env.DB)), env,
       requestHeaders: new Headers(), requestUrl: 'https://scheduled.internal/',
       responseHeaders: new Headers(),
     })
@@ -872,7 +927,7 @@ describe('Mission SEP administration', () => {
       'CF-Ray': 'ray-1', 'CF-Connecting-IP': '192.0.2.1', 'User-Agent': 'vitest',
     })
     const context = {
-      db: createDatabase(env.DB), env, requestHeaders,
+      db: createDatabase(env.DB), loaders: createLoaders(createDatabase(env.DB)), env, requestHeaders,
       requestUrl: 'https://api.example.test/graphql', responseHeaders: new Headers(),
     }
     expect(adminAudit(context, {

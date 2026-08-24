@@ -26,7 +26,7 @@ import {
 } from './validation'
 import { parseDateOnly } from '../services/application/validation'
 
-export type { AppBindings } from '../bindings'
+export type { GraphQLContext } from './types'
 
 // GraphQL serializes service-layer Date objects as ISO-8601 strings. Parsing is
 // implemented as well so the scalar remains correct if it is used by inputs later.
@@ -164,11 +164,5 @@ const graphqlServer = createYoga<GraphQLContext>({
 /** Keeps Yoga's context type private while exposing the one operation used by Hono. */
 export const handleGraphQLRequest = async (
   request: Request,
-  context: {
-    env: AppBindings
-    db: import('../db').Database
-    requestHeaders: Headers
-    requestUrl: string
-    responseHeaders: Headers
-  },
+  context: GraphQLContext,
 ): Promise<Response> => graphqlServer.handleRequest(request as never, context)

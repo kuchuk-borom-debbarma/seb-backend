@@ -52,10 +52,20 @@ import {
   updateOpenCycleGuidance,
   updateTtmMeeting,
 } from '../../../services/admin'
+import type { StaffMember } from '../../../loaders'
 import type { GraphQLContext } from '../../types'
 import { snapshotRecordToPublic } from '../../../services/application/queries/application'
 
 type Args<T> = { input: T }
+
+/** Null when nobody holds it, and when the holder's account is gone. */
+const resolveAssignee = (
+  parent: { assignedToUserId: string | null },
+  _args: unknown,
+  context: GraphQLContext,
+): Promise<StaffMember | null> | null => (parent.assignedToUserId
+  ? context.loaders.userById.load(parent.assignedToUserId)
+  : null)
 
 export const adminResolvers = {
   Query: { admin: () => ({}) },
@@ -140,6 +150,17 @@ export const adminResolvers = {
     cancelRecovery: (_parent: unknown, args: Args<Parameters<typeof cancelRecoveryCase>[0]>, context: GraphQLContext) => cancelRecoveryCase(args.input, context),
     closeRecovery: (_parent: unknown, args: Args<Parameters<typeof closeRecoveryCase>[0]>, context: GraphQLContext) => closeRecoveryCase(args.input, context),
   },
+  /*
+   * The only field in this namespace that fetches anything, on the two types
+   * that carry an assignment.
+   *
+   * Resolved here rather than in the row's own query because joining the user
+   * and grant tables into a list would duplicate an application once per role
+   * its assignee holds. As a field it goes through the request's loader, so a
+   * page of twenty rows naming twenty people costs one lookup.
+   */
+  AdminApplicationQueueItem: { assignedTo: resolveAssignee },
+  AdminApplicationState: { assignedTo: resolveAssignee },
   AdminWorkspace: {
     notes: (parent: { internalNotes?: unknown[] }) => parent.internalNotes ?? [],
     snapshots: (parent: { snapshots: Parameters<typeof snapshotRecordToPublic>[0][] }) =>

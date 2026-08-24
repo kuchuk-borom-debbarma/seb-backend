@@ -40,6 +40,7 @@ export default defineWorkersConfig({
         'src/services/storage/**/*.ts',
         'src/services/queue/**/*.ts',
         'src/services/document-scanner/**/*.ts',
+        'src/loaders/**/*.ts',
         'src/graphql/resolvers/admin/**/*.ts',
         'src/graphql/validation.ts',
       ],

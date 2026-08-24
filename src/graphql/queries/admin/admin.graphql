@@ -146,6 +146,8 @@ type AdminApplicationQueueItem {
   status: ApplicationStatus!
   statusVersion: Int!
   assignedToUserId: ID
+  # Null when nobody holds it, and also when the holder's account is gone.
+  assignedTo: StaffMember
   assignedAt: DateTime
   assignmentVersion: Int!
   firstSubmittedAt: DateTime
@@ -160,10 +162,21 @@ type AdminApplicationState {
   status: ApplicationStatus!
   statusVersion: Int!
   assignedToUserId: ID
+  assignedTo: StaffMember
   assignedAt: DateTime
   assignmentVersion: Int!
   updatedAt: DateTime!
 }
+# Who holds an application, resolved rather than left as an id nobody can read.
+# Every row on a page is looked up together, so a queue of twenty costs one
+# query rather than twenty.
+type StaffMember {
+  id: ID!
+  email: String!
+  # The roles held now, which is what decides what they can do with it.
+  roles: [UserRole!]!
+}
+
 type AdminApplicationConnection { nodes: [AdminApplicationQueueItem!]!, pageInfo: PageInfo! }
 # Every queue is reported, including empty ones, so the chips stay stable.
 type AdminQueueCount { queue: AdminIntakeQueueKey!, count: Int! }

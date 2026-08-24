@@ -1,6 +1,7 @@
 import { env, SELF } from 'cloudflare:test'
 import { describe, expect, it, vi } from 'vitest'
 import { createDatabase } from '../src/db'
+import { createLoaders } from '../src/loaders'
 import { auditActions } from '../src/db/schema'
 import {
   cleanupExpiredDocumentUploads,
@@ -85,7 +86,7 @@ const applicantSession = async () => {
 }
 
 const directContext = (cookie: string) => ({
-  db: createDatabase(env.DB),
+  db: createDatabase(env.DB), loaders: createLoaders(createDatabase(env.DB)),
   env,
   requestHeaders: new Headers({ cookie }),
   requestUrl: 'https://api.example.test/graphql',
@@ -1988,7 +1989,7 @@ describe('applicant application business service', () => {
       .mockResolvedValue(undefined)
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const failing = {
-      db: createDatabase(env.DB),
+      db: createDatabase(env.DB), loaders: createLoaders(createDatabase(env.DB)),
       env: { STORAGE: { delete: deleteObject } as unknown as R2Bucket } as typeof env,
     }
     await cleanupExpiredDocumentUploads(failing, new Date())
