@@ -30,7 +30,9 @@
  * erroring.
  */
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const migrationsUrl = new URL('../database/migrations/', import.meta.url)
@@ -114,7 +116,24 @@ for (const file of pending) {
    */
   const body = stamping ? '' : readFileSync(new URL(file, migrationsUrl), 'utf8')
   const ledger = `INSERT INTO core_schema_migration (id, applied_at) VALUES ('${id}', ${Date.now()});`
-  d1(['--command', `${body}\n${ledger}`])
+
+  /*
+   * Written to a file and applied with `--file`, never `--command`.
+   *
+   * `--command` does not reliably apply a multi-statement script — a sibling
+   * script records losing half a seeded account to exactly that — and it is a
+   * statement list that makes the migration and its ledger row one batch. With
+   * `--command` a table rebuild could half-apply and then be re-run, which for
+   * a rebuild destroys the rows it was copying rather than erroring.
+   */
+  const directory = mkdtempSync(join(tmpdir(), 'seb-migrate-'))
+  try {
+    const scratch = join(directory, `${id}.sql`)
+    writeFileSync(scratch, `${body}\n${ledger}\n`)
+    d1(['--file', scratch])
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
   console.log(stamping ? `Stamped ${id} (baseline already contains it).` : `Applied ${id}.`)
 }
 

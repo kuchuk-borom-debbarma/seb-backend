@@ -105,22 +105,26 @@ const fieldsIn = (
 }
 
 /**
- * Finds the field the policy names, walking down through the namespaces.
+ * Finds every field the policy names, walking down through the namespaces.
  *
  * Matching is on the field's **name** and the envelope is built at its
  * **response key**, which differ whenever a caller uses an alias. Matching on
  * the alias would let `mutation { a: auth { b: signIn(…) } }` slip past every
  * limit; building at the name would return an envelope the caller cannot find.
  *
- * The document is already guaranteed to perform one side-effecting operation by
- * the single-mutation validation rules, so the first match is the only match.
+ * **All of them, not the first.** The single-mutation validation rules police
+ * one namespace each, so a document may select several roots — and stopping at
+ * the first match let a caller put an operation whose allowance does not apply
+ * to them in front of the one they wanted unlimited. An upload authorization is
+ * counted by session, which resolves to nothing for somebody not signed in and
+ * is skipped, and sign-in was then never counted at all.
  */
-const limitedField = (
+const limitedFields = (
   document: DocumentNode,
   operationName: string | null | undefined,
-): LimitedField | null => {
+): LimitedField[] => {
   const operation = mutationOperation(document, operationName)
-  if (!operation) return null
+  if (!operation) return []
 
   const fragments = new Map(
     document.definitions
@@ -131,29 +135,26 @@ const limitedField = (
       .map((definition) => [definition.name.value, definition]),
   )
 
+  const found: LimitedField[] = []
   const walk = (
     node: FieldNode,
     names: readonly string[],
     keys: readonly string[],
-  ): LimitedField | null => {
+  ): void => {
     const operationPath = [...names, node.name.value]
     const responsePath = [...keys, node.alias?.value ?? node.name.value]
     if (bucketsFor(operationPath.join('.')).length > 0) {
-      return { operation: operationPath.join('.'), responsePath, node }
+      found.push({ operation: operationPath.join('.'), responsePath, node })
+      return
     }
-    if (!node.selectionSet) return null
+    if (!node.selectionSet) return
     for (const child of fieldsIn(node.selectionSet, fragments)) {
-      const found = walk(child, operationPath, responsePath)
-      if (found) return found
+      walk(child, operationPath, responsePath)
     }
-    return null
   }
 
-  for (const field of fieldsIn(operation.selectionSet, fragments)) {
-    const found = walk(field, [], [])
-    if (found) return found
-  }
-  return null
+  for (const field of fieldsIn(operation.selectionSet, fragments)) walk(field, [], [])
+  return found
 }
 
 /**
@@ -206,38 +207,58 @@ export const rateLimitPlugin = () => ({
     }
     setResultAndStopExecution: (result: unknown) => void
   }) {
-    const field = limitedField(args.document, args.operationName)
-    if (!field) return undefined
+    const fields = limitedFields(args.document, args.operationName)
+    if (fields.length === 0) return undefined
 
     const context = args.contextValue
 
     return (async () => {
       /*
+       * Every limited field is enforced, and the first one refused decides the
+       * response. Enforcing only one of several would leave the others
+       * uncounted, which is how a document naming two namespaces slipped a
+       * sign-in past its allowance.
+       *
        * Everything that could fail is inside the guard, not only the counting:
        * reading the arguments, building the limiter and spending the allowance.
        * Anything that cannot answer refuses, because protection is never
        * silently absent — and the message is the same either way, so a caller
        * cannot tell a spent allowance from a broken limiter.
        */
-      let allowed: boolean
-      try {
-        const values = argumentValues(field.node, args.variableValues)
-        allowed = (await enforce(rateLimiter(context.env), {
-          operation: field.operation,
-          headers: context.requestHeaders,
+      let refused: LimitedField | null = null
+      for (const field of fields) {
+        let allowed: boolean
+        try {
           /*
-           * Keys the session digest. Empty is not a fallback that weakens
-           * anything: with no secret there is no digest, so the session
-           * dimension simply does not apply — and a Worker without one cannot
-           * serve a session at all.
+           * Built inside the guard along with everything else that can fail.
+           * It is an object literal over module-level state, so building it
+           * per field costs nothing and keeps a refusal to build it — which is
+           * what a production Worker with counting switched off does — on the
+           * same path as every other failure.
            */
-          secret: context.env.AUTH_SECRET ?? '',
-          subject: operationSubject(values),
-        })).allowed
-      } catch {
-        allowed = false
+          allowed = (await enforce(rateLimiter(context.env), {
+            operation: field.operation,
+            headers: context.requestHeaders,
+            /*
+             * Keys the session digest. Empty is not a fallback that weakens
+             * anything: with no secret there is no digest, so the session
+             * dimension simply does not apply — and a Worker without one
+             * cannot serve a session at all.
+             */
+            secret: context.env.AUTH_SECRET ?? '',
+            subject: operationSubject(argumentValues(field.node, args.variableValues)),
+          })).allowed
+        } catch {
+          allowed = false
+        }
+        /*
+         * The first refusal is reported, and the rest are still spent: a caller
+         * refused by one has made the attempt the others are counting, and
+         * stopping early would let a wide allowance be exhausted for free.
+         */
+        if (!allowed && !refused) refused = field
       }
-      if (!allowed) setResultAndStopExecution(refusalAt(field.responsePath))
+      if (refused) setResultAndStopExecution(refusalAt(refused.responsePath))
       return undefined
     })()
   },

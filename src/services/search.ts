@@ -12,7 +12,7 @@
  * cannot use an index at all, and full text would need an FTS5 virtual table,
  * which the generated-schema check cannot carry.
  */
-import { sql, type SQL, type SQLWrapper } from 'drizzle-orm'
+import { or, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
 
 /** The longest term worth honouring; anything beyond it is not a search. */
 const MAX_TERM = 64
@@ -36,9 +36,19 @@ export const prefixPattern = (term: string | null | undefined): string | null =>
 export const prefixMatch = (column: SQLWrapper, pattern: string): SQL =>
   sql`lower(${column}) GLOB ${pattern}`
 
-/** True when any of the columns starts with the term. */
+/**
+ * True when any of the columns starts with the term.
+ *
+ * **Parenthesised, and that is the whole point.** `OR` binds looser than every
+ * `AND` around it, so an unbracketed `a OR b` dropped into a filter list
+ * collapses it to `(everything else AND a) OR b` — and a row matching `b` comes
+ * back whatever its status, whatever its cycle, deleted or not. In the
+ * administrative queue that meant a search returning soft-deleted applications
+ * and unsubmitted drafts, which every other path takes care to hide, inside a
+ * page whose count claimed to describe the filters.
+ *
+ * Built with `or()` rather than a joined string because that is the builder
+ * that brackets: reaching for `sql.join` is what skipped it.
+ */
 export const prefixMatchAny = (columns: SQLWrapper[], pattern: string): SQL =>
-  sql.join(
-    columns.map((column) => prefixMatch(column, pattern)),
-    sql` OR `,
-  )
+  or(...columns.map((column) => prefixMatch(column, pattern)))!

@@ -2949,6 +2949,53 @@ describe('Mission SEP administration', () => {
 })
 
 describe('searching the intake queue and the cycle list', () => {
+  it('never lets a search reach past the filters beside it', async () => {
+    /*
+     * The search matches two columns, and two columns mean an `OR`. An `OR`
+     * without parentheses binds looser than every `AND` around it, so the
+     * predicate collapses to "(everything else AND the first column) OR the
+     * second column" — and a row matching the second is returned whatever its
+     * status, whatever its cycle, deleted or not.
+     *
+     * The office would see unsubmitted drafts, which the download path goes out
+     * of its way to keep invisible, and soft-deleted applications, in a list
+     * whose count claims to describe the filters.
+     */
+    const administrator = await adminSession(['APPLICANT', 'ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie)
+    const submitted = await createSubmittedApplication(
+      administrator.cookie, administrator.userId, cycle.id,
+    )
+    /*
+     * Searched by the **enterprise name**, which is the second of the two
+     * columns the search spans. The first sits inside the AND group and is
+     * therefore safe; it is the second that escapes it, so a test using the
+     * reference number would pass while the leak was wide open.
+     */
+    const [row] = await env.DB.prepare(
+      `SELECT e.current_name AS name FROM seb_application a
+       JOIN seb_enterprise e ON e.id = a.enterprise_id WHERE a.id = ?`,
+    ).bind(submitted.applicationId).raw<[string]>()
+    const enterpriseName = row?.[0] ?? ''
+    expect(enterpriseName).not.toBe('')
+
+    // Soft-delete it. Nothing may bring it back into the queue.
+    await env.DB.prepare('UPDATE seb_application SET deleted_at = ? WHERE id = ?')
+      .bind(Date.now(), submitted.applicationId).run()
+
+    const found = await graphql<any>(`query($input: AdminIntakeQueueInput) {
+      admin { intake { queue(input: $input) { response {
+        nodes { id } pageInfo { totalCount }
+      } } } }
+    }`, { input: { first: 50, search: enterpriseName } }, administrator.cookie)
+    const page = found.data.admin.intake.queue.response
+    expect(page.nodes.map((node: { id: string }) => node.id))
+      .not.toContain(submitted.applicationId)
+    expect(page.pageInfo.totalCount, 'the count must describe the same rows')
+      .toBe(page.nodes.length)
+  })
+
+
   it('finds an application by the start of its reference or enterprise name', async () => {
     const administrator = await adminSession(['APPLICANT', 'ADMIN'])
     const cycle = await createOpenedCycle(administrator.cookie)

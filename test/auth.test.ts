@@ -2236,6 +2236,45 @@ describe('authentication', () => {
     )
   })
 
+  it('lets every staff role be revoked, not only the two it started with', async () => {
+    /*
+     * Revocation names a grant id, so the role of the row it resolves to is
+     * checked inside the write. That predicate was written when `ADMIN` and
+     * `SUPER_ADMIN` were the only manageable roles and did not grow with them,
+     * so revoking a reviewer matched no rows and reported that the record had
+     * changed — for ever, on every attempt.
+     *
+     * Staff access would have been one-way: invitations are how reviewers and
+     * approvers are created, and nothing could take one back.
+     */
+    const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const superAdmin = await establishSuperAdmin(notificationLog)
+    for (const role of ['REVIEWER', 'APPROVER', 'ADMIN'] as const) {
+      const subject = await registerManagedApplicant(
+        `revoked-${role.toLowerCase()}@example.com`, notificationLog, superAdmin.cookie,
+      )
+      const granted = await grantRole(
+        { userId: subject.id, role, reason: 'Joining the programme office' },
+        superAdmin.cookie,
+      )
+      const managed = granted.body.data?.access.grantRole
+      expect(managed?.success, `granting ${role}`).toBe(true)
+
+      const revoked = await revokeRole(
+        { grantId: activeGrantId(managed?.response ?? null, role), reason: 'No longer needed' },
+        superAdmin.cookie,
+      )
+      expect(revoked.body.data?.access.revokeRole, `revoking ${role}`)
+        .toMatchObject({ success: true })
+      const after = await env.DB.prepare(
+        `SELECT role FROM core_user_role_grant
+         WHERE user_id = ? AND revoked_at IS NULL ORDER BY role`,
+      ).bind(subject.id).all<{ role: string }>()
+      expect(after.results.map(({ role }) => role)).toEqual(['APPLICANT'])
+    }
+    notificationLog.mockRestore()
+  })
+
   it('keeps expired-session cleanup out of public requests and runs it by cron', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const signup = await startSignup('applicant@example.com', notificationLog)

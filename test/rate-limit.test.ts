@@ -614,6 +614,33 @@ describe('limiting a real request', () => {
     expect(body.data!.health.status).toBeTruthy()
   })
 
+  it('limits every named operation in a document, not just the first', async () => {
+    /*
+     * The single-mutation validation rules police one namespace each, so
+     * nothing stops a document selecting two roots. Enforcing only the first
+     * limited field found meant a caller could put an operation whose
+     * allowance does not apply to them in front of the one they wanted
+     * unlimited — an upload authorization, counted by session, resolves to
+     * nothing for somebody not signed in and is skipped, and sign-in was then
+     * never counted at all.
+     */
+    const email = `two-roots-${crypto.randomUUID()}@example.test`
+    const both = () => post(/* GraphQL */ `mutation {
+      seb { application { issueDocumentUpload(input: {
+        applicationId: "00000000-0000-4000-8000-000000000000",
+        documentType: DPR, expectedDocumentVersion: 0,
+        originalFilename: "a.pdf", contentType: "application/pdf", sizeBytes: 10,
+        checksumSha256: "n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg="
+      }) { success } } }
+      auth { signIn(input: {
+        email: "${email}", password: "wrong-password-entirely"
+      }) { success message } }
+    }`)
+    for (let attempt = 0; attempt < 5; attempt += 1) await both()
+    expect((await both()).data!.auth.signIn.message)
+      .toBe('Too many attempts. Wait a few minutes and try again.')
+  })
+
   it('counts each account separately', async () => {
     /*
      * One address exhausting its allowance must not refuse anybody else. A

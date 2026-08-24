@@ -98,7 +98,7 @@ app.get('/', (c) => {
  * whatever went wrong.
  */
 const requestBudget = async (
-  c: { env: AppBindings; req: { raw: Request }; json: (body: unknown, status?: number) => Response },
+  c: { env: AppBindings; req: { raw: Request } },
   next: () => Promise<void>,
 ): Promise<Response | void> => {
   const address = callerAddress(c.req.raw.headers)
@@ -116,9 +116,22 @@ const requestBudget = async (
     allowed = false
   }
   if (allowed) return next()
-  return c.json(
-    { success: false, message: RATE_LIMITED_MESSAGE, response: null },
-    429,
+
+  /*
+   * Carries the CORS headers, for the same reason the storage route's success
+   * answer does: a document upload is the one thing the browser sends here
+   * itself, and without them the browser withholds the response from the page.
+   * The applicant would see a network error rather than being told to wait.
+   *
+   * The GraphQL path does not need this — the client executes those on its own
+   * server — but this middleware covers both, and a refusal that is legible on
+   * one surface and opaque on the other is worse than either.
+   */
+  const headers = new Headers({ 'content-type': 'application/json' })
+  applyCorsHeaders(headers, c.req.raw.headers.get('Origin'), c.env, c.req.raw.url)
+  return new Response(
+    JSON.stringify({ success: false, message: RATE_LIMITED_MESSAGE, response: null }),
+    { status: 429, headers },
   )
 }
 
