@@ -32,6 +32,8 @@ import {
   constraintSafe,
   authorizeReasonedTransition,
   currentStaff,
+  SELF_REVIEW_MESSAGE,
+  undisclosedSelfReview,
   failure,
   normalizeRequiredText,
   STALE_MESSAGE,
@@ -189,9 +191,9 @@ export const claimApplication = async (
   const { administrator, head } = authorized
   // A draft has never been submitted, so it must stay invisible to reviewers.
   if (head.application.status === 'DRAFT') return failure('The application was not found.')
-  if (head.application.applicantUserId === administrator.id && !input.conflictAcknowledged) {
-    return failure('Acknowledge that you are acting on your own application.')
-  }
+  if (undisclosedSelfReview(
+    head.application.applicantUserId, administrator.id, input.conflictAcknowledged,
+  )) return failure(SELF_REVIEW_MESSAGE)
   const changed = await constraintSafe(() => changeAssignment(context, {
     applicationId: input.applicationId,
     actorUserId: administrator.id,
@@ -474,6 +476,8 @@ export const completeDeskReview = async (
     applicantMessage?: string | null
     revisions: RevisionRequestInput[]
     identifiers: DeskReviewIdentifierInput[]
+    /** Only somebody reviewing their own application needs to send this. */
+    conflictAcknowledged?: boolean | null
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
@@ -482,6 +486,11 @@ export const completeDeskReview = async (
   const head = await loadApplicationHead(context.db, input.applicationId)
   const submission = await latestSubmission(context.db, input.applicationId)
   if (!head || !submission) return failure('The submitted application was not found.')
+  // Completing a review is where the judgement lands, so it is where reviewing
+  // your own application has to be disclosed.
+  if (undisclosedSelfReview(
+    head.application.applicantUserId, administrator.id, input.conflictAcknowledged,
+  )) return failure(SELF_REVIEW_MESSAGE)
   const checkProblem = validateReviewChecks(
     input.checks,
     head.application.applicationType === 'EXPANSION',

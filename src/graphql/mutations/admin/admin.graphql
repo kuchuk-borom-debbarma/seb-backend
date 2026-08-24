@@ -70,7 +70,10 @@ enum DeskReviewIdentifierKind { ST_CERTIFICATE IDENTITY_DOCUMENT BANK_ACCOUNT BU
 # on another funding case — a match is a question, not a verdict, because the
 # same person legitimately returns for a later phase.
 input DeskReviewIdentifierInput { kind: DeskReviewIdentifierKind!, value: String!, branchCode: String, matchedReason: String }
-input CompleteDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int!, outcome: DeskReviewOutcome!, checks: [DeskReviewCheckInput!]!, reasonCategoryId: ID, applicantMessage: String, revisions: [AdminRevisionInput!]!, identifiers: [DeskReviewIdentifierInput!]! }
+# `conflictAcknowledged` is only required of somebody reviewing their own
+# application. It used to be collected when claiming; claiming is now optional,
+# so the disclosure moved to the act that decides something.
+input CompleteDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int!, outcome: DeskReviewOutcome!, checks: [DeskReviewCheckInput!]!, reasonCategoryId: ID, applicantMessage: String, revisions: [AdminRevisionInput!]!, identifiers: [DeskReviewIdentifierInput!]!, conflictAcknowledged: Boolean }
 input StartDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int! }
 input CancelRevisionInput { applicationId: ID!, revisionRequestId: ID!, expectedStatusVersion: Int!, reason: String! }
 type AdminIntakeMutation {
@@ -94,7 +97,7 @@ input CancelTtmMeetingInput { meetingId: ID!, expectedVersion: Int!, reason: Str
 input AddAgendaItemInput { meetingId: ID!, applicationId: ID!, submissionId: ID!, bankOutcomeId: ID!, position: Int! }
 input ReorderAgendaItemInput { meetingId: ID!, agendaItemId: ID!, expectedVersion: Int!, position: Int!, reason: String! }
 input RemoveAgendaItemInput { meetingId: ID!, agendaItemId: ID!, expectedVersion: Int!, reason: String! }
-input TtmDecisionInput { applicationId: ID!, agendaItemId: ID!, expectedStatusVersion: Int!, outcome: TtmDecisionOutcome!, decisionReference: String!, decisionDate: Date!, approvedAmountPaise: Money, applicantConditions: String, reasonCategoryId: ID, applicantMessage: String!, nextAction: String, revisions: [AdminRevisionInput!]! }
+input TtmDecisionInput { applicationId: ID!, agendaItemId: ID!, expectedStatusVersion: Int!, outcome: TtmDecisionOutcome!, decisionReference: String!, decisionDate: Date!, approvedAmountPaise: Money, applicantConditions: String, reasonCategoryId: ID, applicantMessage: String!, nextAction: String, revisions: [AdminRevisionInput!]!, conflictAcknowledged: Boolean }
 input CorrectTtmDecisionInput { applicationId: ID!, agendaItemId: ID!, supersedesDecisionId: ID!, expectedStatusVersion: Int!, outcome: TtmDecisionOutcome!, decisionReference: String!, decisionDate: Date!, approvedAmountPaise: Money, applicantConditions: String, reasonCategoryId: ID, correctionReasonCategoryId: ID!, correctionReason: String!, applicantMessage: String!, nextAction: String, revisions: [AdminRevisionInput!]! }
 type AdminDecisionMutation {
   referToBank(input: BankReferralInput!): AdminWorkspaceResult!

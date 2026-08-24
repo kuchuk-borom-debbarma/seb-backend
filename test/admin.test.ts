@@ -231,6 +231,7 @@ describe('Mission SEP administration', () => {
       'mutation { admin { intake { addInternalNote(input: { applicationId: "x", note: "x" }) { success } } } }',
       'mutation { admin { intake { startDeskReview(input: { applicationId: "x", expectedStatusVersion: 1 }) { success } } } }',
       `mutation { admin { intake { completeDeskReview(input: {
+      conflictAcknowledged: true,
         applicationId: "x", expectedStatusVersion: 1, outcome: ADVANCE_TO_BANK,
         checks: [], revisions: [], identifiers: []
       }) { success } } } }`,
@@ -476,6 +477,7 @@ describe('Mission SEP administration', () => {
       }>(`mutation($input: CompleteDeskReviewInput!) {
         admin { intake { completeDeskReview(input: $input) { success } } }
       }`, { input: {
+      conflictAcknowledged: true,
         applicationId: submitted.applicationId, expectedStatusVersion: 3,
         outcome: 'ADVANCE_TO_BANK', reasonCategoryId: null, applicantMessage: null,
         checks: deskCheckTypes.map((checkType) => ({
@@ -492,6 +494,79 @@ describe('Mission SEP administration', () => {
         'SELECT COUNT(*) AS n FROM seb_desk_review WHERE application_id = ?',
       ).bind(submitted.applicationId).first<{ n: number }>()
       expect(reviews?.n).toBe(1)
+    })
+
+
+    it('will not review your own application without saying so', async () => {
+      /*
+       * The disclosure used to live on claiming, which was the first act on a
+       * file. Claiming is now optional, so an officer could have reviewed their
+       * own application by simply not claiming and nothing would have been
+       * recorded. It moved to the act that decides something.
+       *
+       * `docs/policy-alignment.md` records self-review as permitted **with
+       * disclosure**, so the permission and the disclosure have to travel
+       * together.
+       */
+      const administrator = await adminSession(['APPLICANT', 'ADMIN'])
+      const cycle = await createOpenedCycle(administrator.cookie)
+      const submitted = await createSubmittedApplication(
+        administrator.cookie, administrator.userId, cycle.id,
+      )
+      await graphql<any>(`mutation($input: StartDeskReviewInput!) {
+        admin { intake { startDeskReview(input: $input) { success } } }
+      }`, { input: {
+        applicationId: submitted.applicationId, expectedStatusVersion: 2,
+      } }, administrator.cookie)
+
+      const complete = (acknowledged: boolean | undefined) => graphql<{
+        admin: { intake: { completeDeskReview: {
+          success: boolean; message: string | null
+        } } }
+      }>(`mutation($input: CompleteDeskReviewInput!) {
+        admin { intake { completeDeskReview(input: $input) { success message } } }
+      }`, { input: {
+        applicationId: submitted.applicationId, expectedStatusVersion: 3,
+        outcome: 'ADVANCE_TO_BANK', reasonCategoryId: null, applicantMessage: null,
+        checks: deskCheckTypes.map((checkType) => ({
+          checkType, result: checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS',
+        })), revisions: [], identifiers: passingIdentifiers(),
+        ...(acknowledged === undefined ? {} : { conflictAcknowledged: acknowledged }),
+      } }, administrator.cookie)
+
+      // Absent and explicitly false are the same answer: not disclosed.
+      for (const acknowledged of [undefined, false]) {
+        expect(
+          (await complete(acknowledged)).data?.admin.intake.completeDeskReview,
+          String(acknowledged),
+        ).toMatchObject({
+          success: false,
+          message: 'Acknowledge that you are acting on your own application.',
+        })
+      }
+
+      expect((await complete(true)).data?.admin.intake.completeDeskReview.success).toBe(true)
+
+      /*
+       * And the same on the decision, which is the other place a self-review
+       * is decided. Asserted against an application that has not reached the
+       * committee, because the disclosure is checked before anything about the
+       * decision itself — being refused for the wrong reason would prove
+       * nothing.
+       */
+      const decide = await graphql<{
+        admin: { decision: { recordDecision: { success: boolean; message: string | null } } }
+      }>(`mutation($input: TtmDecisionInput!) {
+        admin { decision { recordDecision(input: $input) { success message } } }
+      }`, { input: {
+        applicationId: submitted.applicationId, agendaItemId: crypto.randomUUID(),
+        expectedStatusVersion: 4, outcome: 'APPROVED', decisionReference: 'TTM/1',
+        decisionDate: '2026-01-01', applicantMessage: 'Recorded.', revisions: [],
+      } }, administrator.cookie)
+      expect(decide.data?.admin.decision.recordDecision).toMatchObject({
+        success: false,
+        message: 'Acknowledge that you are acting on your own application.',
+      })
     })
 
     it('lets a reviewer open a document without holding the file', async () => {
@@ -1141,6 +1216,7 @@ describe('Mission SEP administration', () => {
     const blockedReview = await graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
       admin { intake { completeDeskReview(input: $input) { success message } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId, expectedStatusVersion: 3, outcome: 'ADVANCE_TO_BANK',
       checks: deskCheckTypes.map((checkType) => ({
         checkType, result: checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS',
@@ -1182,6 +1258,7 @@ describe('Mission SEP administration', () => {
     const requested = await graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
       admin { intake { completeDeskReview(input: $input) { response { application { status statusVersion } revisions { id section } } } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId: first.applicationId, expectedStatusVersion: 3,
       outcome: 'REQUEST_REVISION', reasonCategoryId: revisionReason,
       applicantMessage: 'Please correct the financial section.',
@@ -1226,6 +1303,7 @@ describe('Mission SEP administration', () => {
     const advanced = await graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
       admin { intake { completeDeskReview(input: $input) { response { reviews { id } application { statusVersion } } } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId: second.applicationId, expectedStatusVersion: 3,
       outcome: 'ADVANCE_TO_BANK', reasonCategoryId: null, applicantMessage: null,
       checks: deskCheckTypes.map((checkType) => ({
@@ -1421,6 +1499,7 @@ describe('Mission SEP administration', () => {
     const missingReview = await graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
       admin { intake { completeDeskReview(input: $input) { success } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId: 'missing', expectedStatusVersion: 1,
       outcome: 'ADVANCE_TO_BANK', checks: [], identifiers: [], reasonCategoryId: null,
       applicantMessage: null, revisions: [],
@@ -1539,6 +1618,7 @@ describe('Mission SEP administration', () => {
       const result = await graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
         admin { intake { completeDeskReview(input: $input) { success message } } }
       }`, { input: {
+      conflictAcknowledged: true,
         applicationId: submitted.applicationId, expectedStatusVersion: 3,
         reasonCategoryId: null, applicantMessage: null,
         identifiers: passingIdentifiers(), ...candidate,
@@ -1548,6 +1628,7 @@ describe('Mission SEP administration', () => {
     const staleReview = await graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
       admin { intake { completeDeskReview(input: $input) { success } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId: submitted.applicationId, expectedStatusVersion: 99,
       outcome: 'REJECT', checks, reasonCategoryId: rejectionReason,
       applicantMessage: 'Safe.', revisions: [], identifiers: passingIdentifiers(),
@@ -1556,6 +1637,7 @@ describe('Mission SEP administration', () => {
     const rejected = await graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
       admin { intake { completeDeskReview(input: $input) { response { application { status assignedToUserId } } } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId: submitted.applicationId, expectedStatusVersion: 3,
       outcome: 'REJECT', checks, reasonCategoryId: rejectionReason,
       applicantMessage: 'The submitted evidence did not meet desk-review requirements.',
@@ -1588,6 +1670,7 @@ describe('Mission SEP administration', () => {
     const uncheckedExpansion = await graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
       admin { intake { completeDeskReview(input: $input) { success message } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId: expansion.applicationId, expectedStatusVersion: 3,
       outcome: 'ADVANCE_TO_BANK', reasonCategoryId: null, applicantMessage: null,
       checks, revisions: [], identifiers: passingIdentifiers(),
@@ -1810,6 +1893,7 @@ describe('Mission SEP administration', () => {
     const review = await graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
       admin { intake { completeDeskReview(input: $input) { success response { reviews { id } application { status statusVersion } } } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId, expectedStatusVersion: 3, outcome: 'ADVANCE_TO_BANK',
       reasonCategoryId: null, applicantMessage: null, revisions: [],
       checks: deskCheckTypes.map((checkType) => ({
@@ -1999,6 +2083,7 @@ describe('Mission SEP administration', () => {
     const malformedDecision = await graphql<any>(`mutation($input: TtmDecisionInput!) {
       admin { decision { recordDecision(input: $input) { success message } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId, agendaItemId: agendaId, expectedStatusVersion: 0,
       outcome: 'APPROVED', decisionReference: ' ', decisionDate: '2026-06-15',
       approvedAmountPaise: '1', applicantConditions: null, reasonCategoryId: null,
@@ -2029,6 +2114,7 @@ describe('Mission SEP administration', () => {
       const invalid = await graphql<any>(`mutation($input: TtmDecisionInput!) {
         admin { decision { recordDecision(input: $input) { success message } } }
       }`, { input: {
+      conflictAcknowledged: true,
         applicationId, agendaItemId: agendaId, expectedStatusVersion: 8,
         decisionReference: `INVALID-${index}-${applicationId}`, decisionDate: '2026-06-15',
         applicantConditions: null, applicantMessage: 'Safe explanation.', ...candidate,
@@ -2038,6 +2124,7 @@ describe('Mission SEP administration', () => {
     const decision = await graphql<any>(`mutation($input: TtmDecisionInput!) {
       admin { decision { recordDecision(input: $input) { response { decisions { id } application { status statusVersion } } } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId, agendaItemId: agendaId, expectedStatusVersion: 8,
       outcome: 'REVISION_REQUIRED', decisionReference: `TTM-DEC-${applicationId}`,
       decisionDate: '2026-06-15', approvedAmountPaise: null,
@@ -2053,6 +2140,7 @@ describe('Mission SEP administration', () => {
     const staleInitialDecision = await graphql<any>(`mutation($input: TtmDecisionInput!) {
       admin { decision { recordDecision(input: $input) { success } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId, agendaItemId: agendaId, expectedStatusVersion: 8,
       outcome: 'DEFERRED', decisionReference: `STALE-TTM-${applicationId}`,
       decisionDate: '2026-06-15', approvedAmountPaise: null,
@@ -3091,6 +3179,9 @@ describe('what a reviewer read off the documents', () => {
             applicantMessage: null,
             revisions: [],
             identifiers,
+            // This fixture's officer owns the application, so the self-review
+            // has to be disclosed before anything else is asserted.
+            conflictAcknowledged: true,
           },
         },
         administrator.cookie,

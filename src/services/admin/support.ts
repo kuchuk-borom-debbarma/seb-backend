@@ -121,6 +121,31 @@ export const changedExactlyOne = (
 ): boolean => Array.isArray(result) ? result.length === 1 : (result.meta.changes ?? 0) === 1
 
 /**
+ * Refuses an undisclosed self-review.
+ *
+ * A member of staff may act on their own application — `docs/policy-alignment.md`
+ * records that as permitted, with disclosure — but they must say so, and the
+ * saying is what lands in the audit trail.
+ *
+ * This used to live on claiming, which was the first act on a file. Claiming is
+ * now optional, so the disclosure moved onto the transitions that actually
+ * decide something: completing a desk review and recording a decision. Left
+ * where it was, an officer could simply not claim and review their own
+ * application with nothing recorded.
+ *
+ * Absent is treated as not acknowledged. Only somebody reviewing their own
+ * application has to send it, so every other caller is unaffected.
+ */
+export const undisclosedSelfReview = (
+  applicantUserId: string,
+  actorId: string,
+  acknowledged: boolean | null | undefined,
+): boolean => applicantUserId === actorId && acknowledged !== true
+
+export const SELF_REVIEW_MESSAGE =
+  'Acknowledge that you are acting on your own application.'
+
+/**
  * The preamble every reasoned, version-guarded administrative transition shares.
  *
  * Each of these transitions is authorized the same way, requires the same

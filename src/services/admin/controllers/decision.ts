@@ -22,6 +22,8 @@ import {
   ADMIN_REQUIRED_MESSAGE,
   constraintSafe,
   currentStaff,
+  SELF_REVIEW_MESSAGE,
+  undisclosedSelfReview,
   failure,
   normalizeOptionalText,
   normalizeRequiredText,
@@ -463,6 +465,8 @@ export const recordTtmDecision = async (
     applicantMessage: string
     nextAction?: string | null
     revisions: RevisionRequestInput[]
+    /** Only somebody deciding their own application needs to send this. */
+    conflictAcknowledged?: boolean | null
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
@@ -471,6 +475,11 @@ export const recordTtmDecision = async (
   const application = await loadApplicationHead(context.db, input.applicationId)
   const submission = await latestSubmission(context.db, input.applicationId)
   if (!application || !submission) return failure('The submitted application was not found.')
+  // The decision is the other place a self-review has to be disclosed. Claiming
+  // used to carry it, and claiming is now optional.
+  if (undisclosedSelfReview(
+    application.application.applicantUserId, administrator.id, input.conflictAcknowledged,
+  )) return failure(SELF_REVIEW_MESSAGE)
   const reference = normalizeRequiredText(input.decisionReference, 100)
   const conditions = normalizeOptionalText(input.applicantConditions, 2_000)
   const message = normalizeRequiredText(input.applicantMessage, 1_000)
