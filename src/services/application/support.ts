@@ -1,8 +1,10 @@
 /**
  * Shared policy-layer helpers for the applicant controllers.
  *
- * Mirrors the administrative and authentication equivalents so the three
- * services cannot drift apart on response envelopes or audit content.
+ * What belongs here is what is genuinely the applicant service's. The response
+ * envelope is not: `success` and `failure` live in `services/envelope.ts`,
+ * because four identical copies were one decision repeated rather than four
+ * decisions, and copies drift.
  *
  * Also holds the D1 boundary conversions that are easy to get wrong once and
  * then repeat: `undefined` is not SQL `NULL`, a batch result shape has to be
@@ -10,22 +12,11 @@
  * expected uniqueness race is a business refusal rather than a fault.
  */
 import { auditActions, type coreAuditEvent } from '../../db/schema'
+import { failure, success } from '../envelope'
 import { authenticatedApplicant } from '../auth'
 import type { ApplicationOperationContext, SebResult } from './types'
 
 export const AUTH_REQUIRED_MESSAGE = 'Applicant authentication is required.'
-
-export const success = <T>(response: T, message: string | null = null): SebResult<T> => ({
-  success: true,
-  message,
-  response,
-})
-
-export const failure = <T>(message: string): SebResult<T> => ({
-  success: false,
-  message,
-  response: null,
-})
 
 /**
  * D1 bindings distinguish JavaScript `undefined` from SQL `NULL`. Keeping this

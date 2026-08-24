@@ -15,7 +15,8 @@ import {
   loadOwnedApplication,
   type ApplicationHeadRecord,
 } from './queries/application'
-import { AUTH_REQUIRED_MESSAGE, currentApplicant, failure } from './support'
+import { AUTH_REQUIRED_MESSAGE, currentApplicant } from './support'
+import { failure } from '../envelope'
 import type { Application, ApplicationOperationContext, SebResult } from './types'
 
 export const APPLICATION_NOT_FOUND_MESSAGE = 'The application was not found.'

@@ -7,7 +7,7 @@
  */
 import { ownedApplication } from '../ownership'
 import { findApplicantFunding } from '../queries/funding'
-import { failure, success } from '../support'
+import { failure, success } from '../../envelope'
 import type { ApplicantFunding, ApplicationOperationContext, SebResult } from '../types'
 
 export const applicationFunding = async (

@@ -89,7 +89,7 @@ not built, and this says so rather than letting somebody assume completeness.
 | `listAuditEvents`, `listAuditActions` | `queries/audit.ts` | The SQL, and the index choices above |
 | `MAX_ACTOR_FILTER`, `MAX_ACTION_FILTER` | `queries/audit.ts` | What one request may name |
 | `AuditEvent`, `AuditActor`, `AuditFilters`, `AuditConnection`, `AuditOrder` | `types.ts` | The shapes |
-| `success`, `failure` | `support.ts` | The envelope, one copy per service |
+| `success`, `failure` | `../envelope.ts` | The response envelope, shared by every service |
 
 ## Elsewhere
 

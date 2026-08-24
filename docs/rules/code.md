@@ -15,7 +15,7 @@ Every service is `controllers/` over `queries/` over `support.ts`.
 | --- | --- |
 | `controllers/` | authorization, input validation, orchestration, and the friendly refusal |
 | `queries/` | all Drizzle SQL, all D1 batch boundaries, and every authorization, lifecycle and version term **repeated inside the write predicate** |
-| `support.ts` | the response envelope, the audit-row builder, the error classification |
+| `support.ts` | this service's refusal messages, its audit-row builder, its error classification |
 
 **The two layers deliberately check the same things twice**, and this is the
 single most important thing about the codebase. A controller reads, decides,
@@ -24,6 +24,14 @@ controller's check exists to produce a *useful message*; the query's predicate
 exists to produce a *correct outcome*. Remove the first and every refusal
 becomes "the record changed". Remove the second and two concurrent requests can
 both succeed.
+
+**The response envelope is shared, not mirrored.** `success` and `failure` were
+once defined identically in four `support.ts` files, alongside four identical
+result types. Four copies of one decision are not four decisions: a change to
+how a refusal is shaped would have had to be made in each, with nothing to say
+the fourth had been missed. They live in
+[`services/envelope.ts`](../../src/services/envelope.ts); each service keeps
+only its own type alias, so a call site still says which service is answering.
 
 The worked example is the last-super-administrator guard in
 [`auth/queries/access.ts`](../../src/services/auth/queries/access.ts): two
@@ -119,6 +127,21 @@ batched  {id: <user>,  actorId: <address>}
 So only single-table reads and aggregates go in a batch. A joined read that must
 be batched has to alias every colliding column to a unique name first, and one
 missed alias is a wrong answer rather than an error.
+
+## Never cap a collection something adds up
+
+Unpaginated child collections carry `MAX_COLLECTION_ROWS`, because *"bounded by
+real work"* is not bounded. **The exception is any list that is folded into a
+total**, and it is not a small exception — it is the difference between a short
+list and a wrong number.
+
+`foldDisbursementLedger` sums the disbursement rows into what an applicant is
+told they have received. Capping that read would understate money paid, and a
+total has no way to look truncated, so nothing downstream could notice. Both
+reads of that ledger carry the warning at the query itself.
+
+Before adding a cap, find what consumes the rows. If anything reduces them, the
+cap belongs in SQL as an aggregate or nowhere at all.
 
 ## Every list is keyset paginated
 

@@ -1,15 +1,17 @@
 /**
  * Shared policy-layer helpers for the administrative controllers.
  *
- * Mirrors `services/application/support.ts` and `services/auth/support.ts` on
- * purpose. Keeping one copy per service is what stops four controllers drifting
- * to different failure envelopes or different rules about what may enter an
- * audit row.
+ * What belongs here is what is genuinely this service's: its refusal messages,
+ * its capability preamble, its audit-row builder. The response envelope itself
+ * is **not** — `success` and `failure` were once defined identically in four
+ * support modules, which is one decision copied rather than four decisions, and
+ * copies drift. They live in `services/envelope.ts` now.
  *
  * Audit metadata stays deliberately smaller than the business record: a flat
  * map of primitives, never the form itself.
  */
 import { coreAuditEvent, type auditActions } from '../../db/schema'
+import { failure } from '../envelope'
 import { authenticatedWithCapability, type Capability } from '../auth'
 import type { AdminOperationContext, AdminResult } from './types'
 
@@ -23,18 +25,6 @@ import type { AdminOperationContext, AdminResult } from './types'
  */
 export const ADMIN_REQUIRED_MESSAGE = 'You do not have permission to do that.'
 export const STALE_MESSAGE = 'The record changed. Reload and try again.'
-
-export const success = <T>(response: T, message: string | null = null): AdminResult<T> => ({
-  success: true,
-  message,
-  response,
-})
-
-export const failure = <T>(message: string): AdminResult<T> => ({
-  success: false,
-  message,
-  response: null,
-})
 
 /**
  * The caller, if they hold the capability this operation needs.

@@ -1,4 +1,5 @@
 import type { AppBindings } from '../../bindings'
+import type { Envelope } from '../envelope'
 import type { Loaders } from '../../loaders'
 
 // Re-exported because the operation contexts below name it.
@@ -34,11 +35,7 @@ export type ApplicationOperationContext = {
   responseHeaders: Headers
 }
 
-export type SebResult<T> = {
-  success: boolean
-  message: string | null
-  response: T | null
-}
+export type SebResult<T> = Envelope<T>
 
 export type RegistrationType = (typeof registrationTypes)[number]
 export type BusinessSector = (typeof businessSectors)[number]

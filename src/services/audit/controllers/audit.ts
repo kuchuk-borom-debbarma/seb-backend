@@ -14,7 +14,11 @@ import { z } from 'zod'
 import { authenticatedWithCapability } from '../../auth'
 import { decodeCursor, pageSize } from '../../application/pagination'
 import { listAuditActions, listAuditEvents, MAX_ACTION_FILTER, MAX_ACTOR_FILTER } from '../queries/audit'
-import { AUDIT_REQUIRED_MESSAGE, failure, INVALID_REQUEST_MESSAGE, success } from '../support'
+import {
+  AUDIT_REQUIRED_MESSAGE,
+  INVALID_REQUEST_MESSAGE,
+} from '../support'
+import { failure, success } from '../../envelope'
 import type {
   AuditConnection,
   AuditFilters,

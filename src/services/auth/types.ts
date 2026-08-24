@@ -1,4 +1,5 @@
 import type { AppBindings } from '../../bindings'
+import type { Envelope } from '../envelope'
 import type { Loaders } from '../../loaders'
 
 // Re-exported because the operation contexts below name it.
@@ -118,9 +119,4 @@ export type FirstSuperAdminBootstrapResponse = {
   roles: UserRole[]
 }
 
-export type AuthResult<T> = {
-  // Expected failures stay inside this envelope instead of becoming GraphQL errors.
-  success: boolean
-  message: string | null
-  response: T | null
-}
+export type AuthResult<T> = Envelope<T>

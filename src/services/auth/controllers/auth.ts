@@ -50,10 +50,9 @@ import {
 import {
   auditEvent,
   AUTH_REQUIRED_MESSAGE,
-  failure,
   normalizeEmail,
-  success,
 } from '../support'
+import { failure, success } from '../../envelope'
 import type {
   AuthenticatedAdministratorRequest,
   AuthenticatedApplicantRequest,

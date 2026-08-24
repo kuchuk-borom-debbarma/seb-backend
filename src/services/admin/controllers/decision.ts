@@ -24,12 +24,11 @@ import {
   currentStaff,
   SELF_REVIEW_MESSAGE,
   undisclosedSelfReview,
-  failure,
   normalizeOptionalText,
   normalizeRequiredText,
   STALE_MESSAGE,
-  success,
 } from '../support'
+import { failure, success } from '../../envelope'
 import type {
   AdminOperationContext,
   AdminResult,

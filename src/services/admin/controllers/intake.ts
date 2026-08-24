@@ -40,11 +40,10 @@ import {
   currentStaff,
   SELF_REVIEW_MESSAGE,
   undisclosedSelfReview,
-  failure,
   normalizeRequiredText,
   STALE_MESSAGE,
-  success,
 } from '../support'
+import { failure, success } from '../../envelope'
 import {
   IDENTIFIER_FOR_CHECK,
   bankDestination,

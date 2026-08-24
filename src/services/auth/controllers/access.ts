@@ -36,11 +36,10 @@ import {
 import {
   auditEvent,
   AUTH_REQUIRED_MESSAGE,
-  failure,
   normalizeEmail,
   normalizeReason,
-  success,
 } from '../support'
+import { failure, success } from '../../envelope'
 import type { AuthOperationContext, AuthResult, ManagedUser } from '../types'
 import { authenticatedSuperAdministrator, authenticatedWithCapability } from './auth'
 

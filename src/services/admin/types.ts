@@ -1,4 +1,5 @@
 import type { deskReviewIdentifierKinds } from '../../db/schema'
+import type { Envelope } from '../envelope'
 import type { AppBindings } from '../../bindings'
 import type { Loaders } from '../../loaders'
 
@@ -54,11 +55,7 @@ export type AdminOperationContext = {
   responseHeaders: Headers
 }
 
-export type AdminResult<T> = {
-  success: boolean
-  message: string | null
-  response: T | null
-}
+export type AdminResult<T> = Envelope<T>
 
 export type DocumentType = (typeof documentTypes)[number]
 export type ProgrammeDocumentCondition = (typeof programmeDocumentConditions)[number]

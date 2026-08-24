@@ -9,6 +9,7 @@
  * the two impossible to separate.
  */
 import type { AppBindings } from '../../bindings'
+import type { Envelope } from '../envelope'
 import type { Loaders } from '../../loaders'
 
 // Re-exported because the operation contexts below name it.
@@ -26,11 +27,7 @@ export type AuditOperationContext = {
   responseHeaders: Headers
 }
 
-export type AuditResult<T> = {
-  success: boolean
-  message: string | null
-  response: T | null
-}
+export type AuditResult<T> = Envelope<T>
 
 /** Newest first is the default because recent activity is what gets read. */
 export type AuditOrder = 'NEWEST_FIRST' | 'OLDEST_FIRST'

@@ -1,4 +1,5 @@
 import { env, SELF } from 'cloudflare:test'
+import { failure, success } from '../src/services/envelope'
 import { describe, expect, it } from 'vitest'
 import { createDatabase } from '../src/db'
 import { createLoaders } from '../src/loaders'
@@ -18,10 +19,8 @@ import {
   adminAudit,
   changedExactlyOne,
   constraintSafe,
-  failure,
   normalizeOptionalText,
   normalizeRequiredText,
-  success,
 } from '../src/services/admin/support'
 import { sessionTokenDigest } from '../src/services/auth/crypto'
 import { NO_SCANNER_REFERENCE } from '../src/services/document-scanner'

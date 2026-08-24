@@ -1,29 +1,16 @@
 /**
  * Shared policy-layer helpers for the authentication and access controllers.
  *
- * This mirrors `services/admin/support.ts` and `services/application/support.ts`
- * so all three services expose the same response envelope and audit-record
- * shape. Keeping one copy is what stops the two auth controllers from drifting
- * to different failure envelopes or different audit metadata rules.
+ * The response envelope is shared rather than mirrored — see
+ * `services/envelope.ts`. What stays here is what is genuinely this service's:
+ * its refusal messages, its audit-record shape, and the rules about what may
+ * enter one.
  */
 import type { auditActions } from '../../db/schema'
 import type { AuditEventRecord } from './queries/auth'
 import type { AuthOperationContext, AuthResult } from './types'
 
 export const AUTH_REQUIRED_MESSAGE = 'Authentication is required.'
-
-export const success = <T>(response: T, message: string | null = null): AuthResult<T> => ({
-  success: true,
-  message,
-  response,
-})
-
-export const failure = <T>(message: string): AuthResult<T> => ({
-  // Expected failures stay inside this envelope instead of becoming GraphQL errors.
-  success: false,
-  message,
-  response: null,
-})
 
 /** Email normalization is trim plus lowercase; passwords are never normalized. */
 export const normalizeEmail = (email: string): string => email.trim().toLowerCase()

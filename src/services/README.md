@@ -36,8 +36,10 @@ queries/       all Drizzle SQL, all D1 batch boundaries — and every
                authorization, lifecycle and version term repeated
                inside the write predicate
       │
-support.ts     the response envelope, the audit-row builder, and the
-               error-classification helpers, mirrored in all three
+support.ts     each service's own refusal messages, its audit-row builder,
+               and its error-classification helpers
+      │
+envelope.ts    the one response envelope, shared by every service
 ```
 
 ### Why the checks are repeated
@@ -116,9 +118,12 @@ The header states the product constraint it carries (`search.ts:10-13`):
 > Prefix only. That is a real limit and the interface says so: a control that
 > offers "search" and silently means "starts with" is a lie.
 
-**`support.ts` is mirrored, not shared** (`auth/support.ts:2-7`). Each of the
-three real services has its own, deliberately alike, so the controllers cannot
-drift to different failure envelopes or different audit metadata rules.
+**`support.ts` holds what is genuinely one service's**: its refusal messages,
+its capability preamble, its audit-row builder. Not the envelope — `success` and
+`failure` were once defined identically in four support modules, which is one
+decision copied rather than four decisions taken. They live in `envelope.ts`,
+and each service keeps only its own type alias so a call site still says which
+service is answering.
 
 **`ownership.ts`** in the application service is a documented exception to the
 layering: it needs the query layer, and `support.ts` is what the query layer
