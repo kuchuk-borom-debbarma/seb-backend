@@ -6,9 +6,16 @@
  * can be drained deliberately, which also makes a test able to assert that
  * something was queued without reaching for a real transport.
  *
- * **Held, not delivered.** Nothing consumes them in the background: a Worker
- * that finished responding is gone, and pretending otherwise would make local
- * behaviour differ from deployed in the one direction that hides bugs.
+ * **Held until something drains them.** Nothing consumes them in the
+ * background, because a Worker that finished responding is gone. `src/index.ts`
+ * drains this after each request through `executionCtx.waitUntil`, which is
+ * the closest honest equivalent of a real queue: the work happens after the
+ * response rather than inside it.
+ *
+ * Draining is deliberately somebody else's job. A transport that consumed its
+ * own messages would be doing two things, and the one place that knows how to
+ * handle a message is the Worker entry point that also serves the deployed
+ * consumer — so both paths run the same code.
  */
 import type { QueueMessage, QueueTransport } from '../types'
 

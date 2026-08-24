@@ -17,6 +17,7 @@ import {
   type QueueMessage,
 } from '../src/services/queue'
 import { cloudflareQueueTransport } from '../src/services/queue/transports/cloudflare'
+import { documentScanner, NO_SCANNER_REFERENCE } from '../src/services/document-scanner'
 
 const bindings = (extra: Partial<AppBindings> = {}) => ({ ...env, ...extra }) as AppBindings
 
@@ -100,5 +101,38 @@ describe('work whose loss is safe', () => {
     await expect(sendBestEffort(queue(bindings()), message, 'The document scan'))
       .resolves.toBe(true)
     expect(drainMemoryQueue()).toEqual([message])
+  })
+})
+
+describe('scanning a document that was queued', () => {
+  it('accepts without examining, and says so where anybody can read it', async () => {
+    /*
+     * The honesty is the point. Staff download fails closed until an ACCEPTED
+     * result exists, so something has to record one or no administrator can
+     * open any document — but a permissive scanner that recorded a
+     * clean-looking result would be worse than no scanner, because it would
+     * read as evidence that something checked.
+     */
+    const scanner = documentScanner(bindings())
+    expect(scanner.name).toBe('permissive')
+
+    const outcome = await scanner.scan('applications/a/documents/DPR/object')
+    expect(outcome.verdict).toBe('ACCEPTED')
+    expect(outcome.reference).toBe(NO_SCANNER_REFERENCE)
+    expect(outcome.message).toContain('not examined')
+  })
+
+  it('is permissive on develop, because a demonstration has no real evidence', () => {
+    expect(documentScanner(bindings({ ENVIRONMENT: 'develop' })).name).toBe('permissive')
+  })
+
+  it('refuses to exist in production until a real one is configured', () => {
+    /*
+     * At construction, not at scan time. A scanner that failed only when asked
+     * would let a deployment look healthy until the first document was
+     * uploaded; refusing to be built is loud and immediate.
+     */
+    expect(() => documentScanner(bindings({ ENVIRONMENT: 'production' })))
+      .toThrowError(/No malware scanner is configured for the production environment/u)
   })
 })

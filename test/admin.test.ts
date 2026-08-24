@@ -23,6 +23,8 @@ import {
   success,
 } from '../src/services/admin/support'
 import { sessionTokenDigest } from '../src/services/auth/crypto'
+import { NO_SCANNER_REFERENCE } from '../src/services/document-scanner'
+import { scanDocumentVersion } from '../src/services/document-scanner/consume'
 import { findSubmissionPolicy } from '../src/services/application/queries/application'
 import { adminResolvers } from '../src/graphql/resolvers/admin/admin'
 
@@ -301,6 +303,89 @@ describe('Mission SEP administration', () => {
    * handed an id that does not exist — including an operation the caller was
    * in fact allowed to attempt.
    */
+
+
+  it('lets staff open a document only once something has scanned it', async () => {
+    /*
+     * The whole reason the scanner seam exists.
+     *
+     * Administrative download fails closed until an ACCEPTED scan result is
+     * appended, and until this was built nothing appended one — so no
+     * administrator could open any document at all, and the review workflow
+     * could not be demonstrated. This walks the gate from shut to open.
+     */
+    const administrator = await adminSession(['APPLICANT', 'ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie)
+    const { applicationId, submissionId } = await createSubmittedApplication(
+      administrator.cookie, administrator.userId, cycle.id,
+    )
+    const documentId = crypto.randomUUID()
+    const versionId = crypto.randomUUID()
+    const submissionDocumentId = crypto.randomUUID()
+    const now = Date.now()
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO seb_application_document (
+        id, application_id, document_type, current_version, created_at, updated_at
+      ) VALUES (?, ?, 'DPR', 1, ?, ?)`).bind(documentId, applicationId, now, now),
+      env.DB.prepare(`INSERT INTO seb_application_document_version (
+        id, document_id, version, operation, r2_object_key, original_filename,
+        content_type, size_bytes, checksum, uploaded_by_user_id, created_at
+      ) VALUES (?, ?, 1, 'UPLOAD', ?, 'dpr.pdf', 'application/pdf', 10, ?, ?, ?)`)
+        .bind(versionId, documentId, `scan/${versionId}`, 'A'.repeat(43) + '=',
+          administrator.userId, now),
+      // Exactly what finalization writes: a request to scan, and no verdict.
+      env.DB.prepare(`INSERT INTO seb_application_document_scan (
+        id, document_version_id, sequence_number, status, scanner_reference,
+        scanned_at, created_at
+      ) VALUES (?, ?, 1, 'PENDING', 'UPLOAD_FINALIZATION', ?, ?)`)
+        .bind(crypto.randomUUID(), versionId, null, now),
+      env.DB.prepare(`INSERT INTO seb_application_submission_document (
+        id, submission_id, application_id, document_id, document_version,
+        document_type, created_at
+      ) VALUES (?, ?, ?, ?, 1, 'DPR', ?)`)
+        .bind(submissionDocumentId, submissionId, applicationId, documentId, now),
+    ])
+
+    // Documents open only to whoever holds the application, so claim it first
+    // — otherwise the refusal below would be about assignment, not scanning.
+    await graphql<any>(`mutation($input: ClaimApplicationInput!) {
+      admin { intake { claim(input: $input) { success } } }
+    }`, { input: {
+      applicationId, expectedAssignmentVersion: 0, conflictAcknowledged: true,
+    } }, administrator.cookie)
+
+    const download = () => graphql<{
+      admin: { intake: { documentDownloadUrl: { success: boolean; message: string | null } } }
+    }>(`query { admin { intake { documentDownloadUrl(
+      applicationId: "${applicationId}", submissionDocumentId: "${submissionDocumentId}"
+    ) { success message } } } }`, {}, administrator.cookie)
+
+    // Shut, and it says why rather than pretending the document is missing.
+    expect((await download()).data?.admin.intake.documentDownloadUrl).toMatchObject({
+      success: false,
+      message: 'The submitted document has not passed malware scanning.',
+    })
+
+    // What the queue consumer does when it reads a scan request.
+    expect(await scanDocumentVersion(createDatabase(env.DB), env, versionId)).toBe(true)
+
+    // Open. And the history is honest about what actually happened.
+    expect((await download()).data?.admin.intake.documentDownloadUrl.success).toBe(true)
+    expect(await env.DB.prepare(
+      `SELECT status, scanner_reference AS reference FROM seb_application_document_scan
+       WHERE document_version_id = ? ORDER BY sequence_number DESC LIMIT 1`,
+    ).bind(versionId).first()).toEqual({
+      status: 'ACCEPTED',
+      reference: NO_SCANNER_REFERENCE,
+    })
+  })
+
+  it('records nothing for a document that no longer exists', async () => {
+    // Deleted between the request being queued and read. Nothing to scan and
+    // nothing to write down, rather than an invented result.
+    expect(await scanDocumentVersion(createDatabase(env.DB), env, crypto.randomUUID()))
+      .toBe(false)
+  })
 
   describe('what each staff role may do', () => {
     const DENIED = 'You do not have permission to do that.'

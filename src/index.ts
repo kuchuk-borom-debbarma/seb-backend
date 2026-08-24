@@ -10,7 +10,8 @@ import {
 } from './services/auth'
 import { cleanupExpiredDocumentUploads } from './services/application'
 import { handleLocalStorageRequest } from './services/storage/route'
-import type { QueueMessage } from './services/queue'
+import { drainMemoryQueue, usesLocalQueue, type QueueMessage } from './services/queue'
+import { scanDocumentVersion } from './services/document-scanner/consume'
 import { usesLocalStorage } from './services/storage'
 import { closeExpiredProgrammeCycles } from './services/admin'
 
@@ -242,6 +243,29 @@ app.on(['GET', 'PUT'], '/internal/storage/*', async (c) => {
   return new Response(response.body, { status: response.status, headers })
 })
 
+/**
+ * Delivers whatever the in-process queue collected during this request.
+ *
+ * A developer's machine has no queue, so the local transport only holds what
+ * was sent to it. Something has to carry those messages to the consumer, or
+ * documents are never scanned locally and no administrator can open one —
+ * which is the whole reason the scanner seam exists.
+ *
+ * Run after the response rather than inside it, which is what a real queue
+ * does: the applicant is not kept waiting for work that is not theirs.
+ */
+const deliverLocalQueue = async (env: AppBindings): Promise<void> => {
+  const pending = drainMemoryQueue()
+  if (pending.length === 0) return
+  const db = createDatabase(env.DB)
+  for (const message of pending) {
+    // A failure leaves the document unopenable, which is the safe direction.
+    // Never the error or the body: both can name a stored object.
+    await scanDocumentVersion(db, env, message.documentVersionId)
+      .catch(() => console.error('Scanning a queued document failed'))
+  }
+}
+
 app.on(['GET', 'POST'], '/graphql', async (c) => {
   // Controllers append session cookies here. The Worker merges them into
   // Yoga's immutable response after GraphQL execution completes.
@@ -253,6 +277,7 @@ app.on(['GET', 'POST'], '/graphql', async (c) => {
     requestUrl: c.req.url,
     responseHeaders,
   })
+  if (usesLocalQueue(c.env)) c.executionCtx.waitUntil(deliverLocalQueue(c.env))
 
   const headers = new Headers(response.headers)
   applyCorsHeaders(headers, c.req.header('Origin') ?? null, c.env, c.req.url)
@@ -289,23 +314,37 @@ export default {
     )
   },
   /**
-   * Deployed consumer for queued work.
+   * Consumer for queued work.
    *
-   * Only one kind of message exists: a request to scan a stored document. It
-   * cannot be completed, because no scanner has been chosen — an open
-   * public-launch blocker — so this acknowledges the request and stops.
+   * One kind of message exists: a request to scan a stored document. What
+   * happens next depends entirely on the environment — locally and on develop
+   * the file is accepted without being examined, and the scan history records
+   * that in as many words; in production the scanner refuses to exist at all
+   * until a real one is configured. `services/document-scanner` holds that
+   * decision, and this holds none of it.
    *
-   * **It deliberately records nothing.** Marking a document scanned because
-   * this ran would make it readable by staff without anything having inspected
-   * it, which is worse than no scanner at all. Administrative download stays
-   * closed until a real ACCEPTED result is appended.
+   * A message that could not be settled is left unacknowledged so the platform
+   * redelivers it. The document stays unopenable until it succeeds, which is
+   * the safe direction to fail in.
    */
-  async queue(batch: MessageBatch<QueueMessage>, _env: CloudflareBindings) {
+  async queue(batch: MessageBatch<QueueMessage>, env: CloudflareBindings) {
+    const db = createDatabase(env.DB)
     for (const message of batch.messages) {
-      // Only the Cloudflare message id and the kind. The body names a stored
-      // object, and an object key is a sensitive identifier.
-      console.log('Queue message received', message.id, message.body?.kind)
-      message.ack()
+      try {
+        const recorded = await scanDocumentVersion(
+          db,
+          env as AppBindings,
+          message.body.documentVersionId,
+        )
+        if (recorded) message.ack()
+        else message.retry()
+      } catch {
+        // Never the error and never the body: a scan failure can carry the
+        // request it was making, and that request names a stored object.
+        console.error('Scanning a queued document failed', message.id)
+        message.retry()
+      }
     }
   },
 }
+

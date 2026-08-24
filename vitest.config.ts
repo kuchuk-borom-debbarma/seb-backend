@@ -39,6 +39,7 @@ export default defineWorkersConfig({
         'src/services/audit/support.ts',
         'src/services/storage/**/*.ts',
         'src/services/queue/**/*.ts',
+        'src/services/document-scanner/**/*.ts',
         'src/graphql/resolvers/admin/**/*.ts',
         'src/graphql/validation.ts',
       ],
