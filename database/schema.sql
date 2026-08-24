@@ -959,6 +959,27 @@ CREATE TABLE `seb_programme_cycle_event` (
 );
 
 CREATE INDEX `seb_programme_cycle_event_cycle_idx` ON `seb_programme_cycle_event` (`programme_cycle_id`,`created_at`);
+CREATE TABLE `seb_programme_cycle_identifier_rule` (
+	`id` text PRIMARY KEY NOT NULL,
+	`programme_cycle_id` text NOT NULL,
+	`programme_cycle_version` integer NOT NULL,
+	`kind` text NOT NULL,
+	`requirement` text NOT NULL,
+	`duplicate_policy` text NOT NULL,
+	`check_type` text,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`programme_cycle_id`,`programme_cycle_version`) REFERENCES `seb_programme_cycle_version`(`programme_cycle_id`,`version`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "seb_programme_cycle_identifier_rule_kind_check" CHECK("seb_programme_cycle_identifier_rule"."kind" IN ('ST_CERTIFICATE', 'IDENTITY_DOCUMENT', 'BANK_ACCOUNT', 'BUSINESS_REGISTRATION')),
+	CONSTRAINT "seb_programme_cycle_identifier_rule_requirement_check" CHECK("seb_programme_cycle_identifier_rule"."requirement" IN ('REQUIRED_ON_PASS', 'OPTIONAL', 'OFF')),
+	CONSTRAINT "seb_programme_cycle_identifier_rule_duplicate_check" CHECK("seb_programme_cycle_identifier_rule"."duplicate_policy" IN ('CHECKED', 'NOT_CHECKED')),
+	CONSTRAINT "seb_programme_cycle_identifier_rule_check_type_check" CHECK(("seb_programme_cycle_identifier_rule"."requirement" <> 'REQUIRED_ON_PASS' AND "seb_programme_cycle_identifier_rule"."check_type" IS NULL)
+        OR ("seb_programme_cycle_identifier_rule"."requirement" = 'REQUIRED_ON_PASS' AND "seb_programme_cycle_identifier_rule"."check_type" IN (
+          'IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION',
+          'FORM_COMPLETENESS', 'DOCUMENT_COMPLETENESS', 'ANSWER_DOCUMENT_CONSISTENCY',
+          'DPR_FEASIBILITY', 'EXPANSION_EVIDENCE')))
+);
+
+CREATE UNIQUE INDEX `seb_programme_cycle_identifier_rule_kind_uq` ON `seb_programme_cycle_identifier_rule` (`programme_cycle_id`,`programme_cycle_version`,`kind`);
 CREATE TABLE `seb_programme_cycle_reason` (
 	`id` text PRIMARY KEY NOT NULL,
 	`programme_cycle_id` text NOT NULL,

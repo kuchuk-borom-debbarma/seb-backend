@@ -216,6 +216,7 @@ describe('core and Mission SEP schema', () => {
       'seb_programme_cycle_assessment_rule',
       'seb_programme_cycle_document_rule',
       'seb_programme_cycle_event',
+      'seb_programme_cycle_identifier_rule',
       'seb_programme_cycle_reason',
       'seb_programme_cycle_version',
       'seb_recovery_case',

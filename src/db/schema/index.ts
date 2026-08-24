@@ -51,6 +51,7 @@ import {
 import { sebRecoveryCase, sebRecoveryCaseVersion, sebRecoveryEntry } from './seb/recovery'
 import { sebApplicationEvent, sebRevisionRequest } from './seb/workflow'
 
+export * from './shared'
 export * from './core/audit'
 export * from './core/auth'
 export * from './seb/application'

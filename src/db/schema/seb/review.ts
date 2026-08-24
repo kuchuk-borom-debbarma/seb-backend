@@ -18,19 +18,9 @@ import {
 import { coreUser } from '../core/auth'
 import { sebApplication, sebApplicationSubmission } from './application'
 import { sebProgrammeCycleReason } from './programme'
+import { deskReviewChecks, deskReviewIdentifierKinds } from '../shared'
 
 export const assignmentEventTypes = ['CLAIMED', 'RELEASED', 'REASSIGNED'] as const
-export const deskReviewChecks = [
-  'IDENTITY_KYC',
-  'ST_ELIGIBILITY',
-  'MAJORITY_OWNERSHIP',
-  'JURISDICTION',
-  'FORM_COMPLETENESS',
-  'DOCUMENT_COMPLETENESS',
-  'ANSWER_DOCUMENT_CONSISTENCY',
-  'DPR_FEASIBILITY',
-  'EXPANSION_EVIDENCE',
-] as const
 export const deskReviewCheckResults = ['PASS', 'FAIL', 'NOT_APPLICABLE'] as const
 export const deskReviewOutcomes = [
   'ADVANCE_TO_BANK',
@@ -39,12 +29,6 @@ export const deskReviewOutcomes = [
 ] as const
 
 /** What a reviewer transcribes off the document they are looking at. */
-export const deskReviewIdentifierKinds = [
-  'ST_CERTIFICATE',
-  'IDENTITY_DOCUMENT',
-  'BANK_ACCOUNT',
-  'BUSINESS_REGISTRATION',
-] as const
 
 /** Every change to the current queue owner, including self-review disclosure. */
 export const sebApplicationAssignmentEvent = sqliteTable(

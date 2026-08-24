@@ -6,6 +6,7 @@
  * rows instead of opaque JSON so D1 can validate and query them directly.
  */
 import { sql } from 'drizzle-orm'
+import { deskReviewIdentifierKinds } from '../shared'
 import {
   check,
   foreignKey,
@@ -249,6 +250,89 @@ export const sebProgrammeCycleDocumentRule = sqliteTable(
     check(
       'seb_programme_cycle_document_rule_condition_check',
       sql`${table.condition} IN ('ALWAYS', 'WHEN_REGISTERED', 'WHEN_GSTIN_PRESENT', 'WHEN_NOC_REQUIRED', 'OPTIONAL')`,
+    ),
+  ],
+)
+
+/**
+ * What a reviewer must transcribe, and what is compared against other files.
+ *
+ * These two are deliberately independent settings rather than one.
+ *
+ * A bank account can be worth recording without being worth refusing on: joint
+ * accounts and family businesses are real, and a shared account is a question
+ * rather than a finding. An ST certificate can be worth comparing across files
+ * without being demanded on a check the reviewer marked not applicable.
+ *
+ * Frozen into the cycle version like every other rule here, so an application
+ * is judged by the policy in force when it was submitted. Tightening the rules
+ * next year cannot retroactively invalidate a review completed under the old
+ * ones.
+ *
+ * **A cycle with no rows demands nothing and compares nothing.** That is the
+ * honest default for a table that did not exist yesterday, and it is what
+ * leaves already-open cycles working exactly as they did.
+ */
+export const identifierRequirements = ['REQUIRED_ON_PASS', 'OPTIONAL', 'OFF'] as const
+export const identifierDuplicatePolicies = ['CHECKED', 'NOT_CHECKED'] as const
+
+export const sebProgrammeCycleIdentifierRule = sqliteTable(
+  'seb_programme_cycle_identifier_rule',
+  {
+    id: text('id').primaryKey(),
+    programmeCycleId: text('programme_cycle_id').notNull(),
+    programmeCycleVersion: integer('programme_cycle_version').notNull(),
+    kind: text('kind', { enum: deskReviewIdentifierKinds }).notNull(),
+    /*
+     * `REQUIRED_ON_PASS` rather than `REQUIRED`: an identifier is the evidence
+     * behind a check, and a check that was failed or marked not applicable is
+     * attesting to nothing, so there is nothing to have read.
+     */
+    requirement: text('requirement', { enum: identifierRequirements }).notNull(),
+    duplicatePolicy: text('duplicate_policy', { enum: identifierDuplicatePolicies })
+      .notNull(),
+    /** The desk-review check this is evidence for. Null means it stands alone. */
+    checkType: text('check_type'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.programmeCycleId, table.programmeCycleVersion],
+      foreignColumns: [
+        sebProgrammeCycleVersion.programmeCycleId,
+        sebProgrammeCycleVersion.version,
+      ],
+      name: 'seb_programme_cycle_identifier_rule_version_fk',
+    }).onDelete('restrict'),
+    uniqueIndex('seb_programme_cycle_identifier_rule_kind_uq').on(
+      table.programmeCycleId,
+      table.programmeCycleVersion,
+      table.kind,
+    ),
+    check(
+      'seb_programme_cycle_identifier_rule_kind_check',
+      sql`${table.kind} IN ('ST_CERTIFICATE', 'IDENTITY_DOCUMENT', 'BANK_ACCOUNT', 'BUSINESS_REGISTRATION')`,
+    ),
+    check(
+      'seb_programme_cycle_identifier_rule_requirement_check',
+      sql`${table.requirement} IN ('REQUIRED_ON_PASS', 'OPTIONAL', 'OFF')`,
+    ),
+    check(
+      'seb_programme_cycle_identifier_rule_duplicate_check',
+      sql`${table.duplicatePolicy} IN ('CHECKED', 'NOT_CHECKED')`,
+    ),
+    /*
+     * A rule that demands an identifier on a passing check must say which
+     * check. Without one there is no moment at which it becomes required, so
+     * the requirement would be unreachable rather than merely unused.
+     */
+    check(
+      'seb_programme_cycle_identifier_rule_check_type_check',
+      sql`(${table.requirement} <> 'REQUIRED_ON_PASS' AND ${table.checkType} IS NULL)
+        OR (${table.requirement} = 'REQUIRED_ON_PASS' AND ${table.checkType} IN (
+          'IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION',
+          'FORM_COMPLETENESS', 'DOCUMENT_COMPLETENESS', 'ANSWER_DOCUMENT_CONSISTENCY',
+          'DPR_FEASIBILITY', 'EXPANSION_EVIDENCE'))`,
     ),
   ],
 )
