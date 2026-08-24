@@ -6,9 +6,18 @@ export default defineWorkersConfig({
     // end-to-end specs are run by Playwright against a real browser, and which
     // would otherwise be collected here by the default `**/*.spec.ts` glob.
     include: ['test/**/*.test.ts'],
-    // Istanbul instrumentation makes the intentionally end-to-end
-    // administration journey slower than Vitest's five-second default.
-    testTimeout: 30_000,
+    /*
+     * Istanbul instrumentation makes the intentionally end-to-end
+     * administration journey far slower than Vitest's five-second default: it
+     * runs a whole programme lifecycle and measures at roughly ten seconds
+     * uninstrumented and ninety with coverage on.
+     *
+     * The timeout is here to catch a hang, not to enforce performance, so it
+     * is set well clear of that rather than at a number the suite trips over
+     * intermittently. A test that fails only sometimes teaches people to re-run
+     * rather than to look.
+     */
+    testTimeout: 150_000,
     coverage: {
       provider: 'istanbul',
       all: true,

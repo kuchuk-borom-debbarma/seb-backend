@@ -16,6 +16,7 @@ import {
   sebProgrammeCycle,
   sebProgrammeCycleAssessmentRule,
   sebProgrammeCycleDocumentRule,
+  sebProgrammeCycleIdentifierRule,
   sebProgrammeCycleEvent,
   sebProgrammeCycleReason,
   sebProgrammeCycleVersion,
@@ -40,6 +41,7 @@ export type ProgrammeCycleAggregate = {
   head: ProgrammeCycleRecord
   version: ProgrammeCycleVersionRecord
   documentRules: Array<typeof sebProgrammeCycleDocumentRule.$inferSelect>
+  identifierRules: Array<typeof sebProgrammeCycleIdentifierRule.$inferSelect>
   assessmentRules: Array<typeof sebProgrammeCycleAssessmentRule.$inferSelect>
   reasons: Array<typeof sebProgrammeCycleReason.$inferSelect>
 }
@@ -66,7 +68,7 @@ export const loadProgrammeCycle = async (
    * the results back correctly — a joined read could not go in here, because a
    * batch is read back by column name and two columns called `id` collide.
    */
-  const [documentRules, assessmentRules, reasons] = await db.batch([
+  const [documentRules, identifierRules, assessmentRules, reasons] = await db.batch([
     db
       .select()
       .from(sebProgrammeCycleDocumentRule)
@@ -74,6 +76,17 @@ export const loadProgrammeCycle = async (
         and(
           eq(sebProgrammeCycleDocumentRule.programmeCycleId, id),
           eq(sebProgrammeCycleDocumentRule.programmeCycleVersion, row.head.currentVersion),
+        ),
+      ),
+    // Joins the batch rather than costing its own call: single-table, so the
+    // by-name mapping a batch does is safe here.
+    db
+      .select()
+      .from(sebProgrammeCycleIdentifierRule)
+      .where(
+        and(
+          eq(sebProgrammeCycleIdentifierRule.programmeCycleId, id),
+          eq(sebProgrammeCycleIdentifierRule.programmeCycleVersion, row.head.currentVersion),
         ),
       ),
     db
@@ -95,7 +108,7 @@ export const loadProgrammeCycle = async (
         ),
       ),
   ])
-  return { ...row, documentRules, assessmentRules, reasons }
+  return { ...row, documentRules, identifierRules, assessmentRules, reasons }
 }
 
 export const listProgrammeCycles = async (
@@ -226,6 +239,23 @@ const policyRows = (
     condition: rule.condition,
     createdAt: now,
   })),
+  /*
+   * Absent means the cycle configures none, which demands nothing and compares
+   * nothing. That is what leaves cycles created before these rules existed
+   * working exactly as they did.
+   */
+  identifierRules: (input.policy.identifierRules ?? []).map((rule) => ({
+    id: crypto.randomUUID(),
+    programmeCycleId: cycleId,
+    programmeCycleVersion: version,
+    kind: rule.kind,
+    requirement: rule.requirement,
+    duplicatePolicy: rule.duplicatePolicy,
+    // Only a rule that demands something needs to name the check it belongs
+    // to; the CHECK constraint enforces the same pairing in the database.
+    checkType: rule.requirement === 'REQUIRED_ON_PASS' ? rule.checkType : null,
+    createdAt: now,
+  })),
   assessmentRules: input.policy.requiredAssessmentTypes.map((assessmentType) => ({
     id: crypto.randomUUID(),
     programmeCycleId: cycleId,
@@ -313,6 +343,8 @@ export const insertProgrammeCycle = async (
     // though the overall atomic batch remains comfortably bounded (< 40).
     ...policy.documentRules.map((row) =>
       context.db.insert(sebProgrammeCycleDocumentRule).values(row)),
+    ...policy.identifierRules.map((row) =>
+      context.db.insert(sebProgrammeCycleIdentifierRule).values(row)),
     ...policy.assessmentRules.map((row) =>
       context.db.insert(sebProgrammeCycleAssessmentRule).values(row)),
     ...policy.reasons.map((row) =>
@@ -376,6 +408,8 @@ export const updateDraftProgrammeCycle = async (
     ),
     ...policy.documentRules.map((row) =>
       context.db.insert(sebProgrammeCycleDocumentRule).values(row)),
+    ...policy.identifierRules.map((row) =>
+      context.db.insert(sebProgrammeCycleIdentifierRule).values(row)),
     ...policy.assessmentRules.map((row) =>
       context.db.insert(sebProgrammeCycleAssessmentRule).values(row)),
     ...policy.reasons.map((row) =>
@@ -438,6 +472,16 @@ export const transitionProgrammeCycle = async (
       SELECT ${crypto.randomUUID()} || '-' || id, programme_cycle_id, ${nextVersion},
         document_type, condition, ${input.now.getTime()}
       FROM ${sebProgrammeCycleDocumentRule}
+      WHERE programme_cycle_id = ${input.aggregate.head.id}
+        AND programme_cycle_version = ${input.expectedVersion}
+    `),
+    // Carried forward with the others. A rule table that is not copied here
+    // silently empties itself the first time a cycle changes version, which is
+    // the moment it is least likely to be noticed.
+    context.db.insert(sebProgrammeCycleIdentifierRule).select(sql`
+      SELECT ${crypto.randomUUID()} || '-' || id, programme_cycle_id, ${nextVersion},
+        kind, requirement, duplicate_policy, check_type, ${input.now.getTime()}
+      FROM ${sebProgrammeCycleIdentifierRule}
       WHERE programme_cycle_id = ${input.aggregate.head.id}
         AND programme_cycle_version = ${input.expectedVersion}
     `),
@@ -535,6 +579,16 @@ export const reviseOpenProgrammeCycle = async (
       SELECT ${crypto.randomUUID()} || '-' || id, programme_cycle_id, ${nextVersion},
         document_type, condition, ${input.now.getTime()}
       FROM ${sebProgrammeCycleDocumentRule}
+      WHERE programme_cycle_id = ${input.aggregate.head.id}
+        AND programme_cycle_version = ${input.expectedVersion}
+    `),
+    // Carried forward with the others. A rule table that is not copied here
+    // silently empties itself the first time a cycle changes version, which is
+    // the moment it is least likely to be noticed.
+    context.db.insert(sebProgrammeCycleIdentifierRule).select(sql`
+      SELECT ${crypto.randomUUID()} || '-' || id, programme_cycle_id, ${nextVersion},
+        kind, requirement, duplicate_policy, check_type, ${input.now.getTime()}
+      FROM ${sebProgrammeCycleIdentifierRule}
       WHERE programme_cycle_id = ${input.aggregate.head.id}
         AND programme_cycle_version = ${input.expectedVersion}
     `),

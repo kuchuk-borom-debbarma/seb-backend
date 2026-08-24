@@ -49,6 +49,7 @@ import {
   sebPartnerBankOutcome,
   sebPartnerBankReferral,
   sebProgrammeCycle,
+  sebProgrammeCycleIdentifierRule,
   sebProgrammeCycleReason,
   sebRecoveryCase,
   sebRevisionRequest,
@@ -68,6 +69,7 @@ import type { IdentifierKind } from '../identifiers'
 import type {
   AdminOperationContext,
   DeskReviewCheckInput,
+  IdentifierRule,
   DeskReviewOutcome,
   IntakeQueueKey,
   PageInfo,
@@ -953,3 +955,32 @@ export const acceptedPinnedDocument = async (
     .limit(1)
   return row ?? null
 }
+
+/**
+ * The identifier rules frozen into one cycle version.
+ *
+ * Its own read rather than part of `findSubmissionPolicy`, which is the
+ * applicant-side submission policy and is not consulted on this path — folding
+ * a reviewer's rules into an applicant's type would have bought nothing and
+ * mixed two audiences.
+ *
+ * One statement, and a small one: at most four rows, seeked on the composite
+ * key that freezes them to the version.
+ */
+export const findIdentifierRules = async (
+  db: Database,
+  cycleId: string,
+  cycleVersion: number,
+): Promise<IdentifierRule[]> =>
+  db
+    .select({
+      kind: sebProgrammeCycleIdentifierRule.kind,
+      requirement: sebProgrammeCycleIdentifierRule.requirement,
+      duplicatePolicy: sebProgrammeCycleIdentifierRule.duplicatePolicy,
+      checkType: sebProgrammeCycleIdentifierRule.checkType,
+    })
+    .from(sebProgrammeCycleIdentifierRule)
+    .where(and(
+      eq(sebProgrammeCycleIdentifierRule.programmeCycleId, cycleId),
+      eq(sebProgrammeCycleIdentifierRule.programmeCycleVersion, cycleVersion),
+    ))

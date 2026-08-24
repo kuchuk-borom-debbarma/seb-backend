@@ -1,3 +1,4 @@
+import type { deskReviewIdentifierKinds } from '../../db/schema'
 import type { AppBindings } from '../../bindings'
 import type { Loaders } from '../../loaders'
 
@@ -97,6 +98,8 @@ export type ProgrammeCyclePolicyInput = {
   fundingCeilingScope: FundingCeilingScope | null
   requiredAssessmentTypes: AssessmentType[]
   documentRules: ProgrammeCycleDocumentRuleInput[]
+  /** Absent means the cycle collects nothing and compares nothing. */
+  identifierRules?: ProgrammeCycleIdentifierRuleInput[]
   reasons: ProgrammeCycleReasonInput[]
 }
 
@@ -140,3 +143,25 @@ export type RevisionRequestInput = {
 
 export type { PageInfo } from '../application/types'
 
+
+/**
+ * One frozen rule about an identifier a reviewer transcribes.
+ *
+ * `requirement` and `duplicatePolicy` are independent on purpose: a value can
+ * be worth recording without being worth refusing on, and worth comparing
+ * without being demanded.
+ */
+export type ProgrammeCycleIdentifierRuleInput = {
+  kind: (typeof deskReviewIdentifierKinds)[number]
+  requirement: 'REQUIRED_ON_PASS' | 'OPTIONAL' | 'OFF'
+  duplicatePolicy: 'CHECKED' | 'NOT_CHECKED'
+  checkType?: string | null
+}
+
+export type IdentifierRule = {
+  kind: (typeof deskReviewIdentifierKinds)[number]
+  requirement: 'REQUIRED_ON_PASS' | 'OPTIONAL' | 'OFF'
+  duplicatePolicy: 'CHECKED' | 'NOT_CHECKED'
+  /** The check this is evidence for. Null unless it is required on a pass. */
+  checkType: string | null
+}

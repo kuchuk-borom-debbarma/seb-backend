@@ -9,6 +9,19 @@ type AdminMutation {
 
 input ProgrammeDocumentRuleInput { documentType: DocumentType!, condition: ProgrammeDocumentCondition! }
 input ProgrammeReasonInput { context: ProgrammeReasonContext!, code: String!, label: String!, applicantMessageTemplate: String }
+# Requirement and duplicate-checking are independent: a value can be worth
+# recording without being worth refusing on, and worth comparing without being
+# demanded. `checkType` is required only for REQUIRED_ON_PASS, which is the
+# only setting that needs a moment at which it applies.
+enum IdentifierRequirement { REQUIRED_ON_PASS OPTIONAL OFF }
+enum IdentifierDuplicatePolicy { CHECKED NOT_CHECKED }
+input ProgrammeIdentifierRuleInput {
+  kind: DeskReviewIdentifierKind!
+  requirement: IdentifierRequirement!
+  duplicatePolicy: IdentifierDuplicatePolicy!
+  checkType: DeskReviewCheckType
+}
+
 input ProgrammeCyclePolicyInput {
   minimumApplicantAge: Int
   maximumApplicantAge: Int
@@ -21,6 +34,8 @@ input ProgrammeCyclePolicyInput {
   fundingCeilingScope: FundingCeilingScope
   requiredAssessmentTypes: [AssessmentType!]!
   documentRules: [ProgrammeDocumentRuleInput!]!
+  # Absent means the cycle collects nothing and compares nothing.
+  identifierRules: [ProgrammeIdentifierRuleInput!]
   reasons: [ProgrammeReasonInput!]!
 }
 input ProgrammeCycleInput {

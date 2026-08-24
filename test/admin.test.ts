@@ -99,6 +99,19 @@ const policy = {
     'IDENTITY_AGE_PROOF', 'ST_CERTIFICATE', 'ADDRESS_PROOF', 'BUSINESS_REGISTRATION',
     'GST_REGISTRATION', 'DPR', 'BANK_DETAILS', 'NOC',
   ].map((documentType) => ({ documentType, condition: 'ALWAYS' })),
+  /*
+   * The rules the old hardcoded map used to imply, now stated by the cycle.
+   * Business registration is deliberately absent: an unregistered enterprise
+   * has none, and demanding one would make somebody invent a number.
+   */
+  identifierRules: [
+    { kind: 'ST_CERTIFICATE', requirement: 'REQUIRED_ON_PASS',
+      duplicatePolicy: 'CHECKED', checkType: 'ST_ELIGIBILITY' },
+    { kind: 'IDENTITY_DOCUMENT', requirement: 'REQUIRED_ON_PASS',
+      duplicatePolicy: 'CHECKED', checkType: 'IDENTITY_KYC' },
+    { kind: 'BANK_ACCOUNT', requirement: 'REQUIRED_ON_PASS',
+      duplicatePolicy: 'CHECKED', checkType: 'DOCUMENT_COMPLETENESS' },
+  ],
   reasons: [
     'CYCLE_CLOSE', 'ASSIGNMENT_RELEASE', 'ASSIGNMENT_REASSIGN', 'REVISION',
     'REJECTION', 'BANK_REFERRAL_CANCEL', 'BANK_OUTCOME_CORRECTION', 'TTM_DEFERRAL',
@@ -133,14 +146,18 @@ const passingIdentifiers = () => {
   ]
 }
 
-const createOpenedCycle = async (cookie: string) => {
+const createOpenedCycle = async (
+  cookie: string,
+  policyOverride: Record<string, unknown> = {},
+) => {
   const cycle = {
     cycleCode: `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
     displayName: 'Mission SEP Administrative Test', cycleYear: 2026,
     policyReference: 'TTAADC/MSEP/2026', applicantGuidance: 'Applicant guide.',
     partnerBankGuidance: 'Published partner-bank roster.',
     opensAt: new Date(Date.now() - 1_000).toISOString(),
-    closesAt: new Date(Date.now() + 86_400_000).toISOString(), policy,
+    closesAt: new Date(Date.now() + 86_400_000).toISOString(),
+    policy: { ...policy, ...policyOverride },
   }
   const created = await graphql<any>(`mutation($input: ProgrammeCycleInput!) {
     admin { programmeCycle { create(input: $input) { response { head { id currentVersion } } } } }
@@ -3189,6 +3206,64 @@ describe('what a reviewer read off the documents', () => {
 
     return { administrator, applicationId: submitted.applicationId, review }
   }
+
+
+  it('collects only what its cycle asks for', async () => {
+    /*
+     * The two settings are independent, and a cycle that says nothing about a
+     * kind is not the same as one that says OFF.
+     *
+     * OFF means somebody decided this programme does not collect that number,
+     * so a value sent anyway is refused rather than quietly dropped — dropping
+     * it would leave the reviewer believing they had recorded something.
+     * Silence means the cycle predates these rules, and refusing there would
+     * have broken every open cycle on the day this shipped.
+     */
+    const administrator = await adminSession(['APPLICANT', 'ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie, {
+      identifierRules: [
+        // Wanted, but never demanded and never compared.
+        { kind: 'ST_CERTIFICATE', requirement: 'OPTIONAL',
+          duplicatePolicy: 'NOT_CHECKED', checkType: null },
+        // Deliberately not collected by this programme.
+        { kind: 'BANK_ACCOUNT', requirement: 'OFF',
+          duplicatePolicy: 'NOT_CHECKED', checkType: null },
+      ],
+    })
+    const submitted = await createSubmittedApplication(
+      administrator.cookie, administrator.userId, cycle.id,
+    )
+    await graphql<any>(`mutation($input: StartDeskReviewInput!) {
+      admin { intake { startDeskReview(input: $input) { success } } }
+    }`, { input: {
+      applicationId: submitted.applicationId, expectedStatusVersion: 2,
+    } }, administrator.cookie)
+
+    const complete = (identifiers: unknown[]) => graphql<{
+      admin: { intake: { completeDeskReview: { success: boolean; message: string | null } } }
+    }>(`mutation($input: CompleteDeskReviewInput!) {
+      admin { intake { completeDeskReview(input: $input) { success message } } }
+    }`, { input: {
+      applicationId: submitted.applicationId, expectedStatusVersion: 3,
+      outcome: 'ADVANCE_TO_BANK', reasonCategoryId: null, applicantMessage: null,
+      checks: deskCheckTypes.map((checkType) => ({
+        checkType, result: checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS',
+      })), revisions: [], identifiers, conflictAcknowledged: true,
+    } }, administrator.cookie)
+
+    // A kind this cycle switched off, sent anyway.
+    const offered = await complete([
+      { kind: 'BANK_ACCOUNT', value: '123456789012', branchCode: 'SBIN0001234' },
+    ])
+    expect(offered.data?.admin.intake.completeDeskReview).toMatchObject({
+      success: false,
+      message: 'This programme cycle does not collect the bank account number and branch code.',
+    })
+
+    // Nothing is demanded, because nothing here is REQUIRED_ON_PASS — even
+    // though every check passed.
+    expect((await complete([])).data?.admin.intake.completeDeskReview.success).toBe(true)
+  })
 
   it('will not let a check be passed without the number behind it', async () => {
     const { review } = await readyToReview()

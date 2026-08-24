@@ -12,6 +12,7 @@ import { storage } from '../../storage'
 import { adminPageSize, decodeAdminCursor } from '../pagination'
 import {
   acceptedPinnedDocument,
+  findIdentifierRules,
   approvedReason,
   cancelRevisionRequestWrite,
   changeAssignment,
@@ -52,6 +53,7 @@ import type {
   IntakeQueueKey,
   AdminResult,
   DeskReviewCheckInput,
+  IdentifierRule,
   DeskReviewIdentifierInput,
   DeskReviewOutcome,
   RevisionRequestInput,
@@ -358,20 +360,42 @@ const IDENTIFIER_LABELS: Record<IdentifierKind, string> = {
 const readIdentifiers = async (
   input: { checks: DeskReviewCheckInput[]; identifiers: DeskReviewIdentifierInput[] },
   context: AdminOperationContext,
-): Promise<string | { kind: IdentifierKind; comparableValue: string; lastFour: string }[]> => {
+  rules: IdentifierRule[],
+): Promise<string | {
+  stored: { kind: IdentifierKind; comparableValue: string; lastFour: string }[]
+  compared: { kind: IdentifierKind; comparableValue: string }[]
+}> => {
   const given = new Map(input.identifiers.map((entry) => [entry.kind, entry]))
   if (given.size !== input.identifiers.length) {
     return 'Each identifier may be given once.'
   }
 
-  const required = new Set<IdentifierKind>()
-  for (const check of input.checks) {
-    const kind: IdentifierKind | undefined =
-      IDENTIFIER_FOR_CHECK[check.checkType as keyof typeof IDENTIFIER_FOR_CHECK]
-    if (kind && check.result === 'PASS') required.add(kind)
+  const byKind = new Map(rules.map((rule) => [rule.kind, rule]))
+  const passed = new Set(
+    input.checks.filter((check) => check.result === 'PASS').map((check) => check.checkType),
+  )
+
+  /*
+   * An explicit `OFF` is refused; no rule at all is not.
+   *
+   * The two mean different things. `OFF` is somebody deciding this cycle does
+   * not collect that number, so accepting one anyway would store what the
+   * policy says not to hold. Silence means the cycle predates these rules or
+   * has not configured them, and refusing there would break every open cycle
+   * on the day this shipped.
+   *
+   * Refusing rather than dropping, because silently ignoring a value leaves
+   * the reviewer believing they recorded something — and the difference only
+   * surfaces later, when somebody asks which certificate was seen.
+   */
+  for (const kind of given.keys()) {
+    if (byKind.get(kind)?.requirement === 'OFF') {
+      return `This programme cycle does not collect the ${IDENTIFIER_LABELS[kind]}.`
+    }
   }
 
-  const read: { kind: IdentifierKind; comparableValue: string; lastFour: string }[] = []
+  const stored: { kind: IdentifierKind; comparableValue: string; lastFour: string }[] = []
+  const compared: { kind: IdentifierKind; comparableValue: string }[] = []
   for (const [kind, entry] of given) {
     /*
      * An account number and a branch code identify a destination only together,
@@ -385,20 +409,28 @@ const readIdentifiers = async (
     if (!digits || !comparable) {
       return `Enter the ${IDENTIFIER_LABELS[kind]} exactly as it appears.`
     }
-    read.push({
-      kind,
-      comparableValue: await storedValue(kind, comparable, context.env),
-      lastFour: lastFourOf(digits),
-    })
+    const comparableValue = await storedValue(kind, comparable, context.env)
+    stored.push({ kind, comparableValue, lastFour: lastFourOf(digits) })
+    // Only what the cycle asks to be compared is ever queried, so turning a
+    // kind's duplicate check off removes work rather than adding a flag.
+    if (byKind.get(kind)?.duplicatePolicy === 'CHECKED') {
+      compared.push({ kind, comparableValue })
+    }
   }
 
-  const missing = [...required].filter((kind) => !given.has(kind))
+  const missing = rules
+    .filter((rule) =>
+      rule.requirement === 'REQUIRED_ON_PASS' &&
+      rule.checkType !== null &&
+      passed.has(rule.checkType as DeskReviewCheckInput['checkType']) &&
+      !given.has(rule.kind))
+    .map((rule) => rule.kind)
   if (missing.length > 0) {
     return `Passing this check means reading the document: enter the ${
       missing.map((kind) => IDENTIFIER_LABELS[kind]).join(' and the ')
     }.`
   }
-  return read
+  return { stored, compared }
 }
 
 const validateAdvanceOutcome = async (
@@ -519,7 +551,20 @@ export const completeDeskReview = async (
     return failure('This outcome cannot include revision requests.')
   }
 
-  const read = await readIdentifiers(input, context)
+  /*
+   * One extra read on this path, and it is one rather than none.
+   *
+   * The frozen document rules are read by `findSubmissionPolicy`, which is the
+   * applicant's submission check and is not consulted here — so there is no
+   * existing batch to join. The head and the submission above are both joined
+   * reads and cannot be batched together either, because a batch maps results
+   * by column name and both carry an `id`.
+   *
+   * It is a small seek on a composite key returning at most four rows, on a
+   * path that already spends several.
+   */
+  const rules = await findIdentifierRules(context.db, cycleId, cycleVersion)
+  const read = await readIdentifiers(input, context, rules)
   if (typeof read === 'string') return failure(read)
 
   /*
@@ -528,7 +573,9 @@ export const completeDeskReview = async (
    * hard refusal would block real work — so the reviewer answers it, and the
    * answer is kept beside the number that raised it.
    */
-  const matches = await identifierMatches(context.db, head.application.fundingCaseId, read)
+  const matches = await identifierMatches(
+    context.db, head.application.fundingCaseId, read.compared,
+  )
   const answers = new Map<IdentifierKind, string>()
   for (const [kind, reference] of matches) {
     const given = input.identifiers.find((entry) => entry.kind === kind)
@@ -544,7 +591,7 @@ export const completeDeskReview = async (
 
   const changed = await constraintSafe(() => completeDeskReviewWrite(context, {
     ...input,
-    identifiers: read.map((entry) => ({
+    identifiers: read.stored.map((entry) => ({
       ...entry,
       matchedReason: answers.get(entry.kind) ?? null,
     })),
