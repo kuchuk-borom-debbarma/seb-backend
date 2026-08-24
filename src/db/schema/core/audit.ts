@@ -4,7 +4,24 @@ import { coreUser } from './auth'
 
 export const auditOutcomes = ['SUCCESS', 'FAILURE'] as const
 
-/** Fixed action names keep audit queries reliable and prevent spelling drift. */
+/**
+ * Fixed action names keep audit queries reliable and prevent spelling drift.
+ *
+ * **Every name here must be written by something.** A declared action nobody
+ * writes is a note about an intention, and it reads from the outside exactly
+ * like an action that has simply not happened yet — which is how recovery came
+ * to be entirely absent from the history while three recovery actions sat here
+ * looking like coverage. `scripts/check-audit-actions.mjs` fails the build on
+ * one, in both directions.
+ *
+ * Two absences are deliberate rather than missing:
+ *
+ * - **Asking an applicant for a correction** has no action of its own. It
+ *   happens three ways — a desk review, a bank outcome, a committee decision —
+ *   and each already records itself with the outcome that caused it, so a
+ *   separate name would be a second copy of the same fact.
+ * - **Claiming, releasing and reassigning** are gone with the claim itself.
+ */
 export const auditActions = {
   signupChallengeCreated: 'AUTH.SIGNUP_CHALLENGE_CREATED',
   signupNotificationFailed: 'AUTH.SIGNUP_NOTIFICATION_FAILED',
@@ -44,19 +61,16 @@ export const auditActions = {
   cycleArchived: 'SEB.CYCLE_ARCHIVED',
   cycleDeleted: 'SEB.CYCLE_DELETED',
   cycleRestored: 'SEB.CYCLE_RESTORED',
-  applicationClaimed: 'SEB.APPLICATION_CLAIMED',
-  applicationReleased: 'SEB.APPLICATION_RELEASED',
-  applicationReassigned: 'SEB.APPLICATION_REASSIGNED',
   internalNoteAdded: 'SEB.INTERNAL_NOTE_ADDED',
   deskReviewStarted: 'SEB.DESK_REVIEW_STARTED',
   deskReviewCompleted: 'SEB.DESK_REVIEW_COMPLETED',
-  revisionRequested: 'SEB.REVISION_REQUESTED',
   revisionCancelled: 'SEB.REVISION_CANCELLED',
   bankReferred: 'SEB.BANK_REFERRED',
   bankReferralCancelled: 'SEB.BANK_REFERRAL_CANCELLED',
   bankOutcomeRecorded: 'SEB.BANK_OUTCOME_RECORDED',
   bankOutcomeCorrected: 'SEB.BANK_OUTCOME_CORRECTED',
   ttmMeetingChanged: 'SEB.TTM_MEETING_CHANGED',
+  ttmAgendaChanged: 'SEB.TTM_AGENDA_CHANGED',
   ttmDecisionRecorded: 'SEB.TTM_DECISION_RECORDED',
   ttmDecisionCorrected: 'SEB.TTM_DECISION_CORRECTED',
   awardCreated: 'SEB.AWARD_CREATED',
@@ -67,6 +81,7 @@ export const auditActions = {
   recoveryOpened: 'SEB.RECOVERY_OPENED',
   recoveryEntryRecorded: 'SEB.RECOVERY_ENTRY_RECORDED',
   recoveryClosed: 'SEB.RECOVERY_CLOSED',
+  recoveryCancelled: 'SEB.RECOVERY_CANCELLED',
 } as const
 
 /**

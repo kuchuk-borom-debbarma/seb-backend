@@ -3022,6 +3022,159 @@ describe('the committee meetings list', () => {
   })
 })
 
+describe('what reaches the activity history', () => {
+  /**
+   * The audit trail is what a super administrator reviews after the fact. An
+   * action absent from it cannot be reviewed at all, so what is missing from it
+   * matters more than what is in it.
+   *
+   * `core_audit_event` is read directly rather than through the GraphQL query,
+   * because the question is whether the row was *written* — a filter that
+   * happens to exclude it would look identical to it never existing.
+   */
+  const auditActionsFor = async (entityId: string): Promise<string[]> => {
+    const rows = await env.DB.prepare(
+      'SELECT action FROM core_audit_event WHERE entity_id = ? ORDER BY created_at',
+    ).bind(entityId).all()
+    return (rows.results as { action: string }[]).map((row) => row.action)
+  }
+
+  it('records who put an application before the committee, and who took it off', async () => {
+    /*
+     * Only meeting *creation* was audited. Updating, cancelling, starting and
+     * finalizing a meeting — and every agenda change — wrote a version row and
+     * nothing else, so the trail could not answer who put an application in
+     * front of the committee.
+     */
+    const administrator = await adminSession(['ADMIN'])
+    const meeting = await graphql<any>(`mutation($input: CreateTtmMeetingInput!) {
+      admin { decision { createMeeting(input: $input) { success message response { meeting { id currentVersion } } } } }
+    }`, { input: {
+      meetingReference: `TTM-AUDIT-${crypto.randomUUID().slice(0, 8)}`,
+      scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+      venue: 'Council Hall', description: 'Audit coverage.',
+    } }, administrator.cookie)
+    expect(meeting.data.admin.decision.createMeeting.success, JSON.stringify(meeting)).toBe(true)
+    const head = meeting.data.admin.decision.createMeeting.response.meeting
+
+    const updated = await graphql<any>(`mutation($input: UpdateTtmMeetingInput!) {
+      admin { decision { updateMeeting(input: $input) { success message } } }
+    }`, { input: {
+      meetingId: head.id, expectedVersion: head.currentVersion,
+      meetingReference: `TTM-AUDIT-${crypto.randomUUID().slice(0, 8)}`,
+      scheduledAt: new Date(Date.now() + 172_800_000).toISOString(),
+      venue: 'Committee Room', description: 'Moved.', reason: 'Venue changed.',
+    } }, administrator.cookie)
+    expect(updated.data.admin.decision.updateMeeting.success, JSON.stringify(updated)).toBe(true)
+
+    const actions = await auditActionsFor(head.id)
+    // Creation was already recorded; the update is what was missing.
+    expect(actions.filter((a) => a === 'SEB.TTM_MEETING_CHANGED').length)
+      .toBeGreaterThanOrEqual(2)
+  })
+
+  it('records every recovery action, including a waiver of public money', async () => {
+    /*
+     * A recovery waiver is public money being written off — the single most
+     * sensitive administrative act in the programme. It must be reviewable.
+     *
+     * The action names below are already declared in `auditActions`; nothing
+     * was writing them, so the trail said a recovery case had simply never
+     * existed.
+     */
+    const administrator = await adminSession(['APPLICANT', 'SUPER_ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie)
+    const submitted = await createSubmittedApplication(
+      administrator.cookie, administrator.userId, cycle.id,
+    )
+    /*
+     * The award is seeded rather than reached through the whole decision path.
+     * What is under test is whether recovery writes an audit row, and replaying
+     * desk review, bank and committee to get there would make the test slow and
+     * would fail for reasons that have nothing to do with the audit trail.
+     *
+     * `CANCELLED`, because recovery is only opened against an award that was
+     * revoked — money already paid on an award that no longer stands.
+     */
+    const awardId = crypto.randomUUID()
+    const [caseRow] = (await env.DB.prepare(
+      'SELECT funding_case_id AS fundingCaseId FROM seb_application WHERE id = ?',
+    ).bind(submitted.applicationId).all()).results as { fundingCaseId: string }[]
+    const now = Date.now()
+    await env.DB.prepare(`INSERT INTO seb_funding_award (
+      id, funding_case_id, application_id, sanction_order_number, sanction_date,
+      sanctioned_amount_paise, status, ledger_version, current_version,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, '2026-06-01', 1000000, 'CANCELLED', 0, 1, ?, ?)`)
+      .bind(awardId, caseRow!.fundingCaseId, submitted.applicationId,
+        `SO-AUDIT-${awardId.slice(0, 8)}`, now, now)
+      .run()
+    /*
+     * And one release, because recovery only makes sense against money that
+     * actually moved — the write refuses on an award that paid out nothing.
+     */
+    await env.DB.prepare(`INSERT INTO seb_disbursement (
+      id, funding_award_id, sequence_number, entry_type, amount_paise,
+      occurred_at, ttm_approval_reference, ttm_approval_date,
+      bank_account_verified_at, performance_agreement_reference,
+      performance_agreement_executed_at, physical_verification_required,
+      recorded_by_user_id, created_at
+    ) VALUES (?, ?, 1, 'RELEASE', 1000000, ?, 'TTM/1', '2026-06-01', ?, 'PA/1', ?, 0, ?, ?)`)
+      .bind(crypto.randomUUID(), awardId, now, now, now, administrator.userId, now)
+      .run()
+    const award = { awardId, applicationId: submitted.applicationId }
+
+    const opened = await graphql<any>(`mutation($input: OpenRecoveryInput!) {
+      admin { funding { openRecovery(input: $input) { success message response { recoveryCase { id } } } } }
+    }`, { input: {
+      awardId: award.awardId,
+      officialDecisionReference: `REC-AUDIT-${award.applicationId}`,
+      officialDecisionDate: '2026-07-01',
+      reasonCategoryId: await reasonId(cycle.id, 'RECOVERY'),
+      applicantMessage: 'Recovery proceedings opened.',
+    } }, administrator.cookie)
+    expect(opened.data.admin.funding.openRecovery.success, JSON.stringify(opened)).toBe(true)
+    const caseId = opened.data.admin.funding.openRecovery.response.recoveryCase.id as string
+
+    expect(await auditActionsFor(caseId)).toContain('SEB.RECOVERY_OPENED')
+
+    const demand = await graphql<any>(`mutation($input: RecoveryEntryInput!) {
+      admin { funding { recordRecoveryEntry(input: $input) { success message } } }
+    }`, { input: {
+      recoveryCaseId: caseId, expectedLedgerVersion: 0,
+      entryType: 'DEMAND', component: 'PENAL_INTEREST', relatedEntryId: null,
+      amountPaise: '10000', externalReference: `REC-D-${award.applicationId}`,
+      occurredAt: new Date().toISOString(), reasonCategoryId: null,
+      applicantMessage: 'Interest demanded.',
+    } }, administrator.cookie)
+    expect(demand.data.admin.funding.recordRecoveryEntry.success).toBe(true)
+
+    // The waiver itself.
+    const waiver = await graphql<any>(`mutation($input: RecoveryEntryInput!) {
+      admin { funding { recordRecoveryEntry(input: $input) { success message } } }
+    }`, { input: {
+      recoveryCaseId: caseId, expectedLedgerVersion: 1,
+      entryType: 'WAIVER', component: 'PENAL_INTEREST', relatedEntryId: null,
+      amountPaise: '10000', externalReference: `REC-W-${award.applicationId}`,
+      occurredAt: new Date().toISOString(),
+      reasonCategoryId: await reasonId(cycle.id, 'RECOVERY_WAIVER'),
+      applicantMessage: 'Interest waived.',
+    } }, administrator.cookie)
+    expect(waiver.data.admin.funding.recordRecoveryEntry.success, JSON.stringify(waiver)).toBe(true)
+
+    const afterEntries = await auditActionsFor(caseId)
+    expect(afterEntries.filter((a) => a === 'SEB.RECOVERY_ENTRY_RECORDED')).toHaveLength(2)
+
+    const closed = await graphql<any>(`mutation($input: CloseRecoveryInput!) {
+      admin { funding { closeRecovery(input: $input) { success message } } }
+    }`, { input: {
+      recoveryCaseId: caseId, expectedVersion: 1, reason: 'Balance settled.',
+    } }, administrator.cookie)
+    expect(closed.data.admin.funding.closeRecovery.success, JSON.stringify(closed)).toBe(true)
+    expect(await auditActionsFor(caseId)).toContain('SEB.RECOVERY_CLOSED')
+  })
+})
+
 describe('what a reviewer read off the documents', () => {
   /**
    * Takes a fresh application to the point a desk review can be completed, and

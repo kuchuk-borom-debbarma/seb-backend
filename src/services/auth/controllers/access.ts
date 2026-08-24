@@ -410,9 +410,24 @@ export const acceptRoleInvite = async (
     input.token,
     now,
   )
-  // One refusal for every failure — wrong key, altered bytes, expired, absent.
-  // Distinguishing them would let somebody probe which tokens are valid.
+  /*
+   * One refusal for every failure — wrong key, altered bytes, expired, absent.
+   * Distinguishing them would let somebody probe which tokens are valid.
+   *
+   * Recorded, though, because a run of refusals is exactly what a super
+   * administrator would want to see: it is somebody trying tokens. The actor is
+   * null, as it is for every unauthenticated act — possession of the token is
+   * the credential here, and a refused token identifies nobody.
+   */
   if (!invite || !isManageableRole(invite.role)) {
+    await createAuditEvent(
+      context.db,
+      auditEvent(context, {
+        action: auditActions.roleInviteRefused,
+        entityType: 'CORE_USER',
+        outcome: 'FAILURE',
+      }),
+    )
     return failure(INVITE_UNUSABLE_MESSAGE)
   }
 
@@ -425,6 +440,15 @@ export const acceptRoleInvite = async (
     // whoever holds the link is no longer necessarily the account holder.
     subject.email !== invite.email
   ) {
+    await createAuditEvent(
+      context.db,
+      auditEvent(context, {
+        action: auditActions.roleInviteRefused,
+        entityType: 'CORE_USER',
+        entityId: subject?.id ?? null,
+        outcome: 'FAILURE',
+      }),
+    )
     return failure(INVITE_UNUSABLE_MESSAGE)
   }
 

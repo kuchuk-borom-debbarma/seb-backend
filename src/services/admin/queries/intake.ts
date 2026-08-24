@@ -878,6 +878,22 @@ export const cancelRevisionRequestWrite = async (
           AND ${sebRevisionRequest.cancelledAt} = ${input.now.getTime()}
       )
     `),
+    /*
+     * The applicant-facing event above says what happened to the application;
+     * this says who did it. Withdrawing a correction request is the one
+     * administrative act here that leaves the application exactly as it was, so
+     * without this it left no trace of the officer at all.
+     */
+    context.db.insert(coreAuditEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.REVISION_CANCELLED',
+        'SEB_APPLICATION', ${input.applicationId}, 'SUCCESS', NULL, NULL, NULL,
+        NULL, NULL, ${input.now.getTime()}
+      WHERE EXISTS (
+        SELECT 1 FROM ${sebRevisionRequest}
+        WHERE ${sebRevisionRequest.id} = ${input.revisionRequestId}
+          AND ${sebRevisionRequest.cancelledAt} = ${input.now.getTime()}
+      )
+    `),
   ])
   return Array.isArray(cancelled) && cancelled.length === 1
 }

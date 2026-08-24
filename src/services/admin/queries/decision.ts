@@ -567,6 +567,16 @@ export const updateDraftMeetingWrite = async (
     eq(sebTtmMeeting.currentVersion, input.expectedVersion),
     isNull(sebTtmMeeting.deletedAt),
   )).returning({ id: sebTtmMeeting.id })
+  /*
+   * The audit row is written in the same batch as the change it records, and
+   * gated on the change having landed — so a losing writer records nothing
+   * rather than claiming an action it did not perform.
+   */
+  const auditGuard = sql`EXISTS (
+    SELECT 1 FROM ${sebTtmMeeting}
+    WHERE ${sebTtmMeeting.id} = ${input.meetingId}
+      AND ${sebTtmMeeting.currentVersion} = ${next}
+  )`
   const [changed] = await context.db.batch([
     updated,
     context.db.insert(sebTtmMeetingVersion).select(sql`
@@ -575,6 +585,12 @@ export const updateDraftMeetingWrite = async (
         'UPDATED', ${input.reason}, ${input.actorId}, ${input.now.getTime()}
       FROM ${sebTtmMeeting} AS meeting
       WHERE meeting.id = ${input.meetingId} AND meeting.current_version = ${next}
+    `),
+    context.db.insert(coreAuditEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.TTM_MEETING_CHANGED',
+        'SEB_TTM_MEETING', ${input.meetingId}, 'SUCCESS', NULL, NULL, NULL, NULL,
+        ${JSON.stringify({ change: 'UPDATED' })}, ${input.now.getTime()}
+      WHERE ${auditGuard}
     `),
   ])
   return changedExactlyOne(changed)
@@ -593,6 +609,11 @@ export const cancelMeetingWrite = async (
     sql`${sebTtmMeeting.status} IN ('DRAFT', 'IN_SESSION')`,
     isNull(sebTtmMeeting.deletedAt),
   )).returning({ id: sebTtmMeeting.id })
+  const auditGuard = sql`EXISTS (
+    SELECT 1 FROM ${sebTtmMeeting}
+    WHERE ${sebTtmMeeting.id} = ${input.meetingId}
+      AND ${sebTtmMeeting.currentVersion} = ${next}
+  )`
   const [changed] = await context.db.batch([
     updated,
     context.db.update(sebTtmAgendaItem).set({
@@ -623,6 +644,12 @@ export const cancelMeetingWrite = async (
       FROM ${sebTtmMeeting} AS meeting
       WHERE meeting.id = ${input.meetingId} AND meeting.current_version = ${next}
     `),
+    context.db.insert(coreAuditEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.TTM_MEETING_CHANGED',
+        'SEB_TTM_MEETING', ${input.meetingId}, 'SUCCESS', NULL, NULL, NULL, NULL,
+        ${JSON.stringify({ change: 'CANCELLED' })}, ${input.now.getTime()}
+      WHERE ${auditGuard}
+    `),
   ])
   return changedExactlyOne(changed)
 }
@@ -632,6 +659,9 @@ export const addAgendaItemWrite = async (
   input: { meetingId: string; applicationId: string; submissionId: string; bankOutcomeId: string; position: number; actorId: string; now: Date },
 ) => {
   const id = crypto.randomUUID()
+  const auditGuard = sql`EXISTS (
+    SELECT 1 FROM ${sebTtmAgendaItem} WHERE ${sebTtmAgendaItem.id} = ${id}
+  )`
   const [inserted] = await context.db.batch([
     context.db.insert(sebTtmAgendaItem).select(sql`
       SELECT ${id}, ${input.meetingId}, ${input.applicationId}, ${input.submissionId},
@@ -652,6 +682,12 @@ export const addAgendaItemWrite = async (
       SELECT ${crypto.randomUUID()}, ${id}, 1, ${input.position}, 'ACTIVE',
         'ADDED', NULL, ${input.actorId}, ${input.now.getTime()}
       WHERE EXISTS (SELECT 1 FROM ${sebTtmAgendaItem} WHERE ${sebTtmAgendaItem.id} = ${id})
+    `),
+    context.db.insert(coreAuditEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.TTM_AGENDA_CHANGED',
+        'SEB_TTM_MEETING', ${input.meetingId}, 'SUCCESS', NULL, NULL, NULL, NULL,
+        ${JSON.stringify({ change: 'ITEM_ADDED' })}, ${input.now.getTime()}
+      WHERE ${auditGuard}
     `),
   ])
   return changedExactlyOne(inserted) ? id : null
@@ -677,6 +713,11 @@ export const changeAgendaItemWrite = async (
       WHERE ${sebTtmMeeting.id} = ${input.meetingId} AND ${sebTtmMeeting.status} = 'DRAFT'
     )`,
   )).returning({ id: sebTtmAgendaItem.id })
+  const auditGuard = sql`EXISTS (
+    SELECT 1 FROM ${sebTtmAgendaItem}
+    WHERE ${sebTtmAgendaItem.id} = ${input.agendaItemId}
+      AND ${sebTtmAgendaItem.currentVersion} = ${next}
+  )`
   const [changed] = await context.db.batch([
     updated,
     context.db.insert(sebTtmAgendaItemVersion).select(sql`
@@ -685,6 +726,12 @@ export const changeAgendaItemWrite = async (
         ${input.actorId}, ${input.now.getTime()}
       FROM ${sebTtmAgendaItem} AS item
       WHERE item.id = ${input.agendaItemId} AND item.current_version = ${next}
+    `),
+    context.db.insert(coreAuditEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.TTM_AGENDA_CHANGED',
+        'SEB_TTM_MEETING', ${input.meetingId}, 'SUCCESS', NULL, NULL, NULL, NULL,
+        ${JSON.stringify({ change: 'ITEM_CHANGED' })}, ${input.now.getTime()}
+      WHERE ${auditGuard}
     `),
   ])
   return changedExactlyOne(changed)
@@ -713,6 +760,11 @@ export const transitionMeetingWrite = async (
         )`
       : undefined,
   )).returning({ id: sebTtmMeeting.id })
+  const auditGuard = sql`EXISTS (
+    SELECT 1 FROM ${sebTtmMeeting}
+    WHERE ${sebTtmMeeting.id} = ${input.meetingId}
+      AND ${sebTtmMeeting.currentVersion} = ${next}
+  )`
   const [changed] = await context.db.batch([
     updated,
     context.db.insert(sebTtmMeetingVersion).select(sql`
@@ -722,6 +774,12 @@ export const transitionMeetingWrite = async (
       FROM ${sebTtmMeeting} AS meeting
       WHERE meeting.id = ${input.meetingId}
         AND meeting.current_version = ${next} AND meeting.status = ${input.to}
+    `),
+    context.db.insert(coreAuditEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.TTM_MEETING_CHANGED',
+        'SEB_TTM_MEETING', ${input.meetingId}, 'SUCCESS', NULL, NULL, NULL, NULL,
+        ${JSON.stringify({ change: 'TRANSITIONED' })}, ${input.now.getTime()}
+      WHERE ${auditGuard}
     `),
   ])
   return changedExactlyOne(changed)

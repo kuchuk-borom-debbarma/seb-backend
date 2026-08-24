@@ -568,6 +568,18 @@ export const openRecoveryWrite = async (
         ${input.actorId}, ${input.now.getTime()}
       WHERE EXISTS (SELECT 1 FROM ${sebRecoveryCase} WHERE ${sebRecoveryCase.id} = ${id})
     `),
+    /*
+     * Recovery is public money being claimed back, and a waiver is public money
+     * written off. Both have to be reviewable after the fact, which means the
+     * audit trail and not only the ledger — the ledger says what the balance
+     * is, the trail says who moved it.
+     */
+    context.db.insert(coreAuditEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_OPENED',
+        'SEB_RECOVERY_CASE', ${id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL,
+        ${input.now.getTime()}
+      WHERE EXISTS (SELECT 1 FROM ${sebRecoveryCase} WHERE ${sebRecoveryCase.id} = ${id})
+    `),
   ])
   return changedExactlyOne(inserted) ? id : null
 }
@@ -639,6 +651,18 @@ export const recordRecoveryEntryWrite = async (
       eq(sebRecoveryCase.ledgerVersion, input.expectedLedgerVersion),
       sql`EXISTS (SELECT 1 FROM ${sebRecoveryEntry} WHERE ${sebRecoveryEntry.id} = ${id})`,
     )),
+    /*
+     * The entry type is recorded in the metadata, because a waiver and a
+     * receipt are the same shape and very different acts — a trail that could
+     * not tell them apart would be no use for the one that matters.
+     */
+    context.db.insert(coreAuditEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_ENTRY_RECORDED',
+        'SEB_RECOVERY_CASE', ${input.recoveryCaseId}, 'SUCCESS', NULL, NULL, NULL,
+        NULL, ${JSON.stringify({ entryType: input.entryType, component: input.component })},
+        ${input.now.getTime()}
+      WHERE EXISTS (SELECT 1 FROM ${sebRecoveryEntry} WHERE ${sebRecoveryEntry.id} = ${id})
+    `),
   ])
   return changedExactlyOne(inserted) ? id : null
 }
@@ -661,6 +685,16 @@ export const closeRecoveryWrite = async (
     context.db.insert(sebRecoveryCaseVersion).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.recoveryCaseId}, ${next}, 'CLOSED',
         'CLOSED', ${input.reason}, ${input.actorId}, ${input.now.getTime()}
+      WHERE EXISTS (
+        SELECT 1 FROM ${sebRecoveryCase}
+        WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
+          AND ${sebRecoveryCase.currentVersion} = ${next}
+      )
+    `),
+    context.db.insert(coreAuditEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_CLOSED',
+        'SEB_RECOVERY_CASE', ${input.recoveryCaseId}, 'SUCCESS', NULL, NULL, NULL,
+        NULL, NULL, ${input.now.getTime()}
       WHERE EXISTS (
         SELECT 1 FROM ${sebRecoveryCase}
         WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
@@ -711,6 +745,21 @@ export const cancelRecoveryWrite = async (
         WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
           AND ${sebRecoveryCase.currentVersion} = ${next}
           AND ${sebRecoveryCase.status} = 'CANCELLED'
+      )
+    `),
+    /*
+     * A cancellation is the one recovery act that leaves no ledger entry
+     * behind, so without this the case would vanish from the trail entirely
+     * rather than merely being unexplained.
+     */
+    context.db.insert(coreAuditEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_CANCELLED',
+        'SEB_RECOVERY_CASE', ${input.recoveryCaseId}, 'SUCCESS', NULL, NULL, NULL,
+        NULL, NULL, ${input.now.getTime()}
+      WHERE EXISTS (
+        SELECT 1 FROM ${sebRecoveryCase}
+        WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
+          AND ${sebRecoveryCase.currentVersion} = ${next}
       )
     `),
   ])
