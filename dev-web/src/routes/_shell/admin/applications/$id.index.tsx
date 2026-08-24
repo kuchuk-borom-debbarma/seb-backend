@@ -110,6 +110,8 @@ function WorkspacePage() {
           status={application.status}
           statusVersion={application.statusVersion}
           reasons={reasons}
+          rules={workspace.identifierRules}
+          reviewingOwnApplication={application.applicantUserId === viewer?.id}
           hasReview={workspace.reviews.length > 0}
           onChanged={refresh}
         />
@@ -300,6 +302,8 @@ function NextStep({
   status,
   statusVersion,
   reasons,
+  rules,
+  reviewingOwnApplication,
   hasReview,
   onChanged,
 }: {
@@ -307,6 +311,8 @@ function NextStep({
   status: string
   statusVersion: number
   reasons: Parameters<typeof DeskReviewForm>[0]['reasons']
+  rules: Parameters<typeof DeskReviewForm>[0]['rules']
+  reviewingOwnApplication: boolean
   hasReview: boolean
   onChanged: () => Promise<unknown>
 }) {
@@ -401,6 +407,8 @@ function NextStep({
           </p>
           <DeskReviewForm
             reasons={reasons}
+            rules={rules}
+            reviewingOwnApplication={reviewingOwnApplication}
             pending={complete.isPending}
             error={error}
             onSubmit={(draft) => complete.mutate(draft)}

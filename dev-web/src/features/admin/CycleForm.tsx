@@ -16,12 +16,31 @@
 import { useState } from 'react'
 import type {
   AssessmentType,
+  DeskReviewCheckType,
+  DeskReviewIdentifierKind,
   DocumentType,
+  IdentifierDuplicatePolicy,
+  IdentifierRequirement,
   ProgrammeCycleInput,
   ProgrammeDocumentCondition,
   ProgrammeJurisdiction,
   ProgrammeReasonContext,
 } from '#/graphql/generated/schema'
+
+/**
+ * One row of the identifier editor.
+ *
+ * `checkType` is optional to match the generated input exactly: the API accepts
+ * it absent as well as null, and narrowing it here would make every rule the
+ * server sends back fail to typecheck on the way in.
+ */
+type IdentifierRuleValue = {
+  kind: DeskReviewIdentifierKind
+  requirement: IdentifierRequirement
+  duplicatePolicy: IdentifierDuplicatePolicy
+  checkType?: DeskReviewCheckType | null
+}
+import { CHECKS } from './DeskReviewForm'
 import { useMarker } from '#/features/guide/GuideContext'
 import { humanize } from '#/lib/format'
 
@@ -78,6 +97,68 @@ const defaultReasons = () =>
     applicantMessageTemplate: null as string | null,
   }))
 
+/** Every identifier the desk review knows how to transcribe. */
+const IDENTIFIER_KINDS: DeskReviewIdentifierKind[] = [
+  'ST_CERTIFICATE',
+  'IDENTITY_DOCUMENT',
+  'BANK_ACCOUNT',
+  'BUSINESS_REGISTRATION',
+]
+
+const IDENTIFIER_REQUIREMENTS: IdentifierRequirement[] = [
+  'REQUIRED_ON_PASS',
+  'OPTIONAL',
+  'OFF',
+]
+
+/**
+ * What each setting means, in the words an officer configuring a cycle needs.
+ *
+ * The two settings are independent on purpose, and that is the thing most
+ * likely to be misread: an identifier can be collected without being compared
+ * (joint and family bank accounts are real, and refusing them would be wrong),
+ * and it can be compared without being demanded.
+ */
+const REQUIREMENT_HELP: Record<IdentifierRequirement, string> = {
+  REQUIRED_ON_PASS: 'Demanded whenever the check it stands behind is passed.',
+  OPTIONAL: 'Collected if the reviewer has it. Never blocks the review.',
+  OFF: 'Not collected at all. The field does not appear.',
+}
+
+/**
+ * How Mission SEP is configured today, as the starting point for a new cycle.
+ *
+ * Business registration is optional rather than demanded: an unregistered
+ * enterprise has none, and demanding one would make somebody invent a number to
+ * get past the form.
+ */
+const defaultIdentifierRules = (): IdentifierRuleValue[] => [
+  {
+    kind: 'ST_CERTIFICATE',
+    requirement: 'REQUIRED_ON_PASS',
+    duplicatePolicy: 'CHECKED',
+    checkType: 'ST_ELIGIBILITY',
+  },
+  {
+    kind: 'IDENTITY_DOCUMENT',
+    requirement: 'REQUIRED_ON_PASS',
+    duplicatePolicy: 'CHECKED',
+    checkType: 'IDENTITY_KYC',
+  },
+  {
+    kind: 'BANK_ACCOUNT',
+    requirement: 'REQUIRED_ON_PASS',
+    duplicatePolicy: 'CHECKED',
+    checkType: 'DOCUMENT_COMPLETENESS',
+  },
+  {
+    kind: 'BUSINESS_REGISTRATION',
+    requirement: 'OPTIONAL',
+    duplicatePolicy: 'NOT_CHECKED',
+    checkType: null,
+  },
+]
+
 /** The evidence Mission SEP asks for, with the condition each is required under. */
 const defaultDocumentRules = (): Array<{
   documentType: DocumentType
@@ -115,6 +196,7 @@ export const emptyCycle = (year: number): ProgrammeCycleInput => ({
     fundingCeilingScope: null,
     requiredAssessmentTypes: [...ASSESSMENT_TYPES],
     documentRules: defaultDocumentRules(),
+    identifierRules: defaultIdentifierRules(),
     reasons: defaultReasons(),
   },
 })
@@ -156,6 +238,13 @@ export function CycleForm({
       ...current,
       policy: { ...current.policy, [key]: value },
     }))
+
+  /*
+   * The API treats an absent list as "collect nothing", so the field is
+   * nullable there. The form always has a list to render, and an empty one is
+   * shown back as the real setting it is rather than as a blank.
+   */
+  const identifierRules: IdentifierRuleValue[] = values.policy.identifierRules ?? []
 
   const toggleAssessment = (type: AssessmentType) =>
     setPolicy(
@@ -581,6 +670,169 @@ export function CycleForm({
               }
             >
               Add a document
+            </button>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset className="fieldset">
+        <div className="label-row">
+          <legend className="eyebrow">Numbers the desk review writes down</legend>
+        </div>
+        <p className="field-hint" style={{ margin: '0.5rem 0 0.75rem' }}>
+          A reviewer transcribes these off the documents as they pass each check. The two
+          settings are separate: what is <em>demanded</em> and what is <em>compared</em>
+          against other applications. A bank account shared by a family is a real thing,
+          so it can be collected without a match ever blocking anybody.
+        </p>
+
+        {identifierRules.length === 0 ? (
+          /*
+           * An empty rule set is a real configuration — it demands nothing and
+           * compares nothing — and it is indistinguishable from a cycle somebody
+           * forgot to configure. Saying so is the difference.
+           */
+          <p className="notice">
+            <span className="notice-title">This cycle asks for no numbers</span>
+            Nothing will be transcribed and no duplicate can be detected. That is a valid
+            setting, but rarely the intended one.
+          </p>
+        ) : null}
+
+        <div className="stack" style={{ gap: 'var(--space-2)' }}>
+          {identifierRules.map((rule, index) => {
+            const update = (patch: Partial<IdentifierRuleValue>) =>
+              setPolicy(
+                'identifierRules',
+                identifierRules.map((current, position) =>
+                  position === index ? { ...current, ...patch } : current,
+                ),
+              )
+            return (
+              <div className="row" key={`${rule.kind}-${index}`}>
+                <select
+                  className="select"
+                  aria-label={`Identifier ${index + 1}`}
+                  value={rule.kind}
+                  onChange={(event) =>
+                    update({ kind: event.target.value as DeskReviewIdentifierKind })
+                  }
+                >
+                  {IDENTIFIER_KINDS.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {humanize(kind)}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  className="select"
+                  aria-label={`Demanded, for identifier ${index + 1}`}
+                  value={rule.requirement}
+                  onChange={(event) => {
+                    const requirement = event.target.value as IdentifierRequirement
+                    /*
+                     * Only REQUIRED_ON_PASS has a moment at which it applies, and
+                     * the database enforces exactly that with a CHECK. Clearing
+                     * the check here keeps the form from composing a row the API
+                     * will refuse.
+                     */
+                    update({
+                      requirement,
+                      checkType:
+                        requirement === 'REQUIRED_ON_PASS'
+                          ? (rule.checkType ?? CHECKS[0]!.type)
+                          : null,
+                    })
+                  }}
+                >
+                  {IDENTIFIER_REQUIREMENTS.map((requirement) => (
+                    <option key={requirement} value={requirement}>
+                      {humanize(requirement)}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  className="select"
+                  aria-label={`Evidence for which check, for identifier ${index + 1}`}
+                  value={rule.checkType ?? ''}
+                  disabled={rule.requirement !== 'REQUIRED_ON_PASS'}
+                  onChange={(event) =>
+                    update({ checkType: event.target.value as DeskReviewCheckType })
+                  }
+                >
+                  {CHECKS.map((check) => (
+                    <option key={check.type} value={check.type}>
+                      {check.title}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={rule.duplicatePolicy === 'CHECKED'}
+                    aria-label={`Compare for duplicates, for identifier ${index + 1}`}
+                    onChange={(event) =>
+                      update({
+                        duplicatePolicy: event.target.checked ? 'CHECKED' : 'NOT_CHECKED',
+                      })
+                    }
+                  />
+                  Compare
+                </label>
+
+                <button
+                  type="button"
+                  className="button"
+                  data-variant="ghost"
+                  onClick={() =>
+                    setPolicy(
+                      'identifierRules',
+                      identifierRules.filter(
+                        (_, position) => position !== index,
+                      ),
+                    )
+                  }
+                >
+                  Remove
+                </button>
+              </div>
+            )
+          })}
+
+          <p className="field-hint">
+            {REQUIREMENT_HELP.REQUIRED_ON_PASS} {REQUIREMENT_HELP.OPTIONAL}{' '}
+            {REQUIREMENT_HELP.OFF}
+          </p>
+
+          <div>
+            <button
+              type="button"
+              className="button"
+              disabled={identifierRules.length >= IDENTIFIER_KINDS.length}
+              onClick={() =>
+                setPolicy('identifierRules', [
+                  ...identifierRules,
+                  {
+                    // The first kind not already configured, so adding a row
+                    // cannot produce the duplicate the API refuses.
+                    kind:
+                      IDENTIFIER_KINDS.find(
+                        (kind) =>
+                          !identifierRules.some(
+                            (rule) => rule.kind === kind,
+                          ),
+                      ) ?? IDENTIFIER_KINDS[0]!,
+                    requirement: 'OPTIONAL',
+                    duplicatePolicy: 'NOT_CHECKED',
+                    checkType: null,
+                  },
+                ])
+              }
+            >
+              Add an identifier
             </button>
           </div>
         </div>

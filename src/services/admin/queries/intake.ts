@@ -444,6 +444,29 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
     ),
   )).orderBy(asc(sebApplicationVersion.version))
   const snapshotsByVersion = new Map(snapshots.map((snapshot) => [snapshot.version, snapshot]))
+  /*
+   * The identifier rules the newest submission was frozen against.
+   *
+   * This is a third round trip rather than a member of either batch above, and
+   * it has to be: the frozen cycle *version* is recorded on the snapshot, not
+   * on the application, so it is not known until the snapshots have loaded.
+   * Reading the cycle's current rules instead would be one call cheaper and
+   * wrong — editing a cycle would retroactively change what an already
+   * submitted application is judged by, which is the property the freezing
+   * exists to provide.
+   *
+   * It is a single-table read against the composite primary key.
+   *
+   * Both lookups are total rather than defensive: a draft returned above, so
+   * anything reaching here has been submitted at least once, and the snapshots
+   * were selected for exactly these submissions' versions.
+   */
+  const frozenSnapshot = snapshotsByVersion.get(
+    submissions[submissions.length - 1]!.applicationVersion,
+  )!
+  const identifierRules = await findIdentifierRules(
+    db, frozenSnapshot.programmeCycleId, frozenSnapshot.programmeCycleVersion,
+  )
   const submissionChanges = submissions.slice(1).map((submission, index) => {
     const previousSubmission = submissions[index]!
     return {
@@ -473,6 +496,7 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
     internalNotes: [...notes].reverse(),
     reviews,
     reviewChecks,
+    identifierRules,
     referrals,
     bankOutcomes: bankOutcomeRows,
     agenda,

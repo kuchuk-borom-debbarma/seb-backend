@@ -96,6 +96,7 @@ query IntakeWorkspace($applicationId: ID!) {
             referenceNumber
             status
             statusVersion
+            applicantUserId
             assignedToUserId
             assignedTo { id email }
             assignedAt
@@ -132,6 +133,7 @@ query IntakeWorkspace($applicationId: ID!) {
           notes { id correctionOfNoteId note authoredByUserId createdAt }
           reviews { id submissionId outcome reviewedByUserId reviewedAt }
           reviewChecks { id deskReviewId checkType result internalNote createdAt }
+          identifierRules { kind requirement duplicatePolicy checkType }
           referrals {
             id
             bankName

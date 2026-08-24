@@ -27,7 +27,7 @@ import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from './officeGuidance'
 
 /** The checks the API defines, in the order a reviewer works through them. */
-const CHECKS: { type: DeskReviewCheckType; title: string; asks: string }[] = [
+export const CHECKS: { type: DeskReviewCheckType; title: string; asks: string }[] = [
   {
     type: 'IDENTITY_KYC',
     title: 'Identity',
@@ -133,6 +133,8 @@ export type DeskReviewDraft = {
     branchCode?: string | null
     matchedReason?: string | null
   }[]
+  /** Null unless the reviewer is the applicant, where it must be true. */
+  conflictAcknowledged?: boolean | null
 }
 
 /**
@@ -142,50 +144,65 @@ export type DeskReviewDraft = {
  * "I saw a valid certificate" into something the programme can later ask
  * questions about — chiefly whether the same one has been used before.
  *
- * Business registration is never demanded: an unregistered enterprise has none,
- * and requiring one would make somebody invent a number to get past the form.
+ * What is demanded is the cycle's decision, not this file's. A cycle that
+ * demands nothing is a real configuration and shows no fields at all.
  */
-const TRANSCRIBE: {
-  kind: DeskReviewIdentifierKind
-  forCheck: DeskReviewCheckType | null
-  label: string
-  hint: string
-  branch?: string
-}[] = [
-  {
-    kind: 'ST_CERTIFICATE',
-    forCheck: 'ST_ELIGIBILITY',
+/**
+ * How each identifier is presented. Copy, not policy.
+ *
+ * Which identifiers a cycle demands, and which it compares for duplicates, is
+ * configured per programme cycle and arrives with the workspace. What stays
+ * here is only how to word the field — a label and a hint are editorial, and
+ * putting them in the database would mean a form change needed a data change.
+ *
+ * `branch` marks the one identifier that is two fields: an account number is
+ * only unique with its branch, and the same digits at two banks are two
+ * accounts.
+ */
+const IDENTIFIER_PRESENTATION: Record<
+  DeskReviewIdentifierKind,
+  { label: string; hint: string; branch?: string }
+> = {
+  ST_CERTIFICATE: {
     label: 'Scheduled Tribe certificate number',
     hint: 'As printed on the certificate. Punctuation and case do not matter.',
   },
-  {
-    kind: 'IDENTITY_DOCUMENT',
-    forCheck: 'IDENTITY_KYC',
+  IDENTITY_DOCUMENT: {
     label: 'Identity document number',
     hint: 'Stored only as a one-way digest. Nobody, including you, can read it back.',
   },
-  {
-    kind: 'BANK_ACCOUNT',
-    forCheck: 'DOCUMENT_COMPLETENESS',
+  BANK_ACCOUNT: {
     label: 'Bank account number',
     hint: 'With its branch code: the same account number at two banks is two accounts.',
     branch: 'Branch code (IFSC)',
   },
-  {
-    kind: 'BUSINESS_REGISTRATION',
-    forCheck: null,
+  BUSINESS_REGISTRATION: {
     label: 'Business registration number',
     hint: 'If the enterprise is registered. Leave blank if it is not.',
   },
-]
+}
+
+/** One cycle's rule for one identifier, frozen with the submission. */
+export type IdentifierRule = {
+  kind: DeskReviewIdentifierKind
+  requirement: 'REQUIRED_ON_PASS' | 'OPTIONAL' | 'OFF'
+  duplicatePolicy: 'CHECKED' | 'NOT_CHECKED'
+  checkType: DeskReviewCheckType | null
+}
 
 export function DeskReviewForm({
   reasons,
+  rules,
+  reviewingOwnApplication,
   pending,
   error,
   onSubmit,
 }: {
   reasons: ReasonCategory[] | undefined
+  /** The cycle's identifier rules, frozen with the submission under review. */
+  rules: IdentifierRule[]
+  /** Whether the signed-in reviewer is also the applicant. */
+  reviewingOwnApplication: boolean
   pending: boolean
   error: string | null
   onSubmit: (draft: DeskReviewDraft) => void
@@ -204,6 +221,7 @@ export function DeskReviewForm({
     Partial<Record<DeskReviewIdentifierKind, { value: string; branchCode: string }>>
   >({})
   const [notSameClaim, setNotSameClaim] = useState('')
+  const [conflictAcknowledged, setConflictAcknowledged] = useState(false)
   const mark = useMarker()
 
   /*
@@ -211,10 +229,19 @@ export function DeskReviewForm({
    * does not apply asks for nothing, so the field disappears rather than sitting
    * there greyed out.
    */
-  const transcribing = TRANSCRIBE.filter(
-    (entry) => entry.forCheck === null || results[entry.forCheck] === 'PASS',
+  const transcribing = rules
+    .filter((rule) => rule.requirement !== 'OFF')
+    .filter((rule) => rule.checkType === null || results[rule.checkType] === 'PASS')
+    .map((rule) => ({ ...rule, ...IDENTIFIER_PRESENTATION[rule.kind] }))
+  /*
+   * Demanded only where the cycle says so *and* the check it stands behind
+   * passed. A failed check is attesting to nothing, so asking for the number
+   * behind it would be asking somebody to write down a document they have just
+   * rejected.
+   */
+  const required = transcribing.filter(
+    (entry) => entry.requirement === 'REQUIRED_ON_PASS' && entry.checkType !== null,
   )
-  const required = transcribing.filter((entry) => entry.forCheck !== null)
 
   /*
    * The server has already refused once because one of these numbers exists on
@@ -261,7 +288,10 @@ export function DeskReviewForm({
         (entered?.value.trim().length ?? 0) >= 4 &&
         (!entry.branch || (entered?.branchCode.trim().length ?? 0) >= 4)
       )
-    })
+    }) &&
+    // Permitted, but never silently: the server refuses the same way, so a
+    // disabled button here is the honest preview of that refusal.
+    (!reviewingOwnApplication || conflictAcknowledged)
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
@@ -291,6 +321,7 @@ export function DeskReviewForm({
           branchCode: entry.branch ? typed[entry.kind]!.branchCode.trim() : null,
           matchedReason: notSameClaim.trim() || null,
         })),
+      conflictAcknowledged: reviewingOwnApplication ? conflictAcknowledged : null,
     })
   }
 
@@ -388,7 +419,7 @@ export function DeskReviewForm({
                 <div>
                   <label className="field-label" htmlFor={`id-${entry.kind}`}>
                     {entry.label}
-                    {entry.forCheck === null ? ' (if there is one)' : ''}
+                    {entry.requirement === 'OPTIONAL' ? ' (if there is one)' : ''}
                   </label>
                   <input
                     id={`id-${entry.kind}`}
@@ -607,6 +638,27 @@ export function DeskReviewForm({
           </div>
         ) : null}
       </fieldset>
+
+      {reviewingOwnApplication ? (
+        /*
+         * `docs/policy-alignment.md` permits acting on your own application
+         * with disclosure. This is the disclosure, and it is deliberately not
+         * a warning: a small office will have officers who are also applicants
+         * and that is expected rather than suspect. Saying so is what has to
+         * happen, and the acknowledgement lands in the audit trail.
+         */
+        <p className="notice" style={{ marginTop: '1rem' }}>
+          <span className="notice-title">This is your own application</span>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={conflictAcknowledged}
+              onChange={(event) => setConflictAcknowledged(event.target.checked)}
+            />
+            I am reviewing an application I submitted, and I am recording that.
+          </label>
+        </p>
+      ) : null}
 
       {error ? (
         <p

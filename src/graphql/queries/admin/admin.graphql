@@ -119,10 +119,15 @@ type AdminProgrammeCycle {
 type AdminCycleAggregate {
   head: AdminProgrammeCycle!
   documentRules: [AdminDocumentRule!]!
+  # Empty means this cycle demands no identifiers and compares none. That is a
+  # real setting rather than a missing one, so it is returned as an empty list
+  # and shown back on the form — an unconfigured cycle should be visible.
+  identifierRules: [AdminIdentifierRule!]!
   assessmentRules: [AdminAssessmentRule!]!
   reasons: [AdminReasonCategory!]!
 }
 type AdminDocumentRule { id: ID!, documentType: DocumentType!, condition: ProgrammeDocumentCondition! }
+type AdminIdentifierRule { kind: DeskReviewIdentifierKind!, requirement: IdentifierRequirement!, duplicatePolicy: IdentifierDuplicatePolicy!, checkType: DeskReviewCheckType }
 type AdminAssessmentRule { id: ID!, assessmentType: AssessmentType!, requiredOutcome: AssessmentOutcome! }
 type AdminReasonCategory { id: ID!, context: ProgrammeReasonContext!, code: String!, label: String!, applicantMessageTemplate: String }
 type AdminCycleConnection { nodes: [AdminProgrammeCycle!]!, pageInfo: PageInfo! }
@@ -161,6 +166,10 @@ type AdminApplicationState {
   referenceNumber: String
   status: ApplicationStatus!
   statusVersion: Int!
+  # Exposed so the office screen can tell a member of staff that the file in
+  # front of them is their own. Acting on it is permitted; doing so without
+  # saying so is not, and the form cannot ask for the disclosure without this.
+  applicantUserId: ID!
   assignedToUserId: ID
   assignedTo: StaffMember
   assignedAt: DateTime
@@ -198,6 +207,9 @@ type AdminWorkspace {
   notes: [AdminInternalNote!]!
   reviews: [AdminReview!]!
   reviewChecks: [AdminReviewCheck!]!
+  # Frozen with the submission, so a cycle edited afterwards does not change
+  # what this review is judged by. The desk-review form asks for exactly these.
+  identifierRules: [AdminIdentifierRule!]!
   referrals: [AdminBankReferral!]!
   bankOutcomes: [AdminBankOutcomeRecord!]!
   agenda: [AdminAgendaItem!]!
