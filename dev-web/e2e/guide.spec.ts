@@ -244,7 +244,7 @@ test.describe('walking a route', () => {
       .click()
 
     const rail = page.getByRole('complementary', { name: /Guided route/u })
-    // Step 3 is the claim, which needs a submitted application to claim.
+    // Step 3 needs a submitted application to be looking at.
     await rail.getByRole('button', { name: 'Next' }).click()
     await rail.getByRole('button', { name: 'Next' }).click()
 
@@ -494,15 +494,19 @@ test.describe('the office is led to the work, not only to the console', () => {
       await expect(rail.getByText(`Step ${step} of 9`)).toBeVisible()
     }
 
-    // Step four is the claim card, on that exact application.
+    // Step four is the "who is on this" card, on that exact application.
     await expect(page).toHaveURL(new RegExp(`/admin/applications/${id}$`, 'u'))
     await expect(page.locator('[data-marked]')).toHaveCount(1)
     await expect(page.locator('[data-guide="assignment"][data-marked]')).toBeVisible()
 
-    // And the product is still the product while the guide talks about it: the
-    // card it brackets is readable and its control is still usable.
-    await expect(page.getByText('Assignment', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Claim it' })).toBeEnabled()
+    /*
+     * And the product is still the product while the guide talks about it. The
+     * bracketed card is readable, and the action beside it is enabled — which
+     * is the property the card exists to demonstrate: it reports who was here
+     * last and forbids nothing.
+     */
+    await expect(page.getByText('Who is on this', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Start desk review' })).toBeEnabled()
   })
 
   test('knows it has arrived, even after another kind of file was opened', async ({

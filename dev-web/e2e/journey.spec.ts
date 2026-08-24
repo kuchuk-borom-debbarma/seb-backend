@@ -3,7 +3,7 @@
  *
  * One application is taken from signup to money in the bank, through every
  * screen a real applicant and a real programme officer would use: submission,
- * claim, desk review, referral to a partner bank, the bank's outcome, a
+ * desk review, referral to a partner bank, the bank's outcome, a
  * committee agenda and decision, a sanction order, and a payment.
  *
  * This is the test that proves the parts fit together. The individual specs
@@ -30,8 +30,10 @@ test('an application is carried from submission to payment', async ({ page }) =>
   await expect(page.getByRole('link', { name: reference })).toBeVisible()
 
   await page.goto(`/admin/applications/${id}`)
-  await page.getByRole('button', { name: 'Claim it' }).click()
-  await expect(page.getByRole('heading', { name: 'You have this' })).toBeVisible()
+  // Nobody has worked it yet, and it is workable anyway.
+  await expect(
+    page.getByRole('heading', { name: 'Nobody has worked this yet' }),
+  ).toBeVisible()
 
   await page.getByRole('button', { name: 'Start desk review' }).click()
   await expect(page.getByRole('heading', { name: /desk review/iu })).toBeVisible()

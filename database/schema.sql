@@ -1,8 +1,20 @@
--- Canonical schema for a new Mission SEP D1 database.
--- This is a base schema, not an incremental migration.
+-- Canonical schema for a Mission SEP D1 database.
+--
+-- Safe to apply to an empty database and safe to apply again: every statement
+-- is guarded with IF NOT EXISTS, so a re-run is a no-op and a half-created
+-- database recovers rather than erroring partway through.
+--
+-- That is NOT the same as being a migration. IF NOT EXISTS only ever helps an
+-- object that does not exist yet; it cannot alter a table that does. Changes to
+-- an existing table — a widened CHECK, a new column, a dropped index — belong
+-- in database/migrations/ and are applied by `npm run db:migrate`. This file
+-- is the baseline a brand new database starts from.
+--
+-- Generated from the Drizzle schema. Never hand-edit: run `npm run
+-- db:schema:generate`.
 PRAGMA foreign_keys = ON;
 
-CREATE TABLE `core_audit_event` (
+CREATE TABLE IF NOT EXISTS `core_audit_event` (
 	`id` text PRIMARY KEY NOT NULL,
 	`actor_user_id` text,
 	`action` text NOT NULL,
@@ -19,12 +31,12 @@ CREATE TABLE `core_audit_event` (
 	CONSTRAINT "core_audit_event_outcome_check" CHECK("core_audit_event"."outcome" IN ('SUCCESS', 'FAILURE'))
 );
 
-CREATE INDEX `core_audit_event_entity_idx` ON `core_audit_event` (`entity_type`,`entity_id`,`created_at`);
-CREATE INDEX `core_audit_event_actor_idx` ON `core_audit_event` (`actor_user_id`,`created_at`);
-CREATE INDEX `core_audit_event_action_idx` ON `core_audit_event` (`action`,`created_at`);
-CREATE INDEX `core_audit_event_request_idx` ON `core_audit_event` (`request_id`);
-CREATE INDEX `core_audit_event_created_idx` ON `core_audit_event` (`created_at`,`id`);
-CREATE TABLE `core_session` (
+CREATE INDEX IF NOT EXISTS `core_audit_event_entity_idx` ON `core_audit_event` (`entity_type`,`entity_id`,`created_at`);
+CREATE INDEX IF NOT EXISTS `core_audit_event_actor_idx` ON `core_audit_event` (`actor_user_id`,`created_at`);
+CREATE INDEX IF NOT EXISTS `core_audit_event_action_idx` ON `core_audit_event` (`action`,`created_at`);
+CREATE INDEX IF NOT EXISTS `core_audit_event_request_idx` ON `core_audit_event` (`request_id`);
+CREATE INDEX IF NOT EXISTS `core_audit_event_created_idx` ON `core_audit_event` (`created_at`,`id`);
+CREATE TABLE IF NOT EXISTS `core_session` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`token_digest` text NOT NULL,
@@ -36,10 +48,10 @@ CREATE TABLE `core_session` (
 	FOREIGN KEY (`user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict
 );
 
-CREATE UNIQUE INDEX `core_session_token_digest_unique` ON `core_session` (`token_digest`);
-CREATE INDEX `core_session_user_expiry_idx` ON `core_session` (`user_id`,`expires_at`);
-CREATE INDEX `core_session_expiry_idx` ON `core_session` (`expires_at`);
-CREATE TABLE `core_signup_challenge` (
+CREATE UNIQUE INDEX IF NOT EXISTS `core_session_token_digest_unique` ON `core_session` (`token_digest`);
+CREATE INDEX IF NOT EXISTS `core_session_user_expiry_idx` ON `core_session` (`user_id`,`expires_at`);
+CREATE INDEX IF NOT EXISTS `core_session_expiry_idx` ON `core_session` (`expires_at`);
+CREATE TABLE IF NOT EXISTS `core_signup_challenge` (
 	`id` text PRIMARY KEY NOT NULL,
 	`email` text NOT NULL,
 	`challenge_digest` text NOT NULL,
@@ -57,10 +69,10 @@ CREATE TABLE `core_signup_challenge` (
 	CONSTRAINT "core_signup_challenge_status_check" CHECK("core_signup_challenge"."status" IN ('PENDING', 'CONSUMED', 'EXHAUSTED', 'EXPIRED', 'CANCELLED', 'DELIVERY_FAILED'))
 );
 
-CREATE UNIQUE INDEX `core_signup_challenge_challenge_digest_unique` ON `core_signup_challenge` (`challenge_digest`);
-CREATE INDEX `core_signup_challenge_email_status_expiry_idx` ON `core_signup_challenge` (`email`,`status`,`expires_at`);
-CREATE INDEX `core_signup_challenge_status_expiry_idx` ON `core_signup_challenge` (`status`,`expires_at`);
-CREATE TABLE `core_user` (
+CREATE UNIQUE INDEX IF NOT EXISTS `core_signup_challenge_challenge_digest_unique` ON `core_signup_challenge` (`challenge_digest`);
+CREATE INDEX IF NOT EXISTS `core_signup_challenge_email_status_expiry_idx` ON `core_signup_challenge` (`email`,`status`,`expires_at`);
+CREATE INDEX IF NOT EXISTS `core_signup_challenge_status_expiry_idx` ON `core_signup_challenge` (`status`,`expires_at`);
+CREATE TABLE IF NOT EXISTS `core_user` (
 	`id` text PRIMARY KEY NOT NULL,
 	`email` text NOT NULL,
 	`password_hash` text NOT NULL,
@@ -75,8 +87,8 @@ CREATE TABLE `core_user` (
 	CONSTRAINT "core_user_row_version_check" CHECK("core_user"."row_version" >= 1)
 );
 
-CREATE UNIQUE INDEX `core_user_email_unique` ON `core_user` (`email`);
-CREATE TABLE `core_user_role_grant` (
+CREATE UNIQUE INDEX IF NOT EXISTS `core_user_email_unique` ON `core_user` (`email`);
+CREATE TABLE IF NOT EXISTS `core_user_role_grant` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`role` text NOT NULL,
@@ -96,10 +108,15 @@ CREATE TABLE `core_user_role_grant` (
           AND "core_user_role_grant"."revoked_at" >= "core_user_role_grant"."granted_at"))
 );
 
-CREATE UNIQUE INDEX `core_user_role_grant_active_uq` ON `core_user_role_grant` (`user_id`,`role`) WHERE "core_user_role_grant"."revoked_at" IS NULL;
-CREATE INDEX `core_user_role_grant_user_idx` ON `core_user_role_grant` (`user_id`,`revoked_at`,`role`);
-CREATE INDEX `core_user_role_grant_role_idx` ON `core_user_role_grant` (`role`,`revoked_at`,`user_id`);
-CREATE TABLE `seb_application` (
+CREATE UNIQUE INDEX IF NOT EXISTS `core_user_role_grant_active_uq` ON `core_user_role_grant` (`user_id`,`role`) WHERE "core_user_role_grant"."revoked_at" IS NULL;
+CREATE INDEX IF NOT EXISTS `core_user_role_grant_user_idx` ON `core_user_role_grant` (`user_id`,`revoked_at`,`role`);
+CREATE INDEX IF NOT EXISTS `core_user_role_grant_role_idx` ON `core_user_role_grant` (`role`,`revoked_at`,`user_id`);
+CREATE TABLE IF NOT EXISTS `core_schema_migration` (
+	`id` text PRIMARY KEY NOT NULL,
+	`applied_at` integer NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS `seb_application` (
 	`id` text PRIMARY KEY NOT NULL,
 	`applicant_user_id` text NOT NULL,
 	`enterprise_id` text NOT NULL,
@@ -137,22 +154,22 @@ CREATE TABLE `seb_application` (
         OR ("seb_application"."application_type" = 'EXPANSION' AND "seb_application"."phase_number" >= 2))
 );
 
-CREATE UNIQUE INDEX `seb_application_reference_number_unique` ON `seb_application` (`reference_number`);
-CREATE UNIQUE INDEX `seb_application_id_cycle_uq` ON `seb_application` (`id`,`programme_cycle_id`);
-CREATE UNIQUE INDEX `seb_application_case_id_uq` ON `seb_application` (`funding_case_id`,`id`);
-CREATE UNIQUE INDEX `seb_application_owner_id_uq` ON `seb_application` (`applicant_user_id`,`id`);
-CREATE UNIQUE INDEX `seb_application_case_cycle_phase_uq` ON `seb_application` (`funding_case_id`,`programme_cycle_id`,`phase_number`);
-CREATE INDEX `seb_application_owner_idx` ON `seb_application` (`applicant_user_id`,`deleted_at`,`updated_at`);
-CREATE INDEX `seb_application_enterprise_idx` ON `seb_application` (`enterprise_id`,`deleted_at`,`updated_at`);
-CREATE INDEX `seb_application_case_phase_idx` ON `seb_application` (`funding_case_id`,`phase_number`);
-CREATE INDEX `seb_application_cycle_idx` ON `seb_application` (`programme_cycle_id`,`deleted_at`,`updated_at`);
-CREATE INDEX `seb_application_status_idx` ON `seb_application` (`status`,`deleted_at`,`updated_at`);
-CREATE INDEX `seb_application_assignment_idx` ON `seb_application` (`assigned_to_user_id`,`status`,`status_changed_at`);
-CREATE INDEX `seb_application_intake_waiting_idx` ON `seb_application` (`deleted_at`,`status_changed_at`);
-CREATE INDEX `seb_application_intake_activity_idx` ON `seb_application` (`deleted_at`,`updated_at`);
-CREATE INDEX `seb_application_reference_search_idx` ON `seb_application` (lower("reference_number"));
-CREATE INDEX `seb_application_cycle_status_idx` ON `seb_application` (`programme_cycle_id`,`status`,`status_changed_at`);
-CREATE TABLE `seb_application_submission` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_reference_number_unique` ON `seb_application` (`reference_number`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_id_cycle_uq` ON `seb_application` (`id`,`programme_cycle_id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_case_id_uq` ON `seb_application` (`funding_case_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_owner_id_uq` ON `seb_application` (`applicant_user_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_case_cycle_phase_uq` ON `seb_application` (`funding_case_id`,`programme_cycle_id`,`phase_number`);
+CREATE INDEX IF NOT EXISTS `seb_application_owner_idx` ON `seb_application` (`applicant_user_id`,`deleted_at`,`updated_at`);
+CREATE INDEX IF NOT EXISTS `seb_application_enterprise_idx` ON `seb_application` (`enterprise_id`,`deleted_at`,`updated_at`);
+CREATE INDEX IF NOT EXISTS `seb_application_case_phase_idx` ON `seb_application` (`funding_case_id`,`phase_number`);
+CREATE INDEX IF NOT EXISTS `seb_application_cycle_idx` ON `seb_application` (`programme_cycle_id`,`deleted_at`,`updated_at`);
+CREATE INDEX IF NOT EXISTS `seb_application_status_idx` ON `seb_application` (`status`,`deleted_at`,`updated_at`);
+CREATE INDEX IF NOT EXISTS `seb_application_assignment_idx` ON `seb_application` (`assigned_to_user_id`,`status`,`status_changed_at`);
+CREATE INDEX IF NOT EXISTS `seb_application_intake_waiting_idx` ON `seb_application` (`deleted_at`,`status_changed_at`);
+CREATE INDEX IF NOT EXISTS `seb_application_intake_activity_idx` ON `seb_application` (`deleted_at`,`updated_at`);
+CREATE INDEX IF NOT EXISTS `seb_application_reference_search_idx` ON `seb_application` (lower("reference_number"));
+CREATE INDEX IF NOT EXISTS `seb_application_cycle_status_idx` ON `seb_application` (`programme_cycle_id`,`status`,`status_changed_at`);
+CREATE TABLE IF NOT EXISTS `seb_application_submission` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`submission_number` integer NOT NULL,
@@ -165,11 +182,11 @@ CREATE TABLE `seb_application_submission` (
 	CONSTRAINT "seb_application_submission_number_check" CHECK("seb_application_submission"."submission_number" >= 1)
 );
 
-CREATE UNIQUE INDEX `seb_application_submission_number_uq` ON `seb_application_submission` (`application_id`,`submission_number`);
-CREATE UNIQUE INDEX `seb_application_submission_version_uq` ON `seb_application_submission` (`application_id`,`application_version`);
-CREATE INDEX `seb_application_submission_submitted_idx` ON `seb_application_submission` (`submitted_at`);
-CREATE UNIQUE INDEX `seb_application_submission_application_id_uq` ON `seb_application_submission` (`application_id`,`id`);
-CREATE TABLE `seb_application_version` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_submission_number_uq` ON `seb_application_submission` (`application_id`,`submission_number`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_submission_version_uq` ON `seb_application_submission` (`application_id`,`application_version`);
+CREATE INDEX IF NOT EXISTS `seb_application_submission_submitted_idx` ON `seb_application_submission` (`submitted_at`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_submission_application_id_uq` ON `seb_application_submission` (`application_id`,`id`);
+CREATE TABLE IF NOT EXISTS `seb_application_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`version` integer NOT NULL,
@@ -251,8 +268,8 @@ CREATE TABLE `seb_application_version` (
 	CONSTRAINT "seb_application_version_operation_months_check" CHECK("seb_application_version"."continuous_operation_months" IS NULL OR "seb_application_version"."continuous_operation_months" >= 0)
 );
 
-CREATE UNIQUE INDEX `seb_application_version_number_uq` ON `seb_application_version` (`application_id`,`version`);
-CREATE TABLE `seb_funding_case` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_version_number_uq` ON `seb_application_version` (`application_id`,`version`);
+CREATE TABLE IF NOT EXISTS `seb_funding_case` (
 	`id` text PRIMARY KEY NOT NULL,
 	`enterprise_id` text NOT NULL,
 	`status` text DEFAULT 'OPEN' NOT NULL,
@@ -268,10 +285,10 @@ CREATE TABLE `seb_funding_case` (
 	CONSTRAINT "seb_funding_case_status_check" CHECK("seb_funding_case"."status" IN ('OPEN', 'CLOSED', 'CANCELLED'))
 );
 
-CREATE UNIQUE INDEX `seb_funding_case_enterprise_id_unique` ON `seb_funding_case` (`enterprise_id`);
-CREATE UNIQUE INDEX `seb_funding_case_enterprise_id_uq` ON `seb_funding_case` (`enterprise_id`,`id`);
-CREATE INDEX `seb_funding_case_status_idx` ON `seb_funding_case` (`status`,`deleted_at`,`updated_at`);
-CREATE TABLE `seb_funding_case_version` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_funding_case_enterprise_id_unique` ON `seb_funding_case` (`enterprise_id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_funding_case_enterprise_id_uq` ON `seb_funding_case` (`enterprise_id`,`id`);
+CREATE INDEX IF NOT EXISTS `seb_funding_case_status_idx` ON `seb_funding_case` (`status`,`deleted_at`,`updated_at`);
+CREATE TABLE IF NOT EXISTS `seb_funding_case_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`funding_case_id` text NOT NULL,
 	`version` integer NOT NULL,
@@ -287,8 +304,8 @@ CREATE TABLE `seb_funding_case_version` (
 	CONSTRAINT "seb_funding_case_version_change_type_check" CHECK("seb_funding_case_version"."change_type" IN ('CREATED', 'STATUS_CHANGED', 'CORRECTED'))
 );
 
-CREATE UNIQUE INDEX `seb_funding_case_version_number_uq` ON `seb_funding_case_version` (`funding_case_id`,`version`);
-CREATE TABLE `seb_application_document` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_funding_case_version_number_uq` ON `seb_funding_case_version` (`funding_case_id`,`version`);
+CREATE TABLE IF NOT EXISTS `seb_application_document` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`document_type` text NOT NULL,
@@ -304,8 +321,8 @@ CREATE TABLE `seb_application_document` (
 	CONSTRAINT "seb_application_document_type_check" CHECK("seb_application_document"."document_type" IN ('IDENTITY_AGE_PROOF', 'ST_CERTIFICATE', 'ADDRESS_PROOF', 'BUSINESS_REGISTRATION', 'GST_REGISTRATION', 'DPR', 'BANK_DETAILS', 'NOC'))
 );
 
-CREATE UNIQUE INDEX `seb_application_document_type_uq` ON `seb_application_document` (`application_id`,`document_type`);
-CREATE TABLE `seb_application_document_scan` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_document_type_uq` ON `seb_application_document` (`application_id`,`document_type`);
+CREATE TABLE IF NOT EXISTS `seb_application_document_scan` (
 	`id` text PRIMARY KEY NOT NULL,
 	`document_version_id` text NOT NULL,
 	`sequence_number` integer NOT NULL,
@@ -321,9 +338,9 @@ CREATE TABLE `seb_application_document_scan` (
         OR ("seb_application_document_scan"."status" <> 'PENDING' AND "seb_application_document_scan"."scanned_at" IS NOT NULL))
 );
 
-CREATE UNIQUE INDEX `seb_application_document_scan_sequence_uq` ON `seb_application_document_scan` (`document_version_id`,`sequence_number`);
-CREATE INDEX `seb_application_document_scan_latest_idx` ON `seb_application_document_scan` (`document_version_id`,`sequence_number`);
-CREATE TABLE `seb_application_document_version` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_document_scan_sequence_uq` ON `seb_application_document_scan` (`document_version_id`,`sequence_number`);
+CREATE INDEX IF NOT EXISTS `seb_application_document_scan_latest_idx` ON `seb_application_document_scan` (`document_version_id`,`sequence_number`);
+CREATE TABLE IF NOT EXISTS `seb_application_document_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`document_id` text NOT NULL,
 	`version` integer NOT NULL,
@@ -342,9 +359,9 @@ CREATE TABLE `seb_application_document_version` (
 	CONSTRAINT "seb_application_document_operation_check" CHECK("seb_application_document_version"."operation" IN ('UPLOAD', 'REPLACE'))
 );
 
-CREATE UNIQUE INDEX `seb_application_document_version_r2_object_key_unique` ON `seb_application_document_version` (`r2_object_key`);
-CREATE UNIQUE INDEX `seb_application_document_version_number_uq` ON `seb_application_document_version` (`document_id`,`version`);
-CREATE TABLE `seb_application_submission_document` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_document_version_r2_object_key_unique` ON `seb_application_document_version` (`r2_object_key`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_document_version_number_uq` ON `seb_application_document_version` (`document_id`,`version`);
+CREATE TABLE IF NOT EXISTS `seb_application_submission_document` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`submission_id` text NOT NULL,
@@ -358,9 +375,9 @@ CREATE TABLE `seb_application_submission_document` (
 	CONSTRAINT "seb_application_submission_document_version_check" CHECK("seb_application_submission_document"."document_version" >= 1)
 );
 
-CREATE UNIQUE INDEX `seb_application_submission_document_type_uq` ON `seb_application_submission_document` (`submission_id`,`document_type`);
-CREATE INDEX `seb_application_submission_document_submission_idx` ON `seb_application_submission_document` (`submission_id`,`document_type`);
-CREATE TABLE `seb_document_upload_intent` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_submission_document_type_uq` ON `seb_application_submission_document` (`submission_id`,`document_type`);
+CREATE INDEX IF NOT EXISTS `seb_application_submission_document_submission_idx` ON `seb_application_submission_document` (`submission_id`,`document_type`);
+CREATE TABLE IF NOT EXISTS `seb_document_upload_intent` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`applicant_user_id` text NOT NULL,
@@ -396,10 +413,10 @@ CREATE TABLE `seb_document_upload_intent` (
           AND "seb_document_upload_intent"."cleanup_target_status" IS NULL))
 );
 
-CREATE UNIQUE INDEX `seb_document_upload_intent_object_key_unique` ON `seb_document_upload_intent` (`object_key`);
-CREATE INDEX `seb_document_upload_intent_cleanup_idx` ON `seb_document_upload_intent` (`status`,`expires_at`);
-CREATE INDEX `seb_document_upload_intent_owner_idx` ON `seb_document_upload_intent` (`applicant_user_id`,`application_id`,`created_at`);
-CREATE TABLE `seb_partner_bank_outcome` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_document_upload_intent_object_key_unique` ON `seb_document_upload_intent` (`object_key`);
+CREATE INDEX IF NOT EXISTS `seb_document_upload_intent_cleanup_idx` ON `seb_document_upload_intent` (`status`,`expires_at`);
+CREATE INDEX IF NOT EXISTS `seb_document_upload_intent_owner_idx` ON `seb_document_upload_intent` (`applicant_user_id`,`application_id`,`created_at`);
+CREATE TABLE IF NOT EXISTS `seb_partner_bank_outcome` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`referral_id` text NOT NULL,
@@ -430,12 +447,12 @@ CREATE TABLE `seb_partner_bank_outcome` (
           AND "seb_partner_bank_outcome"."correction_reason" IS NOT NULL))
 );
 
-CREATE UNIQUE INDEX `seb_partner_bank_outcome_number_uq` ON `seb_partner_bank_outcome` (`referral_id`,`outcome_number`);
-CREATE UNIQUE INDEX `seb_partner_bank_outcome_referral_id_uq` ON `seb_partner_bank_outcome` (`referral_id`,`id`);
-CREATE UNIQUE INDEX `seb_partner_bank_outcome_application_id_uq` ON `seb_partner_bank_outcome` (`application_id`,`id`);
-CREATE UNIQUE INDEX `seb_partner_bank_outcome_one_correction_uq` ON `seb_partner_bank_outcome` (`supersedes_outcome_id`);
-CREATE INDEX `seb_partner_bank_outcome_application_idx` ON `seb_partner_bank_outcome` (`application_id`,`created_at`);
-CREATE TABLE `seb_partner_bank_referral` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_partner_bank_outcome_number_uq` ON `seb_partner_bank_outcome` (`referral_id`,`outcome_number`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_partner_bank_outcome_referral_id_uq` ON `seb_partner_bank_outcome` (`referral_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_partner_bank_outcome_application_id_uq` ON `seb_partner_bank_outcome` (`application_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_partner_bank_outcome_one_correction_uq` ON `seb_partner_bank_outcome` (`supersedes_outcome_id`);
+CREATE INDEX IF NOT EXISTS `seb_partner_bank_outcome_application_idx` ON `seb_partner_bank_outcome` (`application_id`,`created_at`);
+CREATE TABLE IF NOT EXISTS `seb_partner_bank_referral` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`submission_id` text NOT NULL,
@@ -461,11 +478,11 @@ CREATE TABLE `seb_partner_bank_referral` (
 	CONSTRAINT "seb_partner_bank_referral_status_check" CHECK("seb_partner_bank_referral"."status" IN ('OPEN', 'RESPONDED', 'CANCELLED'))
 );
 
-CREATE UNIQUE INDEX `seb_partner_bank_referral_referral_reference_unique` ON `seb_partner_bank_referral` (`referral_reference`);
-CREATE UNIQUE INDEX `seb_partner_bank_referral_application_id_uq` ON `seb_partner_bank_referral` (`application_id`,`id`);
-CREATE UNIQUE INDEX `seb_partner_bank_referral_active_application_uq` ON `seb_partner_bank_referral` (`application_id`) WHERE "seb_partner_bank_referral"."status" = 'OPEN' AND "seb_partner_bank_referral"."deleted_at" IS NULL;
-CREATE INDEX `seb_partner_bank_referral_application_idx` ON `seb_partner_bank_referral` (`application_id`,`created_at`);
-CREATE TABLE `seb_partner_bank_referral_version` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_partner_bank_referral_referral_reference_unique` ON `seb_partner_bank_referral` (`referral_reference`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_partner_bank_referral_application_id_uq` ON `seb_partner_bank_referral` (`application_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_partner_bank_referral_active_application_uq` ON `seb_partner_bank_referral` (`application_id`) WHERE "seb_partner_bank_referral"."status" = 'OPEN' AND "seb_partner_bank_referral"."deleted_at" IS NULL;
+CREATE INDEX IF NOT EXISTS `seb_partner_bank_referral_application_idx` ON `seb_partner_bank_referral` (`application_id`,`created_at`);
+CREATE TABLE IF NOT EXISTS `seb_partner_bank_referral_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`referral_id` text NOT NULL,
 	`version` integer NOT NULL,
@@ -481,8 +498,8 @@ CREATE TABLE `seb_partner_bank_referral_version` (
 	CONSTRAINT "seb_partner_bank_referral_version_change_type_check" CHECK("seb_partner_bank_referral_version"."change_type" IN ('REFERRED', 'RESPONDED', 'CANCELLED'))
 );
 
-CREATE UNIQUE INDEX `seb_partner_bank_referral_version_number_uq` ON `seb_partner_bank_referral_version` (`referral_id`,`version`);
-CREATE TABLE `seb_ttm_agenda_item` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_partner_bank_referral_version_number_uq` ON `seb_partner_bank_referral_version` (`referral_id`,`version`);
+CREATE TABLE IF NOT EXISTS `seb_ttm_agenda_item` (
 	`id` text PRIMARY KEY NOT NULL,
 	`meeting_id` text NOT NULL,
 	`application_id` text NOT NULL,
@@ -503,11 +520,11 @@ CREATE TABLE `seb_ttm_agenda_item` (
 	CONSTRAINT "seb_ttm_agenda_item_status_check" CHECK("seb_ttm_agenda_item"."status" IN ('ACTIVE', 'REMOVED', 'DECIDED'))
 );
 
-CREATE UNIQUE INDEX `seb_ttm_agenda_item_meeting_position_uq` ON `seb_ttm_agenda_item` (`meeting_id`,`position`);
-CREATE UNIQUE INDEX `seb_ttm_agenda_item_application_id_uq` ON `seb_ttm_agenda_item` (`application_id`,`id`);
-CREATE UNIQUE INDEX `seb_ttm_agenda_item_active_application_uq` ON `seb_ttm_agenda_item` (`application_id`) WHERE "seb_ttm_agenda_item"."status" = 'ACTIVE';
-CREATE INDEX `seb_ttm_agenda_item_meeting_idx` ON `seb_ttm_agenda_item` (`meeting_id`,`position`);
-CREATE TABLE `seb_ttm_agenda_item_version` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_ttm_agenda_item_meeting_position_uq` ON `seb_ttm_agenda_item` (`meeting_id`,`position`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_ttm_agenda_item_application_id_uq` ON `seb_ttm_agenda_item` (`application_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_ttm_agenda_item_active_application_uq` ON `seb_ttm_agenda_item` (`application_id`) WHERE "seb_ttm_agenda_item"."status" = 'ACTIVE';
+CREATE INDEX IF NOT EXISTS `seb_ttm_agenda_item_meeting_idx` ON `seb_ttm_agenda_item` (`meeting_id`,`position`);
+CREATE TABLE IF NOT EXISTS `seb_ttm_agenda_item_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`agenda_item_id` text NOT NULL,
 	`version` integer NOT NULL,
@@ -525,8 +542,8 @@ CREATE TABLE `seb_ttm_agenda_item_version` (
 	CONSTRAINT "seb_ttm_agenda_item_version_change_type_check" CHECK("seb_ttm_agenda_item_version"."change_type" IN ('ADDED', 'REORDERED', 'REMOVED', 'DECIDED'))
 );
 
-CREATE UNIQUE INDEX `seb_ttm_agenda_item_version_number_uq` ON `seb_ttm_agenda_item_version` (`agenda_item_id`,`version`);
-CREATE TABLE `seb_ttm_decision` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_ttm_agenda_item_version_number_uq` ON `seb_ttm_agenda_item_version` (`agenda_item_id`,`version`);
+CREATE TABLE IF NOT EXISTS `seb_ttm_decision` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`agenda_item_id` text NOT NULL,
@@ -565,12 +582,12 @@ CREATE TABLE `seb_ttm_decision` (
           AND "seb_ttm_decision"."correction_reason" IS NOT NULL))
 );
 
-CREATE UNIQUE INDEX `seb_ttm_decision_decision_reference_unique` ON `seb_ttm_decision` (`decision_reference`);
-CREATE UNIQUE INDEX `seb_ttm_decision_number_uq` ON `seb_ttm_decision` (`agenda_item_id`,`decision_number`);
-CREATE UNIQUE INDEX `seb_ttm_decision_agenda_id_uq` ON `seb_ttm_decision` (`agenda_item_id`,`id`);
-CREATE UNIQUE INDEX `seb_ttm_decision_one_correction_uq` ON `seb_ttm_decision` (`supersedes_decision_id`);
-CREATE INDEX `seb_ttm_decision_application_idx` ON `seb_ttm_decision` (`application_id`,`created_at`);
-CREATE TABLE `seb_ttm_meeting` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_ttm_decision_decision_reference_unique` ON `seb_ttm_decision` (`decision_reference`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_ttm_decision_number_uq` ON `seb_ttm_decision` (`agenda_item_id`,`decision_number`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_ttm_decision_agenda_id_uq` ON `seb_ttm_decision` (`agenda_item_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_ttm_decision_one_correction_uq` ON `seb_ttm_decision` (`supersedes_decision_id`);
+CREATE INDEX IF NOT EXISTS `seb_ttm_decision_application_idx` ON `seb_ttm_decision` (`application_id`,`created_at`);
+CREATE TABLE IF NOT EXISTS `seb_ttm_meeting` (
 	`id` text PRIMARY KEY NOT NULL,
 	`meeting_reference` text NOT NULL,
 	`scheduled_at` integer NOT NULL,
@@ -588,10 +605,10 @@ CREATE TABLE `seb_ttm_meeting` (
 	CONSTRAINT "seb_ttm_meeting_status_check" CHECK("seb_ttm_meeting"."status" IN ('DRAFT', 'IN_SESSION', 'FINALIZED', 'CANCELLED'))
 );
 
-CREATE UNIQUE INDEX `seb_ttm_meeting_meeting_reference_unique` ON `seb_ttm_meeting` (`meeting_reference`);
-CREATE INDEX `seb_ttm_meeting_schedule_idx` ON `seb_ttm_meeting` (`status`,`scheduled_at`);
-CREATE INDEX `seb_ttm_meeting_scheduled_idx` ON `seb_ttm_meeting` (`scheduled_at`);
-CREATE TABLE `seb_ttm_meeting_version` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_ttm_meeting_meeting_reference_unique` ON `seb_ttm_meeting` (`meeting_reference`);
+CREATE INDEX IF NOT EXISTS `seb_ttm_meeting_schedule_idx` ON `seb_ttm_meeting` (`status`,`scheduled_at`);
+CREATE INDEX IF NOT EXISTS `seb_ttm_meeting_scheduled_idx` ON `seb_ttm_meeting` (`scheduled_at`);
+CREATE TABLE IF NOT EXISTS `seb_ttm_meeting_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`meeting_id` text NOT NULL,
 	`version` integer NOT NULL,
@@ -611,8 +628,8 @@ CREATE TABLE `seb_ttm_meeting_version` (
 	CONSTRAINT "seb_ttm_meeting_version_change_type_check" CHECK("seb_ttm_meeting_version"."change_type" IN ('CREATED', 'UPDATED', 'STARTED', 'FINALIZED', 'CANCELLED'))
 );
 
-CREATE UNIQUE INDEX `seb_ttm_meeting_version_number_uq` ON `seb_ttm_meeting_version` (`meeting_id`,`version`);
-CREATE TABLE `seb_enterprise` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_ttm_meeting_version_number_uq` ON `seb_ttm_meeting_version` (`meeting_id`,`version`);
+CREATE TABLE IF NOT EXISTS `seb_enterprise` (
 	`id` text PRIMARY KEY NOT NULL,
 	`portal_owner_user_id` text NOT NULL,
 	`current_name` text NOT NULL,
@@ -634,12 +651,12 @@ CREATE TABLE `seb_enterprise` (
         OR ("seb_enterprise"."registration_type" IN ('CIN', 'UDYAM') AND "seb_enterprise"."registration_number" IS NOT NULL))
 );
 
-CREATE UNIQUE INDEX `seb_enterprise_gstin_unique` ON `seb_enterprise` (`gstin`);
-CREATE UNIQUE INDEX `seb_enterprise_owner_id_uq` ON `seb_enterprise` (`portal_owner_user_id`,`id`);
-CREATE UNIQUE INDEX `seb_enterprise_registration_uq` ON `seb_enterprise` (`registration_type`,`registration_number`);
-CREATE INDEX `seb_enterprise_name_search_idx` ON `seb_enterprise` (`portal_owner_user_id`,lower("current_name"));
-CREATE INDEX `seb_enterprise_owner_idx` ON `seb_enterprise` (`portal_owner_user_id`,`deleted_at`,`updated_at`);
-CREATE TABLE `seb_enterprise_version` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_enterprise_gstin_unique` ON `seb_enterprise` (`gstin`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_enterprise_owner_id_uq` ON `seb_enterprise` (`portal_owner_user_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_enterprise_registration_uq` ON `seb_enterprise` (`registration_type`,`registration_number`);
+CREATE INDEX IF NOT EXISTS `seb_enterprise_name_search_idx` ON `seb_enterprise` (`portal_owner_user_id`,lower("current_name"));
+CREATE INDEX IF NOT EXISTS `seb_enterprise_owner_idx` ON `seb_enterprise` (`portal_owner_user_id`,`deleted_at`,`updated_at`);
+CREATE TABLE IF NOT EXISTS `seb_enterprise_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`enterprise_id` text NOT NULL,
 	`version` integer NOT NULL,
@@ -670,8 +687,8 @@ CREATE TABLE `seb_enterprise_version` (
 	CONSTRAINT "seb_enterprise_version_sector_check" CHECK("seb_enterprise_version"."business_sector" IS NULL OR "seb_enterprise_version"."business_sector" IN ('AGRICULTURE_AND_ALLIED', 'HANDLOOM_TEXTILE_AND_HANDICRAFTS', 'FOOD_PROCESSING', 'TOURISM_AND_HOSPITALITY', 'INFORMATION_TECHNOLOGY', 'MANUFACTURING_AND_SERVICES', 'OTHER'))
 );
 
-CREATE UNIQUE INDEX `seb_enterprise_version_number_uq` ON `seb_enterprise_version` (`enterprise_id`,`version`);
-CREATE TABLE `seb_application_qualifying_award` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_enterprise_version_number_uq` ON `seb_enterprise_version` (`enterprise_id`,`version`);
+CREATE TABLE IF NOT EXISTS `seb_application_qualifying_award` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`funding_case_id` text NOT NULL,
@@ -702,11 +719,11 @@ CREATE TABLE `seb_application_qualifying_award` (
           AND "seb_application_qualifying_award"."cancellation_reason" IS NOT NULL))
 );
 
-CREATE UNIQUE INDEX `seb_application_qualifying_award_application_id_unique` ON `seb_application_qualifying_award` (`application_id`);
-CREATE UNIQUE INDEX `seb_application_qualifying_award_id_case_uq` ON `seb_application_qualifying_award` (`id`,`funding_case_id`);
-CREATE UNIQUE INDEX `seb_application_qualifying_award_current_award_uq` ON `seb_application_qualifying_award` (`current_funding_award_id`);
-CREATE INDEX `seb_application_qualifying_award_case_idx` ON `seb_application_qualifying_award` (`funding_case_id`,`status`,`updated_at`);
-CREATE TABLE `seb_application_qualifying_award_version` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_qualifying_award_application_id_unique` ON `seb_application_qualifying_award` (`application_id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_qualifying_award_id_case_uq` ON `seb_application_qualifying_award` (`id`,`funding_case_id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_qualifying_award_current_award_uq` ON `seb_application_qualifying_award` (`current_funding_award_id`);
+CREATE INDEX IF NOT EXISTS `seb_application_qualifying_award_case_idx` ON `seb_application_qualifying_award` (`funding_case_id`,`status`,`updated_at`);
+CREATE TABLE IF NOT EXISTS `seb_application_qualifying_award_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`qualifying_award_link_id` text NOT NULL,
 	`funding_case_id` text NOT NULL,
@@ -727,8 +744,8 @@ CREATE TABLE `seb_application_qualifying_award_version` (
         OR ("seb_application_qualifying_award_version"."change_type" = 'CANCELLED' AND "seb_application_qualifying_award_version"."status" = 'CANCELLED'))
 );
 
-CREATE UNIQUE INDEX `seb_application_qualifying_award_version_number_uq` ON `seb_application_qualifying_award_version` (`qualifying_award_link_id`,`version`);
-CREATE TABLE `seb_award_assessment` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_qualifying_award_version_number_uq` ON `seb_application_qualifying_award_version` (`qualifying_award_link_id`,`version`);
+CREATE TABLE IF NOT EXISTS `seb_award_assessment` (
 	`id` text PRIMARY KEY NOT NULL,
 	`funding_award_id` text NOT NULL,
 	`assessment_type` text NOT NULL,
@@ -751,10 +768,10 @@ CREATE TABLE `seb_award_assessment` (
         OR ("seb_award_assessment"."assessment_type" IN ('PERFORMANCE', 'FINANCIAL_AUDIT') AND "seb_award_assessment"."utilization_obligation_id" IS NULL))
 );
 
-CREATE UNIQUE INDEX `seb_award_assessment_award_number_uq` ON `seb_award_assessment` (`funding_award_id`,`assessment_type`,`assessment_number`) WHERE "seb_award_assessment"."utilization_obligation_id" IS NULL;
-CREATE UNIQUE INDEX `seb_award_assessment_utilization_number_uq` ON `seb_award_assessment` (`funding_award_id`,`utilization_obligation_id`,`assessment_number`) WHERE "seb_award_assessment"."utilization_obligation_id" IS NOT NULL;
-CREATE INDEX `seb_award_assessment_latest_idx` ON `seb_award_assessment` (`funding_award_id`,`assessment_type`,`utilization_obligation_id`,`assessment_number`);
-CREATE TABLE `seb_disbursement` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_award_assessment_award_number_uq` ON `seb_award_assessment` (`funding_award_id`,`assessment_type`,`assessment_number`) WHERE "seb_award_assessment"."utilization_obligation_id" IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_award_assessment_utilization_number_uq` ON `seb_award_assessment` (`funding_award_id`,`utilization_obligation_id`,`assessment_number`) WHERE "seb_award_assessment"."utilization_obligation_id" IS NOT NULL;
+CREATE INDEX IF NOT EXISTS `seb_award_assessment_latest_idx` ON `seb_award_assessment` (`funding_award_id`,`assessment_type`,`utilization_obligation_id`,`assessment_number`);
+CREATE TABLE IF NOT EXISTS `seb_disbursement` (
 	`id` text PRIMARY KEY NOT NULL,
 	`funding_award_id` text NOT NULL,
 	`sequence_number` integer NOT NULL,
@@ -810,11 +827,11 @@ CREATE TABLE `seb_disbursement` (
           AND "seb_disbursement"."applicant_message" IS NOT NULL))
 );
 
-CREATE UNIQUE INDEX `seb_disbursement_external_reference_unique` ON `seb_disbursement` (`external_reference`);
-CREATE UNIQUE INDEX `seb_disbursement_award_sequence_uq` ON `seb_disbursement` (`funding_award_id`,`sequence_number`);
-CREATE UNIQUE INDEX `seb_disbursement_award_id_uq` ON `seb_disbursement` (`funding_award_id`,`id`);
-CREATE INDEX `seb_disbursement_award_occurred_idx` ON `seb_disbursement` (`funding_award_id`,`occurred_at`);
-CREATE TABLE `seb_funding_award` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_disbursement_external_reference_unique` ON `seb_disbursement` (`external_reference`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_disbursement_award_sequence_uq` ON `seb_disbursement` (`funding_award_id`,`sequence_number`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_disbursement_award_id_uq` ON `seb_disbursement` (`funding_award_id`,`id`);
+CREATE INDEX IF NOT EXISTS `seb_disbursement_award_occurred_idx` ON `seb_disbursement` (`funding_award_id`,`occurred_at`);
+CREATE TABLE IF NOT EXISTS `seb_funding_award` (
 	`id` text PRIMARY KEY NOT NULL,
 	`funding_case_id` text NOT NULL,
 	`application_id` text NOT NULL,
@@ -843,13 +860,13 @@ CREATE TABLE `seb_funding_award` (
         OR ("seb_funding_award"."status" <> 'CLOSED' AND "seb_funding_award"."closure_disposition" IS NULL))
 );
 
-CREATE UNIQUE INDEX `seb_funding_award_application_id_unique` ON `seb_funding_award` (`application_id`);
-CREATE UNIQUE INDEX `seb_funding_award_sanction_order_number_unique` ON `seb_funding_award` (`sanction_order_number`);
-CREATE UNIQUE INDEX `seb_funding_award_case_id_uq` ON `seb_funding_award` (`funding_case_id`,`id`);
-CREATE UNIQUE INDEX `seb_funding_award_application_id_uq` ON `seb_funding_award` (`application_id`,`id`);
-CREATE INDEX `seb_funding_award_case_idx` ON `seb_funding_award` (`funding_case_id`,`deleted_at`,`sanction_date`);
-CREATE INDEX `seb_funding_award_status_idx` ON `seb_funding_award` (`status`,`deleted_at`,`updated_at`);
-CREATE TABLE `seb_funding_award_version` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_funding_award_application_id_unique` ON `seb_funding_award` (`application_id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_funding_award_sanction_order_number_unique` ON `seb_funding_award` (`sanction_order_number`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_funding_award_case_id_uq` ON `seb_funding_award` (`funding_case_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_funding_award_application_id_uq` ON `seb_funding_award` (`application_id`,`id`);
+CREATE INDEX IF NOT EXISTS `seb_funding_award_case_idx` ON `seb_funding_award` (`funding_case_id`,`deleted_at`,`sanction_date`);
+CREATE INDEX IF NOT EXISTS `seb_funding_award_status_idx` ON `seb_funding_award` (`status`,`deleted_at`,`updated_at`);
+CREATE TABLE IF NOT EXISTS `seb_funding_award_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`funding_award_id` text NOT NULL,
 	`version` integer NOT NULL,
@@ -878,8 +895,8 @@ CREATE TABLE `seb_funding_award_version` (
         OR ("seb_funding_award_version"."change_type" <> 'CREATED' AND "seb_funding_award_version"."reason_category_id" IS NOT NULL))
 );
 
-CREATE UNIQUE INDEX `seb_funding_award_version_number_uq` ON `seb_funding_award_version` (`funding_award_id`,`version`);
-CREATE TABLE `seb_utilization_obligation` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_funding_award_version_number_uq` ON `seb_funding_award_version` (`funding_award_id`,`version`);
+CREATE TABLE IF NOT EXISTS `seb_utilization_obligation` (
 	`id` text PRIMARY KEY NOT NULL,
 	`funding_award_id` text NOT NULL,
 	`release_disbursement_id` text NOT NULL,
@@ -888,10 +905,10 @@ CREATE TABLE `seb_utilization_obligation` (
 	FOREIGN KEY (`funding_award_id`,`release_disbursement_id`) REFERENCES `seb_disbursement`(`funding_award_id`,`id`) ON UPDATE no action ON DELETE restrict
 );
 
-CREATE UNIQUE INDEX `seb_utilization_obligation_release_disbursement_id_unique` ON `seb_utilization_obligation` (`release_disbursement_id`);
-CREATE UNIQUE INDEX `seb_utilization_obligation_award_id_uq` ON `seb_utilization_obligation` (`funding_award_id`,`id`);
-CREATE INDEX `seb_utilization_obligation_due_idx` ON `seb_utilization_obligation` (`funding_award_id`,`due_at`);
-CREATE TABLE `seb_programme_cycle` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_utilization_obligation_release_disbursement_id_unique` ON `seb_utilization_obligation` (`release_disbursement_id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_utilization_obligation_award_id_uq` ON `seb_utilization_obligation` (`funding_award_id`,`id`);
+CREATE INDEX IF NOT EXISTS `seb_utilization_obligation_due_idx` ON `seb_utilization_obligation` (`funding_award_id`,`due_at`);
+CREATE TABLE IF NOT EXISTS `seb_programme_cycle` (
 	`id` text PRIMARY KEY NOT NULL,
 	`cycle_code` text NOT NULL,
 	`display_name` text NOT NULL,
@@ -915,12 +932,12 @@ CREATE TABLE `seb_programme_cycle` (
 	CONSTRAINT "seb_programme_cycle_window_check" CHECK("seb_programme_cycle"."opens_at" IS NULL OR "seb_programme_cycle"."closes_at" IS NULL OR "seb_programme_cycle"."closes_at" > "seb_programme_cycle"."opens_at")
 );
 
-CREATE UNIQUE INDEX `seb_programme_cycle_cycle_code_unique` ON `seb_programme_cycle` (`cycle_code`);
-CREATE INDEX `seb_programme_cycle_updated_idx` ON `seb_programme_cycle` (`deleted_at`,`updated_at`);
-CREATE INDEX `seb_programme_cycle_status_updated_idx` ON `seb_programme_cycle` (`status`,`deleted_at`,`updated_at`);
-CREATE INDEX `seb_programme_cycle_code_search_idx` ON `seb_programme_cycle` (lower("cycle_code"));
-CREATE INDEX `seb_programme_cycle_status_idx` ON `seb_programme_cycle` (`status`,`deleted_at`,`opens_at`,`closes_at`);
-CREATE TABLE `seb_programme_cycle_assessment_rule` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_programme_cycle_cycle_code_unique` ON `seb_programme_cycle` (`cycle_code`);
+CREATE INDEX IF NOT EXISTS `seb_programme_cycle_updated_idx` ON `seb_programme_cycle` (`deleted_at`,`updated_at`);
+CREATE INDEX IF NOT EXISTS `seb_programme_cycle_status_updated_idx` ON `seb_programme_cycle` (`status`,`deleted_at`,`updated_at`);
+CREATE INDEX IF NOT EXISTS `seb_programme_cycle_code_search_idx` ON `seb_programme_cycle` (lower("cycle_code"));
+CREATE INDEX IF NOT EXISTS `seb_programme_cycle_status_idx` ON `seb_programme_cycle` (`status`,`deleted_at`,`opens_at`,`closes_at`);
+CREATE TABLE IF NOT EXISTS `seb_programme_cycle_assessment_rule` (
 	`id` text PRIMARY KEY NOT NULL,
 	`programme_cycle_id` text NOT NULL,
 	`programme_cycle_version` integer NOT NULL,
@@ -932,8 +949,8 @@ CREATE TABLE `seb_programme_cycle_assessment_rule` (
 	CONSTRAINT "seb_programme_cycle_assessment_rule_outcome_check" CHECK("seb_programme_cycle_assessment_rule"."required_outcome" = 'PASSED')
 );
 
-CREATE UNIQUE INDEX `seb_programme_cycle_assessment_rule_type_uq` ON `seb_programme_cycle_assessment_rule` (`programme_cycle_id`,`programme_cycle_version`,`assessment_type`);
-CREATE TABLE `seb_programme_cycle_document_rule` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_programme_cycle_assessment_rule_type_uq` ON `seb_programme_cycle_assessment_rule` (`programme_cycle_id`,`programme_cycle_version`,`assessment_type`);
+CREATE TABLE IF NOT EXISTS `seb_programme_cycle_document_rule` (
 	`id` text PRIMARY KEY NOT NULL,
 	`programme_cycle_id` text NOT NULL,
 	`programme_cycle_version` integer NOT NULL,
@@ -945,8 +962,8 @@ CREATE TABLE `seb_programme_cycle_document_rule` (
 	CONSTRAINT "seb_programme_cycle_document_rule_condition_check" CHECK("seb_programme_cycle_document_rule"."condition" IN ('ALWAYS', 'WHEN_REGISTERED', 'WHEN_GSTIN_PRESENT', 'WHEN_NOC_REQUIRED', 'OPTIONAL'))
 );
 
-CREATE UNIQUE INDEX `seb_programme_cycle_document_rule_type_uq` ON `seb_programme_cycle_document_rule` (`programme_cycle_id`,`programme_cycle_version`,`document_type`);
-CREATE TABLE `seb_programme_cycle_event` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_programme_cycle_document_rule_type_uq` ON `seb_programme_cycle_document_rule` (`programme_cycle_id`,`programme_cycle_version`,`document_type`);
+CREATE TABLE IF NOT EXISTS `seb_programme_cycle_event` (
 	`id` text PRIMARY KEY NOT NULL,
 	`programme_cycle_id` text NOT NULL,
 	`event_type` text NOT NULL,
@@ -958,8 +975,8 @@ CREATE TABLE `seb_programme_cycle_event` (
 	CONSTRAINT "seb_programme_cycle_event_type_check" CHECK("seb_programme_cycle_event"."event_type" IN ('OPENED', 'GUIDANCE_CHANGED', 'CLOSING_CHANGED', 'CLOSED', 'ARCHIVED'))
 );
 
-CREATE INDEX `seb_programme_cycle_event_cycle_idx` ON `seb_programme_cycle_event` (`programme_cycle_id`,`created_at`);
-CREATE TABLE `seb_programme_cycle_identifier_rule` (
+CREATE INDEX IF NOT EXISTS `seb_programme_cycle_event_cycle_idx` ON `seb_programme_cycle_event` (`programme_cycle_id`,`created_at`);
+CREATE TABLE IF NOT EXISTS `seb_programme_cycle_identifier_rule` (
 	`id` text PRIMARY KEY NOT NULL,
 	`programme_cycle_id` text NOT NULL,
 	`programme_cycle_version` integer NOT NULL,
@@ -979,8 +996,8 @@ CREATE TABLE `seb_programme_cycle_identifier_rule` (
           'DPR_FEASIBILITY', 'EXPANSION_EVIDENCE')))
 );
 
-CREATE UNIQUE INDEX `seb_programme_cycle_identifier_rule_kind_uq` ON `seb_programme_cycle_identifier_rule` (`programme_cycle_id`,`programme_cycle_version`,`kind`);
-CREATE TABLE `seb_programme_cycle_reason` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_programme_cycle_identifier_rule_kind_uq` ON `seb_programme_cycle_identifier_rule` (`programme_cycle_id`,`programme_cycle_version`,`kind`);
+CREATE TABLE IF NOT EXISTS `seb_programme_cycle_reason` (
 	`id` text PRIMARY KEY NOT NULL,
 	`programme_cycle_id` text NOT NULL,
 	`programme_cycle_version` integer NOT NULL,
@@ -993,9 +1010,9 @@ CREATE TABLE `seb_programme_cycle_reason` (
 	CONSTRAINT "seb_programme_cycle_reason_context_check" CHECK("seb_programme_cycle_reason"."context" IN ('CYCLE_CLOSE', 'ASSIGNMENT_RELEASE', 'ASSIGNMENT_REASSIGN', 'REVISION', 'REJECTION', 'BANK_REFERRAL_CANCEL', 'BANK_OUTCOME_CORRECTION', 'TTM_DEFERRAL', 'TTM_DECISION_CORRECTION', 'AWARD_AMENDMENT', 'AWARD_SUSPENSION', 'AWARD_CANCELLATION', 'AWARD_CLOSURE', 'RELEASE_REVERSAL', 'RECOVERY', 'RECOVERY_WAIVER'))
 );
 
-CREATE UNIQUE INDEX `seb_programme_cycle_reason_code_uq` ON `seb_programme_cycle_reason` (`programme_cycle_id`,`programme_cycle_version`,`context`,`code`);
-CREATE UNIQUE INDEX `seb_programme_cycle_reason_cycle_id_uq` ON `seb_programme_cycle_reason` (`programme_cycle_id`,`id`);
-CREATE TABLE `seb_programme_cycle_version` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_programme_cycle_reason_code_uq` ON `seb_programme_cycle_reason` (`programme_cycle_id`,`programme_cycle_version`,`context`,`code`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_programme_cycle_reason_cycle_id_uq` ON `seb_programme_cycle_reason` (`programme_cycle_id`,`id`);
+CREATE TABLE IF NOT EXISTS `seb_programme_cycle_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`programme_cycle_id` text NOT NULL,
 	`version` integer NOT NULL,
@@ -1046,8 +1063,8 @@ CREATE TABLE `seb_programme_cycle_version` (
           AND "seb_programme_cycle_version"."funding_ceiling_scope" IN ('APPLICATION', 'PHASE', 'ENTERPRISE', 'FUNDING_CASE')))
 );
 
-CREATE UNIQUE INDEX `seb_programme_cycle_version_number_uq` ON `seb_programme_cycle_version` (`programme_cycle_id`,`version`);
-CREATE TABLE `seb_recovery_case` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_programme_cycle_version_number_uq` ON `seb_programme_cycle_version` (`programme_cycle_id`,`version`);
+CREATE TABLE IF NOT EXISTS `seb_recovery_case` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`funding_award_id` text NOT NULL,
@@ -1074,11 +1091,11 @@ CREATE TABLE `seb_recovery_case` (
 	CONSTRAINT "seb_recovery_case_status_check" CHECK("seb_recovery_case"."status" IN ('OPEN', 'DEMANDED', 'PARTIALLY_SETTLED', 'SETTLED', 'CANCELLED', 'CLOSED'))
 );
 
-CREATE UNIQUE INDEX `seb_recovery_case_award_id_uq` ON `seb_recovery_case` (`funding_award_id`,`id`);
-CREATE UNIQUE INDEX `seb_recovery_case_active_award_uq` ON `seb_recovery_case` (`funding_award_id`) WHERE "seb_recovery_case"."status" IN ('OPEN', 'DEMANDED', 'PARTIALLY_SETTLED') AND "seb_recovery_case"."deleted_at" IS NULL;
-CREATE INDEX `seb_recovery_case_status_idx` ON `seb_recovery_case` (`status`,`updated_at`);
-CREATE INDEX `seb_recovery_case_award_idx` ON `seb_recovery_case` (`funding_award_id`,`created_at`);
-CREATE TABLE `seb_recovery_case_version` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_recovery_case_award_id_uq` ON `seb_recovery_case` (`funding_award_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_recovery_case_active_award_uq` ON `seb_recovery_case` (`funding_award_id`) WHERE "seb_recovery_case"."status" IN ('OPEN', 'DEMANDED', 'PARTIALLY_SETTLED') AND "seb_recovery_case"."deleted_at" IS NULL;
+CREATE INDEX IF NOT EXISTS `seb_recovery_case_status_idx` ON `seb_recovery_case` (`status`,`updated_at`);
+CREATE INDEX IF NOT EXISTS `seb_recovery_case_award_idx` ON `seb_recovery_case` (`funding_award_id`,`created_at`);
+CREATE TABLE IF NOT EXISTS `seb_recovery_case_version` (
 	`id` text PRIMARY KEY NOT NULL,
 	`recovery_case_id` text NOT NULL,
 	`version` integer NOT NULL,
@@ -1094,8 +1111,8 @@ CREATE TABLE `seb_recovery_case_version` (
 	CONSTRAINT "seb_recovery_case_version_change_type_check" CHECK("seb_recovery_case_version"."change_type" IN ('OPENED', 'STATUS_CHANGED', 'CANCELLED', 'CLOSED'))
 );
 
-CREATE UNIQUE INDEX `seb_recovery_case_version_number_uq` ON `seb_recovery_case_version` (`recovery_case_id`,`version`);
-CREATE TABLE `seb_recovery_entry` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_recovery_case_version_number_uq` ON `seb_recovery_case_version` (`recovery_case_id`,`version`);
+CREATE TABLE IF NOT EXISTS `seb_recovery_entry` (
 	`id` text PRIMARY KEY NOT NULL,
 	`recovery_case_id` text NOT NULL,
 	`sequence_number` integer NOT NULL,
@@ -1123,11 +1140,11 @@ CREATE TABLE `seb_recovery_entry` (
         OR ("seb_recovery_entry"."entry_type" IN ('DEMAND', 'RECEIPT')))
 );
 
-CREATE UNIQUE INDEX `seb_recovery_entry_external_reference_unique` ON `seb_recovery_entry` (`external_reference`);
-CREATE UNIQUE INDEX `seb_recovery_entry_sequence_uq` ON `seb_recovery_entry` (`recovery_case_id`,`sequence_number`);
-CREATE UNIQUE INDEX `seb_recovery_entry_case_id_uq` ON `seb_recovery_entry` (`recovery_case_id`,`id`);
-CREATE INDEX `seb_recovery_entry_case_occurred_idx` ON `seb_recovery_entry` (`recovery_case_id`,`occurred_at`);
-CREATE TABLE `seb_application_assignment_event` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_recovery_entry_external_reference_unique` ON `seb_recovery_entry` (`external_reference`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_recovery_entry_sequence_uq` ON `seb_recovery_entry` (`recovery_case_id`,`sequence_number`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_recovery_entry_case_id_uq` ON `seb_recovery_entry` (`recovery_case_id`,`id`);
+CREATE INDEX IF NOT EXISTS `seb_recovery_entry_case_occurred_idx` ON `seb_recovery_entry` (`recovery_case_id`,`occurred_at`);
+CREATE TABLE IF NOT EXISTS `seb_application_assignment_event` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`event_type` text NOT NULL,
@@ -1152,9 +1169,9 @@ CREATE TABLE `seb_application_assignment_event` (
         OR ("seb_application_assignment_event"."event_type" = 'REASSIGNED' AND "seb_application_assignment_event"."from_user_id" IS NOT NULL AND "seb_application_assignment_event"."to_user_id" IS NOT NULL AND "seb_application_assignment_event"."from_user_id" <> "seb_application_assignment_event"."to_user_id"))
 );
 
-CREATE UNIQUE INDEX `seb_application_assignment_event_version_uq` ON `seb_application_assignment_event` (`application_id`,`assignment_version`);
-CREATE INDEX `seb_application_assignment_event_application_idx` ON `seb_application_assignment_event` (`application_id`,`created_at`);
-CREATE TABLE `seb_application_internal_note` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_assignment_event_version_uq` ON `seb_application_assignment_event` (`application_id`,`assignment_version`);
+CREATE INDEX IF NOT EXISTS `seb_application_assignment_event_application_idx` ON `seb_application_assignment_event` (`application_id`,`created_at`);
+CREATE TABLE IF NOT EXISTS `seb_application_internal_note` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`correction_of_note_id` text,
@@ -1166,10 +1183,10 @@ CREATE TABLE `seb_application_internal_note` (
 	FOREIGN KEY (`application_id`,`correction_of_note_id`) REFERENCES `seb_application_internal_note`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict
 );
 
-CREATE UNIQUE INDEX `seb_application_internal_note_application_id_uq` ON `seb_application_internal_note` (`application_id`,`id`);
-CREATE UNIQUE INDEX `seb_application_internal_note_one_correction_uq` ON `seb_application_internal_note` (`correction_of_note_id`);
-CREATE INDEX `seb_application_internal_note_application_idx` ON `seb_application_internal_note` (`application_id`,`created_at`);
-CREATE TABLE `seb_desk_review` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_internal_note_application_id_uq` ON `seb_application_internal_note` (`application_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_application_internal_note_one_correction_uq` ON `seb_application_internal_note` (`correction_of_note_id`);
+CREATE INDEX IF NOT EXISTS `seb_application_internal_note_application_idx` ON `seb_application_internal_note` (`application_id`,`created_at`);
+CREATE TABLE IF NOT EXISTS `seb_desk_review` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`submission_id` text NOT NULL,
@@ -1190,10 +1207,10 @@ CREATE TABLE `seb_desk_review` (
           AND "seb_desk_review"."applicant_message" IS NOT NULL))
 );
 
-CREATE UNIQUE INDEX `seb_desk_review_submission_uq` ON `seb_desk_review` (`submission_id`);
-CREATE UNIQUE INDEX `seb_desk_review_application_id_uq` ON `seb_desk_review` (`application_id`,`id`);
-CREATE INDEX `seb_desk_review_application_idx` ON `seb_desk_review` (`application_id`,`reviewed_at`);
-CREATE TABLE `seb_desk_review_check` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_desk_review_submission_uq` ON `seb_desk_review` (`submission_id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_desk_review_application_id_uq` ON `seb_desk_review` (`application_id`,`id`);
+CREATE INDEX IF NOT EXISTS `seb_desk_review_application_idx` ON `seb_desk_review` (`application_id`,`reviewed_at`);
+CREATE TABLE IF NOT EXISTS `seb_desk_review_check` (
 	`id` text PRIMARY KEY NOT NULL,
 	`desk_review_id` text NOT NULL,
 	`check_type` text NOT NULL,
@@ -1205,8 +1222,8 @@ CREATE TABLE `seb_desk_review_check` (
 	CONSTRAINT "seb_desk_review_check_result_check" CHECK("seb_desk_review_check"."result" IN ('PASS', 'FAIL', 'NOT_APPLICABLE'))
 );
 
-CREATE UNIQUE INDEX `seb_desk_review_check_type_uq` ON `seb_desk_review_check` (`desk_review_id`,`check_type`);
-CREATE TABLE `seb_desk_review_identifier` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_desk_review_check_type_uq` ON `seb_desk_review_check` (`desk_review_id`,`check_type`);
+CREATE TABLE IF NOT EXISTS `seb_desk_review_identifier` (
 	`id` text PRIMARY KEY NOT NULL,
 	`desk_review_id` text NOT NULL,
 	`funding_case_id` text NOT NULL,
@@ -1219,9 +1236,9 @@ CREATE TABLE `seb_desk_review_identifier` (
 	CONSTRAINT "seb_desk_review_identifier_kind_check" CHECK("seb_desk_review_identifier"."kind" IN ('ST_CERTIFICATE', 'IDENTITY_DOCUMENT', 'BANK_ACCOUNT', 'BUSINESS_REGISTRATION'))
 );
 
-CREATE UNIQUE INDEX `seb_desk_review_identifier_kind_uq` ON `seb_desk_review_identifier` (`desk_review_id`,`kind`);
-CREATE INDEX `seb_desk_review_identifier_match_idx` ON `seb_desk_review_identifier` (`kind`,`comparable_value`,`funding_case_id`);
-CREATE TABLE `seb_application_event` (
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_desk_review_identifier_kind_uq` ON `seb_desk_review_identifier` (`desk_review_id`,`kind`);
+CREATE INDEX IF NOT EXISTS `seb_desk_review_identifier_match_idx` ON `seb_desk_review_identifier` (`kind`,`comparable_value`,`funding_case_id`);
+CREATE TABLE IF NOT EXISTS `seb_application_event` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`event_type` text NOT NULL,
@@ -1245,8 +1262,8 @@ CREATE TABLE `seb_application_event` (
 	CONSTRAINT "seb_application_event_to_status_check" CHECK("seb_application_event"."to_status" IS NULL OR "seb_application_event"."to_status" IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED'))
 );
 
-CREATE INDEX `seb_application_event_application_idx` ON `seb_application_event` (`application_id`,`created_at`);
-CREATE TABLE `seb_revision_request` (
+CREATE INDEX IF NOT EXISTS `seb_application_event_application_idx` ON `seb_application_event` (`application_id`,`created_at`);
+CREATE TABLE IF NOT EXISTS `seb_revision_request` (
 	`id` text PRIMARY KEY NOT NULL,
 	`application_id` text NOT NULL,
 	`submission_id` text NOT NULL,
@@ -1274,6 +1291,6 @@ CREATE TABLE `seb_revision_request` (
 	CONSTRAINT "seb_revision_request_terminal_state_check" CHECK(NOT ("seb_revision_request"."resolved_at" IS NOT NULL AND "seb_revision_request"."cancelled_at" IS NOT NULL))
 );
 
-CREATE INDEX `seb_revision_request_application_idx` ON `seb_revision_request` (`application_id`,`resolved_at`,`cancelled_at`,`requested_at`);
-CREATE UNIQUE INDEX `seb_revision_request_application_id_uq` ON `seb_revision_request` (`application_id`,`id`);
-CREATE UNIQUE INDEX `seb_revision_request_open_section_uq` ON `seb_revision_request` (`application_id`,`section`) WHERE "seb_revision_request"."resolved_at" IS NULL AND "seb_revision_request"."cancelled_at" IS NULL;
+CREATE INDEX IF NOT EXISTS `seb_revision_request_application_idx` ON `seb_revision_request` (`application_id`,`resolved_at`,`cancelled_at`,`requested_at`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_revision_request_application_id_uq` ON `seb_revision_request` (`application_id`,`id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `seb_revision_request_open_section_uq` ON `seb_revision_request` (`application_id`,`section`) WHERE "seb_revision_request"."resolved_at" IS NULL AND "seb_revision_request"."cancelled_at" IS NULL;

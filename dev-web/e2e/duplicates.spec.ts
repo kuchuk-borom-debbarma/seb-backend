@@ -13,11 +13,9 @@
 import { expect, test, type Page } from '@playwright/test'
 import { PASSWORD, SUPER_ADMIN_EMAIL, signIn, submitApplication } from './support'
 
-/** Claims an application and opens its desk review, passing every check. */
+/** Opens an application's desk review and passes every check. */
 const openReview = async (page: Page, id: string) => {
   await page.goto(`/admin/applications/${id}`)
-  await page.getByRole('button', { name: 'Claim it' }).click()
-  await expect(page.getByRole('heading', { name: 'You have this' })).toBeVisible()
   await page.getByRole('button', { name: 'Start desk review' }).click()
 
   for (const check of [
@@ -42,7 +40,6 @@ test.describe('what the documents say', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
 
     await page.goto(`/admin/applications/${id}`)
-    await page.getByRole('button', { name: 'Claim it' }).click()
     await page.getByRole('button', { name: 'Start desk review' }).click()
 
     // Nothing passed yet, so nothing is being attested to.

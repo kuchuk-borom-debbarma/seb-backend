@@ -12,8 +12,10 @@
     "fallow": "fallow --type-aware",
     "check": "npm run typecheck && npm run test:coverage && npm run fallow && npm run db:schema:check",
     "db:schema:generate": "node scripts/check-schema.mjs --write",
-    "db:schema:check": "node scripts/check-schema.mjs",
-    "db:setup:local": "wrangler d1 execute DB --local --file=database/schema.sql",
+    "db:schema:check": "node scripts/check-schema.mjs && node --no-warnings scripts/check-migrations.mjs",
+    "db:setup:local": "wrangler d1 execute DB --local --file=database/schema.sql && node scripts/migrate.mjs --stamp",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:migrate:remote": "node scripts/migrate.mjs --remote",
     "seed:super-admin": "node scripts/seed-super-admin.mjs"
   },
   "dependencies": {
