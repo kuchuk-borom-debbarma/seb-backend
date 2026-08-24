@@ -39,8 +39,6 @@ the code implements it.
 | `queries/*` | Drizzle reads and every guarded write |
 | `validation.ts` | Pure form normalization and policy rules — no D1, no R2 |
 | `uploads.ts` | The upload rules — types, size, keys, object verification |
-| `storage.ts` | The storage interface and its two backends |
-| `local-storage-route.ts` | Receives uploaded bytes when there is no bucket |
 | `ownership.ts` | The ownership preamble every read starts from |
 | `ledger.ts` | The release/reversal fold |
 | `sections.ts` | Which form sections differ between two snapshots |
@@ -144,55 +142,40 @@ EXPIRED`. A failed delete leaves the row `CLEANUP_PENDING` rather than starving
 the batch, so cleanup can span cron runs. Object keys are never logged — a
 storage identifier is sensitive.
 
-### The storage seam
+### Where the file physically goes is not decided here
 
-`storage.ts` states what the programme needs — authorize an upload the browser
-performs itself, authorize a download — and names no vendor. S3, R2, Azure and
-Google all satisfy it, and so does this Worker. Both backends return the same
-grant shape, so the client cannot tell which it is talking to; only the host in
-the URL differs.
+That is the [storage service](../storage/README.md), which owns the interface,
+its two backends, and the local route that receives bytes when there is no
+bucket. It knows nothing about programme documents — not the acceptable content
+types, not the size limit, not what a filename may contain. Those are the rules
+above, and they stay here.
 
-| Backend | Receives the upload | Needs | Selected when |
-| --- | --- | --- | --- |
-| `r2` | the bucket, straight from the browser | the four `R2_*` values | `ENVIRONMENT` is anything else |
-| `local` | this Worker, which writes to the `STORAGE` binding | nothing | `ENVIRONMENT` is unset or `local` |
+The seam is why an upload works on a machine with no credentials: deployed, the
+browser sends the file straight to the bucket; locally the bytes come to the
+Worker, which applies the same size, type and checksum checks the bucket would.
+The client cannot tell the two apart.
 
-Deployed, uploads never pass through the Worker: it signs a URL and the browser
-`PUT`s directly to the bucket. The signature binds `Content-Type`,
-`Content-Disposition`, **`Content-Length`**, `If-None-Match: *` and
-`x-amz-checksum-sha256`, and is signed with `allHeaders: true` because these are
-security constraints rather than hints. Binding the length makes the bucket
-reject a payload differing from the applicant's declaration — browsers generate
-that header from the body, so a caller must send a body of exactly that size
-rather than trying to set the header.
+`verifyUploadedObject` takes that interface rather than a bucket. The backend
+reports what an object *is*; deciding whether that is acceptable is a programme
+rule and belongs where the rule lives. After the extraction this service never
+names a bucket.
 
-A deployed environment missing any of the four refuses with `R2 signing
-configuration is required.` rather than accepting documents it cannot durably
-keep. Configuration lives in [`.env.example`](../../../.env.example).
+### Scanning is requested here and answered elsewhere
 
-### Why a local backend exists
+Finalization writes a `PENDING` scan row and queues a
+`DOCUMENT_SCAN_REQUESTED` message. It does not wait: scanning is somebody
+else's work and however long it takes must not be time the applicant spends
+waiting.
 
-Signing addresses `r2.cloudflarestorage.com` for real, so the direct-to-bucket
-path needs credentials and a bucket that exists. The `STORAGE` binding itself
-does not: the development runtime provides it with no account feature and no
-keys. So locally the bytes come to the Worker and it writes them, and uploads
-work on a machine that has nothing configured.
+A failure to queue is deliberately swallowed. The document is already
+finalized and the upload genuinely succeeded, so reporting failure would be
+untrue and would invite a second upload. What the unscanned document cannot do
+is be opened by staff — administrative download fails closed until an
+`ACCEPTED` result is appended — so the consequence of a lost message is a
+document nobody can read, not a document nobody checked.
 
-`local-storage-route.ts` receives them. **It refuses unless the local backend is
-the selected one** — that check is its entire security boundary, it comes first,
-and there is no way past it. A deployed environment sends the browser to the
-bucket, and this path must not become a second way in.
-
-Authorization is possession of the upload id, exactly as it is possession of a
-signed URL. The id is unguessable, and the route re-checks the retained
-authorization before writing a byte: still `ISSUED`, unexpired, and matching on
-size and content type. A missing intent and a spent one are refused
-identically, so the path cannot be used to discover which upload ids exist.
-
-It then verifies the SHA-256 digest against the applicant's declaration and
-stores it against the object, which is what the bucket would do. That matters
-more than it looks: without it a document would verify locally and fail once
-deployed, which is the worst kind of difference to have.
+See the [queue](../queue/README.md) and
+[document scanner](../document-scanner/README.md) services.
 
 ## Bounds
 
@@ -226,9 +209,7 @@ a file worked on for years should not make one request read ten thousand rows.
 | `changedSections` | `sections.ts` | Which sections differ between snapshots |
 | `ownedApplication`, `ownedApplicationAtVersion` | `ownership.ts` | The ownership preamble |
 | `pageSize`, `encodeCursor`, `decodeCursor`, `MAX_COLLECTION_ROWS` | `pagination.ts` | Paging |
-| `verifyUploadedObject`, `createDocumentObjectKey`, `sanitizeFilename` | `uploads.ts` | The upload rules |
-| `storage`, `createUploadAuthorization`, `createDownloadAuthorization` | `storage.ts` | Whichever backend this environment uses |
-| `handleLocalStorageRequest` | `local-storage-route.ts` | Receives bytes locally; closed everywhere else |
+| `verifyUploadedObject`, `extensionMatchesContentType`, `createDocumentObjectKey`, `sanitizeFilename` | `uploads.ts` | The upload rules |
 
 ## Elsewhere
 
@@ -238,3 +219,6 @@ a file worked on for years should not make one request read ten thousand rows.
 - [Schema](../../db/schema/README.md) — tables, versions, constraints
 - [Policy crosswalk](../../../docs/policy-alignment.md) — which rules came
   from the programme itself
+- [Storage service](../storage/README.md) — where a document physically goes
+- [Queue](../queue/README.md) and [scanner](../document-scanner/README.md) —
+  what happens to it after finalization

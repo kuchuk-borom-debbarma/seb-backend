@@ -1,28 +1,56 @@
 # Administrator identity and fixed-role RBAC
 
-This guide describes the authorization foundation shared by applicant and
-current administrative services. The first super administrator is promoted
-through a one-time curl operation. Cycle, intake, decision, funding, and
-recovery operations use live roles; later account provisioning is separate.
+This guide describes the authorization foundation shared by the applicant and
+administrative services. The first super administrator is promoted through a
+one-time curl operation; everybody after them is either granted a role directly
+by a super administrator or invited and accepts it themselves. Cycle, intake,
+decision, funding and recovery operations all read live roles.
 
 ## One identity, several roles
 
 `core_user` is the login identity. A user may hold any combination of these
-three fixed roles:
+five fixed roles:
 
 | Role | Meaning |
 | --- | --- |
 | `APPLICANT` | May use applicant-owned enterprise and application operations. |
-| `ADMIN` | May use operational review, award, and finance operations. |
-| `SUPER_ADMIN` | Has all `ADMIN` authority and may manage users and role grants. |
+| `REVIEWER` | May read every casework screen and change nothing. |
+| `APPROVER` | May read casework, and record and correct the programme decision. |
+| `ADMIN` | May use the whole operational review, award, and finance workflow. |
+| `SUPER_ADMIN` | Has all `ADMIN` authority, and may manage roles and read the audit history. |
 
 There is no permission registry or role table. The role vocabulary is defined
 by TypeScript and enforced by a D1 `CHECK`, making every possible authority
-visible in code review. `SUPER_ADMIN` implies `ADMIN` in the authorization
-helpers, so a super administrator does not need a duplicate `ADMIN` grant. The
-one exception is role administration itself, which requires `SUPER_ADMIN`
-specifically — granting and revoking authority is the capability a plain
-administrator must not inherit.
+visible in code review.
+
+### Roles are not ranked
+
+An `APPROVER` may record a decision a `REVIEWER` may not, but neither may open a
+programme cycle. An ordering that put approver "above" reviewer would imply it
+can do everything a reviewer can and more — which is true today and would
+quietly stop being checked the moment it was not.
+
+So each operation names the **capability** it needs, and one file decides which
+roles hold it:
+
+| Capability | Held by |
+| --- | --- |
+| `STAFF_READ` — every administrative query | `REVIEWER`, `APPROVER`, `ADMIN`, `SUPER_ADMIN` |
+| `STAFF_WRITE` — cycles, intake, review, referral, meetings, awards, recovery | `ADMIN`, `SUPER_ADMIN` |
+| `DECIDE` — recording and correcting the programme decision | `APPROVER`, `ADMIN`, `SUPER_ADMIN` |
+| `ROLE_INVITE` — inviting somebody to a role they accept themselves | `ADMIN`, `SUPER_ADMIN` |
+| `ROLE_ADMIN` — granting and revoking a role directly | `SUPER_ADMIN` |
+| `AUDIT_READ` — reading the audit history | `SUPER_ADMIN` |
+
+Somebody holding several roles gets the union. The policy lives in
+[`auth/capabilities.ts`](../src/services/auth/capabilities.ts) and is published
+on the signed-in user, so the interface can decide what to offer without holding
+a second copy of it — but every operation is still re-checked by the API, which
+is what actually refuses.
+
+`ADMIN` deliberately lacks `ROLE_ADMIN`: granting and revoking authority is the
+one capability a plain administrator must not inherit, because an administrator
+who can create administrators is a super administrator by another name.
 
 A user may be both applicant and administrator. The selected policy permits an
 administrator to act on their own application; the append-only audit trail must
@@ -130,8 +158,9 @@ one service, so the last-super-administrator guard, the bootstrap swap, and
 session deactivation cannot drift apart.
 
 ```graphql
-query    { access { userByEmail(email: "...") { ... } userById(id: "...") { ... } } }
-mutation { access { grantRole(input: { ... }) revokeRole(input: { ... }) } }
+query    { access { userByEmail(email: "...") userById(id: "...") } }
+mutation { access { grantRole(...) revokeRole(...) inviteRole(...) } }
+mutation { access { acceptRoleInvite(token: "...") } }
 ```
 
 Lookup is exact-match only. There is no listing or prefix search, so the
@@ -144,12 +173,39 @@ caller which user IDs are real and which of them are administrators.
 
 ### What may be granted
 
-Grant and revoke both accept `ADMIN` and `SUPER_ADMIN` only. `APPLICANT` is
-created solely by verified signup and no operation can grant it back, so
-allowing its revocation here would strip an applicant permanently with no
-recovery path. The GraphQL enum stops a grant at the schema boundary; a
-revocation names a grant ID, so the role of the row it resolves to is checked in
-the service.
+Grant, revoke and invite accept `REVIEWER`, `APPROVER`, `ADMIN` and
+`SUPER_ADMIN`. `APPLICANT` is created solely by verified signup and no operation
+can grant it back, so allowing its revocation here would strip an applicant
+permanently with no recovery path. The GraphQL enum stops a grant at the schema
+boundary; a revocation names a grant ID, so the role of the row it resolves to
+is checked in the service.
+
+### Inviting, and the ceiling on it
+
+There are two ways to become staff. A `SUPER_ADMIN` may grant a role directly,
+with a step-up password. Anybody holding `ROLE_INVITE` may instead send an
+invitation, which lands only when the person accepts it themselves — so the
+record always shows they agreed.
+
+An invitation cannot exceed its issuer's own authority:
+
+| Issuer | May invite to |
+| --- | --- |
+| `ADMIN` | `REVIEWER`, `APPROVER` |
+| `SUPER_ADMIN` | `REVIEWER`, `APPROVER`, `ADMIN` |
+
+Nobody is ever invited to `SUPER_ADMIN`; that stays bootstrap or a direct grant.
+Without the ceiling, "an administrator may invite" would be a privilege
+escalation — a plain administrator could invite a second account to `ADMIN` and
+obtain through it exactly what they are directly forbidden.
+
+**Nothing about an invitation is stored.** It travels sealed inside the link,
+and accepting it exchanges the applicant grant for the staff role in one batch.
+What makes a token that is never recorded single-use is its *precondition*: it
+applies only while the person still holds `APPLICANT` and not yet the target
+role, so once accepted neither is true. The mechanics and the reasons are in
+[`auth/invite.ts`](../src/services/auth/invite.ts) and
+[`docs/rules/security.md`](rules/security.md).
 
 ### Rules
 
@@ -182,18 +238,30 @@ their sessions.
 
 ## Audit and sensitive data
 
-Role changes use the fixed actions `RBAC.ROLE_GRANTED` and
-`RBAC.ROLE_REVOKED`. Safe audit metadata is limited to public user/grant IDs and
-one of the three role values. It must not contain passwords, hashes, OTPs,
-tokens, cookie values, or document/form contents.
+Role changes use the fixed actions `RBAC.ROLE_GRANTED` and `RBAC.ROLE_REVOKED`;
+invitations add `RBAC.ROLE_INVITE_ISSUED`, `RBAC.ROLE_INVITE_ACCEPTED` and
+`RBAC.ROLE_INVITE_REFUSED`. Safe audit metadata is limited to public user and
+grant IDs and one of the five role values. It must not contain passwords,
+hashes, OTPs, invitation tokens, cookie values, or document and form contents.
+
+**The invitation token is never recorded.** An audit row carrying it would be a
+second copy of a live credential, readable by anybody who may read audits.
+
+That history is now readable in the portal rather than only through a SQL
+client, by anybody holding `AUDIT_READ` — which is `SUPER_ADMIN` alone, because
+it carries more about people than any other read. See the
+[audit service](../src/services/audit/README.md).
 
 ## Deliberate exclusions
 
 The current workflow still does not provide:
 
-- an administrator signup GraphQL API;
+- a way for somebody to make themselves staff — every route in is either the
+  one-time bootstrap, a direct grant, or an invitation accepted by the person
+  named in it;
 - granting or revoking `APPLICANT` through any operation;
-- custom roles or permission sets;
+- custom roles or permission sets. The five roles and six capabilities are
+  fixed in TypeScript and in a D1 `CHECK`;
 - staff profiles, departments, organizations, or partner-bank accounts;
 - separate privileged sessions; or
 - a mandatory recusal/second-approval rule. Self-review is allowed only after

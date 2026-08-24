@@ -228,8 +228,24 @@ applications a day gets density. Note that the shell — not `body` — reads
 `--body-size`, because custom properties inherit downwards only.
 
 **The gates are not the security boundary.** They decide what is *offered*.
-Every operation is still refused server-side by `currentApplicant`,
-`currentAdministrator` or the super-admin check.
+Every operation is still refused server-side by `currentApplicant` or by
+`currentStaff`, which asks for the capability that operation needs.
+
+The client asks the same question the API does — "may they do this?" — using the
+capabilities published on the signed-in user, rather than matching role names.
+The office holds four roles now: a screen checking for `ADMIN` would hide itself
+from an approver entitled to use it, and one listing every acceptable role would
+be a second copy of a policy that lives in `auth/capabilities.ts`.
+
+A control somebody cannot use is **absent, not disabled**. A button that cannot
+work should not be drawn; offering it and refusing is worse than not offering
+it.
+
+And a screen they cannot reach gets a capability refusal rather than the portal
+one. "This part of Mission SEP is for the programme office" is right for an
+applicant who wandered in and wrong for a reviewer, who *is* the programme
+office and is standing in it — they are not in the wrong place, they are in a
+room they do not have the key to.
 
 ## The guidance layer
 

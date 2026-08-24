@@ -181,7 +181,7 @@ public-launch blocker.
 | `recordDocumentScanResult` | `document-scanner.ts` | Appends a scan outcome. Not exposed |
 | `identifierMatches` | `queries/intake.ts` | Which transcribed values exist on another case |
 | `calculateRecoveryBalance` | `queries/funding.ts` | The pure accounting fold |
-| `currentAdministrator`, `authorizeReasonedTransition`, `adminAudit`, `constraintSafe` | `support.ts` | The shared preamble every transition uses |
+| `currentStaff`, `authorizeReasonedTransition`, `adminAudit`, `constraintSafe` | `support.ts` | The shared preamble every transition uses |
 
 ## Tests
 

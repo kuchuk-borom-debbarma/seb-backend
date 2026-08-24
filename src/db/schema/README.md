@@ -343,6 +343,19 @@ byte-exact schema check would reject.
   public-launch blockers.
 - The database is not deployed with production data, so `database/schema.sql`
   remains a replaceable canonical baseline rather than an incremental migration.
+- `core_user_role_grant.role` accepts five values: `APPLICANT`, `REVIEWER`,
+  `APPROVER`, `ADMIN`, `SUPER_ADMIN`. The vocabulary is fixed in TypeScript and
+  enforced by a `CHECK`, so adding a role is a schema change rather than a
+  production data edit.
+- `core_audit_event` carries five indexes, and the fifth is the one worth
+  knowing about. `core_audit_event_created_idx` on `(created_at, id)` exists
+  because every other index leads with a filter column, so the unfiltered
+  newest-first read — the likeliest query against the largest table — scanned
+  and sorted. That pair is exactly the keyset cursor, so the seek and the
+  ordering share one index.
+- `seb_document_upload_intent.size_bytes` is capped at 5 MB by a `CHECK`, the
+  same limit the service and the browser apply. Left wider, the database would
+  permit what the programme forbids.
 
 ## Base-schema workflow
 

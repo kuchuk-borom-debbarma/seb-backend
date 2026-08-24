@@ -59,6 +59,23 @@ Documentation should explain intent, user-visible behaviour, important rules,
 failure cases, and operational use in plain language. Avoid comments or prose
 that merely repeat names without explaining why the behaviour exists.
 
+## The code has standards too, and they are written down
+
+The working agreement above covers *process*. What good code looks like here is
+[`docs/rules/code.md`](docs/rules/code.md), and what it must protect is
+[`docs/rules/security.md`](docs/rules/security.md). Read both before changing a
+service, because several of the rules exist to prevent failures that are silent:
+
+- `db.batch` maps results by column name while an awaited query maps them
+  positionally, so batching a joined read shifts every value by one and nothing
+  throws.
+- A loader built at module scope is shared by every request the isolate serves,
+  which is a data leak rather than a stale cache.
+- Fewer database round trips is not automatically faster; the measurements are
+  in `test/batching.test.ts` and they go both ways.
+- A transport failure can carry the request it was making, so the error object
+  is never what gets logged.
+
 ## Completion checklist
 
 Before handing off any change:
@@ -69,7 +86,12 @@ Before handing off any change:
   behaviour as future work.
 - Confirm any new guide is linked and does not duplicate an existing guide.
 - Confirm code comments explain non-obvious business, security, concurrency, and
-  lifecycle decisions.
+  lifecycle decisions, and that each non-obvious guard names what goes wrong
+  without it.
+- Confirm the change obeys [`docs/rules/code.md`](docs/rules/code.md) and
+  [`docs/rules/security.md`](docs/rules/security.md), and that any new standing
+  decision was added to one of them rather than left in the file that embodies
+  it.
 - Run the checks appropriate to the change, including documentation whitespace
   checks for documentation-only work.
 - Report the roadmap and documentation changes in the final handoff.

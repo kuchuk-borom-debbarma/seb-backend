@@ -70,8 +70,37 @@ told which portal their account can use.
 
 ## What the programme office can do
 
-Three fixed roles. There is no reviewer role and none will be invented — adding
-one requires a schema and service change rather than a production data edit.
+Four staff roles, fixed in code. Adding one requires a schema and service change
+rather than a production data edit, so every possible authority is visible in
+review.
+
+They are **not ranked**. An approver may record a decision a reviewer may not,
+and neither may open a programme cycle. So each operation names the *capability*
+it needs, and one file — `auth/capabilities.ts` — decides which roles hold it.
+Somebody holding several roles gets the union.
+
+| Role | Can | Cannot |
+| --- | --- | --- |
+| Reviewer | Read every casework screen | Change anything at all |
+| Approver | Read casework, record and correct the decision | Everything else that writes |
+| Administrator | The whole operational workflow | Grant or revoke a role |
+| Super administrator | All of the above | — |
+
+### Reviewer
+
+Reads and nothing more: the queues, a workspace, submitted documents, the
+funding position, the committee's meetings. Every mutation is refused, and the
+client draws no control they cannot use.
+
+The role exists because reading a file and deciding it are different jobs, and
+somebody preparing a case for the committee needs the first without the second.
+
+### Approver
+
+A reviewer's reach, plus exactly two operations: recording the programme
+decision and correcting one. Desk review, bank referral, meetings, awards and
+recovery all stay with an administrator — deciding an application and
+administering the programme it belongs to are separate authorities.
 
 ### Administrator
 
@@ -101,17 +130,31 @@ one requires a schema and service change rather than a production data edit.
 
 ### Super administrator
 
-Everything an administrator can do, **plus** the four operations an ordinary
-administrator must not inherit — granting and revoking authority:
+Everything an administrator can do, **plus** the operations an ordinary
+administrator must not inherit:
 
 | What they do | Operation |
 | --- | --- |
 | Look somebody up by their exact address | `access.userByEmail`, `access.userById` |
-| Grant `ADMIN` or `SUPER_ADMIN`, confirming with their own password | `access.grantRole` |
+| Grant a role, confirming with their own password | `access.grantRole` |
 | Revoke a named grant, confirming with their own password | `access.revokeRole` |
+| Read the history of who changed what | `audit.events`, `audit.actions` |
 
-Those four are the **only** operations that require `SUPER_ADMIN`. Everything
-under `admin` accepts either administrative role.
+An administrator who could create administrators would be a super administrator
+by another name, which is why granting and revoking stay here.
+
+### Bringing somebody into the office
+
+Anybody who can invite — an administrator or a super administrator — names a
+person and a role. That person gets a link and **accepts it themselves**, so the
+record always shows they agreed. Their applicant access is exchanged for the
+staff role rather than added to it.
+
+An invitation cannot exceed its issuer's authority: an administrator may invite
+a reviewer or an approver, a super administrator may also invite an
+administrator, and nobody is ever invited to super administrator. Nothing about
+the invitation is stored — it travels sealed in the link, and what makes it
+single-use is that it only applies while the person is still an applicant.
 
 Three rules make this safe: `APPLICANT` can never be granted, because only
 verified signup creates it and one revocation would otherwise strip somebody
@@ -212,22 +255,38 @@ Four layers, and each subject has exactly one owner. The rule is
 - [Applicant service](src/services/application/README.md)
 - [Administrative service](src/services/admin/README.md)
 - [Authentication service](src/services/auth/README.md)
+- [Audit](src/services/audit/README.md) — reading who changed what
+- [Storage](src/services/storage/README.md) — a bucket, or this Worker
 - [Notifications](src/services/external-notification/README.md)
+- [Queue](src/services/queue/README.md) — work done after the response
+- [Document scanner](src/services/document-scanner/README.md) — whether a file
+  is safe to open
 - [GraphQL layer](src/graphql/README.md) — the API surface and its limits
 - [Database schema](src/db/schema/README.md) — tables, versions, constraints
 
 **The client** — [dev-web](dev-web/README.md)
 
-**The rules** — [docs/rules](docs/rules/README.md)
+**The rules** — [docs/rules](docs/rules/README.md): how documentation is
+owned, [what good code looks like here](docs/rules/code.md), and
+[what it must protect](docs/rules/security.md)
 
 ## How it is built
 
 Cloudflare Workers, Hono, GraphQL Yoga, Drizzle over D1, R2 for documents, and a
-Queue binding reserved for notification delivery. The Worker has three
-entrypoints: `fetch`, an hourly `scheduled` handler running three cleanup jobs,
-and a `queue` consumer that is currently a stub.
+Queue carrying document-scan requests. The Worker has three entrypoints:
+`fetch`, an hourly `scheduled` handler running three cleanup jobs, and a `queue`
+consumer that scans a finalized document.
 
-Everything is refused server-side. The client's role checks decide what is
-*offered*; they are never the security boundary.
+Five of the eight services exist to be **swapped** — notification, storage,
+queue, the document scanner, and whatever comes next. Each is an interface
+stated in the programme's own words, with one file per implementation and a
+factory that picks by environment. That is what lets the whole portal run on a
+machine with nothing configured: documents are written by the Worker itself,
+one-time codes are printed rather than sent, and scan requests are drained after
+the response.
+
+Everything is refused server-side. The client asks the same capability question
+the API does, but only to decide what is *offered*; it is never the security
+boundary.
 
 The working agreement for changing any of this is [`AGENTS.md`](AGENTS.md).

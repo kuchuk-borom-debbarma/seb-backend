@@ -1,14 +1,23 @@
 # Services
 
-Four services hold every business rule in the Worker. GraphQL resolvers are thin
-adapters above them and hold none.
+Eight services hold every business rule in the Worker. GraphQL resolvers are
+thin adapters above them and hold none.
+
+Three of them own a domain. The other five exist to be *swapped*: each is an
+interface the programme states in its own words, with one file per
+implementation and a factory that picks by environment. That is what lets the
+whole portal run on a developer's machine with nothing configured.
 
 | Service | Owns | Size |
 | --- | --- | --- |
-| [`auth/`](auth/README.md) | Identity, sessions, signup, and role administration | 2,076 lines |
-| [`application/`](application/README.md) | Everything an applicant owns — enterprises, drafts, evidence, submission | 5,229 lines |
-| [`admin/`](admin/README.md) | Programme cycles and the whole post-submission staff workflow | 4,555 lines |
-| [`external-notification/`](external-notification/README.md) | The seam where email delivery will be substituted | 17 lines |
+| [`application/`](application/README.md) | Everything an applicant owns — enterprises, drafts, evidence, submission | 6,414 lines |
+| [`admin/`](admin/README.md) | Programme cycles and the whole post-submission staff workflow | 5,792 lines |
+| [`auth/`](auth/README.md) | Identity, sessions, signup, capabilities, and role administration | 3,269 lines |
+| [`storage/`](storage/README.md) | Where documents live: a bucket, or this Worker | 517 lines |
+| [`audit/`](audit/README.md) | Reading the history of who changed what | 450 lines |
+| [`external-notification/`](external-notification/README.md) | Getting a message to a person | 264 lines |
+| [`document-scanner/`](document-scanner/README.md) | Whether a stored document is safe to open | 168 lines |
+| [`queue/`](queue/README.md) | Work handed off to be done after the response | 161 lines |
 
 ## The layering rule
 

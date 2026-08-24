@@ -9,14 +9,29 @@ the current administrative API. It complements the
 ## Access after sign-in
 
 Staff use the existing email/password sign-in. The portal reloads active roles
-from D1 on every request. A current `ADMIN` or `SUPER_ADMIN` grant opens the
-`admin` GraphQL namespace; revocation takes effect on the next request.
-`SUPER_ADMIN` includes ordinary administrative capability. Sign-in requires
-only one active role of any kind, so the bootstrapped first administrator holds
-`SUPER_ADMIN` alone and signs in normally.
+from D1 on every request, so revocation takes effect on the next action.
+Sign-in requires only one active role of any kind, so the bootstrapped first
+administrator holds `SUPER_ADMIN` alone and signs in normally.
 
-A super administrator provisions further administrators under the separate
-`access` namespace, described in the
+**Being able to read is what opens the office.** Four roles reach it, and what
+each may then do differs:
+
+| Role | In the office |
+| --- | --- |
+| Reviewer | Reads every screen here and changes nothing |
+| Approver | Reads, and records or corrects the programme decision |
+| Administrator | The whole workflow this guide describes |
+| Super administrator | All of it, plus role administration and the history |
+
+Each operation asks for the capability it needs rather than naming roles, so a
+narrower role is refused by the operation rather than at the door. Where a
+control is not available, the interface does not draw it — a button that cannot
+work is worse than an absent one.
+
+New staff arrive one of two ways. A super administrator grants a role directly,
+or anybody who may invite sends an invitation the person accepts themselves, in
+which case their applicant access is exchanged for the staff role. Both are
+described in the
 [administrator RBAC guide](admin-rbac.md#role-administration). Account recovery
 remains a launch blocker.
 
@@ -47,8 +62,12 @@ per run. Opened cycles cannot be deleted.
 Drafts never appear in intake, and claiming one is refused the same way an
 unknown application is. The queue exposes the latest formal submission,
 reference, enterprise, applicant, pinned cycle, phase/type, category, sector,
-status, assignee, submission time, and activity time. Staff may filter by those
-dimensions and order by oldest waiting, newest submission, or last activity.
+status, who holds it, submission time, and activity time. Staff may filter by
+those dimensions and order by oldest waiting, newest submission, or last
+activity.
+
+The assignee is named rather than left as an identifier, because somebody
+looking at a claimed application is usually about to go and ask whoever has it.
 
 Staff may also search by the start of a reference number or an enterprise name.
 It is a prefix match, not a free-text search, and the interface says so — a box
@@ -100,11 +119,19 @@ A submission freezes one application version and the exact version of every
 document slot. Replacing the current GST file tomorrow cannot change the GST
 file reviewed yesterday.
 
-Every finalized file begins with a `PENDING` scan result. A future trusted
-scanner calls an internal function to append `ACCEPTED`, `REJECTED`, or `ERROR`;
-there is deliberately no GraphQL “accept scan” mutation. Staff download fails
-closed unless the latest scan for the exact submitted file is `ACCEPTED`, and
-the staff member currently owns the assignment.
+Every finalized file begins with a `PENDING` scan result and a queued request to
+scan it. A trusted consumer appends `ACCEPTED`, `REJECTED` or `ERROR`; there is
+deliberately no GraphQL "accept scan" mutation. Staff download fails closed
+unless the latest scan for the exact submitted file is `ACCEPTED` and the staff
+member currently owns the assignment.
+
+**No malware scanner has been chosen yet, and what that means depends on where
+you are.** On a developer's machine and on the development deployment,
+documents are accepted without being examined and the scan history records
+`NO_SCANNER_CONFIGURED` against each one — so anybody looking can tell an
+unexamined file from a checked one. Production refuses to start at all until a
+real scanner is configured. See the
+[document scanner service](../src/services/document-scanner/README.md).
 
 The scanner provider is not connected. Therefore staff document access and
 public launch remain blocked even though the fail-closed contract exists.
@@ -264,8 +291,12 @@ form contents, money, bank correspondence, notes, or credentials.
 
 ## Public-launch blockers
 
-Do not publicly launch administrative operations until account recovery, a
-production malware scanner, rate limits, privacy/access approval, and the
+Do not launch administrative operations to the public until account recovery, a
+real malware scanner, rate limits, privacy and access approval, and the
 unresolved TTAADC policy decisions in the
-[policy alignment guide](policy-alignment.md) are complete. Role management is
-delivered.
+[policy alignment guide](policy-alignment.md) are complete.
+
+Role management, the narrower staff roles, invitations and the activity history
+are all delivered. The scanner is a **production** blocker rather than a blanket
+one: the seam and its consumer exist, and the development environments are
+usable because they record plainly that nothing examined the file.

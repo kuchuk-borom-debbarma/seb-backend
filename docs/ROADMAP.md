@@ -353,14 +353,19 @@ submitted in an older cycle.
 - [x] A concurrent replacement based on an old document version is rejected.
 - [x] Temporary uploads that expire or fail validation are marked for cleanup
   without affecting finalized documents.
-- [ ] Scan every finalized document for malware before it becomes available to
-  programme staff.
+- [x] Route every finalized document through a scanner before it becomes
+  available to programme staff. The seam, the producer and the consumer are all
+  real; which product does the scanning is the open decision below.
+- [ ] Choose and configure a real malware scanner. Until one exists, `local` and
+  `develop` accept documents without examining them and record
+  `NO_SCANNER_CONFIGURED` against each one, so an unexamined file can never be
+  mistaken for a checked one. `production` refuses to start without a scanner.
 - [ ] Show applicants the malware-scan states “Pending”, “Accepted”, and
   “Rejected”, with a safe reason and a replacement action for rejected files.
 - [ ] Prevent submission while any required document is awaiting or has failed
   malware scanning.
-- [ ] Allow authorized administrators to download accepted evidence only after
-  malware scanning is enabled.
+- [x] Allow authorized administrators to download evidence only once a scan
+  result has been recorded against it. The download fails closed until then.
 
 ---
 
@@ -502,16 +507,29 @@ namespace. Account recovery remains incomplete.
 
 ### 9.3 User and role management
 
-Role administration lives under the `access` GraphQL namespace. Grant and
-revoke are both restricted to `ADMIN` and `SUPER_ADMIN`: `APPLICANT` is created
-only by verified signup and cannot be granted back by any operation, so allowing
-its revocation here would strip an applicant permanently with no recovery path.
+Role administration lives under the `access` GraphQL namespace. Grant, revoke
+and invite all accept `REVIEWER`, `APPROVER`, `ADMIN` and `SUPER_ADMIN`:
+`APPLICANT` is created only by verified signup and cannot be granted back by any
+operation, so allowing its revocation here would strip an applicant permanently
+with no recovery path.
 
 - [x] Let a super administrator search users by exact email or public user ID.
 - [x] Show verified email, active roles, account state, and retained role
   history without exposing passwords or private application answers.
-- [x] Let a super administrator grant `ADMIN` or `SUPER_ADMIN` with a mandatory
-  reason.
+- [x] Let a super administrator grant any staff role with a mandatory reason.
+- [x] Separate reading casework from deciding it: a reviewer reads every
+  administrative screen and can change nothing, and an approver adds only the
+  programme decision.
+- [x] Decide authorization by capability rather than by role name, so an
+  operation states what it needs and one file says which roles hold it.
+- [x] Let an administrator invite somebody to a role they accept themselves, so
+  the record shows consent rather than an assignment they may not know about.
+- [x] Stop an invitation exceeding its issuer's own authority: an administrator
+  may invite a reviewer or an approver and no more, and nobody is ever invited
+  to super administrator.
+- [x] Keep nothing about an invitation in the database. It travels sealed in the
+  link, and it is single-use because it applies only while the person is still
+  an applicant.
 - [x] Let a super administrator revoke a role with a mandatory reason.
 - [x] Prevent duplicate active grants of the same role.
 - [x] Permit a previously revoked role to be granted again as a new history
@@ -868,6 +886,15 @@ record.
   changes, revision requests, decisions, awards, releases, reversals, and
   assessments in event order.
 - [x] Provide a role-change history for super administrators.
+- [x] Let a super administrator read the whole recorded history — who did what,
+  to which record, with what outcome — scoped by named people, by everybody
+  holding a role, by application, by action and by date, and paged the same way
+  every other list is.
+- [x] Read that history from what was actually recorded rather than from a list
+  of actions the current code can write, so a filter never offers a dead end.
+- [ ] Widen the per-application view to include events recorded against an
+  application's own documents and submissions. Today it matches only events
+  whose subject is the application itself.
 
 ---
 
@@ -898,7 +925,9 @@ complete.
   an empty database, so the first change after real data lands has no upgrade
   story — see the [schema README](../src/db/schema/README.md).
 - [ ] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits.
-- [ ] Enable malware scanning before staff can open applicant documents.
+- [ ] Configure a real malware scanner. This is a **production** blocker rather
+  than a blanket one: the seam exists, and `local` and `develop` are usable
+  without it because they record plainly that nothing examined the file.
 - [ ] Complete administrator recovery procedures. Provisioning is delivered.
 - [ ] Approve applicant privacy notice, consent text, retention schedule, and
   grievance/contact process.
