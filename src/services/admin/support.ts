@@ -127,11 +127,10 @@ export const changedExactlyOne = (
  * records that as permitted, with disclosure — but they must say so, and the
  * saying is what lands in the audit trail.
  *
- * This used to live on claiming, which was the first act on a file. Claiming is
- * now optional, so the disclosure moved onto the transitions that actually
- * decide something: completing a desk review and recording a decision. Left
- * where it was, an officer could simply not claim and review their own
- * application with nothing recorded.
+ * This used to live on claiming, which was the first act on a file. There is
+ * nothing to reserve now, so the disclosure moved onto the transitions that
+ * actually decide something: completing a desk review and recording a
+ * decision. Left where it was, it would simply never be collected.
  *
  * Absent is treated as not acknowledged. Only somebody reviewing their own
  * application has to send it, so every other caller is unaffected.

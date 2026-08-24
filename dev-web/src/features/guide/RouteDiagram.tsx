@@ -87,7 +87,7 @@ const AT_THIS_DESK: Record<ApplicationStatus, { name: string; happens: string }>
   SUBMITTED: {
     name: 'Submitted',
     happens:
-      'A copy is frozen and a reference number issued. It joins the new-submissions queue for anyone to claim.',
+      'A copy is frozen and a reference number issued. It joins the new-submissions queue for the office to pick up.',
   },
   DESK_REVIEW: {
     name: 'Desk review',

@@ -1,10 +1,16 @@
 /**
- * Authorization and input validation for intake, assignment, and desk review.
+ * Authorization and input validation for intake and desk review.
  *
- * Claiming is the concurrency lock the rest of the workflow depends on: nothing
- * on an application can be actioned by anyone but its holder. The refusals
- * decided here explain which rule stopped somebody; the predicates in
- * `queries/intake.ts` are what decide concurrent attempts.
+ * Nothing is reserved before it is worked on. Holding the right capability is
+ * what permits an action, and the version term inside each write predicate is
+ * what settles two officers acting at once — so the refusals decided here
+ * explain which rule stopped somebody, while the predicates in
+ * `queries/intake.ts` decide concurrent attempts.
+ *
+ * The assignment columns survive as a record of who worked a file last, written
+ * as a side effect of the work itself. They are advisory and never gate
+ * anything: gating a *read* on them is what once left reviewers, whose whole
+ * job is reading casework, unable to open a single document.
  */
 import { deskReviewChecks } from '../../../db/schema'
 import type { Capability } from '../../auth'
@@ -15,7 +21,6 @@ import {
   findIdentifierRules,
   approvedReason,
   cancelRevisionRequestWrite,
-  changeAssignment,
   completeDeskReviewWrite,
   identifierMatches,
   insertInternalNote,
@@ -132,20 +137,6 @@ export const intakeWorkspace = async (
   return workspace ? success(workspace) : failure('The application was not found.')
 }
 
-const reasonForApplication = async (
-  context: AdminOperationContext,
-  input: { applicationId: string; reasonCategoryId: string; reasonContext: string },
-) => {
-  const submission = await latestSubmission(context.db, input.applicationId)
-  if (!submission) return null
-  return approvedReason(context.db, {
-    id: input.reasonCategoryId,
-    cycleId: submission.snapshot.programmeCycleId,
-    version: submission.snapshot.programmeCycleVersion,
-    context: input.reasonContext,
-  })
-}
-
 /**
  * Authorizes an administrator and loads the application they named.
  *
@@ -157,10 +148,10 @@ const reasonForApplication = async (
 /*
  * The capability is the caller's to state, not this helper's to assume.
  *
- * It serves both a read (opening a document) and a write (claiming), and when
- * it named one itself the write inherited the read's answer — so a reviewer,
- * who may change nothing, could claim an application. A shared preamble must
- * never decide authority on behalf of operations that do different things.
+ * It once served both a read and a write while naming a capability itself, so
+ * the write silently inherited the read's answer and a reviewer — who may
+ * change nothing — could reach it. A shared preamble must never decide
+ * authority on behalf of operations that do different things.
  */
 const administratorWithApplication = async (
   context: AdminOperationContext,
@@ -176,110 +167,6 @@ const administratorWithApplication = async (
   const head = await loadApplicationHead(context.db, applicationId)
   if (!head) return { refusal: failure(notFoundMessage) }
   return { administrator, head }
-}
-
-export const claimApplication = async (
-  input: {
-    applicationId: string
-    expectedAssignmentVersion: number
-    conflictAcknowledged: boolean
-  },
-  context: AdminOperationContext,
-): Promise<AdminResult<unknown>> => {
-  const authorized = await administratorWithApplication(
-    context, 'STAFF_WRITE', input.applicationId, 'The application was not found.',
-  )
-  if ('refusal' in authorized) return authorized.refusal
-  const { administrator, head } = authorized
-  // A draft has never been submitted, so it must stay invisible to reviewers.
-  if (head.application.status === 'DRAFT') return failure('The application was not found.')
-  if (undisclosedSelfReview(
-    head.application.applicantUserId, administrator.id, input.conflictAcknowledged,
-  )) return failure(SELF_REVIEW_MESSAGE)
-  const changed = await constraintSafe(() => changeAssignment(context, {
-    applicationId: input.applicationId,
-    actorUserId: administrator.id,
-    expectedVersion: input.expectedAssignmentVersion,
-    fromUserId: null,
-    toUserId: administrator.id,
-    eventType: 'CLAIMED',
-    conflictAcknowledged: input.conflictAcknowledged,
-    now: new Date(),
-  }))
-  if (!changed) return failure(STALE_MESSAGE)
-  return success((await loadApplicationHead(context.db, input.applicationId))?.application)
-}
-
-export const releaseApplication = async (
-  input: {
-    applicationId: string
-    expectedAssignmentVersion: number
-    reasonCategoryId: string
-    reason: string
-  },
-  context: AdminOperationContext,
-): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
-  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
-  const reason = normalizeRequiredText(input.reason, 500)
-  if (!reason || !await reasonForApplication(context, {
-    applicationId: input.applicationId,
-    reasonCategoryId: input.reasonCategoryId,
-    reasonContext: 'ASSIGNMENT_RELEASE',
-  })) return failure('Select an approved release reason and enter an explanation.')
-  const changed = await constraintSafe(() => changeAssignment(context, {
-    applicationId: input.applicationId,
-    actorUserId: administrator.id,
-    expectedVersion: input.expectedAssignmentVersion,
-    fromUserId: administrator.id,
-    toUserId: null,
-    eventType: 'RELEASED',
-    reasonCategoryId: input.reasonCategoryId,
-    reason,
-    conflictAcknowledged: false,
-    now: new Date(),
-  }))
-  if (!changed) return failure(STALE_MESSAGE)
-  return success((await loadApplicationHead(context.db, input.applicationId))?.application)
-}
-
-export const reassignApplication = async (
-  input: {
-    applicationId: string
-    expectedAssignmentVersion: number
-    toUserId: string
-    reasonCategoryId: string
-    reason: string
-    conflictAcknowledged: boolean
-  },
-  context: AdminOperationContext,
-): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
-  if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
-  const head = await loadApplicationHead(context.db, input.applicationId)
-  const reason = normalizeRequiredText(input.reason, 500)
-  if (!head?.application.assignedToUserId || !reason || !await reasonForApplication(context, {
-    applicationId: input.applicationId,
-    reasonCategoryId: input.reasonCategoryId,
-    reasonContext: 'ASSIGNMENT_REASSIGN',
-  })) return failure('Select an approved reassignment reason and enter an explanation.')
-  if (head.application.applicantUserId === input.toUserId && !input.conflictAcknowledged) {
-    return failure('Acknowledge that the new assignee owns this application.')
-  }
-  const changed = await constraintSafe(() => changeAssignment(context, {
-    applicationId: input.applicationId,
-    actorUserId: administrator.id,
-    expectedVersion: input.expectedAssignmentVersion,
-    fromUserId: head.application.assignedToUserId,
-    toUserId: input.toUserId,
-    eventType: 'REASSIGNED',
-    reasonCategoryId: input.reasonCategoryId,
-    reason,
-    conflictAcknowledged: input.conflictAcknowledged,
-    now: new Date(),
-  }))
-  if (!changed) return failure(STALE_MESSAGE)
-  return success((await loadApplicationHead(context.db, input.applicationId))?.application)
 }
 
 export const addInternalNote = async (
@@ -634,9 +521,8 @@ export const adminDocumentDownloadUrl = async (
   input: { applicationId: string; submissionDocumentId: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  // A missing application and one the caller has not claimed are refused
-  // identically, so probing IDs cannot reveal which drafts or applications
-  // exist. An unclaimed draft has no assignee and lands here too.
+  // A missing application and a draft are refused identically, so probing IDs
+  // cannot reveal which drafts or applications exist.
   const authorized = await administratorWithApplication(
     context,
     'STAFF_READ',
@@ -648,14 +534,14 @@ export const adminDocumentDownloadUrl = async (
    * Deliberately not gated on holding the file.
    *
    * This is a read, and tying a read to ownership was the wrong shape: a
-   * reviewer exists to read casework, cannot claim anything, and so could
-   * never open a single piece of the evidence they were meant to review.
+   * reviewer exists to read casework, could never have held a file, and so
+   * could never open a single piece of the evidence they were meant to review.
    *
    * The ownership check was also doing a second job, and that job still has to
-   * be done: an unclaimed **draft** has no assignee, so refusing on ownership
-   * refused drafts too. A draft has never been submitted and must stay
-   * invisible, so it is refused here explicitly and identically to an
-   * application that does not exist.
+   * be done: a **draft** has no assignee, so refusing on ownership refused
+   * drafts too. A draft has never been submitted and must stay invisible, so
+   * it is refused here explicitly and identically to an application that does
+   * not exist.
    *
    * Submitted applications are deliberately *not* hidden from each other: a
    * staff member can already list every one of them in the queue, so refusing

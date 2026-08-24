@@ -28,7 +28,7 @@
 /** The office words that earn an explanation. One per card, at most. */
 export type OfficeTerm =
   | 'twoSubmittedQueues'
-  | 'claiming'
+  | 'workingTogether'
   | 'frozenEvidence'
   | 'bankOutcome'
   | 'meetingState'
@@ -51,12 +51,12 @@ export const OFFICE_HELP: Record<OfficeTerm, string> = {
     'application, the other is checking that a named section was fixed. They are ' +
     'counted separately so the two never land in one pile.',
 
-  // Source: admin-workflow-guide.md, "Intake queues and claiming".
-  claiming:
-    'Claiming answers who owns the next decision. Until somebody holds this, nothing ' +
-    'on it can be actioned; while you hold it, nobody else can act. Taking one a ' +
-    'colleague holds is allowed and is a normal thing to need, but they lose it at ' +
-    'once and it is recorded against your account.',
+  // Source: admin-workflow-guide.md, "Working the same file as somebody else".
+  workingTogether:
+    'Anybody holding the right role can act on this; there is nothing to reserve ' +
+    'first. Knowing who was here last is still worth having, so it is shown — but ' +
+    'it is a courtesy, not a lock. If two of you act at once, the second is told ' +
+    'the record changed and nothing is overwritten.',
 
   // Source: admin-workflow-guide.md, "Frozen evidence and document safety".
   frozenEvidence:

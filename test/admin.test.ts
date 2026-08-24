@@ -242,9 +242,6 @@ describe('Mission SEP administration', () => {
       'mutation { admin { programmeCycle { archive(input: { id: "x", expectedVersion: 1, reason: "x" }) { success } } } }',
       'mutation { admin { programmeCycle { updateOpenGuidance(input: { id: "x", expectedVersion: 1, applicantGuidance: "x", partnerBankGuidance: "x", reason: "x" }) { success } } } }',
       'mutation { admin { programmeCycle { changeClosingTime(input: { id: "x", expectedVersion: 1, closesAt: "2030-01-01T00:00:00Z", reason: "x" }) { success } } } }',
-      'mutation { admin { intake { claim(input: { applicationId: "x", expectedAssignmentVersion: 0, conflictAcknowledged: false }) { success } } } }',
-      'mutation { admin { intake { release(input: { applicationId: "x", expectedAssignmentVersion: 1, reasonCategoryId: "x", reason: "x" }) { success } } } }',
-      'mutation { admin { intake { reassign(input: { applicationId: "x", expectedAssignmentVersion: 1, toUserId: "x", reasonCategoryId: "x", reason: "x", conflictAcknowledged: false }) { success } } } }',
       'mutation { admin { intake { addInternalNote(input: { applicationId: "x", note: "x" }) { success } } } }',
       'mutation { admin { intake { startDeskReview(input: { applicationId: "x", expectedStatusVersion: 1 }) { success } } } }',
       `mutation { admin { intake { completeDeskReview(input: {
@@ -365,14 +362,6 @@ describe('Mission SEP administration', () => {
         .bind(submissionDocumentId, submissionId, applicationId, documentId, now),
     ])
 
-    // Documents open only to whoever holds the application, so claim it first
-    // — otherwise the refusal below would be about assignment, not scanning.
-    await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { success } } }
-    }`, { input: {
-      applicationId, expectedAssignmentVersion: 0, conflictAcknowledged: true,
-    } }, administrator.cookie)
-
     const download = () => graphql<{
       admin: { intake: { documentDownloadUrl: { success: boolean; message: string | null } } }
     }>(`query { admin { intake { documentDownloadUrl(
@@ -410,7 +399,7 @@ describe('Mission SEP administration', () => {
   it('names who holds an application, resolved once for the whole page', async () => {
     /*
      * Before this the queue returned only an id, so the office could see that
-     * an application was claimed but never by whom.
+     * somebody was working an application but never who.
      *
      * Resolved as a field through the request's loader rather than joined into
      * the queue query — a join would duplicate an application once per role
@@ -437,16 +426,18 @@ describe('Mission SEP administration', () => {
         .filter((node) => node.id === applicationId)
     }
 
-    // Nobody holds it, so there is nobody to name — rather than a lookup of an
-    // id that is not there.
+    // Nobody has worked it, so there is nobody to name — rather than a lookup
+    // of an id that is not there.
     const before = await queueRow()
     expect(before).toHaveLength(1)
     expect(before[0]).toMatchObject({ assignedToUserId: null, assignedTo: null })
 
-    await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { success } } }
+    // Starting the review is what records the actor now; there is no separate
+    // step that reserves it first.
+    await graphql<any>(`mutation($input: StartDeskReviewInput!) {
+      admin { intake { startDeskReview(input: $input) { success } } }
     }`, { input: {
-      applicationId, expectedAssignmentVersion: 0, conflictAcknowledged: true,
+      applicationId, expectedStatusVersion: 2,
     } }, administrator.cookie)
 
     const after = await queueRow()
@@ -461,7 +452,7 @@ describe('Mission SEP administration', () => {
   })
 
 
-  describe('with nobody claiming anything', () => {
+  describe('with nothing reserved before acting', () => {
     /*
      * Claiming used to be required before acting, and `assignedToUserId =
      * actorId` sat inside eight write predicates. These are the two properties
@@ -517,9 +508,9 @@ describe('Mission SEP administration', () => {
     it('will not review your own application without saying so', async () => {
       /*
        * The disclosure used to live on claiming, which was the first act on a
-       * file. Claiming is now optional, so an officer could have reviewed their
-       * own application by simply not claiming and nothing would have been
-       * recorded. It moved to the act that decides something.
+       * file. There is nothing to reserve now, so a disclosure attached to it
+       * would simply never be collected. It moved to the act that decides
+       * something.
        *
        * `docs/policy-alignment.md` records self-review as permitted **with
        * disclosure**, so the permission and the disclosure have to travel
@@ -624,7 +615,7 @@ describe('Mission SEP administration', () => {
             documentId, now),
       ])
 
-      // A reviewer, who has claimed nothing and cannot claim.
+      // A reviewer, who cannot write anything and never reserved this.
       const reviewer = await adminSession(['REVIEWER'])
       const download = await graphql<{
         admin: { intake: { documentDownloadUrl: {
@@ -696,28 +687,39 @@ describe('Mission SEP administration', () => {
       }
     })
 
-    it('refuses a reviewer the write that hides behind a shared preamble', async () => {
+    it('admits every reading role to the shared preamble, and no one else', async () => {
       /*
-       * Claiming authorizes through `administratorWithApplication`, which also
-       * serves the document read. When that preamble named its own capability,
-       * the write inherited the read's answer and a reviewer could claim.
+       * `administratorWithApplication` is the one preamble serving more than
+       * one operation, and it once named its own capability instead of taking
+       * the caller's. The write that shared it silently inherited the read's
+       * answer, which let a reviewer reach it.
        *
-       * Asserted through `claim` specifically rather than any mutation: the
-       * boundary tests above go through `startDeskReview`, which authorizes
-       * directly, so they could not have caught this.
+       * It now takes the capability as an argument and has a single caller, so
+       * the shape cannot recur without someone passing a second one. What is
+       * asserted here is the behaviour that would break first: the gate runs
+       * before the record is looked up, so a caller without the capability is
+       * refused identically whether or not the application exists.
        */
-      const CLAIM = `mutation { admin { intake { claim(input: {
-        applicationId: "${crypto.randomUUID()}", expectedAssignmentVersion: 0,
-        conflictAcknowledged: true
-      }) { success message } } } }`
+      const READ_DOCUMENT = `query { admin { intake { documentDownloadUrl(
+        applicationId: "${crypto.randomUUID()}",
+        submissionDocumentId: "${crypto.randomUUID()}"
+      ) { success message } } } }`
 
-      for (const roles of [['REVIEWER'], ['APPROVER']]) {
-        const caller = await adminSession(roles as Array<'REVIEWER' | 'APPROVER'>)
-        expect(await messageOf(CLAIM, caller.cookie), roles.join()).toBe(DENIED)
+      // Not staff at all: refused by the capability, never told whether the
+      // application is real.
+      const applicant = await adminSession(['APPLICANT'])
+      expect(await messageOf(READ_DOCUMENT, applicant.cookie)).toBe(DENIED)
+
+      /*
+       * Every staff role reaches past the gate and lands on the business
+       * refusal instead. A reviewer getting the same answer as an
+       * administrator is the whole point: reading casework is the job.
+       */
+      for (const roles of [['REVIEWER'], ['APPROVER'], ['ADMIN']]) {
+        const caller = await adminSession(roles as Array<'REVIEWER' | 'APPROVER' | 'ADMIN'>)
+        expect(await messageOf(READ_DOCUMENT, caller.cookie), roles.join())
+          .toBe('The application was not found.')
       }
-      // An administrator still gets past it, to a business refusal.
-      const administrator = await adminSession(['ADMIN'])
-      expect(await messageOf(CLAIM, administrator.cookie)).not.toBe(DENIED)
     })
 
     it('unions the capabilities of somebody holding two roles', async () => {
@@ -1222,11 +1224,6 @@ describe('Mission SEP administration', () => {
       ORDER BY sequence_number DESC LIMIT 1`).bind(versionId).first()).toEqual({
       status: 'ERROR', sequence: 3,
     })
-    await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { success } } }
-    }`, { input: {
-      applicationId, expectedAssignmentVersion: 0, conflictAcknowledged: true,
-    } }, administrator.cookie)
     await graphql<any>(`mutation($input: StartDeskReviewInput!) {
       admin { intake { startDeskReview(input: $input) { success } } }
     }`, { input: { applicationId, expectedStatusVersion: 2 } }, administrator.cookie)
@@ -1263,11 +1260,6 @@ describe('Mission SEP administration', () => {
     const administrator = await adminSession(['APPLICANT', 'ADMIN'])
     const cycle = await createOpenedCycle(administrator.cookie)
     const first = await createSubmittedApplication(administrator.cookie, administrator.userId, cycle.id)
-    await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { success } } }
-    }`, { input: {
-      applicationId: first.applicationId, expectedAssignmentVersion: 0, conflictAcknowledged: true,
-    } }, administrator.cookie)
     await graphql<any>(`mutation($input: StartDeskReviewInput!) {
       admin { intake { startDeskReview(input: $input) { success } } }
     }`, { input: { applicationId: first.applicationId, expectedStatusVersion: 2 } }, administrator.cookie)
@@ -1309,11 +1301,6 @@ describe('Mission SEP administration', () => {
     expect(staleRevisionCancellation.data.admin.intake.cancelRevision.success).toBe(false)
 
     const second = await createSubmittedApplication(administrator.cookie, administrator.userId, cycle.id)
-    await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { success } } }
-    }`, { input: {
-      applicationId: second.applicationId, expectedAssignmentVersion: 0, conflictAcknowledged: true,
-    } }, administrator.cookie)
     await graphql<any>(`mutation($input: StartDeskReviewInput!) {
       admin { intake { startDeskReview(input: $input) { success } } }
     }`, { input: { applicationId: second.applicationId, expectedStatusVersion: 2 } }, administrator.cookie)
@@ -1501,18 +1488,6 @@ describe('Mission SEP administration', () => {
       success: false,
       message: 'The submitted document has not passed malware scanning.',
     })
-    const missingClaim = await graphql<any>(`mutation { admin { intake {
-      claim(input: { applicationId: "missing", expectedAssignmentVersion: 0, conflictAcknowledged: false }) { success }
-    } } }`, {}, administrator.cookie)
-    expect(missingClaim.data.admin.intake.claim.success).toBe(false)
-    const missingReassign = await graphql<any>(`mutation($input: ReassignApplicationInput!) {
-      admin { intake { reassign(input: $input) { success } } }
-    }`, { input: {
-      applicationId: 'missing', expectedAssignmentVersion: 1,
-      toUserId: administrator.userId, reasonCategoryId: 'missing',
-      reason: 'Reassign.', conflictAcknowledged: false,
-    } }, administrator.cookie)
-    expect(missingReassign.data.admin.intake.reassign.success).toBe(false)
     const missingReview = await graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
       admin { intake { completeDeskReview(input: $input) { success } } }
     }`, { input: {
@@ -1522,70 +1497,11 @@ describe('Mission SEP administration', () => {
       applicantMessage: null, revisions: [],
     } }, administrator.cookie)
     expect(missingReview.data.admin.intake.completeDeskReview.success).toBe(false)
-
-    const ownConflict = await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { success message } } }
-    }`, { input: {
-      applicationId: submitted.applicationId, expectedAssignmentVersion: 0, conflictAcknowledged: false,
-    } }, administrator.cookie)
-    expect(ownConflict.data.admin.intake.claim.message).toContain('Acknowledge')
-    const claimed = await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { success response { assignmentVersion } } } }
-    }`, { input: {
-      applicationId: submitted.applicationId, expectedAssignmentVersion: 0, conflictAcknowledged: true,
-    } }, administrator.cookie)
-    expect(claimed.data.admin.intake.claim.success).toBe(true)
-    const staleClaim = await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { success message } } }
-    }`, { input: {
-      applicationId: submitted.applicationId, expectedAssignmentVersion: 0, conflictAcknowledged: true,
-    } }, administrator.cookie)
-    expect(staleClaim.data.admin.intake.claim.success).toBe(false)
     const unsafeDownload = await graphql<any>(`query($id: ID!) { admin { intake {
       documentDownloadUrl(applicationId: $id, submissionDocumentId: "missing") { success message }
     } } }`, { id: submitted.applicationId }, administrator.cookie)
     expect(unsafeDownload.data.admin.intake.documentDownloadUrl.message)
       .toBe('The submitted document has not passed malware scanning.')
-
-    const releaseReason = await reasonId(cycle.id, 'ASSIGNMENT_RELEASE')
-    const badRelease = await graphql<any>(`mutation($input: ReleaseApplicationInput!) {
-      admin { intake { release(input: $input) { success message } } }
-    }`, { input: {
-      applicationId: submitted.applicationId, expectedAssignmentVersion: 1,
-      reasonCategoryId: releaseReason, reason: ' ',
-    } }, administrator.cookie)
-    expect(badRelease.data.admin.intake.release.success).toBe(false)
-    const missingRelease = await graphql<any>(`mutation($input: ReleaseApplicationInput!) {
-      admin { intake { release(input: $input) { success } } }
-    }`, { input: {
-      applicationId: 'missing', expectedAssignmentVersion: 1,
-      reasonCategoryId: releaseReason, reason: 'Return to queue.',
-    } }, administrator.cookie)
-    expect(missingRelease.data.admin.intake.release.success).toBe(false)
-    const staleRelease = await graphql<any>(`mutation($input: ReleaseApplicationInput!) {
-      admin { intake { release(input: $input) { success } } }
-    }`, { input: {
-      applicationId: submitted.applicationId, expectedAssignmentVersion: 99,
-      reasonCategoryId: releaseReason, reason: 'Return to queue.',
-    } }, administrator.cookie)
-    expect(staleRelease.data.admin.intake.release.success).toBe(false)
-    const reassignReason = await reasonId(cycle.id, 'ASSIGNMENT_REASSIGN')
-    const conflictReassign = await graphql<any>(`mutation($input: ReassignApplicationInput!) {
-      admin { intake { reassign(input: $input) { success message } } }
-    }`, { input: {
-      applicationId: submitted.applicationId, expectedAssignmentVersion: 1,
-      toUserId: administrator.userId, reasonCategoryId: reassignReason,
-      reason: 'Retain ownership.', conflictAcknowledged: false,
-    } }, administrator.cookie)
-    expect(conflictReassign.data.admin.intake.reassign.message).toContain('Acknowledge')
-    const staleReassign = await graphql<any>(`mutation($input: ReassignApplicationInput!) {
-      admin { intake { reassign(input: $input) { success } } }
-    }`, { input: {
-      applicationId: submitted.applicationId, expectedAssignmentVersion: 99,
-      toUserId: administrator.userId, reasonCategoryId: reassignReason,
-      reason: 'Retain ownership.', conflictAcknowledged: true,
-    } }, administrator.cookie)
-    expect(staleReassign.data.admin.intake.reassign.success).toBe(false)
     const blankNote = await graphql<any>(`mutation($input: InternalNoteInput!) {
       admin { intake { addInternalNote(input: $input) { success message } } }
     }`, { input: { applicationId: submitted.applicationId, note: ' ' } }, administrator.cookie)
@@ -1675,12 +1591,6 @@ describe('Mission SEP administration', () => {
     )
     await env.DB.prepare(`UPDATE seb_application SET application_type = 'EXPANSION',
       phase_number = 2 WHERE id = ?`).bind(expansion.applicationId).run()
-    await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { success } } }
-    }`, { input: {
-      applicationId: expansion.applicationId, expectedAssignmentVersion: 0,
-      conflictAcknowledged: true,
-    } }, administrator.cookie)
     await graphql<any>(`mutation($input: StartDeskReviewInput!) {
       admin { intake { startDeskReview(input: $input) { success } } }
     }`, { input: { applicationId: expansion.applicationId, expectedStatusVersion: 2 } }, administrator.cookie)
@@ -1745,7 +1655,7 @@ describe('Mission SEP administration', () => {
     }
   })
 
-  it('runs the claimed application through desk review, bank, TTM, award, release, assessment, and recovery', async () => {
+  it('runs an application through desk review, bank, TTM, award, release, assessment, and recovery', async () => {
     const administrator = await adminSession(['APPLICANT', 'ADMIN'])
     const cycle = await createOpenedCycle(administrator.cookie)
     const submitted = await createSubmittedApplication(
@@ -1825,11 +1735,6 @@ describe('Mission SEP administration', () => {
     expect(queue.errors).toBeUndefined()
     expect(queue.data.admin.intake.queue.response.nodes[0].id).toBe(applicationId)
 
-    const claim = await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { response { assignmentVersion } } } }
-    }`, { input: { applicationId, expectedAssignmentVersion: 0, conflictAcknowledged: true } }, administrator.cookie)
-    expect(claim.data.admin.intake.claim.response.assignmentVersion).toBe(1)
-
     const firstNote = await graphql<any>(`mutation($input: InternalNoteInput!) {
       admin { intake { addInternalNote(input: $input) { success message response { notes { id note correctionOfNoteId } } } } }
     }`, { input: { applicationId, note: 'Initial staff-only observation.' } }, administrator.cookie)
@@ -1842,24 +1747,14 @@ describe('Mission SEP administration', () => {
     } }, administrator.cookie)
     expect(correctionNote.data.admin.intake.addInternalNote.response.notes[1].correctionOfNoteId).toBe(noteId)
 
-    const releaseReason = await reasonId(cycle.id, 'ASSIGNMENT_RELEASE')
-    const releasedAssignment = await graphql<any>(`mutation($input: ReleaseApplicationInput!) {
-      admin { intake { release(input: $input) { response { assignmentVersion assignedToUserId } } } }
-    }`, { input: {
-      applicationId, expectedAssignmentVersion: 1, reasonCategoryId: releaseReason,
-      reason: 'Temporarily return to the shared queue.',
-    } }, administrator.cookie)
-    expect(releasedAssignment.data.admin.intake.release.response).toMatchObject({
-      assignmentVersion: 2, assignedToUserId: null,
-    })
     /*
-     * Annotating no longer requires holding the file.
+     * Annotating does not require having worked the file.
      *
-     * It used to: the note's write predicate carried the assignment, so
-     * releasing a case made it un-annotatable. Nobody claims anything now, and
-     * a note is an insert rather than a transition — there is no lost update to
-     * lose — so its remaining guards are the ones that matter: the application
-     * exists, is not deleted, and is not a draft.
+     * It used to: the note's write predicate carried the assignment, so a case
+     * sitting in the shared queue could not be annotated at all. A note is an
+     * insert rather than a transition — there is no lost update to lose — so
+     * its remaining guards are the ones that matter: the application exists,
+     * is not deleted, and is not a draft.
      */
     const unassignedNote = await graphql<any>(`mutation($input: InternalNoteInput!) {
       admin { intake { addInternalNote(input: $input) { success message } } }
@@ -1884,25 +1779,6 @@ describe('Mission SEP administration', () => {
     expect(draftNote.data.admin.intake.addInternalNote.success).toBe(false)
     await env.DB.prepare("UPDATE seb_application SET status = 'SUBMITTED' WHERE id = ?")
       .bind(applicationId).run()
-    const secondAdministrator = await adminSession(['ADMIN'])
-    const secondClaim = await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { response { assignmentVersion } } } }
-    }`, { input: {
-      applicationId, expectedAssignmentVersion: 2, conflictAcknowledged: false,
-    } }, secondAdministrator.cookie)
-    expect(secondClaim.data.admin.intake.claim.response.assignmentVersion).toBe(3)
-    const reassignReason = await reasonId(cycle.id, 'ASSIGNMENT_REASSIGN')
-    const reassigned = await graphql<any>(`mutation($input: ReassignApplicationInput!) {
-      admin { intake { reassign(input: $input) { response { assignmentVersion assignedToUserId } } } }
-    }`, { input: {
-      applicationId, expectedAssignmentVersion: 3, toUserId: administrator.userId,
-      reasonCategoryId: reassignReason, reason: 'Return to the original reviewer.',
-      conflictAcknowledged: true,
-    } }, secondAdministrator.cookie)
-    expect(reassigned.data.admin.intake.reassign.response).toMatchObject({
-      assignmentVersion: 4, assignedToUserId: administrator.userId,
-    })
-
     const reviewStart = await graphql<any>(`mutation($input: StartDeskReviewInput!) {
       admin { intake { startDeskReview(input: $input) { response { status statusVersion } } } }
     }`, { input: { applicationId, expectedStatusVersion: 2 } }, administrator.cookie)
@@ -2202,15 +2078,9 @@ describe('Mission SEP administration', () => {
     } }, administrator.cookie)
     const rejectedWorkspace = rejectedDecision.data.admin.decision.correctDecision.response
     expect(rejectedWorkspace.application).toMatchObject({
-      status: 'REJECTED', statusVersion: 10, assignmentVersion: 5,
+      status: 'REJECTED', statusVersion: 10, assignmentVersion: 2,
     })
     const rejectedDecisionId = rejectedWorkspace.decisions[1].id as string
-    const reclaimed = await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { response { assignmentVersion } } } }
-    }`, { input: {
-      applicationId, expectedAssignmentVersion: 5, conflictAcknowledged: true,
-    } }, administrator.cookie)
-    expect(reclaimed.data.admin.intake.claim.response.assignmentVersion).toBe(6)
     const revisionDecision = await graphql<any>(`mutation($input: CorrectTtmDecisionInput!) {
       admin { decision { correctDecision(input: $input) { response { decisions { id approvedAmountPaise } application { statusVersion } } } } }
     }`, { input: {
@@ -2826,20 +2696,12 @@ describe('Mission SEP administration', () => {
     expect(idsIn(newSubmissions)).toEqual([first.applicationId, second.applicationId].sort())
 
     // Moving one application on, the queues follow its status.
-    const beforeClaim = await stateOf(first.applicationId)
-    const claimed = await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { success message } } }
-    }`, { input: {
-      applicationId: first.applicationId,
-      expectedAssignmentVersion: beforeClaim.assignmentVersion,
-      conflictAcknowledged: true,
-    } }, administrator.cookie)
-    expect(claimed.data.admin.intake.claim.success).toBe(true)
+    const beforeReviewStart = await stateOf(first.applicationId)
     const started = await graphql<any>(`mutation($input: StartDeskReviewInput!) {
       admin { intake { startDeskReview(input: $input) { success message } } }
     }`, { input: {
       applicationId: first.applicationId,
-      expectedStatusVersion: beforeClaim.statusVersion,
+      expectedStatusVersion: beforeReviewStart.statusVersion,
     } }, administrator.cookie)
     expect(started.data.admin.intake.startDeskReview.success,
       JSON.stringify(started)).toBe(true)
@@ -2883,8 +2745,8 @@ describe('Mission SEP administration', () => {
       success: false, message: 'Filter by queue or by status, not both.', response: null,
     })
 
-    // A draft has never been formally submitted, so it belongs to no queue and
-    // cannot be claimed: reviewers must not be able to reach unsubmitted work.
+    // A draft has never been formally submitted, so it belongs to no queue:
+    // reviewers must not be able to reach unsubmitted work.
     const draftEnterprise = await graphql<any>(`mutation($input: EnterpriseProfileInput!) {
       seb { enterprise { create(input: $input) { response { id } } } }
     }`, { input: {
@@ -2902,14 +2764,8 @@ describe('Mission SEP administration', () => {
       programmeCycleId: cycle.id,
     } }, administrator.cookie)
     const draftId = draft.data.seb.application.startInitial.response.id
-    const claimedDraft = await graphql<any>(`mutation($input: ClaimApplicationInput!) {
-      admin { intake { claim(input: $input) { success message } } }
-    }`, { input: {
-      applicationId: draftId, expectedAssignmentVersion: 0, conflictAcknowledged: true,
-    } }, administrator.cookie)
-    expect(claimedDraft.data.admin.intake.claim).toMatchObject({
-      success: false, message: 'The application was not found.',
-    })
+    // Reached for below only to prove it is absent from every count.
+    expect(draftId).toBeTruthy()
     const withDraft = await graphql<any>(summaryQuery, { cycleId: cycle.id },
       administrator.cookie)
     expect(countFor(withDraft, 'NEW_SUBMISSIONS')).toBe(0)
@@ -3127,29 +2983,6 @@ describe('what a reviewer read off the documents', () => {
       administrator.cookie,
       administrator.userId,
       cycle.id,
-    )
-    // Claiming is what moves it into this reviewer's hands, and is also what
-    // takes the status version from 1 to 2.
-    await graphql<any>(
-      `
-        mutation ($input: ClaimApplicationInput!) {
-          admin {
-            intake {
-              claim(input: $input) {
-                success
-              }
-            }
-          }
-        }
-      `,
-      {
-        input: {
-          applicationId: submitted.applicationId,
-          expectedAssignmentVersion: 0,
-          conflictAcknowledged: true,
-        },
-      },
-      administrator.cookie,
     )
     await graphql<any>(
       `

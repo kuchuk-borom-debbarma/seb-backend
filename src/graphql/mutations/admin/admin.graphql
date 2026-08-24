@@ -66,9 +66,6 @@ type AdminProgrammeCycleMutation {
   restoreDraft(id: ID!, expectedVersion: Int!): AdminCycleResult!
 }
 
-input ClaimApplicationInput { applicationId: ID!, expectedAssignmentVersion: Int!, conflictAcknowledged: Boolean! }
-input ReleaseApplicationInput { applicationId: ID!, expectedAssignmentVersion: Int!, reasonCategoryId: ID!, reason: String! }
-input ReassignApplicationInput { applicationId: ID!, expectedAssignmentVersion: Int!, toUserId: ID!, reasonCategoryId: ID!, reason: String!, conflictAcknowledged: Boolean! }
 input InternalNoteInput { applicationId: ID!, note: String!, correctionOfNoteId: ID }
 enum DeskReviewCheckType { IDENTITY_KYC ST_ELIGIBILITY MAJORITY_OWNERSHIP JURISDICTION FORM_COMPLETENESS DOCUMENT_COMPLETENESS ANSWER_DOCUMENT_CONSISTENCY DPR_FEASIBILITY EXPANSION_EVIDENCE }
 enum DeskReviewCheckResult { PASS FAIL NOT_APPLICABLE }
@@ -86,15 +83,12 @@ enum DeskReviewIdentifierKind { ST_CERTIFICATE IDENTITY_DOCUMENT BANK_ACCOUNT BU
 # same person legitimately returns for a later phase.
 input DeskReviewIdentifierInput { kind: DeskReviewIdentifierKind!, value: String!, branchCode: String, matchedReason: String }
 # `conflictAcknowledged` is only required of somebody reviewing their own
-# application. It used to be collected when claiming; claiming is now optional,
-# so the disclosure moved to the act that decides something.
+# application. There is nothing to reserve before acting, so the disclosure
+# belongs on the act that decides something rather than on a step before it.
 input CompleteDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int!, outcome: DeskReviewOutcome!, checks: [DeskReviewCheckInput!]!, reasonCategoryId: ID, applicantMessage: String, revisions: [AdminRevisionInput!]!, identifiers: [DeskReviewIdentifierInput!]!, conflictAcknowledged: Boolean }
 input StartDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int! }
 input CancelRevisionInput { applicationId: ID!, revisionRequestId: ID!, expectedStatusVersion: Int!, reason: String! }
 type AdminIntakeMutation {
-  claim(input: ClaimApplicationInput!): AdminApplicationResult!
-  release(input: ReleaseApplicationInput!): AdminApplicationResult!
-  reassign(input: ReassignApplicationInput!): AdminApplicationResult!
   addInternalNote(input: InternalNoteInput!): AdminWorkspaceResult!
   startDeskReview(input: StartDeskReviewInput!): AdminApplicationResult!
   completeDeskReview(input: CompleteDeskReviewInput!): AdminWorkspaceResult!

@@ -476,7 +476,7 @@ export const recordTtmDecision = async (
   const submission = await latestSubmission(context.db, input.applicationId)
   if (!application || !submission) return failure('The submitted application was not found.')
   // The decision is the other place a self-review has to be disclosed. Claiming
-  // used to carry it, and claiming is now optional.
+  // used to carry it, and there is nothing to reserve any more.
   if (undisclosedSelfReview(
     application.application.applicantUserId, administrator.id, input.conflictAcknowledged,
   )) return failure(SELF_REVIEW_MESSAGE)

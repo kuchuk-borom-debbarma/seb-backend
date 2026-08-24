@@ -484,84 +484,6 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
   }
 }
 
-const assignmentEventInsert = (
-  context: AdminOperationContext,
-  value: typeof sebApplicationAssignmentEvent.$inferInsert,
-  expectedNewVersion: number,
-) => context.db.insert(sebApplicationAssignmentEvent).select(sql`
-  SELECT ${value.id}, ${value.applicationId}, ${value.eventType},
-    ${value.assignmentVersion}, ${value.fromUserId ?? null}, ${value.toUserId ?? null},
-    ${value.reasonCategoryId ?? null}, ${value.reason ?? null},
-    ${value.conflictAcknowledged ? 1 : 0}, ${value.actorUserId},
-    ${(value.createdAt as Date).getTime()}
-  WHERE EXISTS (
-    SELECT 1 FROM ${sebApplication}
-    WHERE ${sebApplication.id} = ${value.applicationId}
-      AND ${sebApplication.assignmentVersion} = ${expectedNewVersion}
-  )
-`)
-
-export const changeAssignment = async (
-  context: AdminOperationContext,
-  input: {
-    applicationId: string
-    actorUserId: string
-    expectedVersion: number
-    fromUserId: string | null
-    toUserId: string | null
-    eventType: 'CLAIMED' | 'RELEASED' | 'REASSIGNED'
-    reasonCategoryId?: string | null
-    reason?: string | null
-    conflictAcknowledged: boolean
-    now: Date
-  },
-): Promise<boolean> => {
-  const nextVersion = input.expectedVersion + 1
-  const updated = context.db.update(sebApplication).set({
-    assignedToUserId: input.toUserId,
-    assignedAt: input.toUserId ? input.now : null,
-    assignmentVersion: nextVersion,
-    updatedAt: input.now,
-  }).where(and(
-    eq(sebApplication.id, input.applicationId),
-    eq(sebApplication.assignmentVersion, input.expectedVersion),
-    input.fromUserId === null
-      ? isNull(sebApplication.assignedToUserId)
-      : eq(sebApplication.assignedToUserId, input.fromUserId),
-    isNull(sebApplication.deletedAt),
-    sql`${sebApplication.status} <> 'DRAFT'`,
-  )).returning({ id: sebApplication.id })
-  const event = {
-    id: crypto.randomUUID(),
-    applicationId: input.applicationId,
-    eventType: input.eventType,
-    assignmentVersion: nextVersion,
-    fromUserId: input.fromUserId,
-    toUserId: input.toUserId,
-    reasonCategoryId: input.reasonCategoryId ?? null,
-    reason: input.reason ?? null,
-    conflictAcknowledged: input.conflictAcknowledged,
-    actorUserId: input.actorUserId,
-    createdAt: input.now,
-  } satisfies typeof sebApplicationAssignmentEvent.$inferInsert
-  const [changed] = await context.db.batch([
-    updated,
-    assignmentEventInsert(context, event, nextVersion),
-    context.db.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorUserId},
-        ${`SEB.APPLICATION_${input.eventType}`}, 'SEB_APPLICATION',
-        ${input.applicationId}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        ${JSON.stringify({ assignmentVersion: nextVersion })}, ${input.now.getTime()}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebApplication}
-        WHERE ${sebApplication.id} = ${input.applicationId}
-          AND ${sebApplication.assignmentVersion} = ${nextVersion}
-      )
-    `),
-  ])
-  return Array.isArray(changed) && changed.length === 1
-}
-
 export const insertInternalNote = async (
   context: AdminOperationContext,
   input: {
@@ -616,6 +538,18 @@ export const startDeskReviewWrite = async (
     status: 'DESK_REVIEW',
     statusVersion: nextStatusVersion,
     statusChangedAt: input.now,
+    /*
+     * Starting the review is what records who is working the file. It is not a
+     * lock — anybody with the capability may still act — but it is the first
+     * moment there is anything true to say, and the workspace shows it so a
+     * second officer can decide whether to duplicate the effort.
+     *
+     * Without this the record would only be written when a review *completes*,
+     * leaving it empty for the whole period it is actually useful.
+     */
+    assignedToUserId: input.actorUserId,
+    assignedAt: input.now,
+    assignmentVersion: sql`${sebApplication.assignmentVersion} + 1`,
     updatedAt: input.now,
   }).where(and(
     eq(sebApplication.id, input.applicationId),

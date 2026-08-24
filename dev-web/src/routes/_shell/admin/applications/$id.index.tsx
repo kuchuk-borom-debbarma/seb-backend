@@ -12,7 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
-import { AssignmentControls } from '#/features/admin/AssignmentControls'
+import { WhoIsOnThis } from '#/features/admin/WhoIsOnThis'
 import { BankStage } from '#/features/admin/BankStage'
 import { CommitteeStage } from '#/features/admin/CommitteeStage'
 import {
@@ -52,6 +52,9 @@ export const Route = createFileRoute('/_shell/admin/applications/$id/')({
 function WorkspacePage() {
   const { id } = Route.useParams()
   const queryClient = useQueryClient()
+  // Loaded by the shell for every signed-in screen, so reading it here costs
+  // nothing — it is only needed to tell "you were here last" from somebody else.
+  const { user: viewer } = Route.useRouteContext()
   const { data: workspace } = useQuery(workspaceQuery(id))
   const { data: reasons } = useQuery(cycleReasonsQuery(workspace?.cycleCode))
 
@@ -95,14 +98,11 @@ function WorkspacePage() {
       />
 
       <div className="stack">
-        <AssignmentControls
-          applicationId={id}
-          assignedToUserId={application.assignedToUserId ?? null}
+        <WhoIsOnThis
           assignedTo={application.assignedTo ?? null}
           assignedAt={application.assignedAt ?? null}
-          assignmentVersion={application.assignmentVersion}
-          reasons={reasons}
-          onChanged={refresh}
+          lastActivityAt={application.updatedAt ?? null}
+          viewerUserId={viewer?.id}
         />
 
         <NextStep

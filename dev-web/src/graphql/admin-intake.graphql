@@ -192,42 +192,6 @@ query AdminDocumentDownloadUrl($applicationId: ID!, $submissionDocumentId: ID!) 
   }
 }
 
-mutation ClaimApplication($input: ClaimApplicationInput!) {
-  admin {
-    intake {
-      claim(input: $input) {
-        success
-        message
-        response { id status statusVersion assignedToUserId assignedTo { id email } assignedAt assignmentVersion }
-      }
-    }
-  }
-}
-
-mutation ReleaseApplication($input: ReleaseApplicationInput!) {
-  admin {
-    intake {
-      release(input: $input) {
-        success
-        message
-        response { id status statusVersion assignedToUserId assignedTo { id email } assignedAt assignmentVersion }
-      }
-    }
-  }
-}
-
-mutation ReassignApplication($input: ReassignApplicationInput!) {
-  admin {
-    intake {
-      reassign(input: $input) {
-        success
-        message
-        response { id status statusVersion assignedToUserId assignedTo { id email } assignedAt assignmentVersion }
-      }
-    }
-  }
-}
-
 mutation AddInternalNote($input: InternalNoteInput!) {
   admin {
     intake {

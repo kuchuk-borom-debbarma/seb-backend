@@ -91,7 +91,7 @@ export function ReferenceLookup() {
                   {found.assignedTo
                     ? `${found.assignedTo.email} · ${formatDateTime(found.assignedAt)}`
                     : found.assignedToUserId
-                      ? `Claimed ${formatDateTime(found.assignedAt)}`
+                      ? `Last worked ${formatDateTime(found.assignedAt)}`
                       : 'Nobody'}
                 </span>
               </div>

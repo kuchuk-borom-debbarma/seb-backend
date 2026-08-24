@@ -159,8 +159,8 @@ export const TOURS: Tour[] = [
           'A submitted application. If this queue is empty, nothing has been sent in yet.',
       },
       {
-        title: 'Claim it before you work on it',
-        body: 'Claiming records who holds the application. Taking one somebody else holds is allowed — it is a normal thing to need — but it is acknowledged, and the acknowledgement is kept against your account.',
+        title: 'Just start working on it',
+        body: 'There is nothing to reserve first. Anybody with the right role can act, and this panel only says who was here last so you can decide whether to duplicate somebody. If two of you act at once, the second is told the record changed and nothing is overwritten.',
         desk: DESKS.office,
         to: '/admin/applications/$id',
         mark: 'assignment',
@@ -178,7 +178,7 @@ export const TOURS: Tour[] = [
         title: 'Run the nine checks',
         body: 'A desk review is one form and one write, not a wizard that could be abandoned half-recorded. The outcome decides what happens next: on to a bank, back to the applicant, or closed.',
         desk: DESKS.office,
-        needs: 'Claim an application and start its desk review.',
+        needs: 'Open a submitted application and start its desk review.',
       },
       {
         title: 'Write down what the documents actually say',
@@ -327,7 +327,7 @@ export const TOURS: Tour[] = [
       },
       {
         title: 'Reasons are part of the policy',
-        body: 'Releasing a claim, asking for a correction, deferring a decision, writing off a recovery — each names a reason from this cycle’s catalogue, so the programme can report on why things happened.',
+        body: 'Asking for a correction, deferring a decision, writing off a recovery — each names a reason from this cycle’s catalogue, so the programme can report on why things happened.',
         desk: DESKS.office,
       },
     ],
