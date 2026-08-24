@@ -3,6 +3,7 @@ import { auditActions, documentTypes } from '../../../db/schema'
 import {
   claimExpiredUploadIntents,
   claimUploadIntentForCleanup,
+  closeUploadIntentStatement,
   finalizeUploadIntent,
   findApplicationDocument,
   findOwnedDocumentVersion,
@@ -324,19 +325,38 @@ export const cleanupExpiredDocumentUploads = async (
   now = new Date(),
 ): Promise<void> => {
   const claimed = await claimExpiredUploadIntents(context.db, now, 50)
-  for (const intent of claimed) {
-    try {
-      await context.env.STORAGE.delete(intent.objectKey)
-      if (intent.cleanupTargetStatus === 'REJECTED') {
-        await markUploadIntentRejected(context.db, intent.id, now)
-      } else {
-        await markUploadIntentExpired(context.db, intent.id, now)
-      }
-    } catch {
-      // Keep this row CLEANUP_PENDING and continue. A single unavailable R2
-      // object must not starve every later intent in the bounded cron batch.
-      // Do not log object keys because storage identifiers are sensitive.
-      console.error('Document upload cleanup failed', intent.id)
-    }
+  if (claimed.length === 0) return
+
+  /*
+   * One delete for the whole batch. The bucket takes an array, and fifty
+   * objects previously meant fifty calls.
+   *
+   * If it fails, every row stays CLEANUP_PENDING and the next run picks them
+   * all up again — which is exactly the state this lifecycle was designed
+   * around, and why claiming and closing are two steps rather than one. The
+   * cost of the bulk call is that one unavailable object now holds up its
+   * fifty companions for an hour instead of only itself; the benefit is that
+   * the ordinary run costs one call instead of fifty.
+   *
+   * Object keys are never logged: a storage identifier is sensitive.
+   */
+  try {
+    await context.env.STORAGE.delete(claimed.map((intent) => intent.objectKey))
+  } catch {
+    console.error('Document upload cleanup could not remove its objects')
+    return
   }
+
+  // The objects are gone, so every claim can be closed in one statement.
+  await context.db.batch(
+    claimed.map((intent) =>
+      closeUploadIntentStatement(
+        context.db,
+        intent.id,
+        intent.cleanupTargetStatus,
+        now,
+      ),
+    ) as unknown as Parameters<typeof context.db.batch>[0],
+  )
 }
+

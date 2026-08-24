@@ -1967,29 +1967,57 @@ describe('applicant application business service', () => {
       'SELECT status FROM seb_document_upload_intent WHERE id = ?',
     ).bind(cronExpired.uploadId).first()).toEqual({ status: 'EXPIRED' })
 
-    // A failed R2 deletion remains retryable without preventing a later object
-    // in the same claimed batch from reaching its terminal state.
+    /*
+     * The whole claimed batch is deleted in one call, and a failure leaves
+     * every row retryable.
+     *
+     * That is the trade the bulk delete makes: one unavailable object now
+     * holds up its companions until the next run, where before it only held
+     * up itself. It is acceptable because CLEANUP_PENDING is precisely the
+     * state the lifecycle was built to be resumed from — which the second run
+     * below proves.
+     */
     const retryOne = await issueOne()
     const retryTwo = await issueOne()
     await env.DB.prepare(
       'UPDATE seb_document_upload_intent SET expires_at = ? WHERE id IN (?, ?)',
     ).bind(Date.now() - 1, retryOne.uploadId, retryTwo.uploadId).run()
+
     const deleteObject = vi.fn()
       .mockRejectedValueOnce(new Error('temporary R2 failure'))
       .mockResolvedValue(undefined)
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    await cleanupExpiredDocumentUploads({
+    const failing = {
       db: createDatabase(env.DB),
       env: { STORAGE: { delete: deleteObject } as unknown as R2Bucket } as typeof env,
-    }, new Date())
-    errorLog.mockRestore()
-    expect(deleteObject).toHaveBeenCalledTimes(2)
-    const retryStates = await env.DB.prepare(
+    }
+    await cleanupExpiredDocumentUploads(failing, new Date())
+
+    // One call for the batch, carrying both keys, rather than one per object.
+    expect(deleteObject).toHaveBeenCalledTimes(1)
+    expect((deleteObject.mock.calls[0]![0] as string[]).sort())
+      .toEqual([retryOne.objectKey, retryTwo.objectKey].sort())
+    // Nothing was logged that names an object: a storage key is sensitive.
+    expect(String(errorLog.mock.calls[0]?.[0])).not.toContain(retryOne.objectKey)
+
+    const held = await env.DB.prepare(
       `SELECT status, cleanup_target_status AS cleanupTargetStatus
-       FROM seb_document_upload_intent WHERE id IN (?, ?) ORDER BY status`,
+       FROM seb_document_upload_intent WHERE id IN (?, ?)`,
     ).bind(retryOne.uploadId, retryTwo.uploadId).all()
-    expect(retryStates.results).toEqual([
+    expect(held.results).toEqual([
       { status: 'CLEANUP_PENDING', cleanupTargetStatus: 'EXPIRED' },
+      { status: 'CLEANUP_PENDING', cleanupTargetStatus: 'EXPIRED' },
+    ])
+
+    // The next run finds them again and finishes the job.
+    await cleanupExpiredDocumentUploads(failing, new Date())
+    errorLog.mockRestore()
+    const settled = await env.DB.prepare(
+      `SELECT status, cleanup_target_status AS cleanupTargetStatus
+       FROM seb_document_upload_intent WHERE id IN (?, ?)`,
+    ).bind(retryOne.uploadId, retryTwo.uploadId).all()
+    expect(settled.results).toEqual([
+      { status: 'EXPIRED', cleanupTargetStatus: null },
       { status: 'EXPIRED', cleanupTargetStatus: null },
     ])
   })

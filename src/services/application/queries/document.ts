@@ -259,21 +259,37 @@ export const finalizeUploadIntent = async (
   return d1ChangedExactlyOne(changed)
 }
 
+/**
+ * Closes a claimed intent, as a statement rather than a call.
+ *
+ * Returned unexecuted so the cron can settle a whole batch of them in one
+ * statement. Each keeps the full predicate — still `CLEANUP_PENDING`, still
+ * aimed at the same terminal status — so a row that changed underneath is left
+ * alone rather than forced.
+ */
+export const closeUploadIntentStatement = (
+  db: Database,
+  uploadId: string,
+  target: 'REJECTED' | 'EXPIRED',
+  now: Date,
+) =>
+  db
+    .update(sebDocumentUploadIntent)
+    .set({ status: target, cleanupTargetStatus: null, updatedAt: now })
+    .where(
+      and(
+        eq(sebDocumentUploadIntent.id, uploadId),
+        eq(sebDocumentUploadIntent.status, 'CLEANUP_PENDING'),
+        eq(sebDocumentUploadIntent.cleanupTargetStatus, target),
+      ),
+    )
+
 export const markUploadIntentRejected = async (
   db: Database,
   uploadId: string,
   now: Date,
 ): Promise<void> => {
-  await db
-    .update(sebDocumentUploadIntent)
-    .set({ status: 'REJECTED', cleanupTargetStatus: null, updatedAt: now })
-    .where(
-      and(
-        eq(sebDocumentUploadIntent.id, uploadId),
-        eq(sebDocumentUploadIntent.status, 'CLEANUP_PENDING'),
-        eq(sebDocumentUploadIntent.cleanupTargetStatus, 'REJECTED'),
-      ),
-    )
+  await closeUploadIntentStatement(db, uploadId, 'REJECTED', now)
 }
 
 /**
@@ -440,41 +456,63 @@ export const claimExpiredUploadIntents = async (
       ),
     )
     .limit(limit)
-  const claimed: Array<{
-    id: string
-    objectKey: string
-    cleanupTargetStatus: 'REJECTED' | 'EXPIRED'
-  }> = []
-  for (const candidate of candidates) {
+  /*
+   * Each candidate keeps its own guarded UPDATE — the predicate repeats the
+   * lifecycle terms so a row another runner already claimed is not claimed
+   * twice — but they go as one statement rather than fifty.
+   *
+   * These are single-row writes, which is the shape batching helps: the cost
+   * is the call, not the result. A batch of large collection reads is the
+   * opposite and is measured in `test/batching.test.ts`.
+   */
+  const intended = candidates.map((candidate) => ({
+    id: candidate.id,
+    objectKey: candidate.objectKey,
     // The lifecycle CHECK guarantees a pending row has a target. The cast
     // narrows Drizzle's nullable select type after the SQL predicate above.
-    const cleanupTargetStatus = candidate.status === 'ISSUED'
-      ? 'EXPIRED' as const
-      : candidate.cleanupTargetStatus as 'REJECTED' | 'EXPIRED'
-    const result = await db
-      .update(sebDocumentUploadIntent)
-      .set({ status: 'CLEANUP_PENDING', cleanupTargetStatus, updatedAt: now })
-      .where(
-        and(
-          eq(sebDocumentUploadIntent.id, candidate.id),
-          or(
-            and(
-              eq(sebDocumentUploadIntent.status, 'ISSUED'),
-              lte(sebDocumentUploadIntent.expiresAt, now),
-            ),
-            and(
-              eq(sebDocumentUploadIntent.status, 'CLEANUP_PENDING'),
-              eq(sebDocumentUploadIntent.cleanupTargetStatus, cleanupTargetStatus),
+    cleanupTargetStatus: candidate.status === 'ISSUED'
+      ? ('EXPIRED' as const)
+      : (candidate.cleanupTargetStatus as 'REJECTED' | 'EXPIRED'),
+  }))
+  // `db.batch` refuses an empty list, and an idle cron run is the common case.
+  if (intended.length === 0) return []
+
+  const results = await db.batch(
+    intended.map((candidate) =>
+      db
+        .update(sebDocumentUploadIntent)
+        .set({
+          status: 'CLEANUP_PENDING',
+          cleanupTargetStatus: candidate.cleanupTargetStatus,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(sebDocumentUploadIntent.id, candidate.id),
+            or(
+              and(
+                eq(sebDocumentUploadIntent.status, 'ISSUED'),
+                lte(sebDocumentUploadIntent.expiresAt, now),
+              ),
+              and(
+                eq(sebDocumentUploadIntent.status, 'CLEANUP_PENDING'),
+                eq(
+                  sebDocumentUploadIntent.cleanupTargetStatus,
+                  candidate.cleanupTargetStatus,
+                ),
+              ),
             ),
           ),
         ),
-      )
-    appendWhenChanged(
-      claimed,
-      { id: candidate.id, objectKey: candidate.objectKey, cleanupTargetStatus },
-      result,
-    )
-  }
+    ) as unknown as Parameters<typeof db.batch>[0],
+  )
+
+  const claimed: typeof intended = []
+  // Results come back in the order the statements were given, so each one
+  // answers for the candidate at the same index.
+  intended.forEach((candidate, index) => {
+    appendWhenChanged(claimed, candidate, results[index] as never)
+  })
   return claimed
 }
 
@@ -483,14 +521,6 @@ export const markUploadIntentExpired = async (
   id: string,
   now: Date,
 ): Promise<void> => {
-  await db
-    .update(sebDocumentUploadIntent)
-    .set({ status: 'EXPIRED', cleanupTargetStatus: null, updatedAt: now })
-    .where(
-      and(
-        eq(sebDocumentUploadIntent.id, id),
-        eq(sebDocumentUploadIntent.status, 'CLEANUP_PENDING'),
-        eq(sebDocumentUploadIntent.cleanupTargetStatus, 'EXPIRED'),
-      ),
-    )
+  await closeUploadIntentStatement(db, id, 'EXPIRED', now)
 }
+
