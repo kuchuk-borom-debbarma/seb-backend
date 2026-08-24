@@ -176,6 +176,24 @@ Changes to existing tables go in `database/migrations/`. `db:schema:check`
 builds a database from the baseline and another from the migration chain and
 compares them, because nothing else makes the two agree.
 
+## A test that cannot fail is worse than no test
+
+Assert on something only the behaviour under test produces. The way to know is
+to break the code and watch the test go red — reading it is not enough, because
+a vacuous assertion reads exactly like a real one.
+
+Three specs asserted a desk review had completed with
+`getByText('Partner bank')`. The guide's route diagram draws that desk label on
+every workspace screen, so all three passed whether the API accepted the review
+or refused it — one of them matched four elements. They were only found by
+making `readIdentifiers` refuse unconditionally and noticing nothing went red.
+
+The rule that follows: **a new test earns its place by failing first.** For a
+regression, run it against the unfixed code. For a new behaviour, break the
+behaviour. Prefer a locator tied to state — a status badge, a specific
+message — over any text that a layout, a guide or a navigation might also
+render.
+
 ## Comments
 
 - **Say why, never what.** The name says what it is.

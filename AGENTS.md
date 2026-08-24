@@ -92,6 +92,9 @@ Before handing off any change:
   [`docs/rules/security.md`](docs/rules/security.md), and that any new standing
   decision was added to one of them rather than left in the file that embodies
   it.
+- Confirm every new test has been seen to fail. Break the behaviour it covers,
+  or run it against the unfixed code, and watch it go red — a vacuous assertion
+  reads exactly like a real one, and three of them survived review here.
 - Run the checks appropriate to the change, including documentation whitespace
   checks for documentation-only work.
 - Report the roadmap and documentation changes in the final handoff.
