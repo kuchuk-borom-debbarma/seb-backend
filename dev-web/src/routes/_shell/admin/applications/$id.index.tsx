@@ -33,6 +33,7 @@ import {
 } from '#/graphql/generated/operations'
 import type { DocumentType } from '#/graphql/generated/schema'
 import { formatDateTime, humanize } from '#/lib/format'
+import { can } from '#/lib/session'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { Explain } from '#/features/guide/Explain'
@@ -55,6 +56,17 @@ function WorkspacePage() {
   // Loaded by the shell for every signed-in screen, so reading it here costs
   // nothing — it is only needed to tell "you were here last" from somebody else.
   const { user: viewer } = Route.useRouteContext()
+  /*
+   * A reviewer may read every one of these screens and change nothing on them.
+   * Drawing the action cards anyway offers a whole desk-review form that the
+   * API refuses on submit — the work is done before the refusal arrives, which
+   * is the worst possible moment to learn a role cannot do something.
+   *
+   * `can` decides what to draw and never what is permitted; every operation is
+   * re-checked by the API, which is what actually refuses.
+   */
+  const mayWrite = can(viewer, 'STAFF_WRITE')
+  const mayDecide = can(viewer, 'DECIDE')
   const { data: workspace } = useQuery(workspaceQuery(id))
   const { data: reasons } = useQuery(cycleReasonsQuery(workspace?.cycleCode))
 
@@ -105,42 +117,48 @@ function WorkspacePage() {
           viewerUserId={viewer?.id}
         />
 
-        <NextStep
-          applicationId={id}
-          status={application.status}
-          statusVersion={application.statusVersion}
-          reasons={reasons}
-          rules={workspace.identifierRules}
-          reviewingOwnApplication={application.applicantUserId === viewer?.id}
-          hasReview={workspace.reviews.length > 0}
-          onChanged={refresh}
-        />
+        {mayWrite ? (
+          <NextStep
+            applicationId={id}
+            status={application.status}
+            statusVersion={application.statusVersion}
+            reasons={reasons}
+            rules={workspace.identifierRules}
+            reviewingOwnApplication={application.applicantUserId === viewer?.id}
+            hasReview={workspace.reviews.length > 0}
+            onChanged={refresh}
+          />
+        ) : null}
 
-        <BankStage
-          applicationId={id}
-          status={application.status}
-          statusVersion={application.statusVersion}
-          latestSubmissionId={latestSubmission?.id}
-          latestDeskReviewId={workspace.reviews.at(-1)?.id}
-          referrals={workspace.referrals}
-          outcomes={workspace.bankOutcomes}
-          reasons={reasons}
-          onChanged={refresh}
-        />
+        {mayWrite ? (
+          <BankStage
+            applicationId={id}
+            status={application.status}
+            statusVersion={application.statusVersion}
+            latestSubmissionId={latestSubmission?.id}
+            latestDeskReviewId={workspace.reviews.at(-1)?.id}
+            referrals={workspace.referrals}
+            outcomes={workspace.bankOutcomes}
+            reasons={reasons}
+            onChanged={refresh}
+          />
+        ) : null}
 
-        <CommitteeStage
-          applicationId={id}
-          status={application.status}
-          statusVersion={application.statusVersion}
-          latestSubmissionId={latestSubmission?.id}
-          latestBankOutcomeId={workspace.bankOutcomes.at(-1)?.id}
-          agenda={workspace.agenda}
-          decisions={workspace.decisions}
-          reasons={reasons}
-          onChanged={refresh}
-        />
+        {mayWrite || mayDecide ? (
+          <CommitteeStage
+            applicationId={id}
+            status={application.status}
+            statusVersion={application.statusVersion}
+            latestSubmissionId={latestSubmission?.id}
+            latestBankOutcomeId={workspace.bankOutcomes.at(-1)?.id}
+            agenda={workspace.agenda}
+            decisions={workspace.decisions}
+            reasons={reasons}
+            onChanged={refresh}
+          />
+        ) : null}
 
-        {openRevisions.length > 0 ? (
+        {mayWrite && openRevisions.length > 0 ? (
           <OpenRevisions
             applicationId={id}
             statusVersion={application.statusVersion}

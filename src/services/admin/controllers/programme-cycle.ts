@@ -6,7 +6,12 @@
  * therefore strictest before opening; afterwards only the guidance text and the
  * closing time may change, each with a retained reason.
  */
-import { programmeReasonContexts, documentTypes } from '../../../db/schema'
+import {
+  programmeReasonContexts,
+  documentTypes,
+  deskReviewChecks,
+  deskReviewIdentifierKinds,
+} from '../../../db/schema'
 import { decodeAdminCursor, adminPageSize } from '../pagination'
 import {
   findExpiredOpenCycles,
@@ -54,13 +59,34 @@ const validateCycleIdentity = (input: ProgrammeCycleInput): string | null => {
 
 const validatePolicyCollections = (input: ProgrammeCycleInput): string | null => {
   const policy = input.policy
+  const identifierRules = policy.identifierRules ?? []
   if (
     !uniqueBy(policy.documentRules, (rule) => rule.documentType) ||
     !uniqueBy(policy.requiredAssessmentTypes, (type) => type) ||
+    !uniqueBy(identifierRules, (rule) => rule.kind) ||
     !uniqueBy(policy.reasons, (reason) => `${reason.context}:${reason.code}`)
   ) return 'Cycle policy entries must be unique.'
   if (policy.documentRules.some((rule) => !documentTypes.includes(rule.documentType))) {
     return 'The cycle contains an unknown document rule.'
+  }
+  /*
+   * A unique index and a CHECK enforce both of these in SQL, which is what makes
+   * the outcome correct. These exist to make the refusal *useful*: a constraint
+   * violation arrives as "the record changed", which tells somebody editing a
+   * cycle form nothing about which row to fix.
+   */
+  if (identifierRules.some(
+    (rule) => !(deskReviewIdentifierKinds as readonly string[]).includes(rule.kind),
+  )) {
+    return 'The cycle contains an unknown identifier rule.'
+  }
+  if (identifierRules.some((rule) =>
+    rule.requirement === 'REQUIRED_ON_PASS'
+      ? !rule.checkType ||
+        !(deskReviewChecks as readonly string[]).includes(rule.checkType)
+      : Boolean(rule.checkType),
+  )) {
+    return 'An identifier demanded on a passing check must name that check, and no other may name one.'
   }
   if (policy.reasons.length > 50) return 'A cycle may contain at most 50 reason categories.'
   if (policy.reasons.some((reason) =>

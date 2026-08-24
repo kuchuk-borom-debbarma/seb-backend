@@ -13,6 +13,18 @@
 import { expect, test, type Page } from '@playwright/test'
 import { PASSWORD, SUPER_ADMIN_EMAIL, signIn, submitApplication } from './support'
 
+/**
+ * Asserts the status badge rather than any text on the page.
+ *
+ * `getByText('Partner bank')` looks like it proves a desk review completed and
+ * does not: the guide's route diagram draws that desk label on every workspace
+ * screen whatever the status, so the assertion passed even when the API had
+ * refused the review.
+ */
+const expectStatus = async (page: Page, status: string) => {
+  await expect(page.locator('.badge').filter({ hasText: status }).first()).toBeVisible()
+}
+
 /** Opens an application's desk review and passes every check. */
 const openReview = async (page: Page, id: string) => {
   await page.goto(`/admin/applications/${id}`)
@@ -70,7 +82,7 @@ test.describe('what the documents say', () => {
     await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
     await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
     await page.getByRole('button', { name: 'Complete the review' }).click()
-    await expect(page.getByText('Partner bank')).toBeVisible()
+    await expectStatus(page, 'Partner bank evaluation')
 
     // A second, unrelated application carrying the same certificate.
     await page.context().clearCookies()
@@ -103,6 +115,6 @@ test.describe('what the documents say', () => {
     await expect(reason).toBeVisible()
     await reason.fill('Second-phase expansion by the same promoter.')
     await page.getByRole('button', { name: 'Complete the review' }).click()
-    await expect(page.getByText('Partner bank')).toBeVisible()
+    await expectStatus(page, 'Partner bank evaluation')
   })
 })

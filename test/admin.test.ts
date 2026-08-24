@@ -146,6 +146,37 @@ const passingIdentifiers = () => {
   ]
 }
 
+/**
+ * Attempts to create a cycle and returns the refusal, for tests that are about
+ * one.
+ *
+ * Separate from `createOpenedCycle` on purpose. That one is a precondition for
+ * almost every test in this file, so it returns the created head directly and a
+ * caller never has to check a shape; giving it a "might refuse" mode would push
+ * that check onto forty call sites that cannot refuse.
+ */
+const cycleRefusedFor = async (
+  cookie: string,
+  policyOverride: Record<string, unknown>,
+): Promise<string | null> => {
+  const attempt = await graphql<{
+    admin: { programmeCycle: { create: { success: boolean; message: string | null } } }
+  }>(`mutation($input: ProgrammeCycleInput!) {
+    admin { programmeCycle { create(input: $input) { success message } } }
+  }`, { input: {
+    cycleCode: `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+    displayName: 'Mission SEP Administrative Test', cycleYear: 2026,
+    policyReference: 'TTAADC/MSEP/2026', applicantGuidance: 'Applicant guide.',
+    partnerBankGuidance: 'Published partner-bank roster.',
+    opensAt: new Date(Date.now() - 1_000).toISOString(),
+    closesAt: new Date(Date.now() + 86_400_000).toISOString(),
+    policy: { ...policy, ...policyOverride },
+  } }, cookie)
+  const result = attempt.data!.admin.programmeCycle.create
+  expect(result.success).toBe(false)
+  return result.message
+}
+
 const createOpenedCycle = async (
   cookie: string,
   policyOverride: Record<string, unknown> = {},
@@ -951,6 +982,26 @@ describe('Mission SEP administration', () => {
     } as never, adminContext(administrator.cookie))
     expect(unknownDocument).toMatchObject({
       success: false, message: 'The cycle contains an unknown document rule.',
+    })
+    /*
+     * Called directly rather than through GraphQL, because the schema's enum
+     * refuses an unknown kind before a resolver ever runs. The guard is still
+     * worth having: the controller is also reachable from the cron and from
+     * any future caller that is not a GraphQL request, and a vocabulary check
+     * that only exists in the transport is one refactor from being gone.
+     */
+    const unknownIdentifier = await createProgrammeCycle({
+      ...base,
+      policy: {
+        ...policy,
+        identifierRules: [{
+          kind: 'UNKNOWN_IDENTIFIER', requirement: 'OPTIONAL',
+          duplicatePolicy: 'NOT_CHECKED', checkType: null,
+        }],
+      },
+    } as never, adminContext(administrator.cookie))
+    expect(unknownIdentifier).toMatchObject({
+      success: false, message: 'The cycle contains an unknown identifier rule.',
     })
     const cases: Array<[any, string]> = [
       [{ ...base, cycleCode: 'bad' }, 'Cycle code must contain 3–32 uppercase letters, numbers, or hyphens.'],
@@ -2976,9 +3027,18 @@ describe('what a reviewer read off the documents', () => {
    * Takes a fresh application to the point a desk review can be completed, and
    * returns a function that completes it with whatever identifiers are given.
    */
-  const readyToReview = async () => {
+  const readyToReview = async (
+    options: {
+      /** Reuse a cycle, so two applications can share one set of rules. */
+      cycle?: { id: string }
+      identifierRules?: unknown[]
+    } = {},
+  ) => {
     const administrator = await adminSession(['APPLICANT', 'ADMIN'])
-    const cycle = await createOpenedCycle(administrator.cookie)
+    const cycle = options.cycle ?? await createOpenedCycle(
+      administrator.cookie,
+      options.identifierRules ? { identifierRules: options.identifierRules } : undefined,
+    )
     const submitted = await createSubmittedApplication(
       administrator.cookie,
       administrator.userId,
@@ -3037,7 +3097,7 @@ describe('what a reviewer read off the documents', () => {
         administrator.cookie,
       ).then((result) => result.data.admin.intake.completeDeskReview)
 
-    return { administrator, applicationId: submitted.applicationId, review }
+    return { administrator, cycle, applicationId: submitted.applicationId, review }
   }
 
 
@@ -3210,6 +3270,113 @@ describe('what a reviewer read off the documents', () => {
     expect(kept.value).not.toContain('880000001111')
     expect(kept.value).toMatch(/^[0-9a-f]{64}$/u)
     expect(kept.lastFour).toBe('1111')
+  })
+
+  it('compares only the kinds its cycle marks for comparison', async () => {
+    /*
+     * The two settings are independent, and this is the half that is easy to
+     * get backwards: an identifier can be *demanded* without being *compared*.
+     *
+     * A bank account shared by a family is a real thing, and a programme that
+     * decided a repeat is not disqualifying must be able to say so. If
+     * `duplicate_policy` were quietly ignored, the collision would still be
+     * raised and the setting would be decoration.
+     */
+    const first = await readyToReview({
+      identifierRules: [
+        { kind: 'IDENTITY_DOCUMENT', requirement: 'REQUIRED_ON_PASS',
+          duplicatePolicy: 'NOT_CHECKED', checkType: 'IDENTITY_KYC' },
+      ],
+    })
+    const shared = { kind: 'IDENTITY_DOCUMENT', value: '770000002222' }
+    expect((await first.review([shared])).success).toBe(true)
+
+    // The same number, the same cycle, a different application. Recorded
+    // without a word, because this cycle asked for it not to be compared.
+    const second = await readyToReview({ cycle: first.cycle })
+    const repeated = await second.review([shared])
+    expect(repeated.success).toBe(true)
+    expect(repeated.message).toBeNull()
+
+    // Both are on the record. Not comparing is not the same as not storing.
+    const [{ count }] = (await env.DB.prepare(
+      `SELECT count(*) AS count FROM seb_desk_review_identifier
+       WHERE kind = 'IDENTITY_DOCUMENT' AND last_four = '2222'`,
+    ).all()).results as { count: number }[]
+    expect(count).toBe(2)
+  })
+
+  it('treats one account number at two branches as two accounts', async () => {
+    /*
+     * A bank account is two fields, and only the pair identifies it. Comparing
+     * the account number alone would collide every 50010000001 in Tripura;
+     * comparing the branch alone would collide everybody who banks at the same
+     * branch. Both are the kind of false match that teaches reviewers to click
+     * through the warning.
+     */
+    const first = await readyToReview()
+    expect((await first.review([
+      { kind: 'ST_CERTIFICATE', value: 'TR-ST-2026-990001' },
+      { kind: 'IDENTITY_DOCUMENT', value: '990000001111' },
+      { kind: 'BANK_ACCOUNT', value: '50010000999', branchCode: 'SBIN0001111' },
+    ])).success).toBe(true)
+
+    const second = await readyToReview()
+    const otherBranch = await second.review([
+      { kind: 'ST_CERTIFICATE', value: 'TR-ST-2026-990002' },
+      { kind: 'IDENTITY_DOCUMENT', value: '990000002222' },
+      // Same digits, different bank. A different account.
+      { kind: 'BANK_ACCOUNT', value: '50010000999', branchCode: 'SBIN0002222' },
+    ])
+    expect(otherBranch.success).toBe(true)
+
+    // And the pair really does still collide when both halves agree.
+    const third = await readyToReview()
+    const sameAccount = await third.review([
+      { kind: 'ST_CERTIFICATE', value: 'TR-ST-2026-990003' },
+      { kind: 'IDENTITY_DOCUMENT', value: '990000003333' },
+      { kind: 'BANK_ACCOUNT', value: '50010000999', branchCode: 'SBIN0001111' },
+    ])
+    expect(sameAccount.success).toBe(false)
+    expect(sameAccount.message).toContain('bank account number and branch code')
+  })
+
+  it('refuses identifier rules that repeat a kind or name no real check', async () => {
+    /*
+     * A unique index and a CHECK enforce both of these in SQL, and that is what
+     * makes the outcome correct. These assertions are about the *message*: a
+     * constraint violation surfaces as "the record changed", which tells
+     * somebody editing a cycle nothing about which row is wrong.
+     */
+    const administrator = await adminSession(['SUPER_ADMIN'])
+
+    const repeated = await cycleRefusedFor(administrator.cookie, {
+      identifierRules: [
+        { kind: 'ST_CERTIFICATE', requirement: 'OPTIONAL',
+          duplicatePolicy: 'NOT_CHECKED', checkType: null },
+        { kind: 'ST_CERTIFICATE', requirement: 'OFF',
+          duplicatePolicy: 'NOT_CHECKED', checkType: null },
+      ],
+    })
+    expect(repeated).toBe('Cycle policy entries must be unique.')
+
+    // Demanded on a passing check, but never says which check.
+    const noCheck = await cycleRefusedFor(administrator.cookie, {
+      identifierRules: [
+        { kind: 'ST_CERTIFICATE', requirement: 'REQUIRED_ON_PASS',
+          duplicatePolicy: 'CHECKED', checkType: null },
+      ],
+    })
+    expect(noCheck).toContain('must name that check')
+
+    // Names a check, but is not the requirement that has a moment to apply at.
+    const strayCheck = await cycleRefusedFor(administrator.cookie, {
+      identifierRules: [
+        { kind: 'ST_CERTIFICATE', requirement: 'OPTIONAL',
+          duplicatePolicy: 'CHECKED', checkType: 'ST_ELIGIBILITY' },
+      ],
+    })
+    expect(strayCheck).toContain('no other may name one')
   })
 
   it('stores a public instrument as written, so it can be read back', async () => {

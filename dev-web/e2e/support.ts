@@ -207,10 +207,26 @@ export const startApplication = async (
  */
 export const submitApplication = async (
   page: Page,
-  { prefix = 'journey', businessName = 'Journey Works' } = {},
+  {
+    prefix = 'journey',
+    businessName = 'Journey Works',
+    configureIdentifiers,
+  }: {
+    prefix?: string
+    businessName?: string
+    /**
+     * Runs on the cycle form before it is created, so a test can set the
+     * identifier rules this application will be judged by. The rules freeze
+     * with the submission, which is the only way to reach a desk review that
+     * demands something other than the default.
+     */
+    configureIdentifiers?: (page: Page) => Promise<void>
+  } = {},
 ): Promise<{ email: string; id: string }> => {
   await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-  const cycleCode = await openCycleWithoutDocuments(page, prefix.toUpperCase())
+  const cycleCode = await openCycleWithoutDocuments(
+    page, prefix.toUpperCase(), configureIdentifiers,
+  )
   await page.context().clearCookies()
 
   const email = uniqueEmail(prefix)
@@ -250,7 +266,11 @@ export const submitApplication = async (
 }
 
 /** A cycle whose policy names no required documents. */
-const openCycleWithoutDocuments = async (page: Page, prefix: string): Promise<string> => {
+const openCycleWithoutDocuments = async (
+  page: Page,
+  prefix: string,
+  configureIdentifiers?: (page: Page) => Promise<void>,
+): Promise<string> => {
   const code = `${prefix}-${Date.now().toString(36).toUpperCase()}`
   await page.goto('/admin/cycles/new')
   await page.getByLabel('Cycle code').fill(code)
@@ -275,6 +295,8 @@ const openCycleWithoutDocuments = async (page: Page, prefix: string): Promise<st
   for (let index = 0; index < (await conditions.count()); index += 1) {
     await conditions.nth(index).selectOption('OPTIONAL')
   }
+
+  if (configureIdentifiers) await configureIdentifiers(page)
 
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)

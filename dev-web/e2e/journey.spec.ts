@@ -68,7 +68,14 @@ test('an application is carried from submission to payment', async ({ page }) =>
   await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
   await page.getByRole('button', { name: 'Complete the review' }).click()
 
-  await expect(page.getByText('Partner bank')).toBeVisible()
+  /*
+   * The badge, not the guide's desk label. `getByText('Partner bank')` matches
+   * the route diagram on every workspace screen, so it passed whether or not
+   * the review had actually been accepted.
+   */
+  await expect(
+    page.locator('.badge').filter({ hasText: 'Partner bank evaluation' }).first(),
+  ).toBeVisible()
 
   // --- The bank -----------------------------------------------------------
   const today = new Date().toISOString().slice(0, 10)
