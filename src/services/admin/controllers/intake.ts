@@ -7,6 +7,7 @@
  * `queries/intake.ts` are what decide concurrent attempts.
  */
 import { deskReviewChecks } from '../../../db/schema'
+import type { Capability } from '../../auth'
 import { storage } from '../../storage'
 import { adminPageSize, decodeAdminCursor } from '../pagination'
 import {
@@ -149,15 +150,24 @@ const reasonForApplication = async (
  * it stays indistinguishable from failing their own condition. A reviewer must
  * not be able to tell an unsubmitted draft from an ID that was never real.
  */
+/*
+ * The capability is the caller's to state, not this helper's to assume.
+ *
+ * It serves both a read (opening a document) and a write (claiming), and when
+ * it named one itself the write inherited the read's answer — so a reviewer,
+ * who may change nothing, could claim an application. A shared preamble must
+ * never decide authority on behalf of operations that do different things.
+ */
 const administratorWithApplication = async (
   context: AdminOperationContext,
+  capability: Capability,
   applicationId: string,
   notFoundMessage: string,
 ): Promise<
   | { administrator: { id: string }; head: NonNullable<Awaited<ReturnType<typeof loadApplicationHead>>> }
   | { refusal: AdminResult<never> }
 > => {
-  const administrator = await currentStaff(context, 'STAFF_READ')
+  const administrator = await currentStaff(context, capability)
   if (!administrator) return { refusal: failure(ADMIN_REQUIRED_MESSAGE) }
   const head = await loadApplicationHead(context.db, applicationId)
   if (!head) return { refusal: failure(notFoundMessage) }
@@ -173,7 +183,7 @@ export const claimApplication = async (
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
   const authorized = await administratorWithApplication(
-    context, input.applicationId, 'The application was not found.',
+    context, 'STAFF_WRITE', input.applicationId, 'The application was not found.',
   )
   if ('refusal' in authorized) return authorized.refusal
   const { administrator, head } = authorized
@@ -572,7 +582,10 @@ export const adminDocumentDownloadUrl = async (
   // identically, so probing IDs cannot reveal which drafts or applications
   // exist. An unclaimed draft has no assignee and lands here too.
   const authorized = await administratorWithApplication(
-    context, input.applicationId, 'Claim the application before opening its documents.',
+    context,
+    'STAFF_READ',
+    input.applicationId,
+    'Claim the application before opening its documents.',
   )
   if ('refusal' in authorized) return authorized.refusal
   if (authorized.head.application.assignedToUserId !== authorized.administrator.id) {

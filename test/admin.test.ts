@@ -499,6 +499,30 @@ describe('Mission SEP administration', () => {
       }
     })
 
+    it('refuses a reviewer the write that hides behind a shared preamble', async () => {
+      /*
+       * Claiming authorizes through `administratorWithApplication`, which also
+       * serves the document read. When that preamble named its own capability,
+       * the write inherited the read's answer and a reviewer could claim.
+       *
+       * Asserted through `claim` specifically rather than any mutation: the
+       * boundary tests above go through `startDeskReview`, which authorizes
+       * directly, so they could not have caught this.
+       */
+      const CLAIM = `mutation { admin { intake { claim(input: {
+        applicationId: "${crypto.randomUUID()}", expectedAssignmentVersion: 0,
+        conflictAcknowledged: true
+      }) { success message } } } }`
+
+      for (const roles of [['REVIEWER'], ['APPROVER']]) {
+        const caller = await adminSession(roles as Array<'REVIEWER' | 'APPROVER'>)
+        expect(await messageOf(CLAIM, caller.cookie), roles.join()).toBe(DENIED)
+      }
+      // An administrator still gets past it, to a business refusal.
+      const administrator = await adminSession(['ADMIN'])
+      expect(await messageOf(CLAIM, administrator.cookie)).not.toBe(DENIED)
+    })
+
     it('unions the capabilities of somebody holding two roles', async () => {
       // Holding a role must never subtract one. A reviewer who is also an
       // approver can do both, and neither role narrows the other.
