@@ -1,486 +1,1547 @@
 extend type Query {
+  """
+  Everything an applicant reads: their enterprises, and their applications.
+
+  **Use case:** the applicant portal. Every field resolves from the signed-in
+  applicant's own records — there is no way to reach somebody else's.
+  """
   seb: SebQuery!
 }
 
+"""
+A calendar date with no time and no zone, as `YYYY-MM-DD`.
+
+For things that happen on a day rather than at an instant: a date of birth, a
+sanction date. Use `DateTime` where the moment matters.
+
+**Example:** `"2026-04-01"`
+"""
 scalar Date
+
+"""
+An amount in **paise**, as a decimal string.
+
+Paise, not rupees: ₹10,00,000 is `"1000000000"`. A string rather than a number
+because a JSON number loses precision above 2^53 and money must not — parse it
+with a decimal library, never `parseFloat`.
+
+**Example:** `"1000000000"` is ten lakh rupees.
+"""
 scalar Money
 
-enum RegistrationType { NONE CIN UDYAM }
+"""Whether a business is registered, and under which instrument."""
+enum RegistrationType {
+  """Not registered. An ordinary applicant, not an incomplete one."""
+  NONE
+
+  """Registered as a company, holding a Corporate Identity Number."""
+  CIN
+
+  """Registered as a micro, small or medium enterprise under Udyam."""
+  UDYAM
+}
+
+"""
+What the business does.
+
+Decides which programme rules and which evidence apply, so it is asked for
+before eligibility can be judged.
+"""
 enum BusinessSector {
+  """Farming, livestock, fisheries and related activity."""
   AGRICULTURE_AND_ALLIED
+
+  """Weaving, textiles and handicraft production."""
   HANDLOOM_TEXTILE_AND_HANDICRAFTS
+
+  """Processing or packaging food for sale."""
   FOOD_PROCESSING
+
+  """Accommodation, travel and hospitality services."""
   TOURISM_AND_HOSPITALITY
+
+  """Software, hardware and IT-enabled services."""
   INFORMATION_TECHNOLOGY
+
+  """Making goods, or providing services outside the other sectors."""
   MANUFACTURING_AND_SERVICES
+
+  """
+  Something not listed. `otherBusinessSector` carries the applicant's own
+  wording whenever this is chosen.
+  """
   OTHER
 }
-enum EnterpriseStatus { PROPOSED ACTIVE INACTIVE }
+
+"""Where a business is in its own life, independent of any application."""
+enum EnterpriseStatus {
+  """Registered with the programme but not yet trading."""
+  PROPOSED
+
+  """Trading."""
+  ACTIVE
+
+  """No longer trading."""
+  INACTIVE
+}
+
+"""
+Where an application is in the programme's workflow.
+
+The order below is the ordinary path. `statusGuide` returns a plain-language
+explanation of each one and who is expected to act next, and is the right thing
+to render rather than these names.
+"""
 enum ApplicationStatus {
+  """Being filled in. Only the applicant sees it, and only they can edit it."""
   DRAFT
+
+  """Sent in and waiting for the programme office to begin."""
   SUBMITTED
+
+  """The office is checking the form and its evidence."""
   DESK_REVIEW
+
+  """
+  The office has asked for changes. Only the sections they named may be
+  edited, and `resubmit` sends it back.
+  """
   REVISION_REQUIRED
+
+  """With a partner bank for its own assessment. Nothing for the applicant to do."""
   PARTNER_BANK_EVALUATION
+
+  """Before the committee that decides it."""
   TTM_REVIEW
+
+  """Approved by the committee. The sanction order follows."""
   APPROVED
+
+  """Not approved. The reason is on the timeline."""
   REJECTED
+
+  """A sanction order exists; money has not moved yet."""
   SANCTIONED
+
+  """At least one release has been paid."""
   DISBURSED
+
+  """Withdrawn or abandoned before a decision."""
   CANCELLED
 }
-enum ApplicationType { INITIAL EXPANSION }
-enum ApplicationCategory { CATEGORY_A CATEGORY_B }
-enum ApplicantDesignation { PROPRIETOR MANAGING_PARTNER DIRECTOR AUTHORIZED_SIGNATORY }
-enum Gender { MALE FEMALE OTHER }
-enum CreditStatus { STANDARD NPA }
-enum RelationshipType { SON_OF DAUGHTER_OF WIFE_OF }
+
+"""Whether this is a first application or a later phase."""
+enum ApplicationType {
+  """The enterprise's first application to the programme."""
+  INITIAL
+
+  """
+  A later phase, against a completed earlier award. Only available where that
+  award qualifies — see `expansionEligibility`.
+  """
+  EXPANSION
+}
+
+"""
+Which funding band applies.
+
+Decided by how long the business has been trading against the cycle's
+threshold, and validated at submission rather than taken on trust.
+"""
+enum ApplicationCategory {
+  """A newer business, under the cycle's operating-months threshold."""
+  CATEGORY_A
+
+  """An established business, at or over that threshold."""
+  CATEGORY_B
+}
+
+"""The applicant's role in the business."""
+enum ApplicantDesignation {
+  """Sole owner."""
+  PROPRIETOR
+
+  """The partner who runs the firm."""
+  MANAGING_PARTNER
+
+  """A director of the company."""
+  DIRECTOR
+
+  """Authorised to sign on the business's behalf."""
+  AUTHORIZED_SIGNATORY
+}
+
+"""The applicant's gender, recorded for programme reporting."""
+enum Gender {
+  """Male."""
+  MALE
+
+  """Female."""
+  FEMALE
+
+  """Neither, or not stated in those terms."""
+  OTHER
+}
+
+"""Whether an existing bank facility is performing."""
+enum CreditStatus {
+  """Performing normally."""
+  STANDARD
+
+  """A non-performing asset. Declared, and weighed at review."""
+  NPA
+}
+
+"""
+How the applicant is related to somebody, for the declaration.
+
+Disclosed rather than disqualifying — the declaration exists so a relationship
+is on the record, not so it can be refused.
+"""
+enum RelationshipType {
+  """Son of the named person."""
+  SON_OF
+
+  """Daughter of the named person."""
+  DAUGHTER_OF
+
+  """Wife of the named person."""
+  WIFE_OF
+}
+
+"""
+One slot of evidence an application can carry.
+
+Which of these are required is the programme cycle's decision, not a fixed
+list — a cycle may make any of them optional.
+"""
 enum DocumentType {
+  """Proof of who the applicant is and how old they are."""
   IDENTITY_AGE_PROOF
+
+  """The Scheduled Tribe certificate."""
   ST_CERTIFICATE
+
+  """Proof of where the applicant lives."""
   ADDRESS_PROOF
+
+  """The certificate of registration, where the business holds one."""
   BUSINESS_REGISTRATION
+
+  """The GST registration certificate, where the business holds one."""
   GST_REGISTRATION
+
+  """The detailed project report."""
   DPR
+
+  """Bank account details, for paying an award into."""
   BANK_DETAILS
+
+  """A no-objection certificate, where the project needs one."""
   NOC
 }
+
+"""
+One part of the application form.
+
+Used to say what changed, what may be edited, and which part a correction
+request or a validation issue is about.
+"""
 enum ApplicationSection {
+  """The business, as asserted for this application."""
   ENTERPRISE
+
+  """The person applying."""
   APPLICANT_PROFILE
+
+  """What the project costs and who pays for it."""
   FINANCIAL
+
+  """Public money and bank credit already held."""
   PRIOR_FUNDING
+
+  """Evidence specific to a later-phase application."""
   EXPANSION
+
+  """The attached evidence."""
   DOCUMENTS
+
+  """What the applicant is signing."""
   DECLARATION
 }
 
+"""The applicant's two subjects: their businesses, and their applications."""
 type SebQuery {
+  """The businesses this applicant has registered."""
   enterprise: SebEnterpriseQuery!
+
+  """This applicant's applications, and everything about one of them."""
   application: SebApplicationQuery!
 }
 
+"""Reading the enterprises the signed-in applicant has registered."""
 type SebEnterpriseQuery {
+  """
+  The applicant's own enterprises, newest first.
+
+  **Use case:** `/enterprises`, and the picker on `/applications/new`.
+  """
   mine(
+    """How many to return, 1–100. Defaults to 20."""
     first: Int
+
+    """
+    The previous page's `endCursor`. Omit for the first page.
+
+    A cursor belongs to the ordering it came from and is refused if used under
+    another — it is opaque, and must not be built or parsed by a client.
+    """
     after: String
+
+    """Include removed enterprises. Defaults to false."""
     includeDeleted: Boolean
+
+    """Only enterprises in this state."""
     status: EnterpriseStatus
+
+    """Only enterprises in this sector."""
     sector: BusinessSector
-    # Matches the start of the enterprise name, case-insensitively.
+
+    """
+    Matches the **start** of the enterprise name, case-insensitively. A prefix
+    match rather than a search: a word from the middle of a name finds nothing.
+    """
     search: String
   ): EnterpriseConnectionResult!
-  byId(id: ID!): EnterpriseResult!
+
+  """
+  One enterprise the applicant owns.
+
+  **Refuses:** an enterprise belonging to somebody else, identically to one
+  that does not exist — so this cannot be used to discover which ids are real.
+  """
+  byId(
+    """Which enterprise."""
+    id: ID!
+  ): EnterpriseResult!
 }
 
+"""Reading this applicant's applications."""
 type SebApplicationQuery {
-  # Cycles a new application may be started in right now. A "start application"
-  # action may only ever be offered from this list.
+  """
+  Cycles a new application may be started in right now.
+
+  **Use case:** the cycle picker on `/applications/new`. A "start application"
+  action may only ever be offered from this list — a cycle absent here will
+  refuse the start.
+  """
   availableProgrammeCycles: ProgrammeCyclesResult!
-  # Cycles this applicant already has work in, whatever their state, so closed
-  # and archived cycles render as read-only history.
+
+  """
+  Cycles this applicant already has work in, whatever their state.
+
+  **Use case:** rendering closed and archived cycles as read-only history
+  alongside the open ones.
+  """
   myProgrammeCycles: ProgrammeCyclesResult!
-  # Plain-language explanation and next action for every application status.
+
+  """
+  Plain-language explanation and next action for every application status.
+
+  **Use case:** rendering a status without hardcoding a copy of the workflow in
+  the client. Fetch once and key by `ApplicationStatus`.
+  """
   statusGuide: ApplicationStatusGuideResult!
+
+  """
+  This applicant's applications, newest first.
+
+  **Use case:** `/applications`. Filters combine with AND.
+  """
   mine(
+    """How many to return, 1–100. Defaults to 20."""
     first: Int
+
+    """The previous page's `endCursor`. Opaque; omit for the first page."""
     after: String
+
+    """Only applications for this enterprise."""
     enterpriseId: ID
+
+    """Only applications in this status."""
     status: ApplicationStatus
+
+    """Only applications in this programme cycle."""
     programmeCycleId: ID
+
+    """Only first applications, or only later phases."""
     applicationType: ApplicationType
-    # Matches the start of a reference number, case-insensitively.
+
+    """
+    Matches the **start** of a reference number, case-insensitively. A prefix
+    match rather than a search.
+    """
     search: String
+
+    """Include removed drafts. Defaults to false."""
     includeDeleted: Boolean
   ): ApplicationConnectionResult!
-  byId(id: ID!): ApplicationResult!
-  validate(applicationId: ID!): ApplicationValidationResult!
+
+  """
+  One application in full: the form, its evidence, and any open corrections.
+
+  **Use case:** every screen under `/applications/$id`.
+
+  **Refuses:** an application belonging to somebody else, identically to one
+  that does not exist.
+  """
+  byId(
+    """Which application."""
+    id: ID!
+  ): ApplicationResult!
+
+  """
+  Checks the application against the rules its cycle applies, without sending
+  it.
+
+  **Use case:** `/applications/$id/review`, before `submit`. Returns every
+  problem at once rather than the first — an applicant fixing one thing at a
+  time is the failure this avoids.
+  """
+  validate(
+    """Which application to check."""
+    applicationId: ID!
+  ): ApplicationValidationResult!
+
+  """
+  Whether this enterprise may start a later-phase application, and if not, why.
+
+  **Use case:** deciding whether to offer expansion on `/applications/new`, and
+  explaining the wait when it cannot be offered yet.
+  """
   expansionEligibility(
+    """Which enterprise is asking."""
     enterpriseId: ID!
+
+    """Which cycle it would apply into — the rules are the cycle's."""
     programmeCycleId: ID!
   ): ExpansionEligibilityResult!
-  timeline(applicationId: ID!, first: Int, after: String): TimelineConnectionResult!
-  funding(applicationId: ID!): ApplicantFundingResult!
-  # What this draft changes relative to the last submission, for a final review
-  # before resubmitting.
-  draftChanges(applicationId: ID!): ApplicationChangedSectionsResult!
-  documentDownloadUrl(documentId: ID!): DocumentDownloadResult!
+
+  """
+  What has happened to this application, oldest first.
+
+  **Use case:** the history on `/applications/$id`. Applicant-facing events
+  only — internal office notes are never here.
+  """
+  timeline(
+    """Which application."""
+    applicationId: ID!
+
+    """How many to return, 1–100. Defaults to 20."""
+    first: Int
+
+    """The previous page's `endCursor`. Opaque; omit for the first page."""
+    after: String
+  ): TimelineConnectionResult!
+
+  """
+  What an award has actually paid out.
+
+  **Use case:** `/applications/$id/funding`, once an award exists.
+
+  **Refuses:** an application with no award yet, which is an ordinary state
+  rather than an error.
+  """
+  funding(
+    """Which application."""
+    applicationId: ID!
+  ): ApplicantFundingResult!
+
+  """
+  What this draft changes relative to the last submission.
+
+  **Use case:** a final check before `resubmit`, so an applicant can see they
+  have actually addressed what was asked.
+  """
+  draftChanges(
+    """Which application."""
+    applicationId: ID!
+  ): ApplicationChangedSectionsResult!
+
+  """
+  A short-lived link to download one of the applicant's own documents.
+
+  **Use case:** the download button on `/applications/$id/documents`. Fetch it
+  when the applicant clicks rather than up front — it expires, and it is not a
+  stable address for the file.
+  """
+  documentDownloadUrl(
+    """Which document."""
+    documentId: ID!
+  ): DocumentDownloadResult!
 }
 
+"""Where one page sits in a longer list."""
 type PageInfo {
+  """
+  Pass as `after` to get the next page. Null when there is nothing after this
+  page. Opaque — never build or parse one.
+  """
   endCursor: String
+
+  """Whether another page exists after this one."""
   hasNextPage: Boolean!
-  # How many rows match the filters, not just this page. Keyset pagination
-  # cannot derive it, so it is counted with the same predicates — it is what
-  # lets a screen say "1-20 of 143" and tell an empty filter apart from an
-  # empty list.
+
+  """
+  How many rows match the filters, not just this page.
+
+  Counted with the same predicates as the page, so a screen can say "1–20 of
+  143" and tell an empty filter apart from an empty list.
+  """
   totalCount: Int!
 }
 
+"""One business the applicant has registered."""
 type Enterprise {
+  """Stable identifier. Never reused."""
   id: ID!
+
+  """Registered or trading name."""
   name: String!
+
+  """When the business began trading."""
   establishmentDate: Date
+
+  """Whether it is registered, and under which instrument."""
   registrationType: RegistrationType!
+
+  """The registration number, when there is one."""
   registrationNumber: String
+
+  """The GSTIN, when the business holds one."""
   gstin: String
+
+  """What the business does."""
   businessSector: BusinessSector
+
+  """The sector in the applicant's words, used only with `OTHER`."""
   otherBusinessSector: String
+
+  """Where the business operates — the block or village."""
   businessBlockOrVillage: String
+
+  """The district the business operates in."""
   businessDistrict: String
+
+  """Six-digit postal code for the business address."""
   businessPinCode: String
+
+  """Telephone for programme correspondence, not for sign-in."""
   contactNumber: String
+
+  """
+  Address for programme correspondence. May differ from the account's sign-in
+  address.
+  """
   contactEmail: String
+
+  """Where the business is in its own life."""
   status: EnterpriseStatus!
+
+  """
+  Send back as `expectedVersion` when editing. A mismatch refuses rather than
+  overwriting a concurrent edit.
+  """
   currentVersion: Int!
+
+  """When the enterprise was first registered."""
   createdAt: DateTime!
+
+  """When it was last changed."""
   updatedAt: DateTime!
+
+  """
+  When it was removed from the applicant's list, or null while it is listed.
+  Removal is reversible and never erases the record.
+  """
   deletedAt: DateTime
 }
 
+"""One page of the applicant's enterprises."""
 type EnterpriseConnection {
+  """This page, newest first."""
   nodes: [Enterprise!]!
+
+  """Where this page sits in the whole list."""
   pageInfo: PageInfo!
 }
 
+"""
+A programme round, with its own rules and its own application window.
+
+The rules are frozen into an application when it is submitted, so editing a
+cycle never changes what an application already sent is judged by.
+"""
 type ProgrammeCycle {
+  """Stable identifier."""
   id: ID!
+
+  """
+  Short code the programme uses in correspondence.
+
+  **Example:** `"SEP-2026"`
+  """
   cycleCode: String!
+
+  """The cycle's name, as it should be shown to an applicant."""
   displayName: String!
+
+  """The policy year this cycle belongs to."""
   cycleYear: Int!
+
+  """The policy document this cycle implements, where one is published."""
   policyReference: String
+
+  """
+  Guidance written for applicants by the programme office. Rendered as-is on
+  the application screens.
+  """
   applicantGuidance: String
-  # The cycle's own lifecycle state, which is not the same as whether an
-  # application may start in it. The application window is opensAt/closesAt.
+
+  """
+  The cycle's own lifecycle state, which is **not** the same as whether an
+  application may start in it. The application window is `opensAt`/`closesAt`;
+  use `availableProgrammeCycles` to decide what to offer.
+  """
   status: ProgrammeCycleStatus!
+
+  """The cycle's current rule version."""
   currentVersion: Int!
+
+  """When the application window opens. Null while it is unscheduled."""
   opensAt: DateTime
+
+  """When the window closes. Null while it is unscheduled."""
   closesAt: DateTime
 }
 
-# Who the applicant is waiting on. NOBODY means the application has finished.
-enum NextActor { APPLICANT PROGRAMME_OFFICE NOBODY }
+"""Who the applicant is waiting on."""
+enum NextActor {
+  """The applicant. Something is theirs to do now."""
+  APPLICANT
 
-# Deliberately carries no dates: a status says who holds the work, never when
-# they will finish it.
+  """The programme office. Nothing for the applicant to do but wait."""
+  PROGRAMME_OFFICE
+
+  """Nobody — the application has finished, whatever the outcome."""
+  NOBODY
+}
+
+"""
+What one status means, in words an applicant can act on.
+
+Deliberately carries no dates: a status says who holds the work, never when
+they will finish it. Promising a date the office has not promised would be a
+worse failure than saying nothing.
+"""
 type ApplicationStatusGuideEntry {
+  """The status this entry explains."""
   status: ApplicationStatus!
+
+  """A short name for the status, for a chip or a heading."""
   label: String!
+
+  """What this status means, in one or two sentences."""
   explanation: String!
+
+  """Who is expected to act next."""
   nextActor: NextActor!
-  # What the applicant can do now; null when nothing is theirs to do.
+
+  """
+  What the applicant can do now. Null when nothing is theirs to do — which is
+  most of the workflow, and worth saying plainly.
+  """
   nextAction: String
 }
-type ApplicationStatusGuide { statuses: [ApplicationStatusGuideEntry!]! }
 
+"""Every status explained, for a client that should not hardcode the workflow."""
+type ApplicationStatusGuide {
+  """One entry per `ApplicationStatus`."""
+  statuses: [ApplicationStatusGuideEntry!]!
+}
+
+"""What a draft changes relative to the last submission."""
 type ApplicationChangedSections {
+  """
+  The sections that differ. Empty means nothing has changed yet — worth showing
+  before a resubmission, because it usually means the applicant has not started.
+  """
   sections: [ApplicationSection!]!
+
+  """Which submission the draft is being compared against."""
   comparedToSubmissionNumber: Int!
 }
 
-type ProgrammeCyclesResponse { cycles: [ProgrammeCycle!]! }
+"""A list of programme cycles."""
+type ProgrammeCyclesResponse {
+  """The cycles, ordered by the programme's own sequence."""
+  cycles: [ProgrammeCycle!]!
+}
 
+"""
+One application, as a row in a list.
+
+Carries the enterprise and cycle names alongside the ids so a list can be drawn
+without a second query per row.
+"""
 type ApplicationSummary {
+  """Stable identifier."""
   id: ID!
+
+  """Which enterprise is applying."""
   enterpriseId: ID!
+
+  """
+  The enterprise's long-running funding chain. Stable across every phase, and
+  what duplicate detection is scoped by.
+  """
   fundingCaseId: ID!
+
+  """Which programme cycle this application belongs to."""
   programmeCycleId: ID!
+
+  """Whether this is a first application or a later phase."""
   applicationType: ApplicationType!
+
+  """Which phase this is: 1 for the first, 2 for the first expansion."""
   phaseNumber: Int!
+
+  """
+  The programme's reference for this application. Null until it is first
+  submitted — a draft has no reference because nothing has been received.
+  """
   referenceNumber: String
+
+  """The form's version. Send back as `expectedVersion` when editing."""
   currentVersion: Int!
+
+  """Where the application is in the workflow."""
   status: ApplicationStatus!
+
+  """
+  The workflow's version. Send back as `expectedStatusVersion`; it moves
+  whenever the office acts.
+  """
   statusVersion: Int!
+
+  """When it was first sent in. Null while it has never been submitted."""
   firstSubmittedAt: DateTime
+
+  """When the application was started."""
   createdAt: DateTime!
+
+  """When it last changed."""
   updatedAt: DateTime!
+
+  """When the draft was removed, or null while it is listed."""
   deletedAt: DateTime
+
+  """The enterprise's name, so a list needs no second query."""
   businessName: String
+
+  """The cycle's short code, for the same reason."""
   cycleCode: String!
+
+  """The cycle's policy year."""
   cycleYear: Int!
 }
 
+"""One page of the applicant's applications."""
 type ApplicationConnection {
+  """This page, newest first."""
   nodes: [ApplicationSummary!]!
+
+  """Where this page sits in the whole list."""
   pageInfo: PageInfo!
 }
 
+"""
+The business as this application asserts it.
+
+Frozen at submission, and therefore not the same as the enterprise record —
+which goes on changing afterwards.
+"""
 type EnterpriseSnapshot {
+  """The business name as given on this application."""
   businessName: String
+
+  """When the business began trading."""
   establishmentDate: Date
+
+  """Whether it is registered, and under which instrument."""
   registrationType: RegistrationType
+
+  """The registration number, when there is one."""
   registrationNumber: String
+
+  """The GSTIN, when the business holds one."""
   gstin: String
+
+  """What the business does."""
   businessSector: BusinessSector
+
+  """The sector in the applicant's words, used only with `OTHER`."""
   otherBusinessSector: String
+
+  """Which funding band this application is for."""
   applicationCategory: ApplicationCategory
+
+  """Whether majority ownership by the qualifying group was confirmed."""
   majorityOwnershipConfirmed: Boolean
 }
 
+"""The person applying, as this application asserts them."""
 type ApplicantProfileSnapshot {
+  """Full name of the person responsible."""
   primaryApplicantName: String
+
+  """Their role in the business."""
   designation: ApplicantDesignation
+
+  """Date of birth, checked against the cycle's age range at submission."""
   dateOfBirth: Date
+
+  """The applicant's gender."""
   gender: Gender
+
+  """The applicant's block or village."""
   businessBlockOrVillage: String
+
+  """The applicant's district."""
   businessDistrict: String
+
+  """Six-digit postal code."""
   businessPinCode: String
+
+  """Telephone for programme correspondence."""
   contactNumber: String
+
+  """Address for programme correspondence."""
   contactEmail: String
 }
 
+"""What the project costs and who pays for it. Every amount is in paise."""
 type FinancialSnapshot {
+  """Total cost of the project, in paise."""
   totalProjectCostPaise: Money
+
+  """How much seed funding is asked for, in paise."""
   seedFundRequestedPaise: Money
+
+  """How much a bank loan is expected to cover, in paise."""
   bankLoanProposedPaise: Money
+
+  """How much the promoter is putting in themselves, in paise."""
   promoterContributionPaise: Money
 }
 
+"""Public money and bank credit the enterprise already had, as declared."""
 type PriorFundingSnapshot {
+  """Whether the enterprise has had government funding before."""
   receivedGovernmentFunding: Boolean
+
+  """Which scheme it came from."""
   governmentSchemeName: String
+
+  """How much was received, in paise."""
   governmentFundingAmountPaise: Money
+
+  """The year it was sanctioned."""
   governmentFundingSanctionYear: Int
+
+  """Whether the enterprise has a bank facility."""
   hasExistingBankCredit: Boolean
+
+  """Which bank holds it."""
   existingBankName: String
+
+  """The outstanding amount, in paise."""
   existingCreditAmountPaise: Money
+
+  """Whether that facility is performing."""
   existingCreditStatus: CreditStatus
 }
 
-type DocumentRequirementsSnapshot { nocRequired: Boolean }
+"""Answers that decide which documents this application must carry."""
+type DocumentRequirementsSnapshot {
+  """
+  Whether a no-objection certificate applies. True makes the NOC required at
+  submission.
+  """
+  nocRequired: Boolean
+}
 
+"""What the applicant signed, and any interest they disclosed."""
 type DeclarationSnapshot {
+  """Any relationship to a programme official that was declared."""
   relationshipType: RelationshipType
+
+  """Who that person is."""
   relatedPersonName: String
+
+  """
+  Whether the applicant accepted the declaration. This is their signature, and
+  submission refuses without it.
+  """
   declarationAccepted: Boolean
+
+  """Where the declaration was made."""
   declarationPlace: String
 }
 
+"""
+One complete copy of the form.
+
+Every save makes a new one, so nothing an applicant wrote is ever lost and a
+submission can be compared against what came before it.
+"""
 type ApplicationSnapshot {
+  """This snapshot's version of the form."""
   version: Int!
+
+  """
+  The cycle rule version this snapshot was taken against. What the application
+  is judged by, whatever the cycle says later.
+  """
   programmeCycleVersion: Int!
+
+  """Whether this is a first application or a later phase."""
   applicationType: ApplicationType!
+
+  """Which phase this is."""
   phaseNumber: Int!
+
+  """Why this version exists — a save, a submission, a resubmission."""
   changeType: String!
+
+  """When this version was written."""
   createdAt: DateTime!
+
+  """When the declaration was accepted. Null until it is."""
   declarationAcceptedAt: DateTime
+
+  """The business, as this version asserts it."""
   enterprise: EnterpriseSnapshot!
+
+  """The person applying."""
   applicantProfile: ApplicantProfileSnapshot!
+
+  """What the project costs and who pays for it."""
   financial: FinancialSnapshot!
+
+  """Public money and bank credit already held."""
   priorFunding: PriorFundingSnapshot!
+
+  """Answers that decide which documents are required."""
   documents: DocumentRequirementsSnapshot!
+
+  """What the applicant signed."""
   declaration: DeclarationSnapshot!
+
+  """
+  The earlier award's sanction order, on a later-phase application. Null on a
+  first application.
+  """
   priorSanctionOrderNumber: String
+
+  """The earlier award's sanction date. Null on a first application."""
   priorSanctionDate: Date
+
+  """
+  What the earlier award actually paid out after reversals, in paise. Null on
+  a first application.
+  """
   priorNetDisbursedAmountPaise: Money
+
+  """
+  How long the business has traded continuously, in months. Decides the
+  application category, and the expansion waiting period.
+  """
   continuousOperationMonths: Int
 }
 
+"""One piece of evidence attached to an application."""
 type ApplicationDocument {
+  """Stable identifier for the slot, across every version of the file."""
   id: ID!
+
+  """Which evidence slot this fills."""
   documentType: DocumentType!
+
+  """
+  The current version. Send back as `expectedDocumentVersion` to replace it;
+  replacing makes a new version rather than overwriting.
+  """
   currentVersion: Int!
+
+  """The file's name as the applicant uploaded it."""
   originalFilename: String!
+
+  """The file's media type."""
   contentType: String!
+
+  """The file's size in bytes."""
   sizeBytes: Int!
+
+  """When this version was attached."""
   createdAt: DateTime!
+
+  """When the document was removed, or null while it is attached."""
   deletedAt: DateTime
 }
 
+"""
+One change the programme office has asked for.
+
+A correction names the section it is about, and while it is open only that
+section may be edited.
+"""
 type RevisionRequest {
+  """Stable identifier."""
   id: ID!
+
+  """Which part of the form is to be changed."""
   section: ApplicationSection!
+
+  """What the office asked for, in their words. Shown to the applicant."""
   note: String!
+
+  """When the office asked."""
   requestedAt: DateTime!
+
+  """When the applicant resubmitted addressing it. Null while it is open."""
   resolvedAt: DateTime
+
+  """
+  When the office withdrew the request. Null unless they did — a request made
+  in error is cancelled rather than deleted.
+  """
   cancelledAt: DateTime
 }
 
+"""One application in full."""
 type Application {
+  """Stable identifier."""
   id: ID!
+
+  """Which enterprise is applying."""
   enterpriseId: ID!
+
+  """The enterprise's long-running funding chain, stable across phases."""
   fundingCaseId: ID!
+
+  """Which programme cycle this belongs to."""
   programmeCycleId: ID!
+
+  """Whether this is a first application or a later phase."""
   applicationType: ApplicationType!
+
+  """Which phase this is."""
   phaseNumber: Int!
+
+  """The programme's reference. Null until first submitted."""
   referenceNumber: String
+
+  """The form's version. Send back as `expectedVersion` when editing."""
   currentVersion: Int!
+
+  """Where the application is in the workflow."""
   status: ApplicationStatus!
+
+  """The workflow's version. Send back as `expectedStatusVersion`."""
   statusVersion: Int!
+
+  """When it was first sent in. Null while never submitted."""
   firstSubmittedAt: DateTime
+
+  """When the application was started."""
   createdAt: DateTime!
+
+  """When it last changed."""
   updatedAt: DateTime!
+
+  """When the draft was removed, or null while it is listed."""
   deletedAt: DateTime
+
+  """The current state of the form."""
   snapshot: ApplicationSnapshot!
+
+  """The evidence attached, including removed documents."""
   documents: [ApplicationDocument!]!
+
+  """
+  Every correction the office has asked for, including resolved and cancelled
+  ones, so the history reads whole.
+  """
   revisionRequests: [RevisionRequest!]!
-  # Sections the applicant may change right now. Every section while the
-  # application is a draft, only the sections named by unresolved revision
-  # requests while revision is required, and none otherwise.
+
+  """
+  Sections the applicant may change right now.
+
+  Every section while the application is a draft, only the sections named by
+  unresolved correction requests while a revision is required, and none
+  otherwise. **Use this to decide what to disable** rather than deriving it
+  from `status` — the two will not always agree.
+  """
   editableSections: [ApplicationSection!]!
 }
 
+"""One reason an application is not ready to be sent."""
 type ValidationIssue {
+  """Which part of the form the problem is in."""
   section: ApplicationSection!
+
+  """Which field, as named in the input types."""
   field: String!
+
+  """
+  Stable machine-readable code, safe to branch on. The wording of `message`
+  may change; this will not.
+  """
   code: String!
+
+  """What to show the applicant."""
   message: String!
 }
-type ValidationReport { valid: Boolean!, issues: [ValidationIssue!]! }
 
-# One unmet expansion rule, stated separately so an applicant blocked by three
-# things sees three things.
+"""Whether an application can be sent, and everything stopping it."""
+type ValidationReport {
+  """True when the application may be submitted."""
+  valid: Boolean!
+
+  """
+  Every problem at once, not just the first — an applicant fixing one thing at
+  a time and resubmitting is the experience this avoids.
+  """
+  issues: [ValidationIssue!]!
+}
+
+"""
+One unmet expansion rule.
+
+Stated separately so an applicant blocked by three things sees three things
+rather than only the first.
+"""
 type ExpansionReason {
+  """Stable machine-readable code, safe to branch on."""
   code: String!
+
+  """What to show the applicant."""
   message: String!
-  # The release obligation this reason is about, for utilization results.
-  # Null for reasons that apply to the award as a whole.
+
+  """
+  The release obligation this reason is about, for utilization results. Null
+  for reasons that apply to the award as a whole.
+  """
   obligationId: ID
 }
 
+"""Whether a later-phase application may be started, and if not, why."""
 type ExpansionEligibility {
+  """True when an expansion application may be started now."""
   eligible: Boolean!
+
+  """Which phase it would be. Null when no expansion is possible."""
   nextPhaseNumber: Int
+
+  """Which earlier award qualifies it. Null when none does."""
   qualifyingAwardId: ID
-  # The first calendar instant the twelve-month operating rule is satisfied.
+
+  """
+  The first instant the operating-period rule is satisfied. Null when the
+  block is something waiting cannot fix — worth showing, because "come back
+  in March" is a different message from "this cannot happen".
+  """
   eligibleAt: DateTime
+
+  """Everything currently standing in the way. Empty when `eligible`."""
   reasons: [ExpansionReason!]!
 }
 
+"""One thing that happened to an application, as the applicant sees it."""
 type TimelineEvent {
+  """Stable identifier."""
   id: ID!
+
+  """
+  What happened, as a stable code safe to branch on.
+
+  **Example:** `"SUBMITTED"`, `"REVISION_REQUESTED"`
+  """
   eventType: String!
+
+  """The status before, where the event was a transition. Null otherwise."""
   fromStatus: ApplicationStatus
+
+  """The status after, where the event was a transition. Null otherwise."""
   toStatus: ApplicationStatus
+
+  """Which part of the form, where the event was about one. Null otherwise."""
   section: ApplicationSection
+
+  """
+  What to show the applicant. Null for events that need no words beyond the
+  transition itself.
+  """
   message: String
+
+  """When it happened."""
   createdAt: DateTime!
 }
-type TimelineConnection { nodes: [TimelineEvent!]!, pageInfo: PageInfo! }
 
-# The applicant's view of what an award has actually paid out. Amounts are
-# derived from the append-only ledger, so they cannot drift from the releases
-# and reversals behind them.
+"""One page of an application's history."""
+type TimelineConnection {
+  """This page, oldest first — a file reads from the top down."""
+  nodes: [TimelineEvent!]!
+
+  """Where this page sits in the whole history."""
+  pageInfo: PageInfo!
+}
+
+"""
+What an award has been given and what it has actually paid out.
+
+Every amount is derived from the append-only ledger, so it cannot drift from
+the releases and reversals behind it.
+"""
 type ApplicantAward {
+  """The programme's sanction order number."""
   sanctionOrderNumber: String!
+
+  """The date of the sanction order."""
   sanctionDate: Date!
+
+  """What was sanctioned, in paise. The ceiling, not what has been paid."""
   sanctionedAmountPaise: Money!
+
+  """Conditions the applicant must meet, in the office's words."""
   applicantConditions: String
+
+  """Where the award is in its own life."""
   status: AwardStatus!
+
+  """How a closed award ended. Null while it is still open."""
   closureDisposition: AwardClosureDisposition
+
+  """Everything ever paid out, before reversals, in paise."""
   grossReleasedPaise: Money!
+
+  """Everything reversed, in paise."""
   reversedPaise: Money!
+
+  """
+  What the applicant has actually received: gross minus reversed, in paise.
+  **This is the figure to show as "received".**
+  """
   netReleasedPaise: Money!
+
+  """What is sanctioned but not yet released, in paise."""
   remainingPlannedPaise: Money!
 }
 
-# One payment. A correction is folded in as `reversedAmountPaise` rather than
-# listed as its own entry, and internal banking prerequisites are never shown.
+"""
+One payment.
+
+A correction is folded in as `reversedAmountPaise` rather than listed as its
+own entry, so the list reads as payments made rather than as accounting.
+"""
 type ApplicantRelease {
+  """Which payment this is, counting from 1."""
   sequenceNumber: Int!
+
+  """When the payment was made."""
   occurredAt: DateTime!
+
+  """What was paid, in paise, before any reversal."""
   amountPaise: Money!
+
+  """
+  The bank's reference for the payment, for an applicant reconciling against
+  their statement. Null where the office has not recorded one.
+  """
   paymentReference: String
+
+  """
+  How much of this payment was later reversed, in paise. Zero is the ordinary
+  case.
+  """
   reversedAmountPaise: Money!
 }
 
-# Reviewer-only evidence references and internal notes are deliberately absent.
+"""
+One assessment of how an award is being used.
+
+Reviewer-only evidence references and internal notes are deliberately absent.
+"""
 type ApplicantAssessment {
+  """What was assessed."""
   assessmentType: AssessmentType!
+
+  """Which assessment of this type this is, counting from 1."""
   assessmentNumber: Int!
+
+  """What was concluded."""
   outcome: AssessmentOutcome!
+
+  """When it was concluded."""
   assessedAt: DateTime!
+
+  """What to show the applicant, in the office's words."""
   summary: String!
-  # True when this is the current result rather than a superseded one. Utilization
-  # is assessed per release, so several can be current at once.
+
+  """
+  True when this is the current result rather than a superseded one.
+  Utilization is assessed per release, so several can be current at once —
+  filter on this rather than taking the last entry.
+  """
   latest: Boolean!
 }
 
+"""The applicant's whole view of the money on one application."""
 type ApplicantFunding {
+  """What was sanctioned, and what has been paid."""
   award: ApplicantAward!
+
+  """Every payment, oldest first."""
   releases: [ApplicantRelease!]!
+
+  """Every assessment, oldest first."""
   assessments: [ApplicantAssessment!]!
 }
 
-type DocumentDownloadResponse { downloadUrl: String!, expiresAt: DateTime! }
+"""A short-lived link to one file."""
+type DocumentDownloadResponse {
+  """
+  Where to fetch the file. Expires, and is not a stable address — fetch it
+  when the applicant clicks rather than embedding it in a page.
+  """
+  downloadUrl: String!
 
-# One application that has to be dealt with before its enterprise can be deleted.
+  """When the link stops working."""
+  expiresAt: DateTime!
+}
+
+"""
+One application standing in the way of deleting its enterprise.
+
+An enterprise that has applied is part of the programme's record, so the
+refusal names what has to be dealt with rather than just refusing.
+"""
 type EnterpriseDeletionBlocker {
+  """Which application is in the way."""
   applicationId: ID!
-  # Null while the application has never been submitted.
+
+  """Its reference. Null while the application has never been submitted."""
   referenceNumber: String
+
+  """Where that application is in the workflow."""
   status: ApplicationStatus!
+
+  """Whether money has been awarded on it, which is the hardest blocker."""
   hasAward: Boolean!
 }
 
-# Deletion carries an extra field so a refusal can name what blocked it. Always
-# present and empty on every other outcome.
+"""
+The enterprise after a removal or restoration, and what blocked it.
+
+Carries an extra field so a refusal can name what stood in the way. `blockers`
+is always present and empty on every other outcome.
+"""
 type EnterpriseDeletionResult implements BaseResponse {
+  """Whether the enterprise was removed or restored."""
   success: Boolean!
+
+  """What to show the applicant when `success` is false."""
   message: String
+
+  """The enterprise as it now stands. Null whenever `success` is false."""
   response: Enterprise
+
+  """
+  The applications standing in the way. Empty unless a removal was refused
+  because of them.
+  """
   blockers: [EnterpriseDeletionBlocker!]!
 }
 
+"""Every status explained, or the reason it could not be read."""
 type ApplicationStatusGuideResult implements BaseResponse {
+  """Whether the guide was returned."""
   success: Boolean!
+
+  """What to show when `success` is false."""
   message: String
+
+  """The guide. Null whenever `success` is false."""
   response: ApplicationStatusGuide
 }
 
+"""What the draft changes, or the reason it could not be compared."""
 type ApplicationChangedSectionsResult implements BaseResponse {
+  """Whether the comparison was returned."""
   success: Boolean!
+
+  """
+  What to show when `success` is false — chiefly an application that has never
+  been submitted, so there is nothing to compare against.
+  """
   message: String
+
+  """The comparison. Null whenever `success` is false."""
   response: ApplicationChangedSections
 }
 
+"""One enterprise, or the reason it could not be returned."""
 type EnterpriseResult implements BaseResponse {
+  """Whether the operation succeeded."""
   success: Boolean!
+
+  """
+  What to show the applicant when `success` is false. An enterprise belonging
+  to somebody else is refused identically to one that does not exist.
+  """
   message: String
+
+  """The enterprise. Null whenever `success` is false."""
   response: Enterprise
 }
+
+"""One page of enterprises, or the reason there is none."""
 type EnterpriseConnectionResult implements BaseResponse {
+  """Whether the page was returned."""
   success: Boolean!
+
+  """
+  What to show when `success` is false — chiefly an invalid page size or a
+  cursor from a different ordering.
+  """
   message: String
+
+  """The page. Null whenever `success` is false."""
   response: EnterpriseConnection
 }
+
+"""A list of programme cycles, or the reason there is none."""
 type ProgrammeCyclesResult implements BaseResponse {
+  """Whether the list was returned."""
   success: Boolean!
+
+  """What to show when `success` is false."""
   message: String
+
+  """The cycles. Null whenever `success` is false."""
   response: ProgrammeCyclesResponse
 }
+
+"""One application, or the reason the operation was refused."""
 type ApplicationResult implements BaseResponse {
+  """Whether the operation succeeded."""
   success: Boolean!
+
+  """
+  What to show the applicant when `success` is false — a stale version, a
+  status that does not allow the change, or an application that is not theirs.
+  """
   message: String
+
+  """The application as it now stands. Null whenever `success` is false."""
   response: Application
 }
+
+"""One page of applications, or the reason there is none."""
 type ApplicationConnectionResult implements BaseResponse {
+  """Whether the page was returned."""
   success: Boolean!
+
+  """
+  What to show when `success` is false — chiefly an invalid page size, an
+  unknown status filter, or a cursor from a different ordering.
+  """
   message: String
+
+  """The page. Null whenever `success` is false."""
   response: ApplicationConnection
 }
+
+"""The money on one application, or the reason there is none to show."""
 type ApplicantFundingResult implements BaseResponse {
+  """Whether the funding position was returned."""
   success: Boolean!
+
+  """
+  What to show when `success` is false. An application with no award yet is
+  the ordinary case, not an error.
+  """
   message: String
+
+  """The funding position. Null whenever `success` is false."""
   response: ApplicantFunding
 }
+
+"""Whether an application may be sent, or the reason it could not be checked."""
 type ApplicationValidationResult implements BaseResponse {
+  """
+  Whether the **check ran** — not whether the application is valid. A complete
+  and an incomplete application both come back with `success: true`; read
+  `response.valid` for the answer.
+  """
   success: Boolean!
+
+  """What to show when the check could not run."""
   message: String
+
+  """The report. Null whenever `success` is false."""
   response: ValidationReport
 }
+
+"""Whether an expansion may start, or the reason it could not be worked out."""
 type ExpansionEligibilityResult implements BaseResponse {
+  """
+  Whether the **question was answered** — not whether the applicant is
+  eligible. Read `response.eligible` for that.
+  """
   success: Boolean!
+
+  """What to show when the question could not be answered."""
   message: String
+
+  """The answer. Null whenever `success` is false."""
   response: ExpansionEligibility
 }
+
+"""One page of an application's history, or the reason there is none."""
 type TimelineConnectionResult implements BaseResponse {
+  """Whether the page was returned."""
   success: Boolean!
+
+  """What to show when `success` is false."""
   message: String
+
+  """The page. Null whenever `success` is false."""
   response: TimelineConnection
 }
+
+"""A download link, or the reason there is none."""
 type DocumentDownloadResult implements BaseResponse {
+  """Whether a link was issued."""
   success: Boolean!
+
+  """
+  What to show when `success` is false — a document that is not the
+  applicant's, or one whose file is not yet safe to release.
+  """
   message: String
+
+  """The link. Null whenever `success` is false."""
   response: DocumentDownloadResponse
 }

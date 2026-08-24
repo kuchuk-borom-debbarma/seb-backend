@@ -1,177 +1,755 @@
 extend type Mutation {
+  """
+  Everything an applicant does: their enterprises, and their applications.
+
+  **Use case:** the applicant portal. Nothing here is reachable by staff acting
+  on somebody else's behalf — every operation resolves the enterprise or
+  application from the signed-in applicant's own records.
+  """
   seb: SebMutation!
 }
 
+"""
+The applicant's two subjects, kept apart because they have different lifetimes.
+
+An enterprise outlives any one application: it is registered once and then
+applied from, possibly across several programme cycles and phases.
+"""
 type SebMutation {
+  """The business itself — registered once, then applied from."""
   enterprise: SebEnterpriseMutation!
+
+  """One attempt at funding for one enterprise in one programme cycle."""
   application: SebApplicationMutation!
 }
 
+"""
+An enterprise's whole profile, sent complete on every write.
+
+This is deliberately not a patch. `update` replaces the profile, so a field
+omitted here is **cleared**, not left alone — send back everything the record
+already had alongside whatever changed. Every version is kept, so an edit is
+recoverable rather than destructive.
+"""
 input EnterpriseProfileInput {
+  """
+  Registered or trading name, as it should appear on programme correspondence.
+  The only field that is always required.
+  """
   name: String!
+
+  """
+  When the business began trading, as `YYYY-MM-DD`.
+
+  Decides the application category — a business under the cycle's threshold is
+  new rather than established — so an application will refuse later if this is
+  missing.
+  """
   establishmentDate: Date
+
+  """Whether the business is registered, and under which instrument."""
   registrationType: RegistrationType!
+
+  """
+  The registration number, when there is one. Leave null for `NONE`; an
+  unregistered enterprise is a normal applicant, not an incomplete one.
+  """
   registrationNumber: String
+
+  """The GSTIN, when the business holds one. Null is ordinary."""
   gstin: String
+
+  """
+  What the business does. Drives which programme rules and evidence apply.
+  """
   businessSector: BusinessSector
+
+  """
+  The sector in the applicant's own words, used only with
+  `businessSector: OTHER`. Ignored otherwise.
+  """
   otherBusinessSector: String
+
+  """Where the business operates — the block or village."""
   businessBlockOrVillage: String
+
+  """The district the business operates in."""
   businessDistrict: String
+
+  """Six-digit postal code for the business address."""
   businessPinCode: String
+
+  """
+  Contact telephone for the business, for programme correspondence rather than
+  for sign-in.
+  """
   contactNumber: String
+
+  """
+  Contact address for the business. May differ from the account's sign-in
+  address, and changing it here never changes how the applicant signs in.
+  """
   contactEmail: String
 }
 
+"""Replaces an enterprise profile, guarded against a concurrent edit."""
 input UpdateEnterpriseInput {
+  """Which enterprise to replace the profile of."""
   id: ID!
+
+  """
+  The `version` read with the record. A mismatch refuses instead of
+  overwriting somebody else's edit.
+
+  **Example:** read `3`, edit, send `3`; it succeeds and becomes `4`. Sending
+  `3` a second time refuses.
+  """
   expectedVersion: Int!
+
+  """The complete replacement profile. Omitted fields are cleared."""
   profile: EnterpriseProfileInput!
 }
 
+"""Removes an enterprise from the applicant's list without erasing it."""
 input EnterpriseDeletionInput {
+  """Which enterprise to remove."""
   id: ID!
+
+  """The `version` read with the record; a mismatch refuses."""
   expectedVersion: Int!
+
+  """
+  Why it is being removed, kept with the record. Optional, and worth sending —
+  it is what the applicant sees if they later restore it.
+  """
   reason: String
 }
 
+"""
+Registering and maintaining the businesses an applicant applies on behalf of.
+
+**Use case:** the screens under `/enterprises`. An enterprise must exist before
+an application can be started against it.
+"""
 type SebEnterpriseMutation {
-  create(input: EnterpriseProfileInput!): EnterpriseResult!
-  update(input: UpdateEnterpriseInput!): EnterpriseResult!
-  softDelete(input: EnterpriseDeletionInput!): EnterpriseDeletionResult!
-  restore(id: ID!, expectedVersion: Int!): EnterpriseDeletionResult!
+  """
+  Registers a new enterprise for the signed-in applicant.
+
+  **Use case:** the form at `/enterprises/new`. The enterprise is immediately
+  available to `application.startInitial`.
+  """
+  create(
+    """The profile to register. Only `name` and `registrationType` are required."""
+    input: EnterpriseProfileInput!
+  ): EnterpriseResult!
+
+  """
+  Replaces the profile of an enterprise the applicant owns.
+
+  A replacement, not a patch: send the whole profile back. The previous version
+  is kept, so this is never destructive.
+
+  **Refuses:** a stale `expectedVersion`, and any enterprise the signed-in
+  applicant does not own — refused identically to one that does not exist, so
+  the operation cannot be used to discover which ids are real.
+  """
+  update(
+    """Which enterprise, at which version, and the whole new profile."""
+    input: UpdateEnterpriseInput!
+  ): EnterpriseResult!
+
+  """
+  Removes an enterprise from the applicant's list.
+
+  Reversible by `restore`, and never a hard delete — an enterprise that has
+  been applied from is part of the programme's record.
+
+  **Refuses:** a stale `expectedVersion`.
+  """
+  softDelete(
+    """Which enterprise, at which version, and optionally why."""
+    input: EnterpriseDeletionInput!
+  ): EnterpriseDeletionResult!
+
+  """
+  Puts a removed enterprise back on the applicant's list.
+
+  **Refuses:** a stale `expectedVersion`.
+  """
+  restore(
+    """Which enterprise to restore."""
+    id: ID!
+
+    """The `version` read with the record; a mismatch refuses."""
+    expectedVersion: Int!
+  ): EnterpriseDeletionResult!
 }
 
+"""Which enterprise is applying, and into which programme cycle."""
 input StartApplicationInput {
+  """
+  The enterprise applying. Must belong to the signed-in applicant and have an
+  open funding case.
+  """
   enterpriseId: ID!
+
+  """
+  The cycle to apply into. Must be open: a cycle that has closed accepts no new
+  applications, though it still carries the ones already submitted.
+
+  The cycle's rules are **frozen into the application** when it is submitted, so
+  a later edit to the cycle cannot change what this application is judged by.
+  """
   programmeCycleId: ID!
 }
 
+"""
+The enterprise section of the application form.
+
+Separate from the enterprise record itself: this is what the applicant asserts
+*for this application*, frozen at submission, while the enterprise record goes
+on changing.
+"""
 input EnterpriseDetailsInput {
+  """The business name as it should appear on this application."""
   businessName: String
+
+  """When the business began trading, as `YYYY-MM-DD`."""
   establishmentDate: Date
+
+  """Whether the business is registered, and under which instrument."""
   registrationType: RegistrationType
+
+  """The registration number, when there is one."""
   registrationNumber: String
+
+  """The GSTIN, when the business holds one."""
   gstin: String
+
+  """What the business does."""
   businessSector: BusinessSector
+
+  """Used only with `businessSector: OTHER`."""
   otherBusinessSector: String
+
+  """
+  Which funding band this application is for. Decided by how long the business
+  has been trading against the cycle's threshold, and validated at submission.
+  """
   applicationCategory: ApplicationCategory
+
+  """
+  Whether the applicant confirms majority ownership by the qualifying group.
+  A cycle may require this; submission refuses without it where it does.
+  """
   majorityOwnershipConfirmed: Boolean
 }
 
+"""Who is applying, as a person rather than as a business."""
 input ApplicantProfileInput {
+  """Full name of the person responsible for the application."""
   primaryApplicantName: String
+
+  """Their role in the business."""
   designation: ApplicantDesignation
+
+  """
+  Date of birth as `YYYY-MM-DD`. Checked against the cycle's age range at
+  submission, so an out-of-range value is accepted into a draft and refused
+  when the application is sent.
+  """
   dateOfBirth: Date
+
+  """The applicant's gender, as recorded for programme reporting."""
   gender: Gender
+
+  """The applicant's block or village."""
   businessBlockOrVillage: String
+
+  """The applicant's district."""
   businessDistrict: String
+
+  """Six-digit postal code."""
   businessPinCode: String
+
+  """Telephone number for programme correspondence."""
   contactNumber: String
+
+  """Address for programme correspondence."""
   contactEmail: String
 }
 
+"""
+What the project costs and how it is to be paid for.
+
+Every amount is **paise**, not rupees: ₹10,00,000 is `"1000000000"`. They are
+sent and returned as decimal strings so that no amount can lose precision on
+the way through a client.
+"""
 input FinancialInput {
+  """Total cost of the project, in paise."""
   totalProjectCostPaise: Money
+
+  """
+  How much seed funding is being asked for, in paise. Checked against the
+  cycle's ceiling at submission.
+  """
   seedFundRequestedPaise: Money
+
+  """How much of the cost a bank loan is expected to cover, in paise."""
   bankLoanProposedPaise: Money
+
+  """How much the promoter is putting in themselves, in paise."""
   promoterContributionPaise: Money
 }
 
+"""
+Public money and bank credit the enterprise already has.
+
+Declared rather than verified here; the desk review is where it is checked
+against evidence.
+"""
 input PriorFundingInput {
+  """Whether the enterprise has had government funding before."""
   receivedGovernmentFunding: Boolean
+
+  """Which scheme it came from. Expected when `receivedGovernmentFunding`."""
   governmentSchemeName: String
+
+  """How much was received, in paise."""
   governmentFundingAmountPaise: Money
+
+  """The year it was sanctioned, as a four-digit year."""
   governmentFundingSanctionYear: Int
+
+  """Whether the enterprise currently has a bank facility."""
   hasExistingBankCredit: Boolean
+
+  """Which bank holds it. Expected when `hasExistingBankCredit`."""
   existingBankName: String
+
+  """The outstanding amount, in paise."""
   existingCreditAmountPaise: Money
+
+  """Whether that facility is performing."""
   existingCreditStatus: CreditStatus
 }
 
-input DocumentRequirementsInput { nocRequired: Boolean }
+"""Answers that change which documents the application must carry."""
+input DocumentRequirementsInput {
+  """
+  Whether a no-objection certificate applies to this project. Setting it true
+  makes the NOC a required document at submission.
+  """
+  nocRequired: Boolean
+}
 
+"""What the applicant is signing, and any interest they must disclose."""
 input DeclarationInput {
+  """
+  Any relationship to a programme official that has to be declared. A
+  relationship is disclosed, not disqualifying.
+  """
   relationshipType: RelationshipType
+
+  """Who that person is. Expected whenever a relationship is declared."""
   relatedPersonName: String
+
+  """
+  Whether the applicant accepts the declaration. Submission refuses without
+  it — this is the applicant's signature.
+  """
   declarationAccepted: Boolean
+
+  """Where the declaration was made, as it would be written on a form."""
   declarationPlace: String
 }
 
+"""
+The whole application form, sent complete on every save.
+
+Every section is required as an object; the fields inside them are not. That is
+what lets a half-finished draft be saved: the shape is always complete, the
+answers arrive over time, and completeness is judged at submission rather than
+at every keystroke.
+"""
 input ApplicationDraftInput {
+  """The business, as asserted for this application."""
   enterprise: EnterpriseDetailsInput!
+
+  """The person applying."""
   applicantProfile: ApplicantProfileInput!
+
+  """What the project costs and who pays for it."""
   financial: FinancialInput!
+
+  """Public money and bank credit already held."""
   priorFunding: PriorFundingInput!
+
+  """Answers that decide which documents are required."""
   documents: DocumentRequirementsInput!
+
+  """What the applicant is signing."""
   declaration: DeclarationInput!
 }
 
+"""
+Saves the whole draft, guarded against both kinds of concurrent change.
+
+Two versions, because two different things can move underneath a draft: the
+**form** can be edited in another tab, and the **application's status** can
+change when the office acts on it. Both are sent, and either being stale
+refuses.
+"""
 input SaveApplicationDraftInput {
+  """Which application's draft to save."""
   applicationId: ID!
+
+  """
+  The form's `version`, as read with the draft. Moves on every save.
+  """
   expectedVersion: Int!
+
+  """
+  The workflow's `statusVersion`, as read with the application. Moves when the
+  office acts — so this is what refuses a save into an application that has
+  just been submitted or sent back for correction.
+  """
   expectedStatusVersion: Int!
+
+  """The complete form. Sections are required; their fields are not."""
   draft: ApplicationDraftInput!
 }
 
+"""Identifies an application at an exact form version and status version."""
 input ApplicationVersionInput {
+  """Which application."""
   applicationId: ID!
+
+  """The form's `version`, as read with the draft."""
   expectedVersion: Int!
+
+  """The workflow's `statusVersion`, as read with the application."""
   expectedStatusVersion: Int!
 }
 
+"""Removes a draft application, reversibly."""
 input ApplicationDeletionInput {
+  """Which application to remove."""
   applicationId: ID!
+
+  """The form's `version`, as read with the draft."""
   expectedVersion: Int!
+
+  """The workflow's `statusVersion`, as read with the application."""
   expectedStatusVersion: Int!
+
+  """Why it is being removed, kept with the record."""
   reason: String
 }
 
+"""
+Asks for permission to upload one file, before the file itself is sent.
+
+The size and checksum are stated **up front** so an oversized or malformed
+upload is refused before any bytes cross the network, rather than after.
+"""
 input IssueDocumentUploadInput {
+  """Which application the document belongs to."""
   applicationId: ID!
+
+  """Which evidence slot this file fills."""
   documentType: DocumentType!
+
+  """
+  The `version` of the document currently in this slot, or `0` for the first
+  upload into an empty one. A mismatch refuses, so two tabs cannot both
+  replace the same document.
+  """
   expectedDocumentVersion: Int!
+
+  """
+  The file's name as the applicant sees it. Stored and served back later, so
+  its final extension must agree with `contentType` — `report.pdf.exe` is
+  refused even when the bytes really are a PDF.
+  """
   originalFilename: String!
+
+  """
+  The file's media type. Must be `application/pdf`, `image/jpeg` or
+  `image/png`; anything else is refused.
+  """
   contentType: String!
+
+  """
+  The exact size in bytes. At most 5 MB (5,242,880). Checked again against
+  what actually arrives.
+  """
   sizeBytes: Int!
+
+  """
+  Base64-encoded SHA-256 of the file's bytes, so that storage can reject a
+  file that arrives different from the one described here.
+
+  **Example:** `"n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg="`
+  """
   checksumSha256: String!
 }
 
+"""Identifies one document of one application, at an exact version."""
 input ApplicationDocumentVersionInput {
+  """Which application the document belongs to."""
   applicationId: ID!
+
+  """Which document."""
   documentId: ID!
+
+  """The document's `version`; a mismatch refuses."""
   expectedVersion: Int!
 }
 
-type UploadHeader { name: String!, value: String! }
-type UploadAuthorization {
-  uploadId: ID!
-  uploadUrl: String!
-  expiresAt: DateTime!
-  requiredHeaders: [UploadHeader!]!
-}
-type UploadAuthorizationResult implements BaseResponse {
-  success: Boolean!
-  message: String
-  response: UploadAuthorization
+"""One header that must be sent with the upload, exactly as given."""
+type UploadHeader {
+  """The header's name, for example `Content-Type`."""
+  name: String!
+
+  """The value to send. Not to be recomputed by the client."""
+  value: String!
 }
 
-type FinalizedDocumentResponse { documentId: ID!, version: Int! }
-type FinalizedDocumentResult implements BaseResponse {
+"""
+Permission to send one file, to one place, once, within a time limit.
+
+**Use case:** received from `issueDocumentUpload`, used immediately to `PUT`
+the file, then discarded. It authorizes exactly the file that was described —
+a different size or checksum is refused by storage.
+"""
+type UploadAuthorization {
+  """
+  Identifies this authorization. Send it to `finalizeDocumentUpload` once the
+  `PUT` has succeeded; nothing is attached to the application until you do.
+  """
+  uploadId: ID!
+
+  """
+  Where to `PUT` the file. Single-use and short-lived. Treat it as opaque:
+  it is not a stable address for the document and will not work twice.
+  """
+  uploadUrl: String!
+
+  """
+  When this authorization stops working. Past it, ask for another — nothing is
+  lost, because nothing was attached yet.
+  """
+  expiresAt: DateTime!
+
+  """
+  Headers that must accompany the `PUT`, exactly as given. Omitting one makes
+  storage refuse the upload.
+  """
+  requiredHeaders: [UploadHeader!]!
+}
+
+"""Permission to upload, or the reason there is none."""
+type UploadAuthorizationResult implements BaseResponse {
+  """Whether an authorization was issued."""
   success: Boolean!
+
+  """
+  What to show the applicant when `success` is false — an unsupported file
+  type, a file over 5 MB, or a document that changed in another tab.
+  """
   message: String
+
+  """The authorization. Null whenever `success` is false."""
+  response: UploadAuthorization
+
+}
+
+"""The document as it now stands, after an upload was attached."""
+type FinalizedDocumentResponse {
+  """The document slot the file was attached to."""
+  documentId: ID!
+
+  """
+  Its new version. Send this back as `expectedDocumentVersion` to replace this
+  file later.
+  """
+  version: Int!
+}
+
+"""The attached document, or the reason it was not attached."""
+type FinalizedDocumentResult implements BaseResponse {
+  """Whether the upload was attached to the application."""
+  success: Boolean!
+
+  """
+  What to show the applicant when `success` is false — an authorization that
+  expired, was already used, or an application that has since moved on.
+  """
+  message: String
+
+  """The document and its new version. Null whenever `success` is false."""
   response: FinalizedDocumentResponse
 }
 
+"""
+One attempt at funding: the form, its evidence, and sending it in.
+
+**Use case:** the screens under `/applications`. The order is start → save →
+attach documents → submit, and an application may come back for correction and
+be resubmitted.
+"""
 type SebApplicationMutation {
-  startInitial(input: StartApplicationInput!): ApplicationResult!
-  startExpansion(input: StartApplicationInput!): ApplicationResult!
-  saveDraft(input: SaveApplicationDraftInput!): ApplicationResult!
-  softDeleteDraft(input: ApplicationDeletionInput!): ApplicationResult!
-  restoreDraft(input: ApplicationVersionInput!): ApplicationResult!
-  issueDocumentUpload(input: IssueDocumentUploadInput!): UploadAuthorizationResult!
-  finalizeDocumentUpload(uploadId: ID!): FinalizedDocumentResult!
-  softDeleteDocument(input: ApplicationDocumentVersionInput!): BooleanResult!
-  restoreDocument(input: ApplicationDocumentVersionInput!): BooleanResult!
-  submit(input: ApplicationVersionInput!): ApplicationResult!
-  resubmit(input: ApplicationVersionInput!): ApplicationResult!
+  """
+  Starts a first-phase application for an enterprise.
+
+  **Use case:** `/applications/new`. Creates an empty draft; nothing is
+  submitted until `submit`.
+
+  **Refuses:** a cycle that is not open, an enterprise the applicant does not
+  own, and a second application for a phase that already has one.
+  """
+  startInitial(
+    """Which enterprise, and which cycle."""
+    input: StartApplicationInput!
+  ): ApplicationResult!
+
+  """
+  Starts a later-phase application against a completed earlier award.
+
+  **Use case:** `/applications/new`, offered only where an earlier award
+  qualifies. Eligibility depends on the earlier award's assessment and the
+  cycle's waiting period.
+
+  **Refuses:** an enterprise with no qualifying award, one whose waiting period
+  has not elapsed, and a cycle that is not open.
+  """
+  startExpansion(
+    """Which enterprise, and which cycle."""
+    input: StartApplicationInput!
+  ): ApplicationResult!
+
+  """
+  Saves the whole form.
+
+  **Use case:** the autosave on `/applications/$id/form`. Incomplete answers
+  are accepted — completeness is judged at `submit`.
+
+  **Refuses:** a stale `expectedVersion` or `expectedStatusVersion`; an
+  application not in an editable status; and, while a correction is open, any
+  change outside the sections the office asked for.
+  """
+  saveDraft(
+    """Which application, at which versions, and the whole form."""
+    input: SaveApplicationDraftInput!
+  ): ApplicationResult!
+
+  """
+  Removes a draft the applicant has not started filling in.
+
+  **Refuses:** a draft that has been edited — only an unchanged one can be
+  removed — and stale versions.
+  """
+  softDeleteDraft(
+    """Which application, at which versions, and optionally why."""
+    input: ApplicationDeletionInput!
+  ): ApplicationResult!
+
+  """
+  Puts a removed draft back.
+
+  **Refuses:** an expansion draft whose qualifying award is no longer valid,
+  and stale versions.
+  """
+  restoreDraft(
+    """Which application, at which versions."""
+    input: ApplicationVersionInput!
+  ): ApplicationResult!
+
+  """
+  Asks for permission to upload one file.
+
+  **Use case:** step one of two on `/applications/$id/documents`. `PUT` the
+  file to `uploadUrl` with every header in `requiredHeaders`, then call
+  `finalizeDocumentUpload`. Nothing is attached until that second call, so an
+  abandoned upload leaves the application untouched.
+
+  **Refuses:** a file over 5 MB, a type other than PDF, JPEG or PNG, a filename
+  whose extension disagrees with its type, and an application whose status no
+  longer allows documents to change.
+  """
+  issueDocumentUpload(
+    """Which application, which slot, and what the file is."""
+    input: IssueDocumentUploadInput!
+  ): UploadAuthorizationResult!
+
+  """
+  Attaches an uploaded file to the application.
+
+  **Use case:** step two of two, after the `PUT` succeeds. Until this returns
+  successfully the file is not part of the application and will be cleaned up.
+
+  **Refuses:** an authorization that expired, one already used, and an
+  application whose status no longer allows documents to change. A missing
+  authorization and a spent one are refused identically.
+  """
+  finalizeDocumentUpload(
+    """The `uploadId` from `issueDocumentUpload`."""
+    uploadId: ID!
+  ): FinalizedDocumentResult!
+
+  """
+  Removes a document from the application, reversibly.
+
+  **Refuses:** a stale `expectedVersion`, and an application whose status no
+  longer allows documents to change.
+  """
+  softDeleteDocument(
+    """Which application, which document, at which version."""
+    input: ApplicationDocumentVersionInput!
+  ): BooleanResult!
+
+  """
+  Puts a removed document back.
+
+  **Refuses:** a stale `expectedVersion`, and an application whose status no
+  longer allows documents to change.
+  """
+  restoreDocument(
+    """Which application, which document, at which version."""
+    input: ApplicationDocumentVersionInput!
+  ): BooleanResult!
+
+  """
+  Sends the application to the programme office.
+
+  **Use case:** the button on `/applications/$id/review`. Freezes the form and
+  the exact version of every document attached, so replacing a file afterwards
+  cannot change what was reviewed.
+
+  **Refuses:** an incomplete application — run the validation query for the
+  detail — a cycle that has closed since the draft was started, and stale
+  versions.
+  """
+  submit(
+    """Which application, at which versions."""
+    input: ApplicationVersionInput!
+  ): ApplicationResult!
+
+  """
+  Sends a corrected application back after the office asked for changes.
+
+  **Use case:** the button on `/applications/$id/review` while a correction is
+  open. Freezes a new submission; the earlier one is kept.
+
+  **Refuses:** an application with no open correction request, one that is
+  still incomplete, and stale versions. Unlike `submit`, this does **not**
+  require the cycle to still be open — an applicant asked for a correction
+  cannot be shut out by the closing date.
+  """
+  resubmit(
+    """Which application, at which versions."""
+    input: ApplicationVersionInput!
+  ): ApplicationResult!
 }
