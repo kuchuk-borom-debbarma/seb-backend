@@ -19,8 +19,9 @@ import { formatDateTime, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
+import { can } from '#/lib/session'
 
-type Search = { after?: string; status?: TtmMeetingStatus }
+type Search = { after?: string; status?: TtmMeetingStatus; create?: boolean }
 
 const STATUSES: TtmMeetingStatus[] = ['DRAFT', 'IN_SESSION', 'FINALIZED', 'CANCELLED']
 
@@ -30,6 +31,7 @@ export const Route = createFileRoute('/_shell/admin/meetings/')({
     status: STATUSES.includes(search.status as TtmMeetingStatus)
       ? (search.status as TtmMeetingStatus)
       : undefined,
+    create: search.create === true ? true : undefined,
   }),
   loaderDeps: ({ search }) => search,
   loader: ({ context, deps }) => context.queryClient.ensureQueryData(meetingsQuery(deps)),
@@ -38,9 +40,11 @@ export const Route = createFileRoute('/_shell/admin/meetings/')({
 
 function MeetingsPage() {
   const search = Route.useSearch()
+  const { user } = Route.useRouteContext()
   const navigate = Route.useNavigate()
   const { data } = useQuery(meetingsQuery(search))
-  const [creating, setCreating] = useState(false)
+  const canWrite = can(user, 'STAFF_WRITE')
+  const [creating, setCreating] = useState(canWrite && search.create === true)
 
   const meetings = data?.nodes ?? []
   const mark = useMarker()
@@ -51,7 +55,7 @@ function MeetingsPage() {
         title="Committee meetings"
         description={OFFICE_LEDES.meetings}
         actions={
-          creating ? null : (
+          creating || !canWrite ? null : (
             <button
               type="button"
               className="button"
@@ -66,7 +70,16 @@ function MeetingsPage() {
       />
 
       <div className="stack">
-        {creating ? <MeetingForm onDone={() => setCreating(false)} /> : null}
+        {creating ? (
+          <MeetingForm
+            onDone={() => {
+              setCreating(false)
+              void navigate({
+                search: (previous) => ({ ...previous, create: undefined }),
+              })
+            }}
+          />
+        ) : null}
 
         <div className="filters">
           <div>

@@ -71,7 +71,10 @@ export default defineConfig({
       command: `npm run build && SEB_API_URL=http://localhost:${WORKER_PORT} PORT=${WEB_PORT} node .output/server/index.mjs`,
       url: `http://localhost:${WEB_PORT}/sign-in`,
       reuseExistingServer: false,
-      timeout: 180_000,
+      // A cold build includes route splitting and both client and SSR bundles.
+      // Leave headroom for slower development machines before treating it as
+      // a server failure; individual tests keep their much tighter timeout.
+      timeout: 300_000,
     },
   ],
 })

@@ -1,0 +1,75 @@
+query ApplicantDashboard {
+  seb {
+    enterprise {
+      mine(first: 1, includeDeleted: false) {
+        success
+        message
+        response {
+          nodes { id name }
+          pageInfo { totalCount }
+        }
+      }
+    }
+    application {
+      allApplications: mine(first: 1, includeDeleted: false) {
+        success
+        message
+        response { pageInfo { totalCount } }
+      }
+      revisions: mine(first: 5, status: REVISION_REQUIRED, includeDeleted: false) {
+        success
+        message
+        response {
+          nodes { ...ApplicationSummaryFields }
+          pageInfo { totalCount }
+        }
+      }
+      drafts: mine(first: 5, status: DRAFT, includeDeleted: false) {
+        success
+        message
+        response {
+          nodes { ...ApplicationSummaryFields }
+          pageInfo { totalCount }
+        }
+      }
+      availableProgrammeCycles {
+        success
+        message
+        response { cycles { ...CycleFields } }
+      }
+      statusGuide {
+        success
+        message
+        response { statuses { status label explanation nextActor nextAction } }
+      }
+    }
+  }
+}
+
+query OfficeDashboard {
+  admin {
+    intake {
+      queues {
+        success
+        message
+        response { queues { queue count } }
+      }
+    }
+    decision {
+      meetings(first: 5) {
+        success
+        message
+        response {
+          nodes {
+            id
+            meetingReference
+            scheduledAt
+            venue
+            status
+          }
+          pageInfo { totalCount }
+        }
+      }
+    }
+  }
+}

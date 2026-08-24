@@ -77,9 +77,9 @@ export function WhoIsOnThis({
           */}
           <p className="notice">
             <span className="notice-title">Somebody else has been here</span>
-            You can still act on this. If you both act at once, whoever is
-            second is told the record changed and nothing is overwritten — so
-            it may be worth a word first.
+            You can still act on this. If you both act at once, whoever is second is told
+            the record changed and nothing is overwritten — so it may be worth a word
+            first.
           </p>
         </div>
       ) : null}

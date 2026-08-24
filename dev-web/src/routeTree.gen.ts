@@ -16,6 +16,7 @@ import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as ShellApplicantRouteImport } from './routes/_shell/_applicant'
 import { Route as ShellAdminRouteRouteImport } from './routes/_shell/admin/route'
 import { Route as ShellGuideRouteImport } from './routes/_shell/guide'
+import { Route as ShellSettingsRouteRouteImport } from './routes/_shell/settings/route'
 import { Route as ShellApplicantIndexRouteImport } from './routes/_shell/_applicant/index'
 import { Route as ShellApplicantCyclesRouteImport } from './routes/_shell/_applicant/cycles'
 import { Route as ShellAccountSessionsRouteImport } from './routes/_shell/account/sessions'
@@ -23,6 +24,9 @@ import { Route as ShellAdminIndexRouteImport } from './routes/_shell/admin/index
 import { Route as ShellAdminAuditRouteImport } from './routes/_shell/admin/audit'
 import { Route as ShellAdminInviteRouteImport } from './routes/_shell/admin/invite'
 import { Route as ShellAdminQueueRouteImport } from './routes/_shell/admin/queue'
+import { Route as ShellSettingsIndexRouteImport } from './routes/_shell/settings/index'
+import { Route as ShellSettingsGeneralRouteImport } from './routes/_shell/settings/general'
+import { Route as ShellSettingsSecurityRouteImport } from './routes/_shell/settings/security'
 import { Route as ShellApplicantApplicationsIndexRouteImport } from './routes/_shell/_applicant/applications/index'
 import { Route as ShellApplicantApplicationsNewRouteImport } from './routes/_shell/_applicant/applications/new'
 import { Route as ShellApplicantEnterprisesIndexRouteImport } from './routes/_shell/_applicant/enterprises/index'
@@ -76,6 +80,11 @@ const ShellGuideRoute = ShellGuideRouteImport.update({
   path: '/guide',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellSettingsRouteRoute = ShellSettingsRouteRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellApplicantIndexRoute = ShellApplicantIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -110,6 +119,21 @@ const ShellAdminQueueRoute = ShellAdminQueueRouteImport.update({
   id: '/queue',
   path: '/queue',
   getParentRoute: () => ShellAdminRouteRoute,
+} as any)
+const ShellSettingsIndexRoute = ShellSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ShellSettingsRouteRoute,
+} as any)
+const ShellSettingsGeneralRoute = ShellSettingsGeneralRouteImport.update({
+  id: '/general',
+  path: '/general',
+  getParentRoute: () => ShellSettingsRouteRoute,
+} as any)
+const ShellSettingsSecurityRoute = ShellSettingsSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => ShellSettingsRouteRoute,
 } as any)
 const ShellApplicantApplicationsIndexRoute =
   ShellApplicantApplicationsIndexRouteImport.update({
@@ -227,13 +251,17 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/admin': typeof ShellAdminRouteRouteWithChildren
+  '/settings': typeof ShellSettingsRouteRouteWithChildren
   '/guide': typeof ShellGuideRoute
   '/cycles': typeof ShellApplicantCyclesRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
   '/admin/audit': typeof ShellAdminAuditRoute
   '/admin/invite': typeof ShellAdminInviteRoute
   '/admin/queue': typeof ShellAdminQueueRoute
+  '/settings/general': typeof ShellSettingsGeneralRoute
+  '/settings/security': typeof ShellSettingsSecurityRoute
   '/admin/': typeof ShellAdminIndexRoute
+  '/settings/': typeof ShellSettingsIndexRoute
   '/applications/new': typeof ShellApplicantApplicationsNewRoute
   '/enterprises/$id': typeof ShellApplicantEnterprisesIdRoute
   '/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
@@ -265,7 +293,10 @@ export interface FileRoutesByTo {
   '/admin/audit': typeof ShellAdminAuditRoute
   '/admin/invite': typeof ShellAdminInviteRoute
   '/admin/queue': typeof ShellAdminQueueRoute
+  '/settings/general': typeof ShellSettingsGeneralRoute
+  '/settings/security': typeof ShellSettingsSecurityRoute
   '/admin': typeof ShellAdminIndexRoute
+  '/settings': typeof ShellSettingsIndexRoute
   '/applications/new': typeof ShellApplicantApplicationsNewRoute
   '/enterprises/$id': typeof ShellApplicantEnterprisesIdRoute
   '/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
@@ -293,6 +324,7 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/_shell/admin': typeof ShellAdminRouteRouteWithChildren
+  '/_shell/settings': typeof ShellSettingsRouteRouteWithChildren
   '/_shell/_applicant': typeof ShellApplicantRouteWithChildren
   '/_shell/guide': typeof ShellGuideRoute
   '/_shell/_applicant/cycles': typeof ShellApplicantCyclesRoute
@@ -300,8 +332,11 @@ export interface FileRoutesById {
   '/_shell/admin/audit': typeof ShellAdminAuditRoute
   '/_shell/admin/invite': typeof ShellAdminInviteRoute
   '/_shell/admin/queue': typeof ShellAdminQueueRoute
+  '/_shell/settings/general': typeof ShellSettingsGeneralRoute
+  '/_shell/settings/security': typeof ShellSettingsSecurityRoute
   '/_shell/_applicant/': typeof ShellApplicantIndexRoute
   '/_shell/admin/': typeof ShellAdminIndexRoute
+  '/_shell/settings/': typeof ShellSettingsIndexRoute
   '/_shell/_applicant/applications/new': typeof ShellApplicantApplicationsNewRoute
   '/_shell/_applicant/enterprises/$id': typeof ShellApplicantEnterprisesIdRoute
   '/_shell/_applicant/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
@@ -330,13 +365,17 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-up'
     | '/admin'
+    | '/settings'
     | '/guide'
     | '/cycles'
     | '/account/sessions'
     | '/admin/audit'
     | '/admin/invite'
     | '/admin/queue'
+    | '/settings/general'
+    | '/settings/security'
     | '/admin/'
+    | '/settings/'
     | '/applications/new'
     | '/enterprises/$id'
     | '/enterprises/new'
@@ -368,7 +407,10 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/invite'
     | '/admin/queue'
+    | '/settings/general'
+    | '/settings/security'
     | '/admin'
+    | '/settings'
     | '/applications/new'
     | '/enterprises/$id'
     | '/enterprises/new'
@@ -395,6 +437,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-up'
     | '/_shell/admin'
+    | '/_shell/settings'
     | '/_shell/_applicant'
     | '/_shell/guide'
     | '/_shell/_applicant/cycles'
@@ -402,8 +445,11 @@ export interface FileRouteTypes {
     | '/_shell/admin/audit'
     | '/_shell/admin/invite'
     | '/_shell/admin/queue'
+    | '/_shell/settings/general'
+    | '/_shell/settings/security'
     | '/_shell/_applicant/'
     | '/_shell/admin/'
+    | '/_shell/settings/'
     | '/_shell/_applicant/applications/new'
     | '/_shell/_applicant/enterprises/$id'
     | '/_shell/_applicant/enterprises/new'
@@ -483,6 +529,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellGuideRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/settings': {
+      id: '/_shell/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof ShellSettingsRouteRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/_applicant/': {
       id: '/_shell/_applicant/'
       path: '/'
@@ -531,6 +584,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/queue'
       preLoaderRoute: typeof ShellAdminQueueRouteImport
       parentRoute: typeof ShellAdminRouteRoute
+    }
+    '/_shell/settings/': {
+      id: '/_shell/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof ShellSettingsIndexRouteImport
+      parentRoute: typeof ShellSettingsRouteRoute
+    }
+    '/_shell/settings/general': {
+      id: '/_shell/settings/general'
+      path: '/general'
+      fullPath: '/settings/general'
+      preLoaderRoute: typeof ShellSettingsGeneralRouteImport
+      parentRoute: typeof ShellSettingsRouteRoute
+    }
+    '/_shell/settings/security': {
+      id: '/_shell/settings/security'
+      path: '/security'
+      fullPath: '/settings/security'
+      preLoaderRoute: typeof ShellSettingsSecurityRouteImport
+      parentRoute: typeof ShellSettingsRouteRoute
     }
     '/_shell/_applicant/applications/': {
       id: '/_shell/_applicant/applications/'
@@ -702,6 +776,21 @@ const ShellAdminRouteRouteWithChildren = ShellAdminRouteRoute._addFileChildren(
   ShellAdminRouteRouteChildren,
 )
 
+interface ShellSettingsRouteRouteChildren {
+  ShellSettingsGeneralRoute: typeof ShellSettingsGeneralRoute
+  ShellSettingsSecurityRoute: typeof ShellSettingsSecurityRoute
+  ShellSettingsIndexRoute: typeof ShellSettingsIndexRoute
+}
+
+const ShellSettingsRouteRouteChildren: ShellSettingsRouteRouteChildren = {
+  ShellSettingsGeneralRoute: ShellSettingsGeneralRoute,
+  ShellSettingsSecurityRoute: ShellSettingsSecurityRoute,
+  ShellSettingsIndexRoute: ShellSettingsIndexRoute,
+}
+
+const ShellSettingsRouteRouteWithChildren =
+  ShellSettingsRouteRoute._addFileChildren(ShellSettingsRouteRouteChildren)
+
 interface ShellApplicantRouteChildren {
   ShellApplicantCyclesRoute: typeof ShellApplicantCyclesRoute
   ShellApplicantIndexRoute: typeof ShellApplicantIndexRoute
@@ -745,6 +834,7 @@ const ShellApplicantRouteWithChildren = ShellApplicantRoute._addFileChildren(
 
 interface ShellRouteChildren {
   ShellAdminRouteRoute: typeof ShellAdminRouteRouteWithChildren
+  ShellSettingsRouteRoute: typeof ShellSettingsRouteRouteWithChildren
   ShellApplicantRoute: typeof ShellApplicantRouteWithChildren
   ShellGuideRoute: typeof ShellGuideRoute
   ShellAccountSessionsRoute: typeof ShellAccountSessionsRoute
@@ -752,6 +842,7 @@ interface ShellRouteChildren {
 
 const ShellRouteChildren: ShellRouteChildren = {
   ShellAdminRouteRoute: ShellAdminRouteRouteWithChildren,
+  ShellSettingsRouteRoute: ShellSettingsRouteRouteWithChildren,
   ShellApplicantRoute: ShellApplicantRouteWithChildren,
   ShellGuideRoute: ShellGuideRoute,
   ShellAccountSessionsRoute: ShellAccountSessionsRoute,

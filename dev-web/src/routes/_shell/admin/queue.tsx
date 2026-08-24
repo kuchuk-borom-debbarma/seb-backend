@@ -159,7 +159,7 @@ function QueuePage() {
         }
         actions={
           <Link to="/admin" className="button">
-            Back to intake
+            Back to dashboard
           </Link>
         }
       />

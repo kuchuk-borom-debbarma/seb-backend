@@ -159,17 +159,19 @@ rather than hidden:
 
 Built:
 
-- **Authentication** — sign in, sign up with the console code, sign out, and
-  signed-in devices with per-session and bulk revocation.
+- **Authentication and settings** — sign in, sign up with the console code,
+  sign out, read-only account identity at `/settings/general`, and signed-in
+  devices at `/settings/security` with per-session and bulk revocation.
 - **The applicant portal** — enterprises, starting an initial or expansion
   application, the six-section draft form with autosave, the evidence screen,
   the validation report and submission or resubmission, the timeline, the
   funding view, and the cycles an applicant can apply in.
 - **Programme cycle administration** — the list, the dense policy form, and
   every transition the API exposes.
-- **Intake** — the queue console with counts for every named queue, one queue
-  per page with the API's filters and ordering held in the address, reference
-  lookup, and the application workspace: assignment, internal notes, desk
+- **Programme-office dashboard and intake** — the actionable and total queue
+  counts, reference lookup, latest committee meetings, capability-gated quick
+  actions, one queue per page with the API's filters and ordering held in the
+  address, and the application workspace: assignment, internal notes, desk
   review, and withdrawal of a correction request.
 - **Access** — exact-address lookup, the complete role history, and grant and
   revoke with the operator's own password as a step-up.
@@ -203,12 +205,16 @@ other cycle in the suite keeps the ordinary rules.
 
 The client is two portals sharing one institution.
 
-- **`/` — the applicant portal.** Overview, enterprises, applications and the
-  cycles you can apply in. Needs the `APPLICANT` role.
-- **`/admin` — the programme office.** Intake, committee meetings, cycle
-  administration, and role management at `/admin/access`. Needs `ADMIN` or
-  `SUPER_ADMIN`; the access screen needs `SUPER_ADMIN` specifically.
-- **Shared** — `/guide` and `/account/sessions`, reachable from either.
+- **`/` — the applicant portal.** Dashboard, applications, enterprises, and
+  the cycles available to the applicant. Needs the `APPLICANT` role.
+- **`/admin` — the programme office.** Dashboard, applications and committee
+  meetings for every account with `STAFF_READ`, followed by administration
+  links gated independently by `STAFF_WRITE`, `ROLE_INVITE`, `ROLE_ADMIN`, and
+  `AUDIT_READ`.
+- **Shared** — How this works at `/guide` and Settings at
+  `/settings/general` and `/settings/security`, reachable from either usable
+  portal. `/settings` redirects to General, and the old `/account/sessions`
+  address redirects to Security so bookmarks continue to work.
 
 Signing in lands each account in the portal its roles fit, so an officer with no
 applicant grant never has to read a refusal after every sign-in. Opening a
@@ -220,12 +226,38 @@ The navigation beside a refusal is the one that *works*. If an applicant opens
 `/admin`, the sidebar shows the applicant portal — listing four office links
 that would every one of them refuse is exactly what this interface does not do.
 
-**Two densities, one system.** The palette, the three faces and every component
-are shared. Four custom properties differ, set by `data-portal` on the shell:
+**Two densities, one system.** Locally bundled Inter Variable, Lucide's
+16-pixel line icons, the neutral palette and every component are shared. Four
+custom properties differ, set by `data-portal` on the shell:
 `--page-measure`, `--body-size`, `--card-padding` and `--title-size`. An
 applicant applying once in their life gets room; an officer working forty
 applications a day gets density. Note that the shell — not `body` — reads
 `--body-size`, because custom properties inherit downwards only.
+
+The shell follows the interaction pattern of the
+[OpenAI Platform project navigation][platform-projects] without using OpenAI
+branding or assets: a 260-pixel desktop sidebar can collapse to an icon rail,
+and only that presentation preference is stored. The Mission SEP portal label
+acts as a switcher only for an account that can use both portals; for a
+single-portal account it is static. The account button opens email, roles,
+Settings, an available portal switch, and Sign out.
+
+### Dashboards
+
+The applicant Dashboard composes one operation from existing API fields. It
+shows linked totals for applications and enterprises, the currently available
+cycle count, the nearest closing time, and requested revisions before saved
+drafts. The main action is chosen from live state: register an enterprise,
+start an application, continue a draft, review requested changes, or view the
+application list. Empty enterprise, application and open-cycle states are
+stated explicitly.
+
+The programme-office Dashboard retains the intake queue and reference lookup,
+adds an actionable total and a total across the named queues, and links every
+count to the matching filtered list. It reads the five latest scheduled
+committee meetings from the existing connection. Quick actions are shown only
+when the signed-in user's published capabilities allow them; it invents no
+reporting totals or charts.
 
 **The gates are not the security boundary.** They decide what is *offered*.
 Every operation is still refused server-side by `currentApplicant` or by
@@ -252,7 +284,8 @@ room they do not have the key to.
 The client is a demonstration as well as a client, so it leads people through
 itself.
 
-**How this works** (`/guide`) is the first entry in the navigation. It opens
+**How this works** (`/guide`) is kept with the shared utilities after the
+portal's operational and administrative navigation. It opens
 with the route a file takes: all eleven states, each placed under the desk that
 holds it — applicant, programme office, partner bank, committee — numbered in
 the order they happen. The office's description of each stop is this screen's
@@ -372,10 +405,11 @@ Held by tests rather than asserted in a document:
   registered brackets nothing, the rail polls for thirty frames and silently
   scrolls to the top instead, and the failure survives review. One step was in
   that state until the check was written.
-- **Narrow screens.** Below 60rem the sidebar becomes a bar across the top. The
-  bar takes its own content height, wide content scrolls inside its own
-  container, and the page body never scrolls sideways — all three are asserted
-  at 360px.
+- **Narrow screens.** Below 60rem a compact top bar opens the sidebar as a
+  modal drawer. Escape and the backdrop dismiss it, focus stays inside while
+  it is open and returns to the trigger afterwards, background scrolling is
+  blocked, and the page body never scrolls sideways. The behavior is asserted
+  at 360px and 390px.
 - **Keyboard.** Every control is reachable by Tab and lands with a visible focus
   ring; nothing traps focus.
 - **Reduced motion.** The stylesheet neutralizes animation and smooth scrolling,
@@ -429,3 +463,4 @@ side.
 [bootstrap]: ../docs/first-super-admin-bootstrap.md
 [office]: ../docs/admin-workflow-guide.md
 [applicant]: ../docs/application-guide.md
+[platform-projects]: https://help.openai.com/en/articles/9186755-managing-your-work-in-the-api-platform-with-projects

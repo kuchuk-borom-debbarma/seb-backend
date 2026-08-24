@@ -28,16 +28,26 @@ test.describe('the intake console', () => {
 
   test('leads with the queues waiting on the programme office', async ({ page }) => {
     await page.goto('/admin')
+    const waitingOnUs = page.locator('section').filter({
+      has: page.getByRole('heading', { name: 'Waiting on us' }),
+    })
+    const allQueues = page.locator('section').filter({
+      has: page.getByRole('heading', { name: 'All queues' }),
+    })
 
     // The three that need somebody here, as cards.
     for (const queue of ['New submissions', 'Revision responses', 'Desk review']) {
-      await expect(page.getByRole('link', { name: new RegExp(queue, 'u') })).toBeVisible()
+      await expect(
+        waitingOnUs.getByRole('link', { name: new RegExp(queue, 'u') }),
+      ).toBeVisible()
     }
 
     // The rest are listed with counts but not given the same weight.
-    await expect(page.getByRole('row').filter({ hasText: 'With the bank' })).toBeVisible()
     await expect(
-      page.getByRole('row').filter({ hasText: 'For the committee' }),
+      allQueues.getByRole('row').filter({ hasText: 'With the bank' }),
+    ).toBeVisible()
+    await expect(
+      allQueues.getByRole('row').filter({ hasText: 'For the committee' }),
     ).toBeVisible()
   })
 
@@ -46,14 +56,22 @@ test.describe('the intake console', () => {
 
     // A chip that vanished at zero would move everything beside it, and staff
     // learn where their queue sits.
-    const newSubmissions = page.getByRole('link', { name: /New submissions/u })
+    const allQueues = page.locator('section').filter({
+      has: page.getByRole('heading', { name: 'All queues' }),
+    })
+    const newSubmissions = allQueues
+      .getByRole('row')
+      .filter({ has: page.getByRole('link', { name: 'New submissions', exact: true }) })
     await expect(newSubmissions).toBeVisible()
-    await expect(newSubmissions).toContainText(/\d/u)
+    await expect(newSubmissions.getByRole('cell').last()).toHaveText(/^\d+$/u)
   })
 
   test('opens a queue and keeps the filters in the address', async ({ page }) => {
     await page.goto('/admin')
-    await page.getByRole('link', { name: /New submissions/u }).click()
+    const waitingOnUs = page.locator('section').filter({
+      has: page.getByRole('heading', { name: 'Waiting on us' }),
+    })
+    await waitingOnUs.getByRole('link', { name: /New submissions/u }).click()
     await expect(page).toHaveURL(/\/admin\/queue\?queue=NEW_SUBMISSIONS/u)
 
     await page.getByLabel('Type').selectOption('EXPANSION')
@@ -104,8 +122,8 @@ test.describe('the intake console', () => {
     await signUpApplicant(page, email)
     await signIn(page, email)
 
-    await expect(page.getByRole('link', { name: 'Intake' })).toHaveCount(0)
-    await expect(page.getByRole('link', { name: 'Access' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Dashboard' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Users & access' })).toHaveCount(0)
   })
 })
 

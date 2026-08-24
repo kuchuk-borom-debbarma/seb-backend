@@ -18,6 +18,17 @@ const registerEnterprise = async (page: Page, name: string) => {
 test.describe('applications', () => {
   test('says what to do first when there is nothing yet', async ({ page }) => {
     await asNewApplicant(page)
+    await page.goto('/')
+    await expect(page.getByText('No enterprises yet')).toBeVisible()
+    await expect(page.getByText('No applications yet')).toBeVisible()
+    await expect(page.getByText('No open programme cycles')).toBeVisible()
+    await expect(
+      page
+        .getByRole('main')
+        .getByRole('link', { name: 'Register an enterprise' })
+        .first(),
+    ).toBeVisible()
+
     await page.goto('/applications')
     await expect(page.getByText('Nothing here yet')).toBeVisible()
   })

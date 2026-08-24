@@ -1,241 +1,509 @@
 .shell {
-  /*
-   * The shell sets its own measure. `--body-size` is declared on this element
-   * by `data-portal`, and custom properties inherit downwards only — so reading
-   * it on `body`, which is an ancestor, would always have given the default.
-   * Sign-in and sign-up sit outside the shell and keep that default.
-   */
-  font-size: var(--body-size);
+  --shell-sidebar: 260px;
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-columns: var(--shell-sidebar) minmax(0, 1fr);
   min-height: 100dvh;
+  background: var(--surface);
+  font-size: var(--body-size);
+  transition: grid-template-columns 160ms ease;
 }
 
-/* A running tour takes a column of its own rather than covering the page. The
-   page narrows; it does not disappear. */
+.shell[data-collapsed='true'] {
+  --shell-sidebar: 68px;
+}
+
 @media (min-width: 78rem) {
   .shell[data-guided] {
-    grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 22rem;
-  }
-}
-
-/* Below that there is no room for a third column, so the guide docks along the
-   bottom and the two rows stack. */
-@media (max-width: 78rem) {
-  .shell[data-guided] {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: var(--shell-sidebar) minmax(0, 1fr) 22rem;
   }
 }
 
 .sidebar {
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  border-right: 1px solid var(--hairline);
-  padding: var(--space-5) var(--space-3) var(--space-3);
   position: sticky;
   top: 0;
-  height: 100dvh;
-}
-
-/* A line under the name saying which portal this is, and for the applicant what
-   the programme is for. Two words of orientation cost nothing and answer the
-   first question somebody has. */
-.brandNote {
-  display: block;
-  margin-top: var(--space-1);
-  font-size: 0.75rem;
-  line-height: 1.35;
-  color: var(--ink-faint);
-}
-
-/* The way across for an account holding both kinds of role. Set apart from the
-   sections above it, because it leaves this portal rather than moving within
-   it. */
-.switch {
-  display: block;
-  margin: var(--space-3) 0 0;
-  padding: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--hairline);
-  font-size: 0.8125rem;
-  color: var(--green);
-  text-decoration: none;
-}
-
-.switch:hover {
-  background: var(--surface-sunken);
-}
-
-.brand {
+  z-index: 40;
   display: flex;
   flex-direction: column;
-  padding: 0 var(--space-3) var(--space-5);
+  min-width: 0;
+  height: 100dvh;
+  padding: 10px;
+  overflow: visible;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar);
 }
 
-.brandName {
-  font-family: var(--font-display);
-  font-size: 1.125rem;
+.sidebarTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.portalSelector,
+.portalLabel {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+}
+
+.portalLabel {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+}
+
+.portalSelector summary {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  list-style: none;
+  cursor: default;
+}
+
+.portalSelector summary::-webkit-details-marker {
+  display: none;
+}
+
+.portalSelector summary:hover {
+  background: var(--sidebar-hover);
+}
+
+.brandMark,
+.mobileMark {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--brand);
+  color: white;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.brandText,
+.accountText {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.brandText strong,
+.accountText strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1.2;
-  margin-top: 2px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brandText small,
+.accountText small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+
+.selectorChevron {
+  color: var(--text-muted);
+}
+
+.portalMenu,
+.accountPopover {
+  position: absolute;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-popover);
+}
+
+.portalMenu {
+  top: calc(100% + 4px);
+  left: 0;
+}
+
+.portalMenu p {
+  padding: 6px 8px 4px;
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 .groups {
-  flex: 1;
-  overflow-y: auto;
   display: flex;
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: 22px;
+  padding: 16px 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .group {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .groupTitle {
-  font-size: 0.6875rem;
+  padding: 0 10px 6px;
+  color: var(--text-subtle);
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  padding: 0 var(--space-3) var(--space-2);
+  letter-spacing: 0;
 }
 
 .navLink {
-  display: block;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  color: var(--ink);
-  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
+}
+
+.navLink svg,
+.menuItem svg,
+.iconButton svg,
+.mobileClose svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  stroke-width: 1.6;
 }
 
 .navLink:hover {
-  background: var(--surface-sunken);
+  background: var(--sidebar-hover);
+  color: var(--text);
 }
 
-/* The active marker is a solid left rule, not a filled pill: it reads as a
-   register entry rather than a product tab. */
 .navLinkActive {
-  background: var(--green-tint);
-  color: var(--green);
-  font-weight: 600;
-  box-shadow: inset 2px 0 0 var(--green);
-}
-
-.account {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
-  padding: var(--space-3);
-  border-top: 1px solid var(--hairline);
-}
-
-.accountText {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.accountEmail {
-  font-size: 0.8125rem;
+  background: var(--sidebar-active);
+  color: var(--text);
   font-weight: 500;
+}
+
+.navLinkActive svg {
+  color: var(--brand);
+}
+
+.navLabel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.accountRoles {
-  font-size: 0.6875rem;
-  color: var(--ink-faint);
-  text-transform: capitalize;
+.utilities {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
 }
 
-.signOut {
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+.collapse {
+  margin-top: 2px;
+}
+
+.account {
+  position: relative;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.accountButton {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 46px;
+  gap: 9px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
   background: transparent;
-  color: var(--ink-muted);
+  color: var(--text);
+  text-align: left;
   cursor: pointer;
 }
 
-.signOut:hover:not(:disabled) {
-  background: var(--surface-sunken);
-  color: var(--ink);
+.accountButton:hover {
+  background: var(--sidebar-hover);
+}
+
+.avatar {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.accountChevron {
+  color: var(--text-subtle);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.accountPopover {
+  right: 0;
+  bottom: calc(100% + 7px);
+}
+
+.accountSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 9px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 4px;
+}
+
+.accountSummary strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.accountSummary span {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  gap: 9px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: var(--sidebar-hover);
 }
 
 .main {
   min-width: 0;
+  background: var(--surface);
 }
 
-/* Below the sidebar breakpoint the navigation becomes a scrolling strip above
-   the content rather than disappearing behind a menu the demo cannot open. */
-/* Below this the sidebar becomes a bar across the top: a column of navigation
-   is most of a phone screen, and the register itself is what people came for. */
+.mobileHeader,
+.mobileClose,
+.backdrop {
+  display: none;
+}
+
+.shell[data-collapsed='true'] .brandText,
+.shell[data-collapsed='true'] .selectorChevron,
+.shell[data-collapsed='true'] .groupTitle,
+.shell[data-collapsed='true'] .navLabel,
+.shell[data-collapsed='true'] .accountText,
+.shell[data-collapsed='true'] .accountChevron {
+  display: none;
+}
+
+.shell[data-collapsed='true'] .portalSelector summary,
+.shell[data-collapsed='true'] .portalLabel,
+.shell[data-collapsed='true'] .navLink,
+.shell[data-collapsed='true'] .accountButton {
+  justify-content: center;
+  padding-right: 7px;
+  padding-left: 7px;
+}
+
+.shell[data-collapsed='true'] .accountPopover,
+.shell[data-collapsed='true'] .portalMenu {
+  right: auto;
+  bottom: 0;
+  left: calc(100% + 8px);
+}
+
+@media (max-width: 78rem) {
+  .shell[data-guided] {
+    grid-template-columns: var(--shell-sidebar) minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 60rem) {
-  .shell {
+  .shell,
+  .shell[data-collapsed='true'],
+  .shell[data-guided] {
+    display: grid;
     grid-template-columns: minmax(0, 1fr);
-    /*
-     * The bar takes exactly its content height and the page takes the rest.
-     * Without this the grid's free space is shared between the two rows — the
-     * shell is at least a viewport tall — and the navigation grew a hundred
-     * empty pixels below itself.
-     */
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: 54px minmax(0, 1fr);
   }
 
-  .sidebar {
-    position: static;
-    height: auto;
-    border-right: none;
-    border-bottom: 1px solid var(--hairline);
-    padding: var(--space-3);
-    gap: var(--space-2);
-  }
-
-  .groups {
-    /* No longer the column that grows: it is one line of links. */
-    flex: none;
-    flex-direction: row;
+  .mobileHeader {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    grid-row: 1;
     align-items: center;
-    gap: var(--space-3);
-    overflow-x: auto;
-    overflow-y: visible;
-    padding-bottom: var(--space-1);
-    scrollbar-width: thin;
+    min-width: 0;
+    gap: 9px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    background: rgb(255 255 255 / 94%);
+    backdrop-filter: blur(12px);
   }
 
-  .group {
-    flex-direction: row;
-    gap: var(--space-1);
+  .iconButton,
+  .mobileClose {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
   }
 
-  /* The section headings are the one thing that does not survive the fold.
-     Their links stay in the same order, which is what people navigate by. */
-  .groupTitle {
-    display: none;
+  .iconButton:hover,
+  .mobileClose:hover {
+    background: var(--sidebar-hover);
   }
 
-  .navLink {
+  .mobileMark {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    font-size: 12px;
+  }
+
+  .mobileTitle {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .mobilePortal {
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  /* A left rule reads as a list marker; in a row it has to sit under the
-     word it marks. */
-  .navLinkActive {
-    box-shadow: inset 0 -2px 0 var(--green);
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(290px, calc(100vw - 52px));
+    height: 100dvh;
+    transform: translateX(-102%);
+    visibility: hidden;
+    pointer-events: none;
+    box-shadow: var(--shadow-popover);
+    transition: transform 180ms ease;
   }
 
-  .account {
-    margin-top: 0;
-    padding: var(--space-2) var(--space-3);
+  .sidebar[data-open='true'] {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .mobileClose {
+    margin-left: auto;
+  }
+
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    display: block;
+    border: 0;
+    background: rgb(0 0 0 / 32%);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+  }
+
+  .backdrop[data-open='true'] {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .main {
+    grid-row: 2;
+  }
+
+  .collapse {
+    display: none;
+  }
+
+  .shell[data-collapsed='true'] .brandText,
+  .shell[data-collapsed='true'] .selectorChevron,
+  .shell[data-collapsed='true'] .groupTitle,
+  .shell[data-collapsed='true'] .navLabel,
+  .shell[data-collapsed='true'] .accountText,
+  .shell[data-collapsed='true'] .accountChevron {
+    display: initial;
+  }
+
+  .shell[data-collapsed='true'] .portalSelector summary,
+  .shell[data-collapsed='true'] .portalLabel,
+  .shell[data-collapsed='true'] .navLink,
+  .shell[data-collapsed='true'] .accountButton {
+    justify-content: flex-start;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell,
+  .sidebar,
+  .backdrop {
+    transition: none;
   }
 }

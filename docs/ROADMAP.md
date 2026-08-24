@@ -560,6 +560,19 @@ with no recovery path.
   would each refuse in turn.
 - [x] Keep one design system at two densities — an applicant applies once in a
   lifetime and needs room; an officer works all day and needs density.
+- [x] Give applicants a live Dashboard with linked application, enterprise,
+  and open-cycle totals; show requested revisions before drafts; name the next
+  action from the status guide; surface the nearest closing time; and choose a
+  primary action from the account's actual state.
+- [x] Give programme staff a live Dashboard with actionable and total intake
+  counts, direct filtered-queue links, reference lookup, the five latest
+  committee meetings, and quick actions gated by published capabilities.
+- [x] Consolidate account details and signed-in devices under General and
+  Security settings, while keeping `/settings` and the former sessions address
+  as working redirects and offering no unsupported account controls.
+- [x] Keep role-aware operational, administrative, guide, and settings
+  navigation in a collapsible desktop sidebar and an accessible small-screen
+  drawer, with nested routes marking their owning section.
 - [x] Keep the gates advisory: every operation is still refused server-side, so
   the client is never the security boundary.
 

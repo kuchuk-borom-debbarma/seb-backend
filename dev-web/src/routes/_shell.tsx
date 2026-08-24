@@ -6,13 +6,23 @@ import {
   useLocation,
 } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
-import { PortalNav, navPortalFor, portalFor } from '#/features/portal/PortalShell'
+import {
+  MobileHeader,
+  NavigationBackdrop,
+  PlatformNavigation,
+  canUsePortal,
+  navPortalFor,
+  portalFor,
+  type Portal,
+  usePlatformNavigation,
+} from '#/features/portal/PortalShell'
 import { GuideProvider, useGuide } from '#/features/guide/GuideContext'
 import { FirstVisit } from '#/features/guide/FirstVisit'
 import { TourRail } from '#/features/guide/TourRail'
 import { messageFor } from '#/lib/result'
 import { ensureSession, type SignedInUser } from '#/lib/session'
 import styles from '#/features/portal/PortalShell.module.css'
+import { useEffect, useState } from 'react'
 
 /**
  * The signed-in shell.
@@ -80,23 +90,50 @@ function ShellFrame({
   search: string
 }) {
   const { tour } = useGuide()
+  const navigation = usePlatformNavigation()
   /*
    * Capability decides the portal, not just the address. They differ only when
    * somebody has opened a portal they cannot use — and then the whole shell,
    * masthead and measure alike, is the one they belong to. The refusal on the
    * page says where they are; the chrome around it stays somewhere real.
    */
-  const portal = navPortalFor(portalFor(pathname), user)
+  const addressedPortal = navPortalFor(portalFor(pathname), user)
+  const sharedRoute =
+    pathname === '/guide' ||
+    pathname.startsWith('/settings') ||
+    pathname.startsWith('/account/')
+  const [lastPortal, setLastPortal] = useState<Portal>(addressedPortal)
+
+  useEffect(() => {
+    if (!sharedRoute) setLastPortal(addressedPortal)
+  }, [addressedPortal, sharedRoute])
+
+  const portal =
+    sharedRoute && canUsePortal(lastPortal, user) ? lastPortal : addressedPortal
 
   return (
     <div
       className={styles.shell}
       data-guided={tour ? 'true' : undefined}
+      data-collapsed={navigation.collapsed ? 'true' : undefined}
       /* Read by the stylesheet for measure, and by the tests to prove the two
          portals really are set differently. */
       data-portal={portal}
     >
-      <PortalNav portal={portal} user={user} />
+      <MobileHeader
+        portal={portal}
+        onOpen={navigation.openNavigation}
+        triggerRef={navigation.triggerRef}
+      />
+      <PlatformNavigation
+        portal={portal}
+        user={user}
+        open={navigation.open}
+        onClose={navigation.closeNavigation}
+        collapsed={navigation.collapsed}
+        onToggleCollapsed={navigation.toggleCollapsed}
+      />
+      <NavigationBackdrop open={navigation.open} onClose={navigation.closeNavigation} />
       <div className={styles.main}>
         <FirstVisit portal={portal} />
         {/*

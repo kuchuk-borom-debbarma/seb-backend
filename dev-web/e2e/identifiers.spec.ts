@@ -24,7 +24,8 @@ const IDENTIFIER_ROW = {
 
 /** Sets one rule's requirement on the cycle form. */
 const setRequirement = async (page: Page, row: number, value: string) => {
-  await page.locator(`select[aria-label="Demanded, for identifier ${row}"]`)
+  await page
+    .locator(`select[aria-label="Demanded, for identifier ${row}"]`)
     .selectOption(value)
 }
 
@@ -187,10 +188,7 @@ test.describe('what one cycle asks for', () => {
     // indistinguishable from one somebody forgot to configure — so it says so
     // rather than rendering an empty space.
     for (let index = 0; index < 4; index += 1) {
-      await page
-        .getByRole('button', { name: 'Remove' })
-        .last()
-        .click()
+      await page.getByRole('button', { name: 'Remove' }).last().click()
     }
     await expect(page.getByText('This cycle asks for no numbers')).toBeVisible()
   })
@@ -203,9 +201,7 @@ test.describe('what one cycle asks for', () => {
     // of four identical-looking selects is unusable without sight of the
     // layout, and the rows are otherwise indistinguishable.
     for (const row of Object.values(IDENTIFIER_ROW)) {
-      await expect(
-        page.locator(`select[aria-label="Identifier ${row}"]`),
-      ).toBeVisible()
+      await expect(page.locator(`select[aria-label="Identifier ${row}"]`)).toBeVisible()
       await expect(
         page.locator(`select[aria-label="Demanded, for identifier ${row}"]`),
       ).toBeVisible()

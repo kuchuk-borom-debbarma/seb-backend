@@ -87,7 +87,8 @@ export const signIn = async (
 }
 
 export const signOut = async (page: Page): Promise<void> => {
-  await page.getByRole('button', { name: 'Sign out' }).click()
+  await page.getByRole('button', { name: 'Account menu' }).click()
+  await page.getByRole('menuitem', { name: 'Sign out' }).click()
   await page.waitForURL('**/sign-in')
 }
 
@@ -117,7 +118,7 @@ export const bootstrapSuperAdmin = async (): Promise<void> => {
  * assert which sections exist rather than how they are styled.
  */
 export const navigationSections = async (page: Page): Promise<string[]> => {
-  const headings = page.locator('nav[aria-label="Portal sections"] p')
+  const headings = page.locator('nav[aria-label="Portal sections"] section > p')
   /*
    * Wait for the first heading rather than sampling. `toHaveURL` passes the
    * moment the address changes, which can be before the shell has rendered —
@@ -225,7 +226,9 @@ export const submitApplication = async (
 ): Promise<{ email: string; id: string }> => {
   await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
   const cycleCode = await openCycleWithoutDocuments(
-    page, prefix.toUpperCase(), configureIdentifiers,
+    page,
+    prefix.toUpperCase(),
+    configureIdentifiers,
   )
   await page.context().clearCookies()
 

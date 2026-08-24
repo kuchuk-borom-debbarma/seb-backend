@@ -74,8 +74,12 @@ test.describe('being invited into the office', () => {
      * governs nothing. Casework is theirs to read.
      */
     const sections = await navigationSections(page)
-    expect(sections).toContain('casework')
+    expect(sections).toContain('workspace')
     expect(sections).not.toContain('administration')
+    await expect(page.getByRole('link', { name: 'Schedule a meeting' })).toHaveCount(0)
+    await expect(
+      page.getByRole('link', { name: 'Create a programme cycle' }),
+    ).toHaveCount(0)
 
     /*
      * And a screen they cannot reach says which one it is and who holds it —
@@ -86,15 +90,16 @@ test.describe('being invited into the office', () => {
     await expect(
       page.getByText('This screen is open to super administrators.'),
     ).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Back to intake' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Back to dashboard' })).toBeVisible()
   })
 
   test('an approver sees casework and still governs nothing', async ({ page }) => {
     await inviteSomebodyTo(page, 'Approver')
     await page.goto('/admin')
     const sections = await navigationSections(page)
-    expect(sections).toContain('casework')
+    expect(sections).toContain('workspace')
     expect(sections).not.toContain('administration')
+    await expect(page.getByRole('link', { name: 'Schedule a meeting' })).toHaveCount(0)
   })
 })
 
@@ -120,8 +125,11 @@ test.describe('the super administrator', () => {
     await page.goto('/admin')
     const sections = await navigationSections(page)
     expect(sections).toContain('administration')
-    await expect(page.getByRole('link', { name: 'Activity history' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Invite a colleague' })).toBeVisible()
+    const navigation = page.getByRole('navigation', { name: 'Portal sections' })
+    await expect(navigation.getByRole('link', { name: 'Activity history' })).toBeVisible()
+    await expect(
+      navigation.getByRole('link', { name: 'Invite a colleague' }),
+    ).toBeVisible()
   })
 })
 

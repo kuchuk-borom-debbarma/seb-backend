@@ -1,40 +1,36 @@
-/*
- * Council register — the design foundation for the Mission SEP portal.
- *
- * The subject is a seed-funding programme for first-generation Scheduled Tribe
- * entrepreneurs in Tripura's autonomous district areas. Applicants may fill this
- * in once in their lives; programme officers live in it daily. The portal's job
- * is to answer "where is my application, and who must act next?", so the type is
- * documentary rather than promotional and the one loud element is the status
- * rail.
- *
- * Only tokens, reset and shared primitives live here. Anything specific to one
- * screen belongs in a co-located CSS module.
- */
+/* Mission SEP's platform design system. */
 
-@import '@fontsource-variable/source-serif-4';
-@import '@fontsource-variable/public-sans';
-@import '@fontsource/ibm-plex-mono/400.css';
-@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource-variable/inter';
 
 :root {
-  /* Surfaces. Paper carries a green-grey cast so white cards lift off it. */
-  --paper: #eef0ea;
+  --sidebar: #f7f7f8;
+  --sidebar-hover: #ececee;
+  --sidebar-active: #e7e7e9;
+  --paper: #ffffff;
   --surface: #ffffff;
-  --surface-sunken: #f6f7f3;
+  --surface-sunken: #f7f7f8;
 
-  /* Text. Ink is near-black with a green cast rather than pure grey. */
-  --ink: #1a1f1b;
-  --ink-muted: #5f6b60;
-  --ink-faint: #8a9389;
+  --text: #202123;
+  --text-secondary: #353740;
+  --text-muted: #6e6e80;
+  --text-subtle: #8e8ea0;
+  --ink: var(--text);
+  --ink-muted: var(--text-muted);
+  --ink-faint: var(--text-subtle);
 
-  --hairline: #d8dcd5;
-  --hairline-strong: #c2c8bd;
+  --border: #dedee3;
+  --border-soft: #e9e9ed;
+  --border-strong: #c5c5d2;
+  --hairline: var(--border);
+  --hairline-strong: var(--border-strong);
 
   /* The institutional accent: deep and muted, not a bright product green. */
-  --green: #2f5d45;
-  --green-hover: #244835;
-  --green-tint: #e4ede6;
+  --brand: #2f6f54;
+  --brand-hover: #255c45;
+  --brand-tint: #e7f1eb;
+  --green: var(--brand);
+  --green-hover: var(--brand-hover);
+  --green-tint: var(--brand-tint);
 
   /* Clay marks work the reader must do something about. */
   --clay: #8a5a16;
@@ -57,9 +53,9 @@
   --card-padding: var(--space-5);
   --title-size: 1.75rem;
 
-  --font-display: 'Source Serif 4 Variable', Georgia, serif;
-  --font-body: 'Public Sans Variable', system-ui, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-display: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
 
   /* A 4px base keeps dense administrative tables aligned to the same grid as
      the roomier applicant screens. */
@@ -71,13 +67,14 @@
   --space-6: 2rem;
   --space-7: 3rem;
 
-  --radius: 10px;
+  --radius: 8px;
   --radius-sm: 6px;
 
-  --shadow-card: 0 1px 2px rgb(26 31 27 / 4%);
-  --shadow-raised: 0 4px 16px rgb(26 31 27 / 10%);
+  --shadow-card: none;
+  --shadow-raised: 0 8px 30px rgb(0 0 0 / 10%);
+  --shadow-popover: 0 10px 34px rgb(0 0 0 / 14%);
 
-  --sidebar-width: 15rem;
+  --sidebar-width: 260px;
 }
 
 *,
@@ -96,8 +93,12 @@ body {
   color: var(--ink);
   font-family: var(--font-body);
   font-size: var(--body-size);
-  line-height: 1.55;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+body[data-navigation-open='true'] {
+  overflow: hidden;
 }
 
 h1,
@@ -105,7 +106,7 @@ h2,
 h3 {
   font-family: var(--font-display);
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.25;
   margin: 0;
   letter-spacing: -0.01em;
 }
@@ -238,14 +239,14 @@ th.numeric {
 }
 
 .button[data-variant='primary'] {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--text);
+  border-color: var(--text);
   color: #fff;
 }
 
 .button[data-variant='primary']:hover:not(:disabled) {
-  background: var(--green-hover);
-  border-color: var(--green-hover);
+  background: #000;
+  border-color: #000;
 }
 
 .button[data-variant='danger'] {
@@ -307,7 +308,6 @@ th.numeric {
 /* A notice states something true about the page it is on. */
 .notice {
   border: 1px solid var(--hairline);
-  border-left-width: 3px;
   border-radius: var(--radius-sm);
   padding: var(--space-4);
   background: var(--surface);
@@ -430,8 +430,8 @@ th.numeric {
   text-align: left;
   font-size: 0.6875rem;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--ink-faint);
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--hairline);
@@ -446,6 +446,10 @@ th.numeric {
 
 .table tbody tr:last-child td {
   border-bottom: none;
+}
+
+.table tbody tr:hover td {
+  background: #fafafa;
 }
 
 .table-wrap {
@@ -488,8 +492,10 @@ th.numeric {
 /* ---- Page scaffolding -------------------------------------------------- */
 
 .page {
-  padding: var(--space-6);
+  width: 100%;
+  padding: 32px 36px 48px;
   max-width: var(--page-measure);
+  margin: 0 auto;
 }
 
 .page-header {
@@ -497,12 +503,12 @@ th.numeric {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-4);
-  margin-bottom: var(--space-5);
+  margin-bottom: 28px;
   flex-wrap: wrap;
 }
 
 .page-header-description {
-  margin-top: var(--space-1);
+  margin-top: 6px;
   font-size: 0.875rem;
   max-width: 46rem;
 }
@@ -517,7 +523,7 @@ th.numeric {
 
 @media (max-width: 40rem) {
   .page {
-    padding: var(--space-4);
+    padding: 22px 16px 36px;
   }
 }
 
@@ -667,7 +673,7 @@ th.numeric {
 
 .queue-card {
   display: block;
-  padding: var(--space-5);
+  padding: 18px;
   background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
@@ -677,13 +683,14 @@ th.numeric {
 }
 
 .queue-card:hover {
-  border-color: var(--green);
+  border-color: var(--border-strong);
+  background: #fcfcfc;
 }
 
 .queue-count {
   display: block;
   font-family: var(--font-display);
-  font-size: 2.5rem;
+  font-size: 2rem;
   line-height: 1.1;
   color: var(--green);
 }
@@ -939,10 +946,10 @@ th.numeric {
  * components.
  */
 [data-portal='applicant'] {
-  --page-measure: 58rem;
-  --body-size: 1rem;
+  --page-measure: 72rem;
+  --body-size: 0.9375rem;
   --card-padding: var(--space-6);
-  --title-size: 2rem;
+  --title-size: 1.75rem;
 }
 
 [data-portal='office'] {

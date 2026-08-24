@@ -61,7 +61,7 @@ test.describe('signing in', () => {
     // The bootstrap revoked this account's applicant grant, so the applicant
     // portal would only refuse it. Sign-in sends it to the office instead.
     await expect(page).toHaveURL(/\/admin$/u)
-    await expect(page.getByRole('heading', { name: 'Intake' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
   })
 
   test('returns to the page that was originally asked for', async ({ page }) => {
@@ -72,7 +72,7 @@ test.describe('signing in', () => {
     await page.getByLabel('Password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()
 
-    await expect(page).toHaveURL(/\/account\/sessions$/u)
+    await expect(page).toHaveURL(/\/settings\/security$/u)
   })
 
   test('sends an already signed-in person straight past the form', async ({ page }) => {
@@ -106,7 +106,7 @@ test.describe('creating an account', () => {
     await signIn(page, email)
     await expect(page).toHaveURL(/localhost:\d+\/$/u)
     await expect(page.getByText(email).first()).toBeVisible()
-    expect(await navigationSections(page)).toContain('your applications')
+    expect(await navigationSections(page)).toContain('workspace')
   })
 
   test('refuses a code that is not the one that was sent', async ({ page }) => {

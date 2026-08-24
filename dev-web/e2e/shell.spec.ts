@@ -17,7 +17,7 @@ test.describe('the signed-in shell', () => {
      * applicant sections are offered.
      */
     await expect(sidebar.getByText('Programme office', { exact: true })).toBeVisible()
-    await expect(sidebar.getByRole('link', { name: 'Intake' })).toBeVisible()
+    await expect(sidebar.getByRole('link', { name: 'Dashboard' })).toBeVisible()
     await expect(sidebar.getByRole('link', { name: 'Enterprises' })).toHaveCount(0)
     await expect(sidebar.getByRole('link', { name: 'Applicant portal' })).toHaveCount(0)
   })
@@ -29,9 +29,10 @@ test.describe('the signed-in shell', () => {
     await signUpApplicant(page, email)
     await signIn(page, email)
 
-    await expect(page.getByText('Applicant', { exact: true })).toBeVisible()
-    await expect(page.getByText('Programme officer')).toBeHidden()
-    await expect(page.getByText('Super administrator')).toBeHidden()
+    const sidebar = page.getByRole('navigation', { name: 'Portal sections' })
+    await expect(sidebar.getByText('Applicant', { exact: true })).toBeVisible()
+    await expect(sidebar.getByText('Programme officer')).toBeHidden()
+    await expect(sidebar.getByText('Super administrator')).toBeHidden()
   })
 
   /**
@@ -69,8 +70,8 @@ test.describe('the signed-in shell', () => {
     await signIn(page, SUPER_ADMIN_EMAIL)
     await page.goto('/account/sessions')
 
-    const current = page.getByRole('link', { name: 'Signed-in devices' })
-    await expect(current).toHaveAttribute('data-status', 'active')
+    const current = page.getByRole('link', { name: 'Settings' })
+    await expect(current).toHaveAttribute('aria-current', 'page')
   })
 
   test('an unknown address shows the not-found page rather than an error', async ({
@@ -125,21 +126,22 @@ test.describe('signed-in devices', () => {
 test.describe('on a narrow screen', () => {
   test.use({ viewport: { width: 360, height: 900 } })
 
-  test('the navigation becomes a bar and the page never scrolls sideways', async ({
+  test('the navigation becomes a drawer and the page never scrolls sideways', async ({
     page,
   }) => {
     await signIn(page, SUPER_ADMIN_EMAIL)
     await page.goto('/admin')
 
-    // The links are still there, in the same order, laid out across the top
-    // rather than down the side.
+    // The links remain in the same order, but stay outside the viewport until
+    // the compact header opens the drawer.
     const navigation = page.getByRole('navigation', { name: 'Portal sections' })
+    await expect(navigation).toBeHidden()
+    await page.getByRole('button', { name: 'Open navigation' }).click()
     await expect(navigation).toBeVisible()
-    await expect(navigation.getByRole('link', { name: 'Intake' })).toBeVisible()
-
-    // The bar takes its content height, not a share of the viewport.
-    const bar = await navigation.boundingBox()
-    expect(bar?.height ?? 0).toBeLessThan(220)
+    await expect(navigation.getByRole('link', { name: 'Dashboard' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(navigation).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused()
 
     // Wide content scrolls inside its own container; the body does not.
     const overflow = await page.evaluate(

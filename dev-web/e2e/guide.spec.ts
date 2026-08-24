@@ -85,11 +85,11 @@ test.describe('how this works', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
   })
 
-  test('is the first thing in the navigation', async ({ page }) => {
+  test('is kept with the shared navigation utilities', async ({ page }) => {
     await page.goto('/')
     const navigation = page.getByRole('navigation', { name: 'Portal sections' })
     const links = await navigation.getByRole('link').allInnerTexts()
-    expect(links[0]).toBe('How this works')
+    expect(links.slice(-2)).toEqual(['How this works', 'Settings'])
   })
 
   test('draws the whole route, one stop per row, in order', async ({ page }) => {
@@ -209,7 +209,7 @@ test.describe('walking a route', () => {
      * And the product is still there. A tour that dimmed the page would make
      * the demonstration worse than no demonstration.
      */
-    await expect(page.getByRole('heading', { name: 'Intake' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
     await expect(page.getByLabel('Reference number')).toBeEditable()
   })
 

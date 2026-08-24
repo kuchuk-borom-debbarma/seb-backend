@@ -790,9 +790,7 @@ export function CycleForm({
                   onClick={() =>
                     setPolicy(
                       'identifierRules',
-                      identifierRules.filter(
-                        (_, position) => position !== index,
-                      ),
+                      identifierRules.filter((_, position) => position !== index),
                     )
                   }
                 >
@@ -820,10 +818,7 @@ export function CycleForm({
                     // cannot produce the duplicate the API refuses.
                     kind:
                       IDENTIFIER_KINDS.find(
-                        (kind) =>
-                          !identifierRules.some(
-                            (rule) => rule.kind === kind,
-                          ),
+                        (kind) => !identifierRules.some((rule) => rule.kind === kind),
                       ) ?? IDENTIFIER_KINDS[0]!,
                     requirement: 'OPTIONAL',
                     duplicatePolicy: 'NOT_CHECKED',

@@ -138,8 +138,13 @@ test.describe('working the same file', () => {
     const fill = async (target: typeof page, certificate: string, account: string) => {
       await target.goto(`/admin/applications/${id}`)
       for (const check of [
-        'IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION',
-        'FORM_COMPLETENESS', 'DOCUMENT_COMPLETENESS', 'ANSWER_DOCUMENT_CONSISTENCY',
+        'IDENTITY_KYC',
+        'ST_ELIGIBILITY',
+        'MAJORITY_OWNERSHIP',
+        'JURISDICTION',
+        'FORM_COMPLETENESS',
+        'DOCUMENT_COMPLETENESS',
+        'ANSWER_DOCUMENT_CONSISTENCY',
         'DPR_FEASIBILITY',
       ]) {
         await target.locator(`input[name="${check}"]`).first().check()
