@@ -585,11 +585,28 @@ export const adminDocumentDownloadUrl = async (
     context,
     'STAFF_READ',
     input.applicationId,
-    'Claim the application before opening its documents.',
+    'The application was not found.',
   )
   if ('refusal' in authorized) return authorized.refusal
-  if (authorized.head.application.assignedToUserId !== authorized.administrator.id) {
-    return failure('Claim the application before opening its documents.')
+  /*
+   * Deliberately not gated on holding the file.
+   *
+   * This is a read, and tying a read to ownership was the wrong shape: a
+   * reviewer exists to read casework, cannot claim anything, and so could
+   * never open a single piece of the evidence they were meant to review.
+   *
+   * The ownership check was also doing a second job, and that job still has to
+   * be done: an unclaimed **draft** has no assignee, so refusing on ownership
+   * refused drafts too. A draft has never been submitted and must stay
+   * invisible, so it is refused here explicitly and identically to an
+   * application that does not exist.
+   *
+   * Submitted applications are deliberately *not* hidden from each other: a
+   * staff member can already list every one of them in the queue, so refusing
+   * differently would conceal nothing and only make the message less true.
+   */
+  if (authorized.head.application.status === 'DRAFT') {
+    return failure('The application was not found.')
   }
   const document = await acceptedPinnedDocument(context.db, input)
   if (!document) return failure('The submitted document has not passed malware scanning.')

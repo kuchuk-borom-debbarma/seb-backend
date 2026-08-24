@@ -79,7 +79,6 @@ export const createAwardWrite = async (
       eq(sebApplication.id, input.applicationId),
       eq(sebApplication.status, 'APPROVED'),
       eq(sebApplication.statusVersion, input.expectedStatusVersion),
-      eq(sebApplication.assignedToUserId, input.actorId),
       isNull(sebApplication.deletedAt),
       sql`EXISTS (
         SELECT 1 FROM ${sebTtmDecision}

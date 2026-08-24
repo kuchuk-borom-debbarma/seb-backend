@@ -442,6 +442,111 @@ describe('Mission SEP administration', () => {
 
   })
 
+
+  describe('with nobody claiming anything', () => {
+    /*
+     * Claiming used to be required before acting, and `assignedToUserId =
+     * actorId` sat inside eight write predicates. These are the two properties
+     * that had to survive removing it.
+     */
+
+    it('still lets exactly one of two simultaneous reviews land', async () => {
+      /*
+       * The most important assertion in this change.
+       *
+       * The assignment was never what serialised concurrent writers — the
+       * version term was, and it is still there. Two officers completing the
+       * same desk review at the same moment must produce one completion and
+       * one stale refusal, exactly as two takeover attempts used to.
+       */
+      const administrator = await adminSession(['APPLICANT', 'ADMIN'])
+      const cycle = await createOpenedCycle(administrator.cookie)
+      const submitted = await createSubmittedApplication(
+        administrator.cookie, administrator.userId, cycle.id,
+      )
+      await graphql<any>(`mutation($input: StartDeskReviewInput!) {
+        admin { intake { startDeskReview(input: $input) { success } } }
+      }`, { input: {
+        applicationId: submitted.applicationId, expectedStatusVersion: 2,
+      } }, administrator.cookie)
+
+      // Two officers, neither of whom claimed anything, on the same version.
+      const complete = () => graphql<{
+        admin: { intake: { completeDeskReview: { success: boolean } } }
+      }>(`mutation($input: CompleteDeskReviewInput!) {
+        admin { intake { completeDeskReview(input: $input) { success } } }
+      }`, { input: {
+        applicationId: submitted.applicationId, expectedStatusVersion: 3,
+        outcome: 'ADVANCE_TO_BANK', reasonCategoryId: null, applicantMessage: null,
+        checks: deskCheckTypes.map((checkType) => ({
+          checkType, result: checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS',
+        })), revisions: [], identifiers: passingIdentifiers(),
+      } }, administrator.cookie)
+
+      const both = await Promise.all([complete(), complete()])
+      const landed = both.filter((one) => one.data?.admin.intake.completeDeskReview.success)
+      expect(landed).toHaveLength(1)
+
+      // And the losing one did not half-apply: one review exists, not two.
+      const reviews = await env.DB.prepare(
+        'SELECT COUNT(*) AS n FROM seb_desk_review WHERE application_id = ?',
+      ).bind(submitted.applicationId).first<{ n: number }>()
+      expect(reviews?.n).toBe(1)
+    })
+
+    it('lets a reviewer open a document without holding the file', async () => {
+      /*
+       * The bug that prompted the whole change. Reading was gated on
+       * ownership, and a reviewer cannot claim — so the role that exists to
+       * read casework could never open a single piece of evidence.
+       */
+      const administrator = await adminSession(['APPLICANT', 'ADMIN'])
+      const cycle = await createOpenedCycle(administrator.cookie)
+      const submitted = await createSubmittedApplication(
+        administrator.cookie, administrator.userId, cycle.id,
+      )
+      const documentId = crypto.randomUUID()
+      const versionId = crypto.randomUUID()
+      const submissionDocumentId = crypto.randomUUID()
+      const now = Date.now()
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO seb_application_document (
+          id, application_id, document_type, current_version, created_at, updated_at
+        ) VALUES (?, ?, 'DPR', 1, ?, ?)`).bind(documentId, submitted.applicationId, now, now),
+        env.DB.prepare(`INSERT INTO seb_application_document_version (
+          id, document_id, version, operation, r2_object_key, original_filename,
+          content_type, size_bytes, checksum, uploaded_by_user_id, created_at
+        ) VALUES (?, ?, 1, 'UPLOAD', ?, 'dpr.pdf', 'application/pdf', 10, ?, ?, ?)`)
+          .bind(versionId, documentId, `read/${versionId}`, 'A'.repeat(43) + '=',
+            administrator.userId, now),
+        env.DB.prepare(`INSERT INTO seb_application_document_scan (
+          id, document_version_id, sequence_number, status, scanner_reference,
+          scanned_at, created_at
+        ) VALUES (?, ?, 1, 'ACCEPTED', 'TEST', ?, ?)`)
+          .bind(crypto.randomUUID(), versionId, now, now),
+        env.DB.prepare(`INSERT INTO seb_application_submission_document (
+          id, submission_id, application_id, document_id, document_version,
+          document_type, created_at
+        ) VALUES (?, ?, ?, ?, 1, 'DPR', ?)`)
+          .bind(submissionDocumentId, submitted.submissionId, submitted.applicationId,
+            documentId, now),
+      ])
+
+      // A reviewer, who has claimed nothing and cannot claim.
+      const reviewer = await adminSession(['REVIEWER'])
+      const download = await graphql<{
+        admin: { intake: { documentDownloadUrl: {
+          success: boolean; message: string | null
+        } } }
+      }>(`query { admin { intake { documentDownloadUrl(
+        applicationId: "${submitted.applicationId}",
+        submissionDocumentId: "${submissionDocumentId}"
+      ) { success message } } } }`, {}, reviewer.cookie)
+
+      expect(download.data?.admin.intake.documentDownloadUrl.success).toBe(true)
+    })
+  })
+
   describe('what each staff role may do', () => {
     const DENIED = 'You do not have permission to do that.'
 
@@ -1265,19 +1370,42 @@ describe('Mission SEP administration', () => {
     }
 
     // An unclaimed application, an application that does not exist, and an
-    // unsubmitted draft are all refused identically, so probing identifiers
-    // cannot reveal which of them a reviewer is looking at.
+    /*
+     * A draft and an application that never existed are refused identically,
+     * so probing ids cannot reveal which drafts exist.
+     *
+     * Submitted applications are deliberately not hidden from each other. Any
+     * staff member can list every one of them in the queue, so answering
+     * differently for a real one conceals nothing — and the scan message is
+     * the true reason that request failed.
+     */
     const downloadQuery = `query($id: ID!) { admin { intake {
       documentDownloadUrl(applicationId: $id, submissionDocumentId: "missing") { success message }
     } } }`
+    /*
+     * A draft and an application that never existed are refused identically,
+     * so probing ids cannot reveal which drafts exist. Made by putting a known
+     * application back into DRAFT for the assertion rather than starting a
+     * second one, which the fixture's cycle refuses for unrelated reasons.
+     */
+    await env.DB.prepare("UPDATE seb_application SET status = 'DRAFT' WHERE id = ?")
+      .bind(submitted.applicationId).run()
     for (const applicationId of [submitted.applicationId, 'missing', crypto.randomUUID()]) {
       const refused = await graphql<any>(downloadQuery, { id: applicationId },
         administrator.cookie)
-      expect(refused.data.admin.intake.documentDownloadUrl).toMatchObject({
-        success: false,
-        message: 'Claim the application before opening its documents.',
-      })
+      expect(refused.data.admin.intake.documentDownloadUrl, String(applicationId))
+        .toMatchObject({ success: false, message: 'The application was not found.' })
     }
+    await env.DB.prepare("UPDATE seb_application SET status = 'SUBMITTED' WHERE id = ?")
+      .bind(submitted.applicationId).run()
+
+    // And a submitted one is refused for the true reason instead.
+    const scanRefusal = await graphql<any>(downloadQuery,
+      { id: submitted.applicationId }, administrator.cookie)
+    expect(scanRefusal.data.admin.intake.documentDownloadUrl).toMatchObject({
+      success: false,
+      message: 'The submitted document has not passed malware scanning.',
+    })
     const missingClaim = await graphql<any>(`mutation { admin { intake {
       claim(input: { applicationId: "missing", expectedAssignmentVersion: 0, conflictAcknowledged: false }) { success }
     } } }`, {}, administrator.cookie)
@@ -1624,12 +1752,38 @@ describe('Mission SEP administration', () => {
     expect(releasedAssignment.data.admin.intake.release.response).toMatchObject({
       assignmentVersion: 2, assignedToUserId: null,
     })
+    /*
+     * Annotating no longer requires holding the file.
+     *
+     * It used to: the note's write predicate carried the assignment, so
+     * releasing a case made it un-annotatable. Nobody claims anything now, and
+     * a note is an insert rather than a transition — there is no lost update to
+     * lose — so its remaining guards are the ones that matter: the application
+     * exists, is not deleted, and is not a draft.
+     */
     const unassignedNote = await graphql<any>(`mutation($input: InternalNoteInput!) {
       admin { intake { addInternalNote(input: $input) { success message } } }
     }`, { input: {
-      applicationId, note: 'This must not be written while the case is unassigned.',
+      applicationId, note: 'Written while the case sits in the shared queue.',
     } }, administrator.cookie)
-    expect(unassignedNote.data.admin.intake.addInternalNote.success).toBe(false)
+    expect(unassignedNote.data.admin.intake.addInternalNote.success).toBe(true)
+
+    /*
+     * What still refuses a note: a draft. Removing the assignment removed the
+     * "only the holder may annotate" rule, not the "an unsubmitted draft is
+     * invisible to the office" one, and that distinction is the whole point of
+     * which terms were dropped.
+     */
+    await env.DB.prepare("UPDATE seb_application SET status = 'DRAFT' WHERE id = ?")
+      .bind(applicationId).run()
+    const draftNote = await graphql<any>(`mutation($input: InternalNoteInput!) {
+      admin { intake { addInternalNote(input: $input) { success } } }
+    }`, { input: {
+      applicationId, note: 'A draft has never reached the office.',
+    } }, administrator.cookie)
+    expect(draftNote.data.admin.intake.addInternalNote.success).toBe(false)
+    await env.DB.prepare("UPDATE seb_application SET status = 'SUBMITTED' WHERE id = ?")
+      .bind(applicationId).run()
     const secondAdministrator = await adminSession(['ADMIN'])
     const secondClaim = await graphql<any>(`mutation($input: ClaimApplicationInput!) {
       admin { intake { claim(input: $input) { response { assignmentVersion } } } }

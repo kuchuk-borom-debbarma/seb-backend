@@ -578,7 +578,6 @@ export const insertInternalNote = async (
       WHERE EXISTS (
         SELECT 1 FROM ${sebApplication}
         WHERE ${sebApplication.id} = ${input.applicationId}
-          AND ${sebApplication.assignedToUserId} = ${input.actorUserId}
           AND ${sebApplication.deletedAt} IS NULL
           AND ${sebApplication.status} <> 'DRAFT'
       )
@@ -620,7 +619,6 @@ export const startDeskReviewWrite = async (
     eq(sebApplication.id, input.applicationId),
     eq(sebApplication.status, 'SUBMITTED'),
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    eq(sebApplication.assignedToUserId, input.actorUserId),
     isNull(sebApplication.deletedAt),
   )).returning({ id: sebApplication.id })
   const [changed] = await context.db.batch([
@@ -774,7 +772,6 @@ export const completeDeskReviewWrite = async (
     eq(sebApplication.id, input.applicationId),
     eq(sebApplication.status, 'DESK_REVIEW'),
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    eq(sebApplication.assignedToUserId, input.actorUserId),
     isNull(sebApplication.deletedAt),
   )).returning({ id: sebApplication.id })
   const statements = [
@@ -879,7 +876,6 @@ export const cancelRevisionRequestWrite = async (
       WHERE ${sebApplication.id} = ${input.applicationId}
         AND ${sebApplication.status} = 'REVISION_REQUIRED'
         AND ${sebApplication.statusVersion} = ${input.expectedStatusVersion}
-        AND ${sebApplication.assignedToUserId} = ${input.actorUserId}
     )`,
   )).returning({ id: sebRevisionRequest.id })
   const returnToReview = context.db.update(sebApplication).set({
@@ -891,7 +887,6 @@ export const cancelRevisionRequestWrite = async (
     eq(sebApplication.id, input.applicationId),
     eq(sebApplication.status, 'REVISION_REQUIRED'),
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    eq(sebApplication.assignedToUserId, input.actorUserId),
     sql`EXISTS (
       SELECT 1 FROM ${sebRevisionRequest}
       WHERE ${sebRevisionRequest.id} = ${input.revisionRequestId}

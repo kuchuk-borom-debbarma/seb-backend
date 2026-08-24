@@ -67,7 +67,6 @@ export const createBankReferralWrite = async (
     eq(sebApplication.id, input.applicationId),
     eq(sebApplication.status, 'PARTNER_BANK_EVALUATION'),
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    eq(sebApplication.assignedToUserId, input.actorId),
     isNull(sebApplication.deletedAt),
     sql`EXISTS (
       SELECT 1 FROM ${sebDeskReview}
@@ -147,7 +146,6 @@ export const recordBankOutcomeWrite = async (
     eq(sebApplication.id, input.applicationId),
     eq(sebApplication.status, 'PARTNER_BANK_EVALUATION'),
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    eq(sebApplication.assignedToUserId, input.actorId),
     isNull(sebApplication.deletedAt),
     sql`NOT EXISTS (
       SELECT 1 FROM ${sebTtmDecision}
@@ -249,7 +247,6 @@ export const cancelBankReferralWrite = async (
     sql`EXISTS (
       SELECT 1 FROM ${sebApplication}
       WHERE ${sebApplication.id} = ${input.applicationId}
-        AND ${sebApplication.assignedToUserId} = ${input.actorId}
         AND ${sebApplication.status} = 'PARTNER_BANK_EVALUATION'
     )`,
   )).returning({ id: sebPartnerBankReferral.id })
@@ -319,7 +316,6 @@ export const correctBankOutcomeWrite = async (
   }).where(and(
     eq(sebApplication.id, input.applicationId),
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    eq(sebApplication.assignedToUserId, input.actorId),
     sql`${sebApplication.status} IN ('TTM_REVIEW', 'REVISION_REQUIRED')`,
     isNull(sebApplication.deletedAt),
     sql`EXISTS (
@@ -650,7 +646,6 @@ export const addAgendaItemWrite = async (
         SELECT 1 FROM ${sebApplication}
         WHERE ${sebApplication.id} = ${input.applicationId}
           AND ${sebApplication.status} = 'TTM_REVIEW'
-          AND ${sebApplication.assignedToUserId} = ${input.actorId}
       )
     `),
     context.db.insert(sebTtmAgendaItemVersion).select(sql`
@@ -766,7 +761,6 @@ export const recordTtmDecisionWrite = async (
     eq(sebApplication.id, input.applicationId),
     eq(sebApplication.status, 'TTM_REVIEW'),
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    eq(sebApplication.assignedToUserId, input.actorId),
     isNull(sebApplication.deletedAt),
     ttmApprovalGuard(input.outcome, input.approvedAmountPaise, input.requestedAmountPaise),
     sql`EXISTS (
@@ -884,7 +878,6 @@ export const correctTtmDecisionWrite = async (
   }).where(and(
     eq(sebApplication.id, input.applicationId),
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    eq(sebApplication.assignedToUserId, input.actorId),
     sql`${sebApplication.status} IN ('APPROVED', 'REJECTED', 'TTM_REVIEW', 'REVISION_REQUIRED')`,
     isNull(sebApplication.deletedAt),
     ttmApprovalGuard(input.outcome, input.approvedAmountPaise, input.requestedAmountPaise),
