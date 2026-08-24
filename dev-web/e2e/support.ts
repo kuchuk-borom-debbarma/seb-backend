@@ -337,3 +337,25 @@ export const fillEveryAnswer = async (
   // The indicator is the honest signal that the server has the last answer.
   await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 20_000 })
 }
+
+/**
+ * Reads the invitation link out of the Worker's console output.
+ *
+ * Locally the notification transport prints rather than delivers, so — exactly
+ * as with the signup code — this is the only place the link exists. Anchored on
+ * the same `DEV_EMAIL` marker, and matching the `/invite#…` shape rather than
+ * "a URL somewhere", so another notification in the log cannot be mistaken for
+ * this one.
+ */
+export const latestInviteLink = async (afterByteOffset = 0): Promise<string> => {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const log = await readFile(WORKER_LOG, 'utf8').catch(() => '')
+    const lines = [...log.slice(afterByteOffset).matchAll(/^DEV_EMAIL (.*)$/gmu)]
+    for (const line of lines.reverse()) {
+      const found = line[1]?.match(/\/invite#([A-Za-z0-9_-]+)/u)
+      if (found?.[1]) return `/invite#${found[1]}`
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  throw new Error('No invitation link appeared in the Worker log within 10 seconds.')
+}

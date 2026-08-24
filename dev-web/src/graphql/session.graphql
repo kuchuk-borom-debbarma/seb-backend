@@ -4,7 +4,7 @@ query CurrentSession {
       success
       message
       response {
-        user { id email emailVerified roles createdAt }
+        user { id email emailVerified roles capabilities createdAt }
         session { id current createdAt expiresAt }
       }
     }

@@ -22,7 +22,7 @@ import {
 import { formatDateTime } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
-import { sessionQuery } from '#/lib/session'
+import { can, sessionQuery } from '#/lib/session'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from './officeGuidance'
 import { useMarker } from '../guide/GuideContext'
@@ -30,6 +30,7 @@ import { useMarker } from '../guide/GuideContext'
 export function AssignmentControls({
   applicationId,
   assignedToUserId,
+  assignedTo,
   assignedAt,
   assignmentVersion,
   reasons,
@@ -37,6 +38,8 @@ export function AssignmentControls({
 }: {
   applicationId: string
   assignedToUserId: string | null
+  /** Who holds it. Null when nobody does, or when their account is gone. */
+  assignedTo: { id: string; email: string } | null
   assignedAt: string | null
   assignmentVersion: number
   reasons: ReasonCategory[] | undefined
@@ -48,6 +51,7 @@ export function AssignmentControls({
   const [showRelease, setShowRelease] = useState(false)
   const [showReassign, setShowReassign] = useState(false)
 
+  const canWrite = can(session?.user, 'STAFF_WRITE')
   const mine = Boolean(assignedToUserId) && assignedToUserId === session?.user.id
   const someoneElse = Boolean(assignedToUserId) && !mine
 
@@ -87,35 +91,55 @@ export function AssignmentControls({
                 : 'Nobody has claimed this'}
           </h3>
           {assignedAt ? (
-            <p className="field-hint">Claimed {formatDateTime(assignedAt)}</p>
+            <p className="field-hint">
+              {/* Named, not just dated. "Someone else has this" is not much
+                  use to somebody deciding whether to go and ask them. */}
+              {someoneElse && assignedTo ? `${assignedTo.email} · ` : ''}
+              Claimed {formatDateTime(assignedAt)}
+            </p>
           ) : null}
         </div>
-        <div className="row">
-          {mine ? (
-            <button type="button" className="button" onClick={() => setShowRelease(true)}>
-              Release it
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="button"
-              data-variant="primary"
-              disabled={claim.isPending}
-              onClick={() => claim.mutate()}
-            >
-              {claim.isPending ? 'Claiming…' : someoneElse ? 'Take it over' : 'Claim it'}
-            </button>
-          )}
-          {assignedToUserId ? (
-            <button
-              type="button"
-              className="button"
-              onClick={() => setShowReassign(true)}
-            >
-              Hand it to someone
-            </button>
-          ) : null}
-        </div>
+        {/*
+          A reviewer reads casework and changes none of it, so the controls are
+          absent rather than disabled. A button that cannot work should not be
+          drawn — offering it and refusing is worse than not offering it.
+        */}
+        {!canWrite ? null : (
+          <div className="row">
+            {mine ? (
+              <button
+                type="button"
+                className="button"
+                onClick={() => setShowRelease(true)}
+              >
+                Release it
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="button"
+                data-variant="primary"
+                disabled={claim.isPending}
+                onClick={() => claim.mutate()}
+              >
+                {claim.isPending
+                  ? 'Claiming…'
+                  : someoneElse
+                    ? 'Take it over'
+                    : 'Claim it'}
+              </button>
+            )}
+            {assignedToUserId ? (
+              <button
+                type="button"
+                className="button"
+                onClick={() => setShowReassign(true)}
+              >
+                Hand it to someone
+              </button>
+            ) : null}
+          </div>
+        )}
       </div>
 
       {someoneElse ? (

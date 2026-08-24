@@ -16,12 +16,7 @@ import { Link, useRouter } from '@tanstack/react-router'
 import { SignOutDocument } from '#/graphql/generated/operations'
 import { forgetGuide } from '#/features/guide/GuideContext'
 import { gql } from '#/lib/graphql'
-import {
-  isAdministrator,
-  isApplicant,
-  isSuperAdministrator,
-  type SignedInUser,
-} from '#/lib/session'
+import { can, isApplicant, type SignedInUser } from '#/lib/session'
 import styles from './PortalShell.module.css'
 
 export type Portal = 'applicant' | 'office'
@@ -31,7 +26,7 @@ export const portalFor = (pathname: string): Portal =>
   pathname === '/admin' || pathname.startsWith('/admin/') ? 'office' : 'applicant'
 
 export const canUsePortal = (portal: Portal, user: SignedInUser): boolean =>
-  portal === 'office' ? isAdministrator(user) : isApplicant(user)
+  portal === 'office' ? can(user, 'STAFF_READ') : isApplicant(user)
 
 /**
  * The portal to draw the navigation for.
@@ -107,14 +102,31 @@ export function PortalNav({ portal, user }: { portal: Portal; user: SignedInUser
               <NavLink to="/admin/meetings">Committee meetings</NavLink>
             </NavGroup>
 
-            <NavGroup title="Administration">
-              <NavLink to="/admin/cycles">Cycle administration</NavLink>
-              {/* Role management is a super-administrator power. An
-                  administrator who cannot use it should not be shown it. */}
-              {isSuperAdministrator(user) ? (
-                <NavLink to="/admin/access">Access</NavLink>
-              ) : null}
-            </NavGroup>
+            {/*
+              Each entry asks what it needs rather than which role holds it.
+              A reviewer reads casework and sees nothing here; an approver sees
+              nothing here either, because deciding an application is not
+              governing the programme.
+            */}
+            {can(user, 'STAFF_WRITE') ||
+            can(user, 'ROLE_ADMIN') ||
+            can(user, 'ROLE_INVITE') ||
+            can(user, 'AUDIT_READ') ? (
+              <NavGroup title="Administration">
+                {can(user, 'STAFF_WRITE') ? (
+                  <NavLink to="/admin/cycles">Cycle administration</NavLink>
+                ) : null}
+                {can(user, 'ROLE_INVITE') ? (
+                  <NavLink to="/admin/invite">Invite a colleague</NavLink>
+                ) : null}
+                {can(user, 'ROLE_ADMIN') ? (
+                  <NavLink to="/admin/access">Access</NavLink>
+                ) : null}
+                {can(user, 'AUDIT_READ') ? (
+                  <NavLink to="/admin/audit">Activity history</NavLink>
+                ) : null}
+              </NavGroup>
+            ) : null}
           </>
         )}
 
@@ -140,7 +152,7 @@ function PortalSwitch({ portal, user }: { portal: Portal; user: SignedInUser }) 
   // screen itself offers the way across, and two of them would be noise.
   if (!canUsePortal(portal, user)) return null
   if (portal === 'applicant') {
-    return isAdministrator(user) ? (
+    return can(user, 'STAFF_READ') ? (
       <Link to="/admin" className={styles.switch}>
         Programme office <span aria-hidden="true">→</span>
       </Link>

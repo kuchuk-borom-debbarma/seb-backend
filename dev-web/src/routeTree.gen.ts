@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ShellRouteImport } from './routes/_shell'
+import { Route as InviteRouteImport } from './routes/invite'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as ShellApplicantRouteImport } from './routes/_shell/_applicant'
@@ -19,6 +20,8 @@ import { Route as ShellApplicantIndexRouteImport } from './routes/_shell/_applic
 import { Route as ShellApplicantCyclesRouteImport } from './routes/_shell/_applicant/cycles'
 import { Route as ShellAccountSessionsRouteImport } from './routes/_shell/account/sessions'
 import { Route as ShellAdminIndexRouteImport } from './routes/_shell/admin/index'
+import { Route as ShellAdminAuditRouteImport } from './routes/_shell/admin/audit'
+import { Route as ShellAdminInviteRouteImport } from './routes/_shell/admin/invite'
 import { Route as ShellAdminQueueRouteImport } from './routes/_shell/admin/queue'
 import { Route as ShellApplicantApplicationsIndexRouteImport } from './routes/_shell/_applicant/applications/index'
 import { Route as ShellApplicantApplicationsNewRouteImport } from './routes/_shell/_applicant/applications/new'
@@ -42,6 +45,11 @@ import { Route as ShellAdminApplicationsIdFundingRouteImport } from './routes/_s
 
 const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InviteRoute = InviteRouteImport.update({
+  id: '/invite',
+  path: '/invite',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -86,6 +94,16 @@ const ShellAccountSessionsRoute = ShellAccountSessionsRouteImport.update({
 const ShellAdminIndexRoute = ShellAdminIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => ShellAdminRouteRoute,
+} as any)
+const ShellAdminAuditRoute = ShellAdminAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => ShellAdminRouteRoute,
+} as any)
+const ShellAdminInviteRoute = ShellAdminInviteRouteImport.update({
+  id: '/invite',
+  path: '/invite',
   getParentRoute: () => ShellAdminRouteRoute,
 } as any)
 const ShellAdminQueueRoute = ShellAdminQueueRouteImport.update({
@@ -205,12 +223,15 @@ const ShellAdminApplicationsIdFundingRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellApplicantIndexRoute
+  '/invite': typeof InviteRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/admin': typeof ShellAdminRouteRouteWithChildren
   '/guide': typeof ShellGuideRoute
   '/cycles': typeof ShellApplicantCyclesRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
+  '/admin/audit': typeof ShellAdminAuditRoute
+  '/admin/invite': typeof ShellAdminInviteRoute
   '/admin/queue': typeof ShellAdminQueueRoute
   '/admin/': typeof ShellAdminIndexRoute
   '/applications/new': typeof ShellApplicantApplicationsNewRoute
@@ -235,11 +256,14 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof ShellApplicantIndexRoute
+  '/invite': typeof InviteRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/guide': typeof ShellGuideRoute
   '/cycles': typeof ShellApplicantCyclesRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
+  '/admin/audit': typeof ShellAdminAuditRoute
+  '/admin/invite': typeof ShellAdminInviteRoute
   '/admin/queue': typeof ShellAdminQueueRoute
   '/admin': typeof ShellAdminIndexRoute
   '/applications/new': typeof ShellApplicantApplicationsNewRoute
@@ -265,6 +289,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_shell': typeof ShellRouteWithChildren
+  '/invite': typeof InviteRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/_shell/admin': typeof ShellAdminRouteRouteWithChildren
@@ -272,6 +297,8 @@ export interface FileRoutesById {
   '/_shell/guide': typeof ShellGuideRoute
   '/_shell/_applicant/cycles': typeof ShellApplicantCyclesRoute
   '/_shell/account/sessions': typeof ShellAccountSessionsRoute
+  '/_shell/admin/audit': typeof ShellAdminAuditRoute
+  '/_shell/admin/invite': typeof ShellAdminInviteRoute
   '/_shell/admin/queue': typeof ShellAdminQueueRoute
   '/_shell/_applicant/': typeof ShellApplicantIndexRoute
   '/_shell/admin/': typeof ShellAdminIndexRoute
@@ -299,12 +326,15 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/invite'
     | '/sign-in'
     | '/sign-up'
     | '/admin'
     | '/guide'
     | '/cycles'
     | '/account/sessions'
+    | '/admin/audit'
+    | '/admin/invite'
     | '/admin/queue'
     | '/admin/'
     | '/applications/new'
@@ -329,11 +359,14 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/invite'
     | '/sign-in'
     | '/sign-up'
     | '/guide'
     | '/cycles'
     | '/account/sessions'
+    | '/admin/audit'
+    | '/admin/invite'
     | '/admin/queue'
     | '/admin'
     | '/applications/new'
@@ -358,6 +391,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_shell'
+    | '/invite'
     | '/sign-in'
     | '/sign-up'
     | '/_shell/admin'
@@ -365,6 +399,8 @@ export interface FileRouteTypes {
     | '/_shell/guide'
     | '/_shell/_applicant/cycles'
     | '/_shell/account/sessions'
+    | '/_shell/admin/audit'
+    | '/_shell/admin/invite'
     | '/_shell/admin/queue'
     | '/_shell/_applicant/'
     | '/_shell/admin/'
@@ -391,6 +427,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ShellRoute: typeof ShellRouteWithChildren
+  InviteRoute: typeof InviteRoute
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
 }
@@ -402,6 +439,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof ShellRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invite': {
+      id: '/invite'
+      path: '/invite'
+      fullPath: '/invite'
+      preLoaderRoute: typeof InviteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-in': {
@@ -465,6 +509,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof ShellAdminIndexRouteImport
+      parentRoute: typeof ShellAdminRouteRoute
+    }
+    '/_shell/admin/audit': {
+      id: '/_shell/admin/audit'
+      path: '/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof ShellAdminAuditRouteImport
+      parentRoute: typeof ShellAdminRouteRoute
+    }
+    '/_shell/admin/invite': {
+      id: '/_shell/admin/invite'
+      path: '/invite'
+      fullPath: '/admin/invite'
+      preLoaderRoute: typeof ShellAdminInviteRouteImport
       parentRoute: typeof ShellAdminRouteRoute
     }
     '/_shell/admin/queue': {
@@ -611,6 +669,8 @@ declare module '@tanstack/react-router' {
 }
 
 interface ShellAdminRouteRouteChildren {
+  ShellAdminAuditRoute: typeof ShellAdminAuditRoute
+  ShellAdminInviteRoute: typeof ShellAdminInviteRoute
   ShellAdminQueueRoute: typeof ShellAdminQueueRoute
   ShellAdminIndexRoute: typeof ShellAdminIndexRoute
   ShellAdminCyclesIdRoute: typeof ShellAdminCyclesIdRoute
@@ -624,6 +684,8 @@ interface ShellAdminRouteRouteChildren {
 }
 
 const ShellAdminRouteRouteChildren: ShellAdminRouteRouteChildren = {
+  ShellAdminAuditRoute: ShellAdminAuditRoute,
+  ShellAdminInviteRoute: ShellAdminInviteRoute,
   ShellAdminQueueRoute: ShellAdminQueueRoute,
   ShellAdminIndexRoute: ShellAdminIndexRoute,
   ShellAdminCyclesIdRoute: ShellAdminCyclesIdRoute,
@@ -699,6 +761,7 @@ const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   ShellRoute: ShellRouteWithChildren,
+  InviteRoute: InviteRoute,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
 }

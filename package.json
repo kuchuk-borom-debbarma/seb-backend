@@ -3,7 +3,7 @@
   "type": "module",
   "scripts": {
     "local": "wrangler dev --port 9999",
-    "test:worker": "node scripts/reset-e2e-db.mjs && wrangler dev --port 9899 --var FRONTEND_ORIGINS:http://localhost:9880 --persist-to dev-web/.playwright/state 2>&1 | tee dev-web/.playwright/worker.log",
+    "test:worker": "node scripts/reset-e2e-db.mjs && wrangler dev --port 9899 --var FRONTEND_ORIGINS:http://localhost:9880 --var ROLE_INVITE_SECRET:end-to-end-invite-secret-at-least-32-bytes --var PORTAL_BASE_URL:http://localhost:9880 --persist-to dev-web/.playwright/state 2>&1 | tee dev-web/.playwright/worker.log",
     "deploy": "wrangler deploy --minify",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "typecheck": "tsc --noEmit",

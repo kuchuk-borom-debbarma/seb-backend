@@ -133,7 +133,9 @@ test.describe('evidence', () => {
       buffer: Buffer.from('%PDF-1.4 a small but real-looking file'),
     })
     await expect(
-      page.getByText('The file name must end in .pdf, .jpg, .jpeg or .png, matching the file.'),
+      page.getByText(
+        'The file name must end in .pdf, .jpg, .jpeg or .png, matching the file.',
+      ),
     ).toBeVisible()
   })
 

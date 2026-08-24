@@ -98,6 +98,7 @@ function WorkspacePage() {
         <AssignmentControls
           applicationId={id}
           assignedToUserId={application.assignedToUserId ?? null}
+          assignedTo={application.assignedTo ?? null}
           assignedAt={application.assignedAt ?? null}
           assignmentVersion={application.assignmentVersion}
           reasons={reasons}

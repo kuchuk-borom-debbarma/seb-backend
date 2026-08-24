@@ -37,6 +37,7 @@ query IntakeQueue($input: AdminIntakeQueueInput) {
             status
             statusVersion
             assignedToUserId
+            assignedTo { id email }
             assignedAt
             assignmentVersion
             submissionNumber
@@ -66,6 +67,7 @@ query IntakeByReference($referenceNumber: String!) {
           status
           statusVersion
           assignedToUserId
+          assignedTo { id email }
           assignedAt
           assignmentVersion
           updatedAt
@@ -95,6 +97,7 @@ query IntakeWorkspace($applicationId: ID!) {
             status
             statusVersion
             assignedToUserId
+            assignedTo { id email }
             assignedAt
             assignmentVersion
             updatedAt
@@ -195,7 +198,7 @@ mutation ClaimApplication($input: ClaimApplicationInput!) {
       claim(input: $input) {
         success
         message
-        response { id status statusVersion assignedToUserId assignedAt assignmentVersion }
+        response { id status statusVersion assignedToUserId assignedTo { id email } assignedAt assignmentVersion }
       }
     }
   }
@@ -207,7 +210,7 @@ mutation ReleaseApplication($input: ReleaseApplicationInput!) {
       release(input: $input) {
         success
         message
-        response { id status statusVersion assignedToUserId assignedAt assignmentVersion }
+        response { id status statusVersion assignedToUserId assignedTo { id email } assignedAt assignmentVersion }
       }
     }
   }
@@ -219,7 +222,7 @@ mutation ReassignApplication($input: ReassignApplicationInput!) {
       reassign(input: $input) {
         success
         message
-        response { id status statusVersion assignedToUserId assignedAt assignmentVersion }
+        response { id status statusVersion assignedToUserId assignedTo { id email } assignedAt assignmentVersion }
       }
     }
   }

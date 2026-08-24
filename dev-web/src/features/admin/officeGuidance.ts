@@ -114,6 +114,19 @@ export const OFFICE_HELP: Record<OfficeTerm, string> = {
  * ones that are the same on every visit.
  */
 export const OFFICE_LEDES = {
+  audit:
+    'Every recorded action, newest first. This is what answers who changed ' +
+    'something and when — the question asked after something has gone wrong. ' +
+    'Filter by the person, by everybody holding a role, or by the kind of ' +
+    'action. Only a super administrator can open this, because it carries more ' +
+    'about people than any other screen here.',
+
+  invite:
+    'Somebody signs up as an applicant, you choose the role, and they accept it ' +
+    'themselves from a link sent to their address. The role lands only when ' +
+    'they accept, so the record always shows they agreed to it. Their applicant ' +
+    'access is exchanged for the staff role rather than added to.',
+
   workspace:
     'Everything the office knows about this application, ordered by what a reviewer ' +
     'does next. A review records the numbers on the documents as well as the ' +

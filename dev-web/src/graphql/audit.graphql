@@ -1,0 +1,34 @@
+# The activity history, readable only by a super administrator.
+#
+# Every filter is optional and they combine. `actorUserIds` and `actorRole` are
+# the two halves of "these people, or everybody holding a role".
+query AuditEvents($input: AuditQueryInput) {
+  audit {
+    events(input: $input) {
+      success
+      message
+      response {
+        nodes {
+          id
+          action
+          entityType
+          entityId
+          outcome
+          createdAt
+          requestId
+          ipAddress
+          metadata
+          actor { id email roles }
+        }
+        pageInfo { endCursor hasNextPage totalCount }
+      }
+    }
+  }
+}
+
+# The actions that actually occur, so the filter offers no dead ends.
+query AuditActions {
+  audit {
+    actions { success message response }
+  }
+}

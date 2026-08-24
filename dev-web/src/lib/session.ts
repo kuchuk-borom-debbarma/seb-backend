@@ -9,7 +9,7 @@
 import { queryOptions, type QueryClient } from '@tanstack/react-query'
 import { CurrentSessionDocument } from '#/graphql/generated/operations'
 import type { CurrentSessionQuery } from '#/graphql/generated/operations'
-import type { UserRole } from '#/graphql/generated/schema'
+import type { Capability, UserRole } from '#/graphql/generated/schema'
 import { gql } from './graphql'
 
 export type SignedInUser = NonNullable<
@@ -63,6 +63,26 @@ export const forgetSession = (queryClient: QueryClient) =>
  * that decides which portal to open.
  */
 type RoleBearer = { roles: readonly UserRole[] }
+
+/**
+ * What the signed-in person is allowed to do.
+ *
+ * The API derives this from the roles held and publishes it, so the interface
+ * asks "may they?" rather than matching role names. That matters because the
+ * office now holds four roles: a screen that checked for ADMIN would hide
+ * itself from an approver who is perfectly entitled to use it, and a screen
+ * that listed every acceptable role would be a second copy of a policy that
+ * lives in `auth/capabilities.ts`.
+ *
+ * **It decides what to draw, never what is permitted.** Every operation is
+ * re-checked by the API, which is what actually refuses.
+ */
+type CapabilityBearer = { capabilities: readonly Capability[] }
+
+export const can = (
+  user: CapabilityBearer | undefined,
+  capability: Capability,
+): boolean => Boolean(user?.capabilities.includes(capability))
 
 export const hasRole = (user: RoleBearer | undefined, ...roles: UserRole[]): boolean =>
   Boolean(user && roles.some((role) => user.roles.includes(role)))

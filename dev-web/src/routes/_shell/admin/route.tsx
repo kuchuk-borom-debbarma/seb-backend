@@ -1,14 +1,18 @@
 /**
  * The programme office gate.
  *
- * Either administrative role opens the console — the API's own rule, where
- * `currentAdministrator` accepts `ADMIN` or `SUPER_ADMIN`. The narrower powers
- * inside it are gated separately: role management needs `SUPER_ADMIN`, checked
- * on its own route.
+ * Being able to read is what opens the console, which is the API's own rule:
+ * every administrative query asks for `STAFF_READ`. A reviewer holds only that
+ * and belongs here; what they cannot do is decided screen by screen rather
+ * than at the door.
+ *
+ * Asked as a capability rather than by naming roles. Four roles now reach this
+ * gate, and a list of acceptable ones here would be a second copy of the
+ * policy in `auth/capabilities.ts` — which is exactly how the two drift.
  */
 import { Outlet, createFileRoute } from '@tanstack/react-router'
 import { RoleRefusal } from '#/features/portal/RoleRefusal'
-import { isAdministrator } from '#/lib/session'
+import { can } from '#/lib/session'
 
 export const Route = createFileRoute('/_shell/admin')({
   component: OfficeGate,
@@ -16,6 +20,6 @@ export const Route = createFileRoute('/_shell/admin')({
 
 function OfficeGate() {
   const { user } = Route.useRouteContext()
-  if (!isAdministrator(user)) return <RoleRefusal portal="office" user={user} />
+  if (!can(user, 'STAFF_READ')) return <RoleRefusal portal="office" user={user} />
   return <Outlet />
 }

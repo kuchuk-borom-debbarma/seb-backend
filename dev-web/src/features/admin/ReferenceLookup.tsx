@@ -86,9 +86,13 @@ export function ReferenceLookup() {
               <div>
                 <span className="field-label">Assigned</span>
                 <span>
-                  {found.assignedToUserId
-                    ? `Claimed ${formatDateTime(found.assignedAt)}`
-                    : 'Nobody'}
+                  {/* Who, not just when. Somebody looking a reference up is
+                      usually about to go and ask whoever has it. */}
+                  {found.assignedTo
+                    ? `${found.assignedTo.email} · ${formatDateTime(found.assignedAt)}`
+                    : found.assignedToUserId
+                      ? `Claimed ${formatDateTime(found.assignedAt)}`
+                      : 'Nobody'}
                 </span>
               </div>
             </div>

@@ -153,7 +153,7 @@ function ReviewPage() {
                         >
                           {isDocumentIssue(issue.field)
                             ? 'Evidence'
-                            : SECTION_TITLES[issue.section] ?? humanize(issue.section)}
+                            : (SECTION_TITLES[issue.section] ?? humanize(issue.section))}
                         </Link>
                       </td>
                       {/* The question as the form asks it, so somebody sent to

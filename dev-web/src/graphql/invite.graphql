@@ -1,0 +1,23 @@
+# Inviting somebody to a staff role. The link is emailed and never returned
+# here — an issuer who could read it could forward it, and the invitee's
+# mailbox is what makes possession of the link mean anything.
+mutation InviteRole($input: InviteRoleInput!) {
+  access {
+    inviteRole(input: $input) {
+      success
+      message
+      response { email role expiresAt }
+    }
+  }
+}
+
+# Accepting takes no session: possession of the sealed token is the credential.
+mutation AcceptRoleInvite($token: String!) {
+  access {
+    acceptRoleInvite(token: $token) {
+      success
+      message
+      response { role }
+    }
+  }
+}

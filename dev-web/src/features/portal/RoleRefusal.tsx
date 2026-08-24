@@ -14,12 +14,14 @@
  */
 import { Link } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
-import { isAdministrator, isApplicant, type SignedInUser } from '#/lib/session'
+import { can, isApplicant, type SignedInUser } from '#/lib/session'
 import styles from './RoleRefusal.module.css'
 
 /** How a role reads in a sentence, matching the overview screen's vocabulary. */
 const ROLE_NAMES: Record<string, string> = {
   APPLICANT: 'Applicant',
+  REVIEWER: 'Reviewer',
+  APPROVER: 'Approver',
   ADMIN: 'Programme officer',
   SUPER_ADMIN: 'Super administrator',
 }
@@ -32,7 +34,10 @@ export function RoleRefusal({
   user: SignedInUser
 }) {
   const held = user.roles.map((role) => ROLE_NAMES[role] ?? role)
-  const canCrossOver = portal === 'applicant' ? isAdministrator(user) : isApplicant(user)
+  // "Can they use the other portal?" is a capability question on the office
+  // side, because four different roles open it.
+  const canCrossOver =
+    portal === 'applicant' ? can(user, 'STAFF_READ') : isApplicant(user)
 
   return (
     <main className="page">
