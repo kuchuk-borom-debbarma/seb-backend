@@ -611,16 +611,21 @@ with no recovery path.
   first or last activity without changing other users' defaults.
 - [x] Do not expose draft applications to reviewers before formal submission.
 
-### 11.2 Assignment and conflict visibility
+### 11.2 Working the same file, and conflict visibility
 
-- [x] Let an administrator claim an unassigned application for review.
-- [x] Show the current assignee and assignment time to all administrators.
-- [x] Let the assignee release it back to the queue with a mandatory reason.
-- [x] Let another administrator reassign it with a mandatory reason.
+- [x] Let anybody holding the right role act on an application without
+  reserving it first.
+- [x] Show who worked a file last, and when, to all staff. It is advisory: no
+  control is disabled by what it says.
 - [x] Warn when the reviewer is also the applicant or enterprise owner; allow
-  the action under the selected policy and retain the acknowledgement.
+  the action under the selected policy and retain the acknowledgement on the
+  transition that decides something.
 - [x] Prevent two administrators from unknowingly completing the same review
   transition from the same old status.
+- [x] Widen who may act on money. Awards, releases and recovery no longer
+  require having reserved the file; they require the capability and the version
+  guard. This is a product change rather than a refactor, and it is recorded
+  here for that reason.
 
 ### 11.3 Review workspace
 
@@ -680,8 +685,16 @@ with no recovery path.
 - [x] Treat that refusal as a question rather than a verdict: a second-phase
   expansion by the same promoter is expected, so the reviewer either fails the
   check or states why it is not the same claim, and the answer is retained.
+- [x] Make which identifiers are demanded, and which are compared, a per-cycle
+  setting rather than a code constant. The two are independent: an identifier
+  can be collected without being compared, and compared without being demanded.
+  Rules are frozen into the cycle version, so editing a cycle cannot change what
+  an already-submitted application is judged by, and a cycle with no rules
+  demands nothing and compares nothing.
 - [ ] Decide with TTAADC whether any identifier should be a hard bar rather than
-  a reviewer judgement.
+  a reviewer judgement. The per-cycle rules make this configurable when the
+  answer arrives; what is not yet built is a setting that refuses outright
+  rather than asking.
 
 ---
 
@@ -921,9 +934,10 @@ complete.
 
 - [ ] Provision the approved provider's key. The console transport cannot be
   reached from a delivering environment, but nothing is sent without a key.
-- [ ] Build a forward path for the schema. `database/schema.sql` applies once to
-  an empty database, so the first change after real data lands has no upgrade
-  story — see the [schema README](../src/db/schema/README.md).
+- [x] Build a forward path for the schema. The baseline re-applies safely,
+  ordered migrations in `database/migrations/` carry changes to existing
+  tables, `core_schema_migration` records what has run, and `db:schema:check`
+  proves the two paths still produce the same database.
 - [ ] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits.
 - [ ] Configure a real malware scanner. This is a **production** blocker rather
   than a blanket one: the seam exists, and `local` and `develop` are usable

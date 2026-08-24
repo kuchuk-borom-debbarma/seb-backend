@@ -57,17 +57,18 @@ archive it. Closing stops new drafts; it does not strand existing submissions
 or official revisions. The scheduled handler closes at most 20 expired cycles
 per run. Opened cycles cannot be deleted.
 
-## Intake queues and claiming
+## Intake queues
 
-Drafts never appear in intake, and claiming one is refused the same way an
-unknown application is. The queue exposes the latest formal submission,
+Drafts never appear in intake, and asking for one by id is refused the same way
+an unknown application is. The queue exposes the latest formal submission,
 reference, enterprise, applicant, pinned cycle, phase/type, category, sector,
 status, who holds it, submission time, and activity time. Staff may filter by
 those dimensions and order by oldest waiting, newest submission, or last
 activity.
 
-The assignee is named rather than left as an identifier, because somebody
-looking at a claimed application is usually about to go and ask whoever has it.
+Whoever worked a file last is named rather than left as an identifier, because
+somebody looking at one another officer has touched is usually about to go and
+ask them about it.
 
 Staff may also search by the start of a reference number or an enterprise name.
 It is a prefix match, not a free-text search, and the interface says so — a box
@@ -103,13 +104,27 @@ no queue, because nobody works from it.
 than silently intersected, which would return an empty page instead of the
 queue that was asked for. Both accept an optional `cycleId`.
 
-Claiming is mandatory because it answers “who owns the next decision?” and is
-the concurrency lock for workflow actions. Two simultaneous claims are
-first-writer-wins. Release and reassignment use a reason approved by the pinned
-cycle and retain immutable assignment history.
+Nothing is reserved before it is worked on. Anybody holding the right role may
+act, and two officers acting at once are settled by the version guard on the
+transition itself: one succeeds and the other is told the record changed. The
+screen says who was here last so the second can decide whether to duplicate the
+effort, but it forbids nothing and disables nothing.
 
-If the assignee is also the applicant, they must explicitly acknowledge the
-conflict. The selected product rule permits the action but retains the
+There used to be a mandatory claim, and it was removed because it was never
+what made a write safe. It also had a cost: reading a document was gated on
+holding the file, and a reviewer — the role whose entire job is reading
+casework — could not hold anything, so the people who most needed to read
+could not. The record of who worked a file survives as history, written as a
+side effect of the work rather than as a step before it.
+
+What replaced it as a gate is stronger. Advancing a stage requires transcribing
+the numbers off the documents just read, which is evidence of having read them
+in a way that pressing a button never was — see “What the reviewer writes
+down”.
+
+If the officer acting is also the applicant, they must acknowledge it on the
+transition that decides something: completing a desk review, or recording a
+decision. The selected product rule permits the action and retains the
 acknowledgement. TTAADC still needs to decide whether a second approval is
 required before public launch.
 
@@ -280,14 +295,16 @@ form contents, money, bank correspondence, notes, or credentials.
 ## Expected failures
 
 - “Administrator access is required.”: no live administrative role.
-- “The record changed. Reload and try again.”: expected version, assignment, or
-  lifecycle lost a race.
-- “Claim the application…”: the actor is not the current assignee.
+- “The record changed. Reload and try again.”: the expected version or the
+  lifecycle lost a race. This is the ordinary answer when two officers act on
+  one file at the same moment, and it means nothing was overwritten.
+- “Acknowledge that you are acting on your own application.”: the officer is
+  the applicant and has not said so.
 - Scan failure: the exact submitted file’s latest result is not accepted.
 - Invalid transition: the current status or prerequisite evidence does not
   permit the requested next state.
-- Constraint conflict: duplicate reference, active claim, agenda position,
-  sanction order, or accounting external reference.
+- Constraint conflict: duplicate reference, agenda position, sanction order, or
+  accounting external reference.
 
 ## Public-launch blockers
 

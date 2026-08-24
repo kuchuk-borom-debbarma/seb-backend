@@ -79,6 +79,12 @@ and neither may open a programme cycle. So each operation names the *capability*
 it needs, and one file — `auth/capabilities.ts` — decides which roles hold it.
 Somebody holding several roles gets the union.
 
+Holding the capability is the whole of it: there is nothing to reserve before
+acting on a file. Two officers acting at once are settled by a version guard on
+the transition, so one succeeds and the other is told the record changed. What
+gates a stage is what the reviewer **types** — the numbers off the documents
+they have just read — rather than a button they pressed beforehand.
+
 | Role | Can | Cannot |
 | --- | --- | --- |
 | Reviewer | Read every casework screen | Change anything at all |
@@ -107,8 +113,6 @@ administering the programme it belongs to are separate authorities.
 | Stage | What they do | Operation |
 | --- | --- | --- |
 | Intake | Work the nine named queues | `admin.intake.queue`, `queues` |
-| | Claim a file before working on it | `admin.intake.claim` |
-| | Hand it on, or give it back, with a reason | `admin.intake.reassign`, `release` |
 | | Write a note nobody outside the office sees | `admin.intake.addInternalNote` |
 | Desk review | Start it | `admin.intake.startDeskReview` |
 | | Record nine checks, transcribe the numbers on the documents, and choose an outcome | `admin.intake.completeDeskReview` |

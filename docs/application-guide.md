@@ -44,7 +44,7 @@ flowchart LR
 
 Rina’s 2026 phase-1 draft pins the 2026 rule version. She later updates Tribal
 Foods’ current address, but the submitted address stays frozen. Administrator
-Meera claims the application and requests a financial-section correction; the
+Meera opens the application and requests a financial-section correction; the
 new submission freezes only the corrected form plus its exact files. The bank
 records “not recommended” with a safe summary, yet the application still goes
 to TTM because bank feedback is advisory evidence. TTM approves ₹10 lakh.
@@ -98,7 +98,7 @@ can distinguish "nothing matches these filters" from "nothing here yet".
 | Application | One phase attempt in one cycle | Versioned workflow head + soft delete while draft | Initial phase 1 |
 | Application version | Complete form snapshot | Append-only | Draft v3 / submission v4 |
 | Submission | Formal version plus the exact document versions sent for review | Append-only | Submission 1 → v4 + DPR v2 |
-| Assignment | Administrator who owns the next action | Current pointer + append-only history | Meera claims desk review |
+| Assignment | Who worked the file last — a record, not a lock | Current pointer + append-only history | Meera starts the desk review |
 | Desk review | TTAADC’s KYC, evidence, completeness, and DPR scrutiny | Append-only checklist/outcome | All applicable checks pass |
 | Document slot | Current logical evidence type | Versioned head + soft delete | Current DPR |
 | Document version | One finalized private R2 object | Append-only | DPR replacement v2 |

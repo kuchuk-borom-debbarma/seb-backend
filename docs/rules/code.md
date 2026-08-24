@@ -144,6 +144,38 @@ Where a write is stateless by design — the role invitation is the only one —
 *precondition* goes in the predicate instead, which is what makes a token that
 is never stored single-use.
 
+## A shared preamble must not name its own capability
+
+An authorization helper serving more than one operation takes the capability as
+an argument. It must never choose one for itself.
+
+`administratorWithApplication` served a read (opening a document) and a write
+(claiming), and named `STAFF_READ` for itself. The write inherited the read's
+answer, so a reviewer — who may change nothing — could claim an application. The
+guard looked present at both call sites and was doing its job at neither.
+
+Two things that followed from the same shape are worth knowing:
+
+- **A sweep for a guard has to be per-predicate.** Removing the assignment
+  terms, the same check existed under two variable names — `input.actorId` and
+  `input.actorUserId`. Searching for the first reported "none remain" while five
+  of the second were still live. Only the concurrency test caught it.
+- **Removing a check can remove a second thing it was quietly doing.** The
+  ownership check on document reads was also refusing drafts, because a draft
+  has no assignee. Taking it out leaked the existence of drafts until they were
+  refused explicitly.
+
+## Schema changes: the baseline is not a migration
+
+`database/schema.sql` is guarded with `IF NOT EXISTS`, which makes re-running it
+harmless and does **nothing** for a table that already exists in an older shape
+— the statement is skipped and reported as success. SQLite cannot `ALTER` a
+`CHECK` at all, so changing one is a four-statement table rebuild.
+
+Changes to existing tables go in `database/migrations/`. `db:schema:check`
+builds a database from the baseline and another from the migration chain and
+compares them, because nothing else makes the two agree.
+
 ## Comments
 
 - **Say why, never what.** The name says what it is.

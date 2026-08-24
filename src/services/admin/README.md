@@ -47,29 +47,40 @@ these records. See [the layering rule](../README.md).
 
 ## Flows
 
-### Claiming an application
+### Who worked a file, and why it is not a lock
 
-| | |
-| --- | --- |
-| **Entry** | `admin.intake.claim` |
-| **Guard** | any administrator |
-| **Refuses** | a stale `expectedAssignmentVersion`; taking a colleague's file without `conflictAcknowledged` when the assignee would be the applicant |
-| **Writes** | the head's assignee plus an append-only assignment event, in one batch |
-| **Guarded by** | `assignment_version` alone, so claiming cannot invalidate a colleague's in-flight review |
-| **Fails** | `The record changed. Reload and try again.` |
+There is no claim. `assigned_to_user_id`, `assigned_at` and the append-only
+`seb_application_assignment_event` history remain, but nothing reads them to
+decide whether a write is allowed — they are a record of who worked a file,
+written as a side effect of the work itself. Starting a desk review stamps the
+actor; so does completing one, and so does a TTM decision.
 
-Claiming is not a soft bookmark. It is the concurrency lock for every workflow
-action: nothing on an application can be actioned by anyone but its holder.
+The claim was removed because it was never what made a write safe. Seven of the
+eight writes that carried `assigned_to_user_id = actor` also carried
+`status_version`, and *that* is what serialises concurrent writers. The eighth —
+adding an agenda item — had no version term, and keeps the guards it already
+had: the meeting is `DRAFT`, the application is in `TTM_REVIEW`, and fewer than
+twenty items are active.
+
+It also cost something concrete. Reading a document was gated on holding the
+file, and claiming required `STAFF_WRITE`, so a reviewer could never open a
+single piece of the evidence they existed to review. Gating a read on ownership
+was the wrong shape.
+
+Two officers on one file is now possible rather than prevented. One finishes
+and the other is refused on the version guard, which is wasted effort and not
+corruption. The workspace names whoever was there last so the second can decide
+whether to go and ask them; it disables nothing.
 
 ### Completing a desk review
 
 | | |
 | --- | --- |
 | **Entry** | `admin.intake.completeDeskReview` |
-| **Guard** | administrator **and** holds the assignment |
-| **Refuses** | a missing or duplicated check; an expansion check that disagrees with the application type; a passed check with no transcribed number; an identifier already recorded on another funding case and not explained; for `ADVANCE_TO_BANK`, any submitted document whose latest scan is not `ACCEPTED` |
+| **Guard** | `STAFF_WRITE` |
+| **Refuses** | a missing or duplicated check; an expansion check that disagrees with the application type; a value for an identifier this cycle does not collect; a passed check with no transcribed number where the cycle demands one; an identifier already recorded on another funding case and not explained; reviewing your own application without `conflictAcknowledged`; for `ADVANCE_TO_BANK`, any submitted document whose latest scan is not `ACCEPTED` |
 | **Writes** | status, the immutable review, its nine checks, the transcribed identifiers, any revision requests, the applicant-visible event, and the audit row — one batch |
-| **Guarded by** | `status_version`, the current status, and the assignee |
+| **Guarded by** | `status_version` and the current status |
 | **Fails** | the specific refusal, or `The record changed.` |
 
 The nine checks and the outcome are one write, not a wizard, so a review cannot
@@ -153,7 +164,9 @@ data yet".
 ## Documents
 
 Staff download **fails closed**: the latest scan for that exact submitted file
-must be `ACCEPTED`, and the staff member must hold the assignment. There is no
+must be `ACCEPTED`. It needs `STAFF_READ` and nothing more — a draft is refused
+identically to an application that does not exist, so the path cannot be used
+to discover which drafts exist. There is no
 GraphQL mutation to accept a scan and there must never be one —
 `recordDocumentScanResult` is an internal function for a future trusted scanner.
 The scanner provider is not connected, so staff document access remains a
@@ -164,7 +177,6 @@ public-launch blocker.
 | Symbol | File | Does |
 | --- | --- | --- |
 | `intakeQueue`, `intakeQueues`, `intakeByReference`, `intakeWorkspace` | `controllers/intake.ts` | The queue page, the chip counts, exact reference lookup, the whole case file |
-| `claimApplication`, `releaseApplication`, `reassignApplication` | `controllers/intake.ts` | Assignment, each with a catalogued reason |
 | `addInternalNote` | `controllers/intake.ts` | Append-only staff note; a correction points at what it replaces |
 | `startDeskReview`, `completeDeskReview`, `cancelRevisionRequest` | `controllers/intake.ts` | The review itself |
 | `adminDocumentDownloadUrl` | `controllers/intake.ts` | Fail-closed signed download of a pinned file |

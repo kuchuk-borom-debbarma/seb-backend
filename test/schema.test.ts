@@ -181,6 +181,7 @@ describe('core and Mission SEP schema', () => {
 
     expect(tables.results.map(({ name }) => name)).toEqual([
       'core_audit_event',
+      'core_schema_migration',
       'core_session',
       'core_signup_challenge',
       'core_user',

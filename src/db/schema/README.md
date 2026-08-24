@@ -127,6 +127,24 @@ for optimistic concurrency.
   complete immutable profile history.
 - `seb_programme_cycle` / `seb_programme_cycle_version`: versioned Mission SEP
   policy/application windows such as 2026 and later cycles.
+- `seb_programme_cycle_document_rule`, `…_assessment_rule`,
+  `…_identifier_rule`: what one cycle version demands. All three carry a
+  composite foreign key on `(programme_cycle_id, programme_cycle_version)`, so a
+  rule belongs to a *version* and editing a cycle cannot change what an
+  already-submitted application is judged by.
+
+  The identifier rules carry **two independent settings**, which is the point of
+  the table. `requirement` is `REQUIRED_ON_PASS`, `OPTIONAL` or `OFF`;
+  `duplicate_policy` is `CHECKED` or `NOT_CHECKED`. A bank account can be
+  collected without a match ever blocking anybody — joint and family accounts
+  are real — and a certificate can be compared without being demanded when its
+  check is `NOT_APPLICABLE`. A `CHECK` enforces that `REQUIRED_ON_PASS` names a
+  real desk-review check and that nothing else names one, because only a
+  requirement conditional on a check has a moment at which it applies.
+
+  **No rows means the cycle demands nothing and compares nothing.** That is the
+  honest default for a table that did not exist yesterday, and it is what keeps
+  cycles created before it working unchanged.
 - `seb_funding_case` / `seb_funding_case_version`: the enterprise's single
   long-running Mission SEP funding chain.
 - `seb_application` / `seb_application_version`: current workflow head and full
@@ -142,9 +160,10 @@ for optimistic concurrency.
 - `seb_revision_request`: immutable reviewer correction requests and their
   resolution or cancellation metadata.
 - `seb_application_event`: append-only applicant-facing workflow timeline.
-- `seb_application_assignment_event`: claim/release/reassignment and explicit
-  self-review acknowledgement history; the application head keeps only the
-  current assignee for fast queues.
+- `seb_application_assignment_event`: append-only history of who a file passed
+  to; the head keeps only the most recent for fast queues. **Advisory, not a
+  lock** — nothing reads it to decide whether a write is allowed, and it is
+  written as a side effect of the work rather than as a step before it.
 - `seb_application_internal_note`: staff-only append-only notes and corrections.
 - `seb_desk_review` / `seb_desk_review_check`: frozen submission outcome and
   fixed initial scrutiny checklist.
@@ -252,27 +271,29 @@ not collide.
 | --- | --- | --- |
 | `current_version` | every versioned head | content edits |
 | `status_version` | `seb_application` | workflow transitions |
-| `assignment_version` | `seb_application` | queue ownership |
+| `assignment_version` | `seb_application` | who worked it last |
 | `ledger_version` | `seb_funding_award`, `seb_recovery_case` | money entries |
 | `row_version` | `core_user` | identity edits |
 | sequence numbers | every append-only table | ordering, unique-indexed |
 
-Separating them is what lets two officers work without fighting: claiming an
-application bumps `assignment_version` and nothing else, so it cannot invalidate
-a colleague's in-flight desk review, and recording a payment bumps
+Separating them is what lets two officers work without fighting: noting who
+worked a file bumps `assignment_version` and nothing else, so it cannot
+invalidate a colleague's in-flight desk review, and recording a payment bumps
 `ledger_version` without manufacturing an award-policy version for an accounting
 entry.
 
 These surface at the API as mandatory `expectedVersion`,
-`expectedStatusVersion`, `expectedAssignmentVersion`, `expectedLedgerVersion`,
-`expectedReferralVersion` and `expectedDocumentVersion` inputs.
+`expectedStatusVersion`, `expectedLedgerVersion`, `expectedReferralVersion` and
+`expectedDocumentVersion` inputs. `assignment_version` is deliberately **not**
+among them: nothing asks a caller to have seen a particular assignment, because
+the assignment does not gate anything.
 
 ### The guarded-write shape
 
 One `db.batch`, which D1 executes as one transaction:
 
 1. `UPDATE … WHERE current_version = :expected` on the head, plus every term
-   that must still hold — the owner, the status, the assignee.
+   that must still hold — the owner, the status, the lifecycle.
 2. Each dependent row as `INSERT … SELECT … WHERE EXISTS (…)`, where the
    predicate proves the head reached the new version at this exact timestamp.
 3. The first statement's result decides the outcome.
@@ -281,9 +302,9 @@ A losing request therefore writes nothing at all — no half-applied referral,
 no orphaned audit row — and is told `The record changed. Reload and try
 again.`
 
-The audit row doubles as the operation's unique claim: dependent writes require
-its exact ID rather than correlating on `updated_at`, because two independent
-requests may legitimately share the same millisecond.
+The audit row doubles as the operation's unique identity: dependent writes
+require its exact ID rather than correlating on `updated_at`, because two
+independent requests may legitimately share the same millisecond.
 
 Some rules cannot be a row-level check because they are a decision across many
 rows — expansion eligibility, sanction limits, over-reversal, zero-balance
@@ -341,8 +362,8 @@ byte-exact schema check would reject.
   assessment, recovery, and role-management services exist. Account recovery, a
   production scanner, notification delivery, and payment integration remain
   public-launch blockers.
-- The database is not deployed with production data, so `database/schema.sql`
-  remains a replaceable canonical baseline rather than an incremental migration.
+- `database/schema.sql` is the canonical baseline for a new database and is
+  safe to re-apply. Changes to existing tables live in `database/migrations/`.
 - `core_user_role_grant.role` accepts five values: `APPLICANT`, `REVIEWER`,
   `APPROVER`, `ADMIN`, `SUPER_ADMIN`. The vocabulary is fixed in TypeScript and
   enforced by a `CHECK`, so adding a role is a schema change rather than a
@@ -374,27 +395,36 @@ To initialize a workspace-local D1 database:
 npm run db:setup:local
 ```
 
-Do not add an incremental migration until a real deployed database requires an
-upgrade path. Keep this README's inventory, lifecycle, assumptions, and current
-state synchronized whenever tables or application rules change.
+Re-running it is safe: every statement in `database/schema.sql` is guarded with
+`IF NOT EXISTS`, so a second apply is a no-op and a half-created database
+recovers rather than erroring partway through. `db:setup:local` also records
+every migration as applied, because the baseline already contains their effect.
 
-### The gap this leaves
+Keep this README's inventory, lifecycle, assumptions, and current state
+synchronized whenever tables or application rules change.
 
-`database/schema.sql` is 48 bare `CREATE TABLE` statements with no
-`IF NOT EXISTS` and no version marker. It applies exactly once, to an empty
-database. **The first schema change after a deployed database holds real data
-has no story**, and that is stated here rather than discovered then.
+### Changing a table that already exists
 
-Two honest options exist at that point, and neither is built:
+The guard on the baseline is not a migration, and the difference matters.
+`IF NOT EXISTS` only ever helps an object that does not exist yet: against a
+database whose table is already there in an older shape, the statement is
+skipped and **reported as success**, leaving the schema on the old definition
+while the code assumes the new one.
 
-| | Costs |
-| --- | --- |
-| Hand-written `ALTER` statements alongside the regenerated file | Two things to keep in step, with nothing checking that they agree |
-| Recreate the database | Only acceptable while it holds nothing anybody needs |
+SQLite sharpens this, because it cannot `ALTER` a `CHECK` constraint at all.
+Changing one means creating a new table, copying every row, dropping the old and
+renaming — four statements no generator can infer, because only a person knows
+whether the existing rows satisfy the new rule.
 
-Migration tooling is a
-[roadmap item](../../../docs/ROADMAP.md), not something to improvise during a
-deployment.
+So changes to existing tables are ordered files in
+[`database/migrations/`](../../../database/migrations/README.md), applied by
+`npm run db:migrate` and recorded in `core_schema_migration` — the ledger row
+written in the same batch as the migration it records, so a crash cannot leave a
+database migrated but unaware of it.
+
+Nothing makes the baseline and the migration chain agree by construction, so
+`npm run db:schema:check` builds a database each way and compares them. That
+check is the only thing standing between the two quietly diverging.
 
 ## Current state
 
