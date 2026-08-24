@@ -176,6 +176,76 @@ const cycleRefusedFor = async (
   return result.message
 }
 
+/**
+ * The actions recorded against one record, oldest first.
+ *
+ * Read straight from `core_audit_event` rather than through the audit query,
+ * because the question is whether the row was **written**. A filter that
+ * happened to exclude it would look exactly like it never existing, which is
+ * the failure this is here to catch.
+ */
+const auditActionsFor = async (entityId: string): Promise<string[]> => {
+  const rows = await env.DB.prepare(
+    'SELECT action FROM core_audit_event WHERE entity_id = ? ORDER BY created_at, rowid',
+  ).bind(entityId).all()
+  return (rows.results as { action: string }[]).map((row) => row.action)
+}
+
+/**
+ * An open recovery case, ready to have entries posted against it.
+ *
+ * The award and its one release are seeded rather than reached through desk
+ * review, bank and committee. What these tests are about is whether recovery
+ * writes an audit row; replaying the whole decision path to get here would make
+ * them slow and would fail for reasons that have nothing to do with the trail.
+ *
+ * The award is `CANCELLED` and has paid something out, because those are the
+ * two conditions the open-recovery predicate insists on — recovery is money
+ * already given on an award that no longer stands.
+ */
+const recoverableCase = async (
+  administrator: { cookie: string; userId: string },
+  cycle: { id: string },
+): Promise<string> => {
+  const submitted = await createSubmittedApplication(
+    administrator.cookie, administrator.userId, cycle.id,
+  )
+  const awardId = crypto.randomUUID()
+  const [caseRow] = (await env.DB.prepare(
+    'SELECT funding_case_id AS fundingCaseId FROM seb_application WHERE id = ?',
+  ).bind(submitted.applicationId).all()).results as { fundingCaseId: string }[]
+  const now = Date.now()
+  await env.DB.prepare(`INSERT INTO seb_funding_award (
+    id, funding_case_id, application_id, sanction_order_number, sanction_date,
+    sanctioned_amount_paise, status, ledger_version, current_version,
+    created_at, updated_at
+  ) VALUES (?, ?, ?, ?, '2026-06-01', 1000000, 'CANCELLED', 0, 1, ?, ?)`)
+    .bind(awardId, caseRow!.fundingCaseId, submitted.applicationId,
+      `SO-AUDIT-${awardId.slice(0, 8)}`, now, now)
+    .run()
+  await env.DB.prepare(`INSERT INTO seb_disbursement (
+    id, funding_award_id, sequence_number, entry_type, amount_paise,
+    occurred_at, ttm_approval_reference, ttm_approval_date,
+    bank_account_verified_at, performance_agreement_reference,
+    performance_agreement_executed_at, physical_verification_required,
+    recorded_by_user_id, created_at
+  ) VALUES (?, ?, 1, 'RELEASE', 1000000, ?, 'TTM/1', '2026-06-01', ?, 'PA/1', ?, 0, ?, ?)`)
+    .bind(crypto.randomUUID(), awardId, now, now, now, administrator.userId, now)
+    .run()
+
+  const opened = await graphql<any>(`mutation($input: OpenRecoveryInput!) {
+    admin { funding { openRecovery(input: $input) { success message response { recoveryCase { id } } } } }
+  }`, { input: {
+    awardId,
+    officialDecisionReference: `REC-AUDIT-${submitted.applicationId}`,
+    officialDecisionDate: '2026-07-01',
+    reasonCategoryId: await reasonId(cycle.id, 'RECOVERY'),
+    applicantMessage: 'Recovery proceedings opened.',
+  } }, administrator.cookie)
+  expect(opened.data.admin.funding.openRecovery.success, JSON.stringify(opened)).toBe(true)
+  return opened.data.admin.funding.openRecovery.response.recoveryCase.id as string
+}
+
 const createOpenedCycle = async (
   cookie: string,
   policyOverride: Record<string, unknown> = {},
@@ -1342,6 +1412,11 @@ describe('Mission SEP administration', () => {
       application: { status: 'DESK_REVIEW', statusVersion: 5 },
     })
     expect(cancelledRevision.data.admin.intake.cancelRevision.response.revisions[0].cancelledAt).not.toBeNull()
+    /*
+     * Withdrawing a correction request leaves the application exactly as it
+     * was, so without an audit row it left no trace of the officer at all.
+     */
+    expect(await auditActionsFor(first.applicationId)).toContain('SEB.REVISION_CANCELLED')
     const staleRevisionCancellation = await graphql<any>(`mutation($input: CancelRevisionInput!) {
       admin { intake { cancelRevision(input: $input) { success message } } }
     }`, { input: {
@@ -2017,9 +2092,20 @@ describe('Mission SEP administration', () => {
     expect(reordered.data.admin.decision.reorderAgendaItem.response.agenda[0]).toMatchObject({
       position: 2, currentVersion: 2,
     })
+    /*
+     * Who put this application before the committee, and who moved it. Both
+     * once wrote a version row and nothing the audit trail could see, so a
+     * super administrator could not answer either question.
+     */
+    const afterAgenda = await auditActionsFor(meetingHead.id)
+    expect(afterAgenda.filter((action) => action === 'SEB.TTM_AGENDA_CHANGED'))
+      .toHaveLength(2)
+
     await graphql<any>(`mutation($input: TtmMeetingTransitionInput!) {
       admin { decision { startMeeting(input: $input) { success } } }
     }`, { input: { meetingId: meetingHead.id, expectedVersion: 2 } }, administrator.cookie)
+    // Opening the meeting fixes its agenda, so it is a recorded act in itself.
+    expect(await auditActionsFor(meetingHead.id)).toContain('SEB.TTM_MEETING_CHANGED')
     const ttmRejectionReason = await reasonId(cycle.id, 'REJECTION')
     const revisionReason = await reasonId(cycle.id, 'REVISION')
     const deferralReason = await reasonId(cycle.id, 'TTM_DEFERRAL')
@@ -2194,6 +2280,16 @@ describe('Mission SEP administration', () => {
       admin { decision { finalizeMeeting(input: $input) { response { meeting { status currentVersion } } } } }
     }`, { input: { meetingId: meetingHead.id, expectedVersion: 3 } }, administrator.cookie)
     expect(finalized.data.admin.decision.finalizeMeeting.response.meeting.status).toBe('FINALIZED')
+    /*
+     * Creation, the update, the two agenda changes, opening and finalizing —
+     * every act on this meeting is now on the record. Counted rather than
+     * merely present, because a guard that never fires would leave the earlier
+     * assertions passing on somebody else's row.
+     */
+    const meetingTrail = await auditActionsFor(meetingHead.id)
+    expect(meetingTrail.filter((a) => a === 'SEB.TTM_MEETING_CHANGED').length)
+      .toBeGreaterThanOrEqual(4)
+    expect(meetingTrail.filter((a) => a === 'SEB.TTM_AGENDA_CHANGED')).toHaveLength(2)
     const meetings = await graphql<any>(`query($id: ID!) { admin { decision {
       meetings { response { nodes { id status } pageInfo { totalCount } } }
       meetingById(meetingId: $id) { response { agenda { id } decisions { id } } }
@@ -3022,21 +3118,27 @@ describe('the committee meetings list', () => {
 })
 
 describe('what reaches the activity history', () => {
-  /**
-   * The audit trail is what a super administrator reviews after the fact. An
-   * action absent from it cannot be reviewed at all, so what is missing from it
-   * matters more than what is in it.
-   *
-   * `core_audit_event` is read directly rather than through the GraphQL query,
-   * because the question is whether the row was *written* — a filter that
-   * happens to exclude it would look identical to it never existing.
-   */
-  const auditActionsFor = async (entityId: string): Promise<string[]> => {
-    const rows = await env.DB.prepare(
-      'SELECT action FROM core_audit_event WHERE entity_id = ? ORDER BY created_at',
-    ).bind(entityId).all()
-    return (rows.results as { action: string }[]).map((row) => row.action)
-  }
+  it('records a recovery case cancelled in error', async () => {
+    /*
+     * Cancelling is the one recovery act that leaves no ledger entry behind, so
+     * it is the one where the audit row is the *only* trace. A case opened
+     * against the wrong award and quietly cancelled would otherwise be
+     * indistinguishable from one that never existed.
+     */
+    const administrator = await adminSession(['APPLICANT', 'SUPER_ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie)
+    const caseId = await recoverableCase(administrator, cycle)
+
+    const cancelled = await graphql<any>(`mutation($input: CloseRecoveryInput!) {
+      admin { funding { cancelRecovery(input: $input) { success message } } }
+    }`, { input: {
+      recoveryCaseId: caseId, expectedVersion: 1,
+      reason: 'Opened against the wrong award.',
+    } }, administrator.cookie)
+    expect(cancelled.data.admin.funding.cancelRecovery.success, JSON.stringify(cancelled))
+      .toBe(true)
+    expect(await auditActionsFor(caseId)).toContain('SEB.RECOVERY_CANCELLED')
+  })
 
   it('records who put an application before the committee, and who took it off', async () => {
     /*
@@ -3086,54 +3188,7 @@ describe('what reaches the activity history', () => {
     const submitted = await createSubmittedApplication(
       administrator.cookie, administrator.userId, cycle.id,
     )
-    /*
-     * The award is seeded rather than reached through the whole decision path.
-     * What is under test is whether recovery writes an audit row, and replaying
-     * desk review, bank and committee to get there would make the test slow and
-     * would fail for reasons that have nothing to do with the audit trail.
-     *
-     * `CANCELLED`, because recovery is only opened against an award that was
-     * revoked — money already paid on an award that no longer stands.
-     */
-    const awardId = crypto.randomUUID()
-    const [caseRow] = (await env.DB.prepare(
-      'SELECT funding_case_id AS fundingCaseId FROM seb_application WHERE id = ?',
-    ).bind(submitted.applicationId).all()).results as { fundingCaseId: string }[]
-    const now = Date.now()
-    await env.DB.prepare(`INSERT INTO seb_funding_award (
-      id, funding_case_id, application_id, sanction_order_number, sanction_date,
-      sanctioned_amount_paise, status, ledger_version, current_version,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, ?, '2026-06-01', 1000000, 'CANCELLED', 0, 1, ?, ?)`)
-      .bind(awardId, caseRow!.fundingCaseId, submitted.applicationId,
-        `SO-AUDIT-${awardId.slice(0, 8)}`, now, now)
-      .run()
-    /*
-     * And one release, because recovery only makes sense against money that
-     * actually moved — the write refuses on an award that paid out nothing.
-     */
-    await env.DB.prepare(`INSERT INTO seb_disbursement (
-      id, funding_award_id, sequence_number, entry_type, amount_paise,
-      occurred_at, ttm_approval_reference, ttm_approval_date,
-      bank_account_verified_at, performance_agreement_reference,
-      performance_agreement_executed_at, physical_verification_required,
-      recorded_by_user_id, created_at
-    ) VALUES (?, ?, 1, 'RELEASE', 1000000, ?, 'TTM/1', '2026-06-01', ?, 'PA/1', ?, 0, ?, ?)`)
-      .bind(crypto.randomUUID(), awardId, now, now, now, administrator.userId, now)
-      .run()
-    const award = { awardId, applicationId: submitted.applicationId }
-
-    const opened = await graphql<any>(`mutation($input: OpenRecoveryInput!) {
-      admin { funding { openRecovery(input: $input) { success message response { recoveryCase { id } } } } }
-    }`, { input: {
-      awardId: award.awardId,
-      officialDecisionReference: `REC-AUDIT-${award.applicationId}`,
-      officialDecisionDate: '2026-07-01',
-      reasonCategoryId: await reasonId(cycle.id, 'RECOVERY'),
-      applicantMessage: 'Recovery proceedings opened.',
-    } }, administrator.cookie)
-    expect(opened.data.admin.funding.openRecovery.success, JSON.stringify(opened)).toBe(true)
-    const caseId = opened.data.admin.funding.openRecovery.response.recoveryCase.id as string
+    const caseId = await recoverableCase(administrator, cycle)
 
     expect(await auditActionsFor(caseId)).toContain('SEB.RECOVERY_OPENED')
 
@@ -3142,7 +3197,7 @@ describe('what reaches the activity history', () => {
     }`, { input: {
       recoveryCaseId: caseId, expectedLedgerVersion: 0,
       entryType: 'DEMAND', component: 'PENAL_INTEREST', relatedEntryId: null,
-      amountPaise: '10000', externalReference: `REC-D-${award.applicationId}`,
+      amountPaise: '10000', externalReference: `REC-D-${caseId}`,
       occurredAt: new Date().toISOString(), reasonCategoryId: null,
       applicantMessage: 'Interest demanded.',
     } }, administrator.cookie)
@@ -3154,7 +3209,7 @@ describe('what reaches the activity history', () => {
     }`, { input: {
       recoveryCaseId: caseId, expectedLedgerVersion: 1,
       entryType: 'WAIVER', component: 'PENAL_INTEREST', relatedEntryId: null,
-      amountPaise: '10000', externalReference: `REC-W-${award.applicationId}`,
+      amountPaise: '10000', externalReference: `REC-W-${caseId}`,
       occurredAt: new Date().toISOString(),
       reasonCategoryId: await reasonId(cycle.id, 'RECOVERY_WAIVER'),
       applicantMessage: 'Interest waived.',

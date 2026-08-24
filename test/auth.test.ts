@@ -540,6 +540,19 @@ describe('inviting somebody to a staff role', () => {
       (token![at] === 'A' ? 'B' : 'A') + token!.slice(at + 1)
     expect(await accept(edited)).toMatchObject({ success: false, message: UNUSABLE })
     expect(await activeRoles(subject.id)).toEqual(['APPLICANT'])
+
+    /*
+     * And it is recorded. One refusal is unremarkable; a run of them is
+     * somebody trying tokens, which is exactly what a super administrator
+     * reviewing the history would want to see. The actor is null, because a
+     * refused token identifies nobody — possession is the whole credential.
+     */
+    const [refusal] = (await env.DB.prepare(
+      `SELECT actor_user_id AS actor, outcome FROM core_audit_event
+       WHERE action = 'RBAC.ROLE_INVITE_REFUSED' ORDER BY created_at DESC LIMIT 1`,
+    ).all()).results as { actor: string | null; outcome: string }[]
+    expect(refusal, 'a refused invitation left no trace').toBeDefined()
+    expect(refusal).toMatchObject({ actor: null, outcome: 'FAILURE' })
   })
 
   it('refuses a token sealed with a different secret', async () => {
