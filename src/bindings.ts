@@ -12,6 +12,15 @@ export type AppBindings = CloudflareBindings & {
    * the one that only prints.
    */
   ENVIRONMENT?: string
+  /**
+   * Turns rate limiting off, for the test suites and nothing else.
+   *
+   * `"true"` selects a limiter that counts nothing. The factory refuses it
+   * outright in production, at construction, so a Worker configured this way
+   * there fails to start rather than serving unprotected. See
+   * `services/rate-limit/README.md` for why the suites need it.
+   */
+  RATE_LIMIT_DISABLED?: string
   AUTH_SECRET?: string
   /**
    * Keys the digest of the identity numbers a reviewer transcribes. Separate

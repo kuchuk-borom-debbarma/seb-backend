@@ -48,18 +48,25 @@ rather than a silent `any`.
 
 ## What bounds a request
 
-Four limits, layered so that the cheapest refusal happens first. Every number
-was measured against the real client rather than chosen by taste — its largest
-operation selects **114 fields at depth 7**, and its largest request is **under
-16 KB**.
+Layered so that the cheapest refusal happens first. Every number was measured
+against the real client rather than chosen by taste — its largest operation
+selects **114 fields at depth 7**, and its largest request is **under 16 KB**.
 
 | Bound | Value | Refused at |
 | --- | --- | --- |
+| Requests per address | 600 a minute | Hono, before parsing |
 | Request body | 64 KB | Hono, before parsing |
 | Fields per document | 500 | validation, before any resolver |
 | Selection depth | 12 | validation |
+| Attempts at one operation | per the policy | execution, by the rate-limit plugin |
 | `first` on any connection | 1–100, default 20 | the service |
 | Un-paginated child collections | 500 rows | the query |
+
+The first and the fifth are the same mechanism at two depths, and they have to
+be: `/graphql` is a single POST, so the HTTP layer cannot tell one operation
+from another. How much each operation is allowed, and why some are counted
+against the account rather than the address, is owned by
+[the rate-limit service](../services/rate-limit/README.md).
 
 ### Why a document-wide field limit exists
 

@@ -13,6 +13,12 @@ import { cleanupExpiredDocumentUploads } from './services/application'
 import { handleLocalStorageRequest } from './services/storage/route'
 import { drainMemoryQueue, usesLocalQueue, type QueueMessage } from './services/queue'
 import { scanDocumentVersion } from './services/document-scanner/consume'
+import {
+  rateLimiter,
+  RATE_LIMITED_MESSAGE,
+  REQUEST_BUDGET,
+} from './services/rate-limit'
+import { callerAddress } from './services/rate-limit/identity'
 import { usesLocalStorage } from './services/storage'
 import { closeExpiredProgrammeCycles } from './services/admin'
 
@@ -77,6 +83,44 @@ app.get('/', (c) => {
     bindings: ['DB', 'STORAGE', 'QUEUE'],
   })
 })
+
+/**
+ * The budget every request spends, whatever it asks for.
+ *
+ * Applied before anything is parsed, so a flood costs one atomic increment
+ * rather than a GraphQL parse — and it covers the routes below that have no
+ * GraphQL at all. This is a guard on volume; the limits that make the sensitive
+ * operations hard are per-operation and live in the policy, applied by the
+ * plugin that can see which operation a document runs.
+ *
+ * Refuses with 429 and an envelope-shaped body, the way the body limit beside
+ * it refuses with 413: a client reading `/graphql` gets the shape it expects
+ * whatever went wrong.
+ */
+const requestBudget = async (
+  c: { env: AppBindings; req: { raw: Request }; json: (body: unknown, status?: number) => Response },
+  next: () => Promise<void>,
+): Promise<Response | void> => {
+  const address = callerAddress(c.req.raw.headers)
+  // Nothing to count against. Locally there is no such header at all, and a
+  // request that reaches a deployed Worker without one is the platform's
+  // business rather than something to refuse over.
+  if (!address) return next()
+
+  let allowed: boolean
+  try {
+    allowed = (await rateLimiter(c.env).consume(REQUEST_BUDGET, address)).allowed
+  } catch {
+    // Could not answer. This service refuses rather than permitting when it
+    // cannot answer — protection is never silently absent.
+    allowed = false
+  }
+  if (allowed) return next()
+  return c.json(
+    { success: false, message: RATE_LIMITED_MESSAGE, response: null },
+    429,
+  )
+}
 
 const BOOTSTRAP_FAILURE_MESSAGE =
   'First administrator bootstrap is unavailable or the supplied credentials are invalid.'
@@ -175,6 +219,9 @@ app.post(
     return result.success ? c.json(result) : c.json(result, 403)
   },
 )
+
+app.use('/graphql', requestBudget)
+app.use('/internal/*', requestBudget)
 
 app.use(
   '/graphql',

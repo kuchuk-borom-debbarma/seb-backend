@@ -938,7 +938,17 @@ complete.
   ordered migrations in `database/migrations/` carry changes to existing
   tables, `core_schema_migration` records what has run, and `db:schema:check`
   proves the two paths still produce the same database.
-- [ ] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits.
+- [x] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits. One
+  policy names which operations are limited and by how much, counted against
+  the caller's address, their session, and the account being acted on; a
+  refusal arrives as an ordinary result envelope, and a limiter that cannot
+  answer refuses rather than permitting.
+- [ ] Count abuse limits over windows longer than a minute. The platform's
+  rate-limiting binding accepts a period of ten seconds or sixty and nothing
+  else, so "three signups an hour for one address" is expressible only as "two
+  a minute" — bulk abuse is stopped, a patient attacker trickling requests is
+  not. A Durable Object counts any window; swapping to one changes a single
+  transport file and the numbers in the policy.
 - [ ] Configure a real malware scanner. This is a **production** blocker rather
   than a blanket one: the seam exists, and `local` and `develop` are usable
   without it because they record plainly that nothing examined the file.
@@ -1007,8 +1017,9 @@ their prerequisites.
 3. Complete administrator recovery before enabling the already implemented
    business workflow publicly. Administrator-only sign-in and role management
    are delivered; account recovery is not.
-4. Complete production applicant-account protections, email delivery, malware
-   scanning, and abuse limits.
+4. Complete production applicant-account protections, email delivery, and
+   malware scanning. Abuse limits are delivered; what remains is counting them
+   over windows longer than the minute the platform's binding allows.
 5. Complete notifications, reports, privacy/access rules, and operational
    procedures.
 6. Resolve every launch-blocking policy decision and finish the public-launch
