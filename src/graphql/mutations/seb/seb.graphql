@@ -287,7 +287,7 @@ sent and returned as decimal strings so that no amount can lose precision on
 the way through a client.
 """
 input FinancialInput {
-  """Total cost of the project, in paise."""
+  """What the whole project costs, in paise. The seed fund covers part of it."""
   totalProjectCostPaise: Money
 
   """
@@ -423,7 +423,7 @@ input SaveApplicationDraftInput {
 
 """Identifies an application at an exact form version and status version."""
 input ApplicationVersionInput {
-  """Which application."""
+  """The application to act on. Must belong to the signed-in applicant."""
   applicationId: ID!
 
   """The form's `version`, as read with the draft."""
@@ -501,7 +501,7 @@ input ApplicationDocumentVersionInput {
   """Which application the document belongs to."""
   applicationId: ID!
 
-  """Which document."""
+  """From `ApplicationDocument.id` on the application."""
   documentId: ID!
 
   """The document's `version`; a mismatch refuses."""

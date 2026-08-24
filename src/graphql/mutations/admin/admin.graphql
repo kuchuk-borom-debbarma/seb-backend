@@ -1,146 +1,1607 @@
-extend type Mutation { admin: AdminMutation! }
+extend type Mutation {
+  """
+  Everything the programme office does.
 
+  **Use case:** the office screens under `/admin`. Requires a staff role, and
+  most of it requires more than the ability to read — a reviewer reaches none
+  of these.
+  """
+  admin: AdminMutation!
+}
+
+"""The four things the office acts on, in the order a file passes through."""
 type AdminMutation {
+  """Creating and operating the programme cycles."""
   programmeCycle: AdminProgrammeCycleMutation!
+
+  """Working applications as they arrive, and reviewing them."""
   intake: AdminIntakeMutation!
+
+  """Partner-bank referral and the committee that decides."""
   decision: AdminDecisionMutation!
+
+  """Awards, payments, assessments and recovery."""
   funding: AdminFundingMutation!
 }
 
-input ProgrammeDocumentRuleInput { documentType: DocumentType!, condition: ProgrammeDocumentCondition! }
-input ProgrammeReasonInput { context: ProgrammeReasonContext!, code: String!, label: String!, applicantMessageTemplate: String }
-# Requirement and duplicate-checking are independent: a value can be worth
-# recording without being worth refusing on, and worth comparing without being
-# demanded. `checkType` is required only for REQUIRED_ON_PASS, which is the
-# only setting that needs a moment at which it applies.
-enum IdentifierRequirement { REQUIRED_ON_PASS OPTIONAL OFF }
-enum IdentifierDuplicatePolicy { CHECKED NOT_CHECKED }
+"""One document a cycle requires, and the condition it is required under."""
+input ProgrammeDocumentRuleInput {
+  """Which evidence slot."""
+  documentType: DocumentType!
+
+  """When it becomes required. `OPTIONAL` means it is never demanded."""
+  condition: ProgrammeDocumentCondition!
+}
+
+"""One approved reason for one administrative action."""
+input ProgrammeReasonInput {
+  """Which action this reason may be used for."""
+  context: ProgrammeReasonContext!
+
+  """
+  Stable code for reporting. Uppercase letters, digits and underscores, 2–64
+  characters.
+
+  **Example:** `"INCOMPLETE_EVIDENCE"`
+  """
+  code: String!
+
+  """What staff see in the reason picker. At most 120 characters."""
+  label: String!
+
+  """
+  Suggested wording for the applicant, which the officer may edit before
+  sending. At most 500 characters. Null where the action carries no message.
+  """
+  applicantMessageTemplate: String
+}
+
+"""
+Whether the desk review demands an identity number, and when.
+
+`REQUIRED_ON_PASS` rather than `REQUIRED`: an identifier is the evidence behind
+a check, and a check that was failed or marked not applicable is attesting to
+nothing, so there is nothing to have read.
+"""
+enum IdentifierRequirement {
+  """
+  Demanded whenever the check it stands behind is passed. Requires
+  `checkType`.
+  """
+  REQUIRED_ON_PASS
+
+  """Collected if the reviewer has it. Never blocks a review."""
+  OPTIONAL
+
+  """
+  Not collected at all. No field appears, and sending a value for it is
+  refused rather than silently dropped.
+  """
+  OFF
+}
+
+"""Whether an identity number is compared against other applications."""
+enum IdentifierDuplicatePolicy {
+  """
+  Compared. A match on another funding case is raised as a question the
+  reviewer must answer.
+  """
+  CHECKED
+
+  """
+  Recorded but never compared. For numbers legitimately shared — a family
+  bank account is a real thing, and refusing on it would be wrong.
+  """
+  NOT_CHECKED
+}
+
+"""
+One identity number a cycle collects, and what it does with it.
+
+The two settings are **independent**: a value can be worth recording without
+being worth refusing on, and worth comparing without being demanded.
+"""
 input ProgrammeIdentifierRuleInput {
+  """Which number. Each kind may appear at most once per cycle."""
   kind: DeskReviewIdentifierKind!
+
+  """Whether the reviewer must transcribe it, and when."""
   requirement: IdentifierRequirement!
+
+  """Whether it is compared against other applications."""
   duplicatePolicy: IdentifierDuplicatePolicy!
+
+  """
+  The desk-review check this number is evidence for.
+
+  Required exactly when `requirement` is `REQUIRED_ON_PASS`, and refused
+  otherwise — only a requirement conditional on a check has a moment at which
+  it applies.
+  """
   checkType: DeskReviewCheckType
 }
 
+"""
+Everything one cycle decides, sent complete on every write.
+
+A replacement rather than a patch. Each write makes a new cycle version, and
+applications keep the version they were submitted against — so editing a cycle
+never changes what an application already sent is judged by.
+"""
 input ProgrammeCyclePolicyInput {
+  """Youngest applicant the cycle accepts, in years."""
   minimumApplicantAge: Int
+
+  """Oldest applicant the cycle accepts, in years."""
   maximumApplicantAge: Int
+
+  """
+  How many months of trading separates the two funding bands. At or below
+  this is `CATEGORY_A`; above it is `CATEGORY_B`.
+  """
   categoryAMaximumMonths: Int
+
+  """How long after an award before a later phase may be applied for."""
   expansionWaitMonths: Int
+
+  """Whether the applicant must confirm majority ownership."""
   majorityOwnershipRequired: Boolean
+
+  """Whose rules this cycle applies."""
   jurisdiction: ProgrammeJurisdiction
+
+  """
+  Whether a maximum award has been settled. `UNRESOLVED` is honest rather than
+  missing: no amount is checked against a ceiling nobody has approved.
+  """
   fundingCeilingState: FundingCeilingState
+
+  """The ceiling, in paise. Required when the state is `RESOLVED`."""
   fundingCeilingAmountPaise: Money
+
+  """What the ceiling is measured across. Required when `RESOLVED`."""
   fundingCeilingScope: FundingCeilingScope
+
+  """
+  Which assessments must pass before a later phase may start. Each type at
+  most once.
+  """
   requiredAssessmentTypes: [AssessmentType!]!
+
+  """
+  One rule per supported document type — the full set, not a subset. A
+  document that is not wanted is included with condition `OPTIONAL`.
+  """
   documentRules: [ProgrammeDocumentRuleInput!]!
-  # Absent means the cycle collects nothing and compares nothing.
+
+  """
+  Which identity numbers the desk review collects and compares.
+
+  Absent or empty means the cycle collects nothing and compares nothing.
+  Each kind at most once.
+  """
   identifierRules: [ProgrammeIdentifierRuleInput!]
+
+  """
+  The reasons this cycle offers for each administrative action. At most 50.
+
+  A cycle with none cannot be operated, because every later action must name
+  one — so this is filled in for a new cycle rather than left empty.
+  """
   reasons: [ProgrammeReasonInput!]!
 }
+
+"""A whole programme cycle: its identity, its window, and its rules."""
 input ProgrammeCycleInput {
+  """
+  Short code used in correspondence. 3–32 uppercase letters, digits or
+  hyphens, and unique across cycles.
+
+  **Example:** `"SEP-2026"`
+  """
   cycleCode: String!
+
+  """The cycle's name, as shown to applicants. At most 120 characters."""
   displayName: String!
+
+  """The policy year, between 2000 and 9999."""
   cycleYear: Int!
+
+  """The policy document this cycle implements."""
   policyReference: String
+
+  """Guidance written for applicants, shown on the application screens."""
   applicantGuidance: String
+
+  """Guidance written for partner banks. Never shown to applicants."""
   partnerBankGuidance: String
+
+  """
+  When the application window opens. Null leaves it unscheduled, which is a
+  cycle that cannot yet be applied to.
+  """
   opensAt: DateTime
+
+  """When the window closes. Must be later than `opensAt`."""
   closesAt: DateTime
+
+  """Everything this cycle decides."""
   policy: ProgrammeCyclePolicyInput!
 }
-input UpdateProgrammeCycleInput { id: ID!, expectedVersion: Int!, reason: String!, cycle: ProgrammeCycleInput! }
-input CycleTransitionInput { id: ID!, expectedVersion: Int!, reason: String! }
-input CycleGuidanceInput { id: ID!, expectedVersion: Int!, applicantGuidance: String!, partnerBankGuidance: String!, reason: String! }
-input CycleClosingInput { id: ID!, expectedVersion: Int!, closesAt: DateTime!, reason: String! }
 
+"""Replaces a draft cycle's identity, window and rules."""
+input UpdateProgrammeCycleInput {
+  """Which cycle."""
+  id: ID!
+
+  """The cycle's `currentVersion`; a mismatch refuses."""
+  expectedVersion: Int!
+
+  """Why it is being changed, kept in the cycle's history."""
+  reason: String!
+
+  """The complete replacement. Omitted fields are cleared."""
+  cycle: ProgrammeCycleInput!
+}
+
+"""Moves a cycle from one lifecycle state to the next."""
+input CycleTransitionInput {
+  """Which cycle."""
+  id: ID!
+
+  """The cycle's `currentVersion`; a mismatch refuses."""
+  expectedVersion: Int!
+
+  """Why, kept in the cycle's history."""
+  reason: String!
+}
+
+"""Rewrites the guidance on a cycle that is already open."""
+input CycleGuidanceInput {
+  """Which cycle."""
+  id: ID!
+
+  """The cycle's `currentVersion`; a mismatch refuses."""
+  expectedVersion: Int!
+
+  """The replacement guidance for applicants."""
+  applicantGuidance: String!
+
+  """The replacement guidance for partner banks."""
+  partnerBankGuidance: String!
+
+  """Why, kept in the cycle's history."""
+  reason: String!
+}
+
+"""Moves the closing time of a cycle that is already open."""
+input CycleClosingInput {
+  """Which cycle."""
+  id: ID!
+
+  """The cycle's `currentVersion`; a mismatch refuses."""
+  expectedVersion: Int!
+
+  """The new closing time."""
+  closesAt: DateTime!
+
+  """Why, kept in the cycle's history."""
+  reason: String!
+}
+
+"""
+Creating and operating programme cycles.
+
+**Use case:** the screens under `/admin/cycles`. Requires the authority to
+administer the programme — a reviewer or approver reaches none of this.
+"""
 type AdminProgrammeCycleMutation {
-  create(input: ProgrammeCycleInput!): AdminCycleResult!
-  updateDraft(input: UpdateProgrammeCycleInput!): AdminCycleResult!
-  open(input: CycleTransitionInput!): AdminCycleResult!
-  updateOpenGuidance(input: CycleGuidanceInput!): AdminCycleResult!
-  changeClosingTime(input: CycleClosingInput!): AdminCycleResult!
-  close(input: CycleTransitionInput!): AdminCycleResult!
-  archive(input: CycleTransitionInput!): AdminCycleResult!
-  softDeleteDraft(input: CycleTransitionInput!): AdminCycleResult!
-  restoreDraft(id: ID!, expectedVersion: Int!): AdminCycleResult!
+  """
+  Creates a cycle as a draft.
+
+  **Use case:** `/admin/cycles/new`. Nothing can be applied to until `open`.
+
+  **Refuses:** a duplicate cycle code, a closing time at or before the
+  opening, a policy whose rules repeat a document type or identifier kind, and
+  a reason code that is not well formed.
+  """
+  create(
+    """The whole cycle: identity, window and rules."""
+    input: ProgrammeCycleInput!
+  ): AdminCycleResult!
+
+  """
+  Replaces a draft cycle's rules.
+
+  **Use case:** `/admin/cycles/$id` while the cycle is still a draft. This is
+  the **only** way to change a cycle's rules — once open, only the guidance
+  and the closing time may move, so that applications cannot be judged by
+  rules that changed under them.
+
+  **Refuses:** a cycle that is not a draft, and a stale `expectedVersion`.
+  """
+  updateDraft(
+    """Which cycle, at which version, and the whole replacement."""
+    input: UpdateProgrammeCycleInput!
+  ): AdminCycleResult!
+
+  """
+  Opens a cycle for applications.
+
+  **Use case:** the button on `/admin/cycles/$id`. Irreversible: an opened
+  cycle can be closed but never returned to draft, and never deleted.
+
+  **Refuses:** a cycle whose rules are incomplete, and a stale
+  `expectedVersion`.
+  """
+  open(
+    """Which cycle, at which version, and why."""
+    input: CycleTransitionInput!
+  ): AdminCycleResult!
+
+  """
+  Rewrites the guidance on an open cycle.
+
+  **Use case:** correcting or clarifying instructions mid-cycle. Guidance is
+  not a rule, so this is allowed while a cycle is open.
+  """
+  updateOpenGuidance(
+    """Which cycle, at which version, and the replacement wording."""
+    input: CycleGuidanceInput!
+  ): AdminCycleResult!
+
+  """
+  Moves an open cycle's closing time.
+
+  **Use case:** extending a deadline. Closing stops new drafts; it strands
+  neither existing submissions nor official correction requests.
+  """
+  changeClosingTime(
+    """Which cycle, at which version, and the new closing time."""
+    input: CycleClosingInput!
+  ): AdminCycleResult!
+
+  """
+  Closes a cycle to new applications.
+
+  Work already in the cycle continues; only starting a new application stops.
+
+  **Refuses:** a stale `expectedVersion`.
+  """
+  close(
+    """Which cycle, at which version, and why."""
+    input: CycleTransitionInput!
+  ): AdminCycleResult!
+
+  """
+  Archives a closed cycle, so it renders as read-only history.
+
+  **Refuses:** a cycle that is not closed, and a stale `expectedVersion`.
+  """
+  archive(
+    """Which cycle, at which version, and why."""
+    input: CycleTransitionInput!
+  ): AdminCycleResult!
+
+  """
+  Removes a draft cycle, reversibly.
+
+  **Refuses:** a cycle that has ever been opened — it is part of the
+  programme's record — and a stale `expectedVersion`.
+  """
+  softDeleteDraft(
+    """Which cycle, at which version, and why."""
+    input: CycleTransitionInput!
+  ): AdminCycleResult!
+
+  """
+  Puts a removed draft cycle back.
+
+  **Refuses:** a stale `expectedVersion`.
+  """
+  restoreDraft(
+    """Which cycle."""
+    id: ID!
+
+    """The cycle's `currentVersion`; a mismatch refuses."""
+    expectedVersion: Int!
+  ): AdminCycleResult!
 }
 
-input InternalNoteInput { applicationId: ID!, note: String!, correctionOfNoteId: ID }
-enum DeskReviewCheckType { IDENTITY_KYC ST_ELIGIBILITY MAJORITY_OWNERSHIP JURISDICTION FORM_COMPLETENESS DOCUMENT_COMPLETENESS ANSWER_DOCUMENT_CONSISTENCY DPR_FEASIBILITY EXPANSION_EVIDENCE }
-enum DeskReviewCheckResult { PASS FAIL NOT_APPLICABLE }
-enum DeskReviewOutcome { ADVANCE_TO_BANK REQUEST_REVISION REJECT }
-input DeskReviewCheckInput { checkType: DeskReviewCheckType!, result: DeskReviewCheckResult!, internalNote: String }
-input AdminRevisionInput { section: ApplicationSection!, reasonCategoryId: ID!, note: String! }
-# What a reviewer read off the documents behind the checks they passed. A
-# passed check without its number is an attestation with nothing behind it, so
-# the API refuses one.
-enum DeskReviewIdentifierKind { ST_CERTIFICATE IDENTITY_DOCUMENT BANK_ACCOUNT BUSINESS_REGISTRATION }
-# `branchCode` belongs only to BANK_ACCOUNT: an account number identifies a
-# destination only together with the branch it is held at. `matchedReason` is
-# sent on the second attempt, after the API has said the value already exists
-# on another funding case — a match is a question, not a verdict, because the
-# same person legitimately returns for a later phase.
-input DeskReviewIdentifierInput { kind: DeskReviewIdentifierKind!, value: String!, branchCode: String, matchedReason: String }
-# `conflictAcknowledged` is only required of somebody reviewing their own
-# application. There is nothing to reserve before acting, so the disclosure
-# belongs on the act that decides something rather than on a step before it.
-input CompleteDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int!, outcome: DeskReviewOutcome!, checks: [DeskReviewCheckInput!]!, reasonCategoryId: ID, applicantMessage: String, revisions: [AdminRevisionInput!]!, identifiers: [DeskReviewIdentifierInput!]!, conflictAcknowledged: Boolean }
-input StartDeskReviewInput { applicationId: ID!, expectedStatusVersion: Int! }
-input CancelRevisionInput { applicationId: ID!, revisionRequestId: ID!, expectedStatusVersion: Int!, reason: String! }
+"""One staff-only note about an application."""
+input InternalNoteInput {
+  """The application to annotate. Refused for a `DRAFT`, which the office cannot see."""
+  applicationId: ID!
+
+  """
+  What to record. Never shown to the applicant, and never deleted — a mistake
+  is corrected with a new note rather than erased.
+  """
+  note: String!
+
+  """
+  The note this one corrects. Sending it links the two so the record shows
+  what was believed and when. Null for an original note.
+  """
+  correctionOfNoteId: ID
+}
+
+"""One of the nine checks that make up a desk review."""
+enum DeskReviewCheckType {
+  """The identity and age documents match the person named."""
+  IDENTITY_KYC
+
+  """The Scheduled Tribe certificate is valid and belongs to the applicant."""
+  ST_ELIGIBILITY
+
+  """The qualifying group holds majority ownership."""
+  MAJORITY_OWNERSHIP
+
+  """The business operates inside the cycle's jurisdiction."""
+  JURISDICTION
+
+  """The form is complete and internally consistent."""
+  FORM_COMPLETENESS
+
+  """Every required document is attached and legible."""
+  DOCUMENT_COMPLETENESS
+
+  """The answers and the documents agree with each other."""
+  ANSWER_DOCUMENT_CONSISTENCY
+
+  """The project report is plausible."""
+  DPR_FEASIBILITY
+
+  """
+  For a later phase, the earlier award was used as required. Not applicable
+  to a first application.
+  """
+  EXPANSION_EVIDENCE
+}
+
+"""What a reviewer concluded about one check."""
+enum DeskReviewCheckResult {
+  """Satisfied. Where the cycle demands a number behind it, it is required."""
+  PASS
+
+  """Not satisfied."""
+  FAIL
+
+  """
+  Does not apply to this application. Attesting to nothing, so no identifier
+  is demanded.
+  """
+  NOT_APPLICABLE
+}
+
+"""What happens to the application when the review is recorded."""
+enum DeskReviewOutcome {
+  """On to a partner bank."""
+  ADVANCE_TO_BANK
+
+  """Back to the applicant, naming the sections to correct."""
+  REQUEST_REVISION
+
+  """Closed. Requires a reason from the cycle's catalogue."""
+  REJECT
+}
+
+"""One check and what the reviewer concluded about it."""
+input DeskReviewCheckInput {
+  """Which check. All nine must be present exactly once."""
+  checkType: DeskReviewCheckType!
+
+  """What was concluded."""
+  result: DeskReviewCheckResult!
+
+  """The reviewer's note. Never shown to the applicant."""
+  internalNote: String
+}
+
+"""One section the applicant is being asked to correct."""
+input AdminRevisionInput {
+  """Which part of the form. Only this section becomes editable."""
+  section: ApplicationSection!
+
+  """A reason approved by this cycle for the `REVISION` context."""
+  reasonCategoryId: ID!
+
+  """What the applicant must change, in the officer's words."""
+  note: String!
+}
+
+"""
+An identity number a reviewer read off a document.
+
+A passed check without its number is an attestation with nothing behind it, so
+where the cycle demands one the API refuses without it.
+"""
+enum DeskReviewIdentifierKind {
+  """The Scheduled Tribe certificate number. Stored as written."""
+  ST_CERTIFICATE
+
+  """
+  The identity document number. Stored as a keyed digest and never in the
+  clear; only the last four digits are ever shown back.
+  """
+  IDENTITY_DOCUMENT
+
+  """
+  The bank account number, with its branch code. Stored as a keyed digest.
+  """
+  BANK_ACCOUNT
+
+  """The business registration number. Stored as written."""
+  BUSINESS_REGISTRATION
+}
+
+"""One number transcribed off a document."""
+input DeskReviewIdentifierInput {
+  """Which number this is."""
+  kind: DeskReviewIdentifierKind!
+
+  """
+  The number exactly as it appears on the document. Punctuation and case are
+  ignored when comparing, so `ST/2026/00123` and `st-2026-00123` are one
+  certificate.
+  """
+  value: String!
+
+  """
+  The branch code, for `BANK_ACCOUNT` only. An account number identifies a
+  destination only together with the branch it is held at — the same digits at
+  two banks are two accounts.
+
+  **Example:** `"SBIN0007890"`
+  """
+  branchCode: String
+
+  """
+  Why this is not the same claim, sent on a **second** attempt after the API
+  has said the value already exists on another funding case.
+
+  A match is a question rather than a verdict — the same promoter legitimately
+  returns for a later phase — so the answer is recorded beside the number that
+  raised it.
+  """
+  matchedReason: String
+}
+
+"""
+Records the desk review and moves the application on.
+
+The nine checks, the transcribed numbers and the outcome are one write, so a
+review can never be left half-recorded.
+"""
+input CompleteDeskReviewInput {
+  """The application under review. Must be in `DESK_REVIEW`."""
+  applicationId: ID!
+
+  """
+  The application's `statusVersion`. A mismatch means somebody else acted
+  first, and refuses rather than overwriting their work.
+  """
+  expectedStatusVersion: Int!
+
+  """What happens to the application."""
+  outcome: DeskReviewOutcome!
+
+  """All nine checks, each exactly once."""
+  checks: [DeskReviewCheckInput!]!
+
+  """
+  A reason approved by this cycle for the `REJECTION` context. Required when
+  the outcome is `REJECT`, and ignored otherwise.
+  """
+  reasonCategoryId: ID
+
+  """
+  What the applicant is told. Required for anything but `ADVANCE_TO_BANK`,
+  where there is nothing yet to tell them.
+  """
+  applicantMessage: String
+
+  """
+  The sections to correct. Required and non-empty for `REQUEST_REVISION`, and
+  empty otherwise.
+  """
+  revisions: [AdminRevisionInput!]!
+
+  """
+  The numbers read off the documents behind the checks just passed.
+
+  What is demanded is the **cycle's** decision: a value for a kind the cycle
+  switched off is refused rather than dropped, and a passed check whose kind
+  the cycle demands is refused without one.
+  """
+  identifiers: [DeskReviewIdentifierInput!]!
+
+  """
+  Required only of somebody reviewing their own application.
+
+  Acting on your own application is permitted **with disclosure**; this is the
+  disclosure, and it is what lands in the audit trail. There is nothing to
+  reserve before acting, so it belongs on the act that decides something.
+  """
+  conflictAcknowledged: Boolean
+}
+
+"""Begins the desk review of a submitted application."""
+input StartDeskReviewInput {
+  """The application to begin reviewing. Must be `SUBMITTED`."""
+  applicationId: ID!
+
+  """The application's `statusVersion`; a mismatch refuses."""
+  expectedStatusVersion: Int!
+}
+
+"""Withdraws a correction request made in error."""
+input CancelRevisionInput {
+  """The application the correction request belongs to."""
+  applicationId: ID!
+
+  """Which correction request to withdraw."""
+  revisionRequestId: ID!
+
+  """The application's `statusVersion`; a mismatch refuses."""
+  expectedStatusVersion: Int!
+
+  """Why it is being withdrawn, kept with the record."""
+  reason: String!
+}
+
+"""
+Working applications as they arrive, and reviewing them.
+
+**Use case:** `/admin/applications/$id`. Nothing is reserved beforehand:
+holding the right role is what permits an action, and two officers acting at
+once are settled by `expectedStatusVersion`.
+"""
 type AdminIntakeMutation {
-  addInternalNote(input: InternalNoteInput!): AdminWorkspaceResult!
-  startDeskReview(input: StartDeskReviewInput!): AdminApplicationResult!
-  completeDeskReview(input: CompleteDeskReviewInput!): AdminWorkspaceResult!
-  cancelRevision(input: CancelRevisionInput!): AdminWorkspaceResult!
+  """
+  Adds a staff-only note to an application.
+
+  **Use case:** the notes panel on the workspace. Append-only, and never
+  requires having worked the file.
+
+  **Refuses:** a draft application, which the office cannot see at all.
+  """
+  addInternalNote(
+    """Which application, and what to record."""
+    input: InternalNoteInput!
+  ): AdminWorkspaceResult!
+
+  """
+  Begins the desk review, moving the application out of the queue.
+
+  **Use case:** the button on the workspace. Also records who is working the
+  file, which is what the "who is on this" notice shows — advisory, and it
+  locks nobody out.
+
+  **Refuses:** an application that is not submitted, and a stale
+  `expectedStatusVersion`.
+  """
+  startDeskReview(
+    """Which application, at which status version."""
+    input: StartDeskReviewInput!
+  ): AdminApplicationResult!
+
+  """
+  Records the desk review and moves the application on.
+
+  **Use case:** the reviewer's form on the workspace. One write, so a review
+  cannot be half-recorded.
+
+  **Refuses:** a missing or duplicated check; a passed check with no
+  identifier where the cycle demands one; a value for an identifier the cycle
+  does not collect; an identifier already recorded on another funding case
+  with no explanation; reviewing your own application without
+  `conflictAcknowledged`; and, for `ADVANCE_TO_BANK`, any submitted document
+  whose latest malware scan is not accepted.
+  """
+  completeDeskReview(
+    """The whole review: checks, identifiers, outcome."""
+    input: CompleteDeskReviewInput!
+  ): AdminWorkspaceResult!
+
+  """
+  Withdraws a correction request made in error.
+
+  **Refuses:** a request already resolved or already withdrawn, and a stale
+  `expectedStatusVersion`.
+  """
+  cancelRevision(
+    """Which request to withdraw, and why."""
+    input: CancelRevisionInput!
+  ): AdminWorkspaceResult!
 }
 
-input BankReferralInput { applicationId: ID!, submissionId: ID!, deskReviewId: ID!, expectedStatusVersion: Int!, bankName: String!, bankBranch: String, referralReference: String!, referralDate: Date!, applicantMessage: String!, internalNote: String }
-input BankOutcomeInput { applicationId: ID!, referralId: ID!, expectedStatusVersion: Int!, expectedReferralVersion: Int!, outcome: BankOutcome!, decisionReference: String!, decisionDate: Date!, availableLoanAmountPaise: Money, applicantSummary: String!, internalNote: String, revisions: [AdminRevisionInput!]! }
-input CancelBankReferralInput { applicationId: ID!, referralId: ID!, expectedReferralVersion: Int!, reasonCategoryId: ID!, reason: String!, applicantMessage: String! }
-input CorrectBankOutcomeInput { applicationId: ID!, referralId: ID!, supersedesOutcomeId: ID!, expectedStatusVersion: Int!, outcome: BankOutcome!, decisionReference: String!, decisionDate: Date!, availableLoanAmountPaise: Money, applicantSummary: String!, internalNote: String, correctionReasonCategoryId: ID!, correctionReason: String!, revisions: [AdminRevisionInput!]! }
-input CreateTtmMeetingInput { meetingReference: String!, scheduledAt: DateTime!, venue: String!, description: String }
-input UpdateTtmMeetingInput { meetingId: ID!, expectedVersion: Int!, meetingReference: String!, scheduledAt: DateTime!, venue: String!, description: String, reason: String! }
-input TtmMeetingTransitionInput { meetingId: ID!, expectedVersion: Int! }
-input CancelTtmMeetingInput { meetingId: ID!, expectedVersion: Int!, reason: String! }
-input AddAgendaItemInput { meetingId: ID!, applicationId: ID!, submissionId: ID!, bankOutcomeId: ID!, position: Int! }
-input ReorderAgendaItemInput { meetingId: ID!, agendaItemId: ID!, expectedVersion: Int!, position: Int!, reason: String! }
-input RemoveAgendaItemInput { meetingId: ID!, agendaItemId: ID!, expectedVersion: Int!, reason: String! }
-input TtmDecisionInput { applicationId: ID!, agendaItemId: ID!, expectedStatusVersion: Int!, outcome: TtmDecisionOutcome!, decisionReference: String!, decisionDate: Date!, approvedAmountPaise: Money, applicantConditions: String, reasonCategoryId: ID, applicantMessage: String!, nextAction: String, revisions: [AdminRevisionInput!]!, conflictAcknowledged: Boolean }
-input CorrectTtmDecisionInput { applicationId: ID!, agendaItemId: ID!, supersedesDecisionId: ID!, expectedStatusVersion: Int!, outcome: TtmDecisionOutcome!, decisionReference: String!, decisionDate: Date!, approvedAmountPaise: Money, applicantConditions: String, reasonCategoryId: ID, correctionReasonCategoryId: ID!, correctionReason: String!, applicantMessage: String!, nextAction: String, revisions: [AdminRevisionInput!]! }
+"""Sends an application to a partner bank for its own assessment."""
+input BankReferralInput {
+  """The application being referred. Must have been advanced by a desk review."""
+  applicationId: ID!
+
+  """Which submission is being referred."""
+  submissionId: ID!
+
+  """Which desk review advanced it."""
+  deskReviewId: ID!
+
+  """The application's `statusVersion`; a mismatch refuses."""
+  expectedStatusVersion: Int!
+
+  """The partner bank to send it to, as it should appear on the record."""
+  bankName: String!
+
+  """Which branch, where there is one."""
+  bankBranch: String
+
+  """The office's own reference for the referral."""
+  referralReference: String!
+
+  """When the office sent it. May precede today, and is recorded as given."""
+  referralDate: Date!
+
+  """What the applicant is told about the referral."""
+  applicantMessage: String!
+
+  """A staff-only note. Never shown to the applicant."""
+  internalNote: String
+}
+
+"""Records what a partner bank wrote back."""
+input BankOutcomeInput {
+  """The application the bank was asked about."""
+  applicationId: ID!
+
+  """Which referral this answers."""
+  referralId: ID!
+
+  """The application's `statusVersion`; a mismatch refuses."""
+  expectedStatusVersion: Int!
+
+  """The referral's `currentVersion`; a mismatch refuses."""
+  expectedReferralVersion: Int!
+
+  """What the bank concluded."""
+  outcome: BankOutcome!
+
+  """The bank's own reference for its decision."""
+  decisionReference: String!
+
+  """The date the bank decided."""
+  decisionDate: Date!
+
+  """How much loan the bank will offer, in paise, where it said."""
+  availableLoanAmountPaise: Money
+
+  """What the applicant is told. Written by the office, not the bank."""
+  applicantSummary: String!
+
+  """A staff-only note."""
+  internalNote: String
+
+  """
+  Sections to correct, for `MORE_INFORMATION_REQUIRED`. Empty otherwise.
+  """
+  revisions: [AdminRevisionInput!]!
+}
+
+"""Cancels a referral before the bank has answered."""
+input CancelBankReferralInput {
+  """The application whose referral is being withdrawn."""
+  applicationId: ID!
+
+  """Which referral to cancel."""
+  referralId: ID!
+
+  """The referral's `currentVersion`; a mismatch refuses."""
+  expectedReferralVersion: Int!
+
+  """A reason approved by this cycle for `BANK_REFERRAL_CANCEL`."""
+  reasonCategoryId: ID!
+
+  """Why, in the officer's words, kept with the record."""
+  reason: String!
+
+  """What the applicant is told."""
+  applicantMessage: String!
+}
+
+"""
+Supersedes a bank outcome already recorded.
+
+A correction is a new outcome rather than an edit, so the record shows what was
+believed and when.
+"""
+input CorrectBankOutcomeInput {
+  """The application whose recorded outcome was wrong."""
+  applicationId: ID!
+
+  """The referral the superseded outcome answered."""
+  referralId: ID!
+
+  """Which outcome this replaces."""
+  supersedesOutcomeId: ID!
+
+  """The application's `statusVersion`; a mismatch refuses."""
+  expectedStatusVersion: Int!
+
+  """What the bank actually concluded."""
+  outcome: BankOutcome!
+
+  """The bank's reference."""
+  decisionReference: String!
+
+  """The date the bank decided."""
+  decisionDate: Date!
+
+  """How much loan the bank will offer, in paise."""
+  availableLoanAmountPaise: Money
+
+  """What the applicant is told."""
+  applicantSummary: String!
+
+  """A staff-only note."""
+  internalNote: String
+
+  """A reason approved by this cycle for `BANK_OUTCOME_CORRECTION`."""
+  correctionReasonCategoryId: ID!
+
+  """Why the earlier record was wrong, kept with both."""
+  correctionReason: String!
+
+  """Sections to correct, where the corrected outcome asks for them."""
+  revisions: [AdminRevisionInput!]!
+}
+
+"""Schedules a committee meeting."""
+input CreateTtmMeetingInput {
+  """The office's reference for the meeting."""
+  meetingReference: String!
+
+  """When it is scheduled for."""
+  scheduledAt: DateTime!
+
+  """Where it is held."""
+  venue: String!
+
+  """What it is for."""
+  description: String
+}
+
+"""Changes a meeting that has not started."""
+input UpdateTtmMeetingInput {
+  """The meeting to change. Must still be a draft."""
+  meetingId: ID!
+
+  """The meeting's `currentVersion`; a mismatch refuses."""
+  expectedVersion: Int!
+
+  """The office's reference."""
+  meetingReference: String!
+
+  """When it is scheduled for."""
+  scheduledAt: DateTime!
+
+  """Where it is held."""
+  venue: String!
+
+  """What it is for."""
+  description: String
+
+  """Why it is being changed, kept in the meeting's history."""
+  reason: String!
+}
+
+"""Moves a meeting from one state to the next."""
+input TtmMeetingTransitionInput {
+  """The meeting to move on. From `AdminTtmMeeting.id`."""
+  meetingId: ID!
+
+  """The meeting's `currentVersion`; a mismatch refuses."""
+  expectedVersion: Int!
+}
+
+"""Calls off a meeting, returning its agenda items to the queue."""
+input CancelTtmMeetingInput {
+  """The meeting to call off. Anything but finalized."""
+  meetingId: ID!
+
+  """The meeting's `currentVersion`; a mismatch refuses."""
+  expectedVersion: Int!
+
+  """Why, kept in the meeting's history."""
+  reason: String!
+}
+
+"""Puts one application on a meeting's agenda."""
+input AddAgendaItemInput {
+  """The draft meeting to add to. A started meeting has a fixed agenda."""
+  meetingId: ID!
+
+  """The application to put before the committee. Must be in `TTM_REVIEW`."""
+  applicationId: ID!
+
+  """Which submission is before the committee."""
+  submissionId: ID!
+
+  """Which bank outcome accompanies it."""
+  bankOutcomeId: ID!
+
+  """
+  Where on the agenda, counting from 1. At most twenty active items — a
+  meeting that cannot get through its list is not a meeting.
+  """
+  position: Int!
+}
+
+"""Moves an agenda item to a different position."""
+input ReorderAgendaItemInput {
+  """The draft meeting whose agenda is being reordered."""
+  meetingId: ID!
+
+  """Which item to move."""
+  agendaItemId: ID!
+
+  """The item's `currentVersion`; a mismatch refuses."""
+  expectedVersion: Int!
+
+  """The new position, counting from 1."""
+  position: Int!
+
+  """Why, kept with the record."""
+  reason: String!
+}
+
+"""Takes an application off a meeting's agenda."""
+input RemoveAgendaItemInput {
+  """The draft meeting to take the item off."""
+  meetingId: ID!
+
+  """Which item to remove."""
+  agendaItemId: ID!
+
+  """The item's `currentVersion`; a mismatch refuses."""
+  expectedVersion: Int!
+
+  """Why, kept with the record."""
+  reason: String!
+}
+
+"""Records what the committee decided about one application."""
+input TtmDecisionInput {
+  """The application being decided. Must be in `TTM_REVIEW`."""
+  applicationId: ID!
+
+  """Which agenda item this decides."""
+  agendaItemId: ID!
+
+  """The application's `statusVersion`; a mismatch refuses."""
+  expectedStatusVersion: Int!
+
+  """What the committee decided."""
+  outcome: TtmDecisionOutcome!
+
+  """The committee's reference for the decision."""
+  decisionReference: String!
+
+  """When the committee met. May precede today, and is recorded as given."""
+  decisionDate: Date!
+
+  """
+  How much is approved, in paise. Required for `APPROVED`, must be greater
+  than zero, and never more than was requested.
+  """
+  approvedAmountPaise: Money
+
+  """Conditions the applicant must meet. For `APPROVED`."""
+  applicantConditions: String
+
+  """
+  A reason approved by this cycle. Required for `DEFERRED` and `REJECTED`.
+  """
+  reasonCategoryId: ID
+
+  """What the applicant is told."""
+  applicantMessage: String!
+
+  """What happens next, where there is something to say."""
+  nextAction: String
+
+  """
+  Sections to correct, for `REVISION_REQUIRED`. Empty otherwise.
+  """
+  revisions: [AdminRevisionInput!]!
+
+  """
+  Required only of somebody deciding their own application. Permitted with
+  disclosure; the disclosure is what is kept.
+  """
+  conflictAcknowledged: Boolean
+}
+
+"""
+Supersedes a committee decision already recorded.
+
+A correction is a new decision rather than an edit.
+"""
+input CorrectTtmDecisionInput {
+  """The application whose recorded decision was wrong."""
+  applicationId: ID!
+
+  """The agenda item the superseded decision was taken on."""
+  agendaItemId: ID!
+
+  """Which decision this replaces."""
+  supersedesDecisionId: ID!
+
+  """The application's `statusVersion`; a mismatch refuses."""
+  expectedStatusVersion: Int!
+
+  """What the committee actually decided."""
+  outcome: TtmDecisionOutcome!
+
+  """The committee's reference."""
+  decisionReference: String!
+
+  """When the committee met. May precede today, and is recorded as given."""
+  decisionDate: Date!
+
+  """How much is approved, in paise. Required for `APPROVED`."""
+  approvedAmountPaise: Money
+
+  """Conditions the applicant must meet."""
+  applicantConditions: String
+
+  """A reason approved by this cycle, where the outcome needs one."""
+  reasonCategoryId: ID
+
+  """A reason approved by this cycle for `TTM_DECISION_CORRECTION`."""
+  correctionReasonCategoryId: ID!
+
+  """Why the earlier record was wrong, kept with both."""
+  correctionReason: String!
+
+  """What the applicant is told."""
+  applicantMessage: String!
+
+  """What happens next."""
+  nextAction: String
+
+  """Sections to correct, where the corrected outcome asks for them."""
+  revisions: [AdminRevisionInput!]!
+}
+
+"""
+Partner-bank referral, and the committee that decides.
+
+**Use case:** the bank and committee panels on the workspace, and the screens
+under `/admin/meetings`.
+"""
 type AdminDecisionMutation {
-  referToBank(input: BankReferralInput!): AdminWorkspaceResult!
-  cancelBankReferral(input: CancelBankReferralInput!): AdminWorkspaceResult!
-  recordBankOutcome(input: BankOutcomeInput!): AdminWorkspaceResult!
-  correctBankOutcome(input: CorrectBankOutcomeInput!): AdminWorkspaceResult!
-  createMeeting(input: CreateTtmMeetingInput!): AdminMeetingWorkspaceResult!
-  updateMeeting(input: UpdateTtmMeetingInput!): AdminMeetingWorkspaceResult!
-  cancelMeeting(input: CancelTtmMeetingInput!): AdminMeetingWorkspaceResult!
-  addAgendaItem(input: AddAgendaItemInput!): AdminMeetingWorkspaceResult!
-  reorderAgendaItem(input: ReorderAgendaItemInput!): AdminMeetingWorkspaceResult!
-  removeAgendaItem(input: RemoveAgendaItemInput!): AdminMeetingWorkspaceResult!
-  startMeeting(input: TtmMeetingTransitionInput!): AdminMeetingWorkspaceResult!
-  finalizeMeeting(input: TtmMeetingTransitionInput!): AdminMeetingWorkspaceResult!
-  recordDecision(input: TtmDecisionInput!): AdminWorkspaceResult!
-  correctDecision(input: CorrectTtmDecisionInput!): AdminWorkspaceResult!
+  """
+  Refers a reviewed application to a partner bank.
+
+  **Refuses:** an application not advanced by a desk review, and a stale
+  `expectedStatusVersion`.
+  """
+  referToBank(
+    """Which application, which bank, and what the applicant is told."""
+    input: BankReferralInput!
+  ): AdminWorkspaceResult!
+
+  """
+  Cancels a referral before the bank has answered.
+
+  **Refuses:** a referral already answered, and a stale
+  `expectedReferralVersion`.
+  """
+  cancelBankReferral(
+    """Which referral, and why."""
+    input: CancelBankReferralInput!
+  ): AdminWorkspaceResult!
+
+  """
+  Records what the bank wrote back.
+
+  The office records what the bank said; it does not decide. A
+  `NOT_RECOMMENDED` outcome still goes to the committee, because bank feedback
+  is advisory evidence rather than a veto.
+
+  **Refuses:** a referral already answered, and stale versions.
+  """
+  recordBankOutcome(
+    """Which referral, what the bank said, and what the applicant is told."""
+    input: BankOutcomeInput!
+  ): AdminWorkspaceResult!
+
+  """
+  Supersedes a bank outcome already recorded.
+
+  Never an edit: the earlier record is kept, so the file shows what was
+  believed and when.
+  """
+  correctBankOutcome(
+    """Which outcome to replace, what it should say, and why."""
+    input: CorrectBankOutcomeInput!
+  ): AdminWorkspaceResult!
+
+  """
+  Schedules a committee meeting.
+
+  **Use case:** `/admin/meetings`. Created as a draft, so its agenda can be
+  built before it starts.
+  """
+  createMeeting(
+    """When, where, and what it is for."""
+    input: CreateTtmMeetingInput!
+  ): AdminMeetingWorkspaceResult!
+
+  """
+  Changes a meeting that has not started.
+
+  **Refuses:** a meeting under way or finalized, and a stale
+  `expectedVersion`.
+  """
+  updateMeeting(
+    """Which meeting, at which version, and the replacement details."""
+    input: UpdateTtmMeetingInput!
+  ): AdminMeetingWorkspaceResult!
+
+  """
+  Calls off a meeting. Its agenda items return to the queue.
+
+  **Refuses:** a finalized meeting, and a stale `expectedVersion`.
+  """
+  cancelMeeting(
+    """Which meeting, at which version, and why."""
+    input: CancelTtmMeetingInput!
+  ): AdminMeetingWorkspaceResult!
+
+  """
+  Puts an application on a draft meeting's agenda.
+
+  **Refuses:** a meeting that is not a draft, an application not waiting for
+  the committee, and a twenty-first active item.
+  """
+  addAgendaItem(
+    """Which meeting, which application, and where on the agenda."""
+    input: AddAgendaItemInput!
+  ): AdminMeetingWorkspaceResult!
+
+  """
+  Moves an agenda item.
+
+  **Refuses:** a meeting that is not a draft, and a stale `expectedVersion`.
+  """
+  reorderAgendaItem(
+    """Which item, where to, and why."""
+    input: ReorderAgendaItemInput!
+  ): AdminMeetingWorkspaceResult!
+
+  """
+  Takes an application off the agenda, returning it to the queue.
+
+  **Refuses:** a meeting that is not a draft, and a stale `expectedVersion`.
+  """
+  removeAgendaItem(
+    """Which item, and why."""
+    input: RemoveAgendaItemInput!
+  ): AdminMeetingWorkspaceResult!
+
+  """
+  Opens the meeting. The agenda is fixed from this point.
+
+  **Refuses:** a meeting that is not a draft, and a stale `expectedVersion`.
+  """
+  startMeeting(
+    """Which meeting, at which version."""
+    input: TtmMeetingTransitionInput!
+  ): AdminMeetingWorkspaceResult!
+
+  """
+  Closes the meeting. The record becomes read-only.
+
+  **Refuses:** a meeting with an agenda item still undecided, and a stale
+  `expectedVersion`.
+  """
+  finalizeMeeting(
+    """Which meeting, at which version."""
+    input: TtmMeetingTransitionInput!
+  ): AdminMeetingWorkspaceResult!
+
+  """
+  Records what the committee decided about one application.
+
+  **Use case:** the committee panel on the workspace. Available to an approver
+  as well as an administrator — deciding an application and administering the
+  programme are separate authorities.
+
+  **Refuses:** an approved amount of zero or more than was requested; a
+  missing reason where the outcome needs one; deciding your own application
+  without `conflictAcknowledged`; and a stale `expectedStatusVersion`.
+  """
+  recordDecision(
+    """Which agenda item, what was decided, and what the applicant is told."""
+    input: TtmDecisionInput!
+  ): AdminWorkspaceResult!
+
+  """
+  Supersedes a committee decision already recorded.
+
+  Never an edit: the earlier decision is kept.
+  """
+  correctDecision(
+    """Which decision to replace, what it should say, and why."""
+    input: CorrectTtmDecisionInput!
+  ): AdminWorkspaceResult!
 }
 
-input CreateAwardInput { applicationId: ID!, decisionId: ID!, expectedStatusVersion: Int!, sanctionOrderNumber: String!, sanctionDate: Date!, applicantConditions: String }
-input ChangeAwardInput { awardId: ID!, applicationId: ID!, expectedVersion: Int!, expectedStatusVersion: Int!, status: AwardStatus!, closureDisposition: AwardClosureDisposition, sanctionedAmountPaise: Money!, applicantConditions: String, reasonCategoryId: ID!, reason: String! }
-input RecordReleaseInput { awardId: ID!, applicationId: ID!, expectedLedgerVersion: Int!, amountPaise: Money!, occurredAt: DateTime!, externalReference: String!, ttmApprovalReference: String!, ttmApprovalDate: Date!, bankAccountVerifiedAt: DateTime!, performanceAgreementReference: String!, performanceAgreementExecutedAt: DateTime!, physicalVerificationRequired: Boolean!, physicalVerificationReference: String, physicalVerificationCompletedAt: DateTime, applicantMessage: String! }
-input ReverseReleaseInput { awardId: ID!, applicationId: ID!, releaseId: ID!, expectedLedgerVersion: Int!, amountPaise: Money!, occurredAt: DateTime!, externalReference: String!, reasonCategoryId: ID!, applicantMessage: String! }
-input RecordAssessmentInput { awardId: ID!, applicationId: ID!, assessmentType: AssessmentType!, utilizationObligationId: ID, outcome: AssessmentOutcome!, evidenceReference: String!, applicantSummary: String!, internalNote: String, assessedAt: DateTime! }
-input OpenRecoveryInput { awardId: ID!, officialDecisionReference: String!, officialDecisionDate: Date!, reasonCategoryId: ID!, applicantMessage: String! }
-input RecoveryEntryInput { recoveryCaseId: ID!, expectedLedgerVersion: Int!, entryType: RecoveryEntryType!, component: RecoveryComponent!, relatedEntryId: ID, amountPaise: Money!, externalReference: String!, occurredAt: DateTime!, reasonCategoryId: ID, applicantMessage: String! }
-input CloseRecoveryInput { recoveryCaseId: ID!, expectedVersion: Int!, reason: String! }
+"""Creates the award that follows an approval."""
+input CreateAwardInput {
+  """The application being awarded. Must be `APPROVED`."""
+  applicationId: ID!
+
+  """Which committee decision approved it."""
+  decisionId: ID!
+
+  """The application's `statusVersion`; a mismatch refuses."""
+  expectedStatusVersion: Int!
+
+  """The programme's sanction order number."""
+  sanctionOrderNumber: String!
+
+  """The date of the sanction order."""
+  sanctionDate: Date!
+
+  """Conditions the applicant must meet."""
+  applicantConditions: String
+}
+
+"""Amends, suspends, cancels or closes an award."""
+input ChangeAwardInput {
+  """The award to change. From `AdminAward.id` on the funding workspace."""
+  awardId: ID!
+
+  """Which application it belongs to."""
+  applicationId: ID!
+
+  """The award's `currentVersion`; a mismatch refuses."""
+  expectedVersion: Int!
+
+  """The application's `statusVersion`; a mismatch refuses."""
+  expectedStatusVersion: Int!
+
+  """The state the award moves to."""
+  status: AwardStatus!
+
+  """How a closed award ended. Required when closing."""
+  closureDisposition: AwardClosureDisposition
+
+  """
+  The sanctioned amount, in paise. Never below what has already been paid out
+  net of reversals — an award cannot be amended to less than it has given.
+  """
+  sanctionedAmountPaise: Money!
+
+  """Conditions the applicant must meet."""
+  applicantConditions: String
+
+  """A reason approved by this cycle for the matching award context."""
+  reasonCategoryId: ID!
+
+  """Why, in the officer's words, kept with the record."""
+  reason: String!
+}
+
+"""
+Records one payment against an award.
+
+The banking prerequisites are recorded with the payment rather than checked
+elsewhere, so the file shows what was verified before money moved.
+"""
+input RecordReleaseInput {
+  """The award to pay against. Must be `ACTIVE`."""
+  awardId: ID!
+
+  """Which application it belongs to."""
+  applicationId: ID!
+
+  """
+  The award's `ledgerVersion`. Separate from `currentVersion` so that
+  recording a payment does not invalidate an in-flight amendment.
+  """
+  expectedLedgerVersion: Int!
+
+  """
+  How much was paid, in paise. Never more than remains unreleased.
+  """
+  amountPaise: Money!
+
+  """When the money moved."""
+  occurredAt: DateTime!
+
+  """The bank's reference, for reconciliation. Unique per award."""
+  externalReference: String!
+
+  """The committee approval this payment rests on."""
+  ttmApprovalReference: String!
+
+  """When the committee approved. May precede today, and is recorded as given."""
+  ttmApprovalDate: Date!
+
+  """When the applicant's bank account was verified."""
+  bankAccountVerifiedAt: DateTime!
+
+  """The performance agreement the applicant signed."""
+  performanceAgreementReference: String!
+
+  """When that agreement was executed."""
+  performanceAgreementExecutedAt: DateTime!
+
+  """Whether a physical verification was required for this instalment."""
+  physicalVerificationRequired: Boolean!
+
+  """Its reference. Required when one was required."""
+  physicalVerificationReference: String
+
+  """When it was completed. Required when one was required."""
+  physicalVerificationCompletedAt: DateTime
+
+  """What the applicant is told about this payment."""
+  applicantMessage: String!
+}
+
+"""
+Reverses a payment already made.
+
+Posted as its own ledger entry rather than editing what is there, so the ledger
+always reconciles.
+"""
+input ReverseReleaseInput {
+  """The award the payment was made against."""
+  awardId: ID!
+
+  """Which application it belongs to."""
+  applicationId: ID!
+
+  """Which payment is being reversed."""
+  releaseId: ID!
+
+  """The award's `ledgerVersion`; a mismatch refuses."""
+  expectedLedgerVersion: Int!
+
+  """
+  How much to reverse, in paise. Never more than that payment, counting
+  anything already reversed from it.
+  """
+  amountPaise: Money!
+
+  """When the reversal happened."""
+  occurredAt: DateTime!
+
+  """The bank's reference, for reconciliation."""
+  externalReference: String!
+
+  """A reason approved by this cycle for `RELEASE_REVERSAL`."""
+  reasonCategoryId: ID!
+
+  """What the applicant is told."""
+  applicantMessage: String!
+}
+
+"""Records an assessment of how an award is being used."""
+input RecordAssessmentInput {
+  """The award being assessed. From the funding workspace."""
+  awardId: ID!
+
+  """Which application it belongs to."""
+  applicationId: ID!
+
+  """What is being assessed."""
+  assessmentType: AssessmentType!
+
+  """
+  Which payment this assesses, for utilization. Null for assessments about the
+  award as a whole.
+  """
+  utilizationObligationId: ID
+
+  """What was concluded."""
+  outcome: AssessmentOutcome!
+
+  """The office's reference for the evidence. Never shown to the applicant."""
+  evidenceReference: String!
+
+  """What the applicant is told."""
+  applicantSummary: String!
+
+  """A staff-only note."""
+  internalNote: String
+
+  """When it was concluded."""
+  assessedAt: DateTime!
+}
+
+"""Opens a recovery case against an award."""
+input OpenRecoveryInput {
+  """Which award is being recovered against."""
+  awardId: ID!
+
+  """The official decision authorising recovery."""
+  officialDecisionReference: String!
+
+  """When recovery was authorised. May precede today, and is recorded as given."""
+  officialDecisionDate: Date!
+
+  """A reason approved by this cycle for `RECOVERY`."""
+  reasonCategoryId: ID!
+
+  """What the applicant is told."""
+  applicantMessage: String!
+}
+
+"""
+Posts one entry to a recovery ledger.
+
+Append-only: a mistake is corrected by posting a reversal, never by editing
+what is there.
+"""
+input RecoveryEntryInput {
+  """From `AdminRecoveryCase.id`. Must still be open."""
+  recoveryCaseId: ID!
+
+  """The case's `ledgerVersion`; a mismatch refuses."""
+  expectedLedgerVersion: Int!
+
+  """What this entry does to the balance."""
+  entryType: RecoveryEntryType!
+
+  """Which part of the recovery it applies to."""
+  component: RecoveryComponent!
+
+  """The entry this reverses. Required for `REVERSAL`, null otherwise."""
+  relatedEntryId: ID
+
+  """
+  The amount, in paise. Always positive — `entryType` says the direction.
+  A receipt or waiver may never take the balance below zero.
+  """
+  amountPaise: Money!
+
+  """The external reference, for reconciliation."""
+  externalReference: String!
+
+  """When it happened."""
+  occurredAt: DateTime!
+
+  """
+  A reason approved by this cycle. Required for `WAIVER`, which is public
+  money being written off.
+  """
+  reasonCategoryId: ID
+
+  """What the applicant is told."""
+  applicantMessage: String!
+}
+
+"""Closes or cancels a recovery case."""
+input CloseRecoveryInput {
+  """From `AdminRecoveryCase.id`."""
+  recoveryCaseId: ID!
+
+  """The case's `currentVersion`; a mismatch refuses."""
+  expectedVersion: Int!
+
+  """Why, kept with the record."""
+  reason: String!
+}
+
+"""
+Awards, payments, assessments and recovery.
+
+**Use case:** `/admin/applications/$id/funding` and the recovery screens.
+Every ledger here is append-only, so a correction is always a new entry.
+"""
 type AdminFundingMutation {
-  createAward(input: CreateAwardInput!): AdminFundingWorkspaceResult!
-  changeAward(input: ChangeAwardInput!): AdminFundingWorkspaceResult!
-  recordRelease(input: RecordReleaseInput!): AdminFundingWorkspaceResult!
-  reverseRelease(input: ReverseReleaseInput!): AdminFundingWorkspaceResult!
-  recordAssessment(input: RecordAssessmentInput!): AdminFundingWorkspaceResult!
-  openRecovery(input: OpenRecoveryInput!): AdminRecoveryWorkspaceResult!
-  recordRecoveryEntry(input: RecoveryEntryInput!): AdminRecoveryWorkspaceResult!
-  cancelRecovery(input: CloseRecoveryInput!): AdminRecoveryWorkspaceResult!
-  closeRecovery(input: CloseRecoveryInput!): AdminRecoveryWorkspaceResult!
+  """
+  Creates the award that follows a committee approval.
+
+  **Refuses:** an application without an approving decision, a duplicate
+  sanction order number, and a stale `expectedStatusVersion`.
+  """
+  createAward(
+    """Which application, which decision, and the sanction order."""
+    input: CreateAwardInput!
+  ): AdminFundingWorkspaceResult!
+
+  """
+  Amends, suspends, cancels or closes an award.
+
+  **Refuses:** an amendment below what has already been paid net of
+  reversals, a closure with no disposition, and stale versions.
+  """
+  changeAward(
+    """Which award, the state it moves to, and why."""
+    input: ChangeAwardInput!
+  ): AdminFundingWorkspaceResult!
+
+  """
+  Records one payment against an award.
+
+  **Refuses:** more than remains unreleased, a duplicate external reference,
+  a missing banking prerequisite, and a stale `expectedLedgerVersion`.
+  """
+  recordRelease(
+    """Which award, how much, and what was verified beforehand."""
+    input: RecordReleaseInput!
+  ): AdminFundingWorkspaceResult!
+
+  """
+  Reverses a payment already made.
+
+  **Refuses:** more than that payment net of earlier reversals, and a stale
+  `expectedLedgerVersion`.
+  """
+  reverseRelease(
+    """Which payment, how much, and why."""
+    input: ReverseReleaseInput!
+  ): AdminFundingWorkspaceResult!
+
+  """
+  Records an assessment of how an award is being used.
+
+  Supersedes rather than replaces: an earlier assessment of the same thing is
+  kept, and utilization is assessed per payment, so several can be current at
+  once.
+  """
+  recordAssessment(
+    """Which award, what was assessed, and what was concluded."""
+    input: RecordAssessmentInput!
+  ): AdminFundingWorkspaceResult!
+
+  """
+  Opens a recovery case against an award.
+
+  **Refuses:** an award with an open recovery case already.
+  """
+  openRecovery(
+    """Which award, and the decision authorising recovery."""
+    input: OpenRecoveryInput!
+  ): AdminRecoveryWorkspaceResult!
+
+  """
+  Posts one entry to a recovery ledger.
+
+  **Refuses:** a receipt or waiver that would take the balance below zero, a
+  reversal larger than the entry it reverses, a waiver with no reason, and a
+  stale `expectedLedgerVersion`.
+  """
+  recordRecoveryEntry(
+    """Which case, what the entry does, and how much."""
+    input: RecoveryEntryInput!
+  ): AdminRecoveryWorkspaceResult!
+
+  """
+  Cancels a recovery case opened in error.
+
+  **Refuses:** a case with any entry already posted — once money has been
+  demanded or received, the case is closed with compensating entries rather
+  than cancelled.
+  """
+  cancelRecovery(
+    """Which case, and why."""
+    input: CloseRecoveryInput!
+  ): AdminRecoveryWorkspaceResult!
+
+  """
+  Closes a recovery case that is fully settled.
+
+  **Refuses:** a case with anything still outstanding.
+  """
+  closeRecovery(
+    """Which case, and why."""
+    input: CloseRecoveryInput!
+  ): AdminRecoveryWorkspaceResult!
 }

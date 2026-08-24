@@ -1,266 +1,1681 @@
-extend type Query { admin: AdminQuery! }
+extend type Query {
+  """
+  Everything the programme office reads.
 
+  **Use case:** the office screens under `/admin`. Requires a staff role;
+  every field is refused to an applicant. A reviewer may read all of this and
+  change none of it.
+  """
+  admin: AdminQuery!
+}
+
+"""The four things the office works on, in the order a file passes through."""
 type AdminQuery {
+  """Programme cycles: the rules each round of funding applies."""
   programmeCycle: AdminProgrammeCycleQuery!
+
+  """Applications arriving, and the desk review of them."""
   intake: AdminIntakeQuery!
+
+  """Partner-bank evaluation and the committee that decides."""
   decision: AdminDecisionQuery!
+
+  """Awards, payments, assessments and recovery."""
   funding: AdminFundingQuery!
 }
 
+"""Reading the programme cycles and their rules."""
 type AdminProgrammeCycleQuery {
+  """
+  Every cycle, newest first.
+
+  **Use case:** `/admin/cycles`. Filters combine with AND.
+  """
   list(
+    """How many to return, 1–100. Defaults to 20."""
     first: Int
+
+    """The previous page's `endCursor`. Opaque; omit for the first page."""
     after: String
+
+    """Include removed draft cycles. Defaults to false."""
     includeDeleted: Boolean
+
+    """Only cycles in this lifecycle state."""
     status: ProgrammeCycleStatus
+
+    """Only cycles for this policy year."""
     cycleYear: Int
-    # Matches the start of the cycle code, case-insensitively.
+
+    """
+    Matches the **start** of the cycle code, case-insensitively. A prefix
+    match rather than a search.
+    """
     search: String
   ): AdminCycleConnectionResult!
-  byId(id: ID!): AdminCycleResult!
-  counts(id: ID!): AdminCycleCountsResult!
-  events(id: ID!, first: Int): AdminCycleEventsResult!
-}
 
-type AdminIntakeQuery {
-  queue(input: AdminIntakeQueueInput): AdminApplicationConnectionResult!
-  queues(cycleId: ID): AdminQueueSummaryResult!
-  byReference(referenceNumber: String!): AdminApplicationResult!
-  workspace(applicationId: ID!): AdminWorkspaceResult!
-  documentDownloadUrl(applicationId: ID!, submissionDocumentId: ID!): DocumentDownloadResult!
-}
+  """
+  One cycle with its complete rule set.
 
-type AdminDecisionQuery {
-  meetings(
+  **Use case:** `/admin/cycles/$id`, and the editor that seeds a new cycle
+  from an existing one.
+  """
+  byId(
+    """Which cycle."""
+    id: ID!
+  ): AdminCycleResult!
+
+  """
+  How many applications sit in each status for one cycle.
+
+  **Use case:** the summary on a cycle's page, and deciding whether a cycle
+  can safely be closed.
+  """
+  counts(
+    """Which cycle."""
+    id: ID!
+  ): AdminCycleCountsResult!
+
+  """
+  What has happened to one cycle: opened, edited, closed, archived.
+
+  **Use case:** the history on `/admin/cycles/$id`. Newest first, and capped
+  rather than paged — it is a short tail, not a list to walk.
+  """
+  events(
+    """Which cycle."""
+    id: ID!
+
+    """How many of the most recent to return, 1–100. Defaults to 20."""
     first: Int
+  ): AdminCycleEventsResult!
+}
+
+"""Reading applications as they arrive and are reviewed."""
+type AdminIntakeQuery {
+  """
+  The work queue, filtered and ordered as the office needs it.
+
+  **Use case:** `/admin/queue`. Filters combine with AND.
+  """
+  queue(
+    """Filters, ordering and paging. Every field is optional."""
+    input: AdminIntakeQueueInput
+  ): AdminApplicationConnectionResult!
+
+  """
+  How many applications sit in each named queue.
+
+  **Use case:** the counts on the queue chips. Every queue is reported even
+  when empty, so the chips do not come and go as work moves.
+  """
+  queues(
+    """Narrow the counts to one cycle. Omit to count across all of them."""
+    cycleId: ID
+  ): AdminQueueSummaryResult!
+
+  """
+  Finds one application by its exact reference number.
+
+  **Use case:** the lookup box, for somebody holding a reference from a letter
+  or a phone call. Exact match — use `queue(search:)` for a prefix.
+  """
+  byReference(
+    """The programme's reference, exactly as issued."""
+    referenceNumber: String!
+  ): AdminApplicationResult!
+
+  """
+  One application's whole case file, in a single request.
+
+  **Use case:** `/admin/applications/$id`. Everything the office has on the
+  application comes back together so the screen cannot show two moments at
+  once, which a dozen separate queries would.
+  """
+  workspace(
+    """The application whose case file to load. Any status but `DRAFT`."""
+    applicationId: ID!
+  ): AdminWorkspaceResult!
+
+  """
+  A short-lived link to one document attached to a submission.
+
+  **Use case:** the download on the workspace. Needs only a staff role — a
+  reviewer may read every piece of evidence.
+
+  **Refuses:** a file whose latest malware scan is not accepted, and a draft
+  application, which is refused identically to one that does not exist.
+  """
+  documentDownloadUrl(
+    """Which application the document belongs to."""
+    applicationId: ID!
+
+    """
+    Which pinned document. This is the submission's copy, not the applicant's
+    document id — a submission freezes the exact version it carried.
+    """
+    submissionDocumentId: ID!
+  ): DocumentDownloadResult!
+}
+
+"""Reading committee meetings and their decisions."""
+type AdminDecisionQuery {
+  """
+  Committee meetings, newest first.
+
+  **Use case:** `/admin/meetings`.
+  """
+  meetings(
+    """How many to return, 1–100. Defaults to 20."""
+    first: Int
+
+    """The previous page's `endCursor`. Opaque; omit for the first page."""
     after: String
+
+    """Only meetings in this state."""
     status: TtmMeetingStatus
   ): AdminMeetingsResult!
-  meetingById(meetingId: ID!): AdminMeetingWorkspaceResult!
+
+  """
+  One meeting with its agenda and the decisions taken.
+
+  **Use case:** `/admin/meetings/$id`, both while building the agenda and
+  while recording what was decided.
+  """
+  meetingById(
+    """The meeting to open, in any state including finalized."""
+    meetingId: ID!
+  ): AdminMeetingWorkspaceResult!
 }
 
+"""Reading the money on an application."""
 type AdminFundingQuery {
-  byApplication(applicationId: ID!): AdminFundingWorkspaceResult!
-  recoveryById(recoveryCaseId: ID!): AdminRecoveryWorkspaceResult!
+  """
+  The award, its ledger, and everything downstream, for one application.
+
+  **Use case:** `/admin/applications/$id/funding`.
+
+  **Refuses:** an application with no award yet, which is ordinary rather than
+  an error.
+  """
+  byApplication(
+    """The application to read the money on. Needs an award to exist."""
+    applicationId: ID!
+  ): AdminFundingWorkspaceResult!
+
+  """
+  One recovery case with its entries and its running balance.
+
+  **Use case:** `/admin/recovery/$id`.
+  """
+  recoveryById(
+    """From `AdminRecoveryCase.id` on the funding workspace."""
+    recoveryCaseId: ID!
+  ): AdminRecoveryWorkspaceResult!
 }
 
+"""
+How the queue is filtered, ordered and paged.
+
+Every field is optional and they combine with AND.
+"""
 input AdminIntakeQueueInput {
+  """How many to return, 1–100. Defaults to 20."""
   first: Int
+
+  """
+  The previous page's `endCursor`. Opaque, and it remembers which ordering it
+  came from — reusing a cursor under a different `order` is refused rather
+  than silently seeking against the wrong column.
+  """
   after: String
+
+  """Only applications in this programme cycle."""
   cycleId: ID
+
+  """
+  Only applications in this status. Mutually exclusive with `queue`.
+  """
   status: ApplicationStatus
+
+  """Only applications at this phase: 1 for a first application."""
   phaseNumber: Int
+
+  """Only first applications, or only later phases."""
   applicationType: ApplicationType
+
+  """
+  Only applications this person worked last. Advisory rather than ownership —
+  nothing is reserved, so this narrows a list rather than describing a claim.
+  """
   assigneeUserId: ID
+
+  """Only the application with this exact reference."""
   referenceNumber: String
+
+  """Only applications from enterprises in this sector."""
   sector: BusinessSector
+
+  """Only applications in this funding band."""
   category: ApplicationCategory
+
+  """Only applications submitted at or after this instant."""
   submittedFrom: DateTime
+
+  """Only applications submitted at or before this instant."""
   submittedTo: DateTime
+
+  """
+  Which column to order by. Defaults to oldest waiting — the order the office
+  works in. A cursor belongs to whichever ordering produced it.
+  """
   order: AdminIntakeOrder
-  # Matches the start of a reference number or an enterprise name,
-  # case-insensitively.
+
+  """
+  Matches the **start** of a reference number or an enterprise name,
+  case-insensitively. A prefix match rather than a search: a word from the
+  middle of a name finds nothing, and the interface says so.
+  """
   search: String
-  # Mutually exclusive with `status`: two queues are subsets of one status, so
-  # supplying both is refused rather than silently intersected.
+
+  """
+  Only applications in this named queue.
+
+  Mutually exclusive with `status`: two queues are subsets of one status, so
+  supplying both is **refused** rather than silently intersected into an empty
+  page.
+  """
   queue: AdminIntakeQueueKey
 }
 
-enum AdminIntakeOrder { OLDEST_WAITING NEWEST_SUBMISSION LAST_ACTIVITY }
+"""Which column the queue is ordered by."""
+enum AdminIntakeOrder {
+  """Longest-waiting first, by submission time. The order work is done in."""
+  OLDEST_WAITING
 
-# The named work queues staff operate from. NEW_SUBMISSIONS and
-# REVISION_RESPONSES are both SUBMITTED applications, separated by whether this
-# is a first submission or an answer to a revision request.
+  """Most recently submitted first."""
+  NEWEST_SUBMISSION
+
+  """Most recently touched first, whoever touched it."""
+  LAST_ACTIVITY
+}
+
+"""
+The named work queues staff operate from.
+
+`NEW_SUBMISSIONS` and `REVISION_RESPONSES` are both `SUBMITTED` applications,
+separated by whether this is a first submission or an answer to a correction
+request — two completely different jobs that must never land in one pile.
+"""
 enum AdminIntakeQueueKey {
+  """First submissions waiting to be picked up."""
   NEW_SUBMISSIONS
+
+  """Applications the office has started reviewing."""
   DESK_REVIEW
+
+  """Answers to correction requests, waiting to be checked."""
   REVISION_RESPONSES
+
+  """Sent to a bank and awaiting its assessment. Nothing for the office to do."""
   PARTNER_BANK_EVALUATION
+
+  """Waiting for the committee."""
   TTM_REVIEW
+
+  """Approved, awaiting a sanction order."""
   APPROVED
+
+  """Not approved."""
   REJECTED
+
+  """Sanctioned, awaiting payment."""
   SANCTIONED
+
+  """At least partly paid."""
   DISBURSED
 }
 
-enum TtmMeetingStatus { DRAFT IN_SESSION FINALIZED CANCELLED }
-enum FundingCeilingState { UNRESOLVED RESOLVED }
-enum FundingCeilingScope { APPLICATION PHASE ENTERPRISE FUNDING_CASE }
-enum ProgrammeJurisdiction { TRIPURA TTAADC }
-enum ProgrammeDocumentCondition { ALWAYS WHEN_REGISTERED WHEN_GSTIN_PRESENT WHEN_NOC_REQUIRED OPTIONAL }
-enum ProgrammeReasonContext {
-  CYCLE_CLOSE ASSIGNMENT_RELEASE ASSIGNMENT_REASSIGN REVISION REJECTION
-  BANK_REFERRAL_CANCEL BANK_OUTCOME_CORRECTION TTM_DEFERRAL TTM_DECISION_CORRECTION
-  AWARD_AMENDMENT AWARD_SUSPENSION AWARD_CANCELLATION AWARD_CLOSURE
-  RELEASE_REVERSAL RECOVERY RECOVERY_WAIVER
-}
-enum BankOutcome { RECOMMENDED NOT_RECOMMENDED MORE_INFORMATION_REQUIRED }
-enum TtmDecisionOutcome { APPROVED REJECTED DEFERRED REVISION_REQUIRED }
-enum RecoveryEntryType { DEMAND RECEIPT WAIVER REVERSAL }
-enum RecoveryComponent { PRINCIPAL PENAL_INTEREST }
+"""Where a committee meeting is in its own life."""
+enum TtmMeetingStatus {
+  """Being built. The agenda may still change."""
+  DRAFT
 
+  """Under way. Decisions are being recorded."""
+  IN_SESSION
+
+  """Closed. The record is complete and no longer editable."""
+  FINALIZED
+
+  """Called off. Its agenda items return to the queue."""
+  CANCELLED
+}
+
+"""
+Whether the programme has settled its maximum award.
+
+Unresolved is an honest state rather than a missing value: TTAADC has not yet
+stated one authoritative ceiling, and pretending otherwise would put a number
+into sanction decisions that nobody approved.
+"""
+enum FundingCeilingState {
+  """No ceiling has been settled. Amounts are not checked against one."""
+  UNRESOLVED
+
+  """A ceiling is settled, and `fundingCeilingAmountPaise` carries it."""
+  RESOLVED
+}
+
+"""What a funding ceiling is measured across."""
+enum FundingCeilingScope {
+  """Each application separately."""
+  APPLICATION
+
+  """Each phase separately."""
+  PHASE
+
+  """Everything one enterprise ever receives."""
+  ENTERPRISE
+
+  """Everything in one funding chain, across every phase."""
+  FUNDING_CASE
+}
+
+"""Whose rules a cycle applies."""
+enum ProgrammeJurisdiction {
+  """The state of Tripura."""
+  TRIPURA
+
+  """The Tripura Tribal Areas Autonomous District Council."""
+  TTAADC
+}
+
+"""When one document becomes required."""
+enum ProgrammeDocumentCondition {
+  """Always required."""
+  ALWAYS
+
+  """Required only when the business is registered."""
+  WHEN_REGISTERED
+
+  """Required only when the business has a GSTIN."""
+  WHEN_GSTIN_PRESENT
+
+  """Required only when the applicant said a NOC applies."""
+  WHEN_NOC_REQUIRED
+
+  """Never required. Accepted if attached."""
+  OPTIONAL
+}
+
+"""
+Which administrative action a reason category may be used for.
+
+Every reason belongs to exactly one context, so the reasons offered for
+rejecting an application can never be offered for closing a cycle.
+"""
+enum ProgrammeReasonContext {
+  """Closing a cycle to new applications."""
+  CYCLE_CLOSE
+
+  """Returning an application to the shared queue. Retained for history."""
+  ASSIGNMENT_RELEASE
+
+  """Passing an application to a colleague. Retained for history."""
+  ASSIGNMENT_REASSIGN
+
+  """Asking the applicant to correct a section."""
+  REVISION
+
+  """Rejecting an application at desk review."""
+  REJECTION
+
+  """Cancelling a referral to a partner bank."""
+  BANK_REFERRAL_CANCEL
+
+  """Correcting a bank outcome already recorded."""
+  BANK_OUTCOME_CORRECTION
+
+  """Holding an application over to a later meeting."""
+  TTM_DEFERRAL
+
+  """Correcting a committee decision already recorded."""
+  TTM_DECISION_CORRECTION
+
+  """Changing an award after it was made."""
+  AWARD_AMENDMENT
+
+  """Suspending an award."""
+  AWARD_SUSPENSION
+
+  """Cancelling an award."""
+  AWARD_CANCELLATION
+
+  """Closing an award."""
+  AWARD_CLOSURE
+
+  """Reversing a payment already made."""
+  RELEASE_REVERSAL
+
+  """Opening or acting on a recovery case."""
+  RECOVERY
+
+  """Writing off part of a recovery."""
+  RECOVERY_WAIVER
+}
+
+"""What a partner bank concluded. Advisory evidence, never the decision."""
+enum BankOutcome {
+  """The bank supports the proposal."""
+  RECOMMENDED
+
+  """
+  The bank does not support it. The application still goes to the committee —
+  bank feedback is evidence, not a veto.
+  """
+  NOT_RECOMMENDED
+
+  """The bank cannot conclude without more from the applicant."""
+  MORE_INFORMATION_REQUIRED
+}
+
+"""What the committee decided."""
+enum TtmDecisionOutcome {
+  """Approved. An award follows."""
+  APPROVED
+
+  """Not approved."""
+  REJECTED
+
+  """Held over to a later meeting."""
+  DEFERRED
+
+  """Sent back to the applicant for correction."""
+  REVISION_REQUIRED
+}
+
+"""What one recovery ledger entry does to the balance."""
+enum RecoveryEntryType {
+  """Money claimed back. Increases what is outstanding."""
+  DEMAND
+
+  """Money received. Reduces what is outstanding."""
+  RECEIPT
+
+  """Money written off. Reduces what is outstanding without being received."""
+  WAIVER
+
+  """A correction to an earlier entry, posted rather than edited in place."""
+  REVERSAL
+}
+
+"""Which part of a recovery an entry applies to."""
+enum RecoveryComponent {
+  """The money itself."""
+  PRINCIPAL
+
+  """Interest charged on late recovery."""
+  PENAL_INTEREST
+}
+
+"""One programme cycle, as the office sees it."""
 type AdminProgrammeCycle {
+  """Stable identifier."""
   id: ID!
+
+  """Short code used in correspondence."""
   cycleCode: String!
+
+  """The cycle's name, as shown to applicants."""
   displayName: String!
+
+  """The policy year this cycle belongs to."""
   cycleYear: Int!
+
+  """The policy document this cycle implements."""
   policyReference: String
+
+  """Guidance written for applicants."""
   applicantGuidance: String
+
+  """
+  Guidance written for partner banks. Never shown to applicants.
+  """
   partnerBankGuidance: String
+
+  """
+  The cycle's lifecycle state, which is not the same as whether its window is
+  open. The window is `opensAt`/`closesAt`.
+  """
   status: ProgrammeCycleStatus!
+
+  """When the application window opens. Null while unscheduled."""
   opensAt: DateTime
+
+  """When the window closes. Null while unscheduled."""
   closesAt: DateTime
+
+  """
+  Send back as `expectedVersion` when editing. Every rule change makes a new
+  version, and applications keep the version they were submitted against.
+  """
   currentVersion: Int!
+
+  """When the cycle was created."""
   createdAt: DateTime!
+
+  """When it last changed."""
   updatedAt: DateTime!
+
+  """When a draft cycle was removed, or null while it is listed."""
   deletedAt: DateTime
 }
 
+"""
+One cycle with the complete rule set of its current version.
+
+**Use case:** the cycle editor, which shows every rule back so an unconfigured
+cycle is visible rather than assumed.
+"""
 type AdminCycleAggregate {
+  """The cycle itself."""
   head: AdminProgrammeCycle!
+
+  """Which documents this cycle requires, and when."""
   documentRules: [AdminDocumentRule!]!
-  # Empty means this cycle demands no identifiers and compares none. That is a
-  # real setting rather than a missing one, so it is returned as an empty list
-  # and shown back on the form — an unconfigured cycle should be visible.
+
+  """
+  Which identity numbers the desk review collects and compares.
+
+  Empty means this cycle demands none and compares none. That is a real
+  setting rather than a missing one, so it comes back as an empty list and is
+  shown back on the form — an unconfigured cycle should be visible.
+  """
   identifierRules: [AdminIdentifierRule!]!
+
+  """Which assessments must pass before a later phase may start."""
   assessmentRules: [AdminAssessmentRule!]!
+
+  """
+  The reasons this cycle offers for each administrative action. A cycle with
+  none cannot be operated, since every later action must name one.
+  """
   reasons: [AdminReasonCategory!]!
 }
-type AdminDocumentRule { id: ID!, documentType: DocumentType!, condition: ProgrammeDocumentCondition! }
-type AdminIdentifierRule { kind: DeskReviewIdentifierKind!, requirement: IdentifierRequirement!, duplicatePolicy: IdentifierDuplicatePolicy!, checkType: DeskReviewCheckType }
-type AdminAssessmentRule { id: ID!, assessmentType: AssessmentType!, requiredOutcome: AssessmentOutcome! }
-type AdminReasonCategory { id: ID!, context: ProgrammeReasonContext!, code: String!, label: String!, applicantMessageTemplate: String }
-type AdminCycleConnection { nodes: [AdminProgrammeCycle!]!, pageInfo: PageInfo! }
-type AdminCycleCount { status: ApplicationStatus!, count: Int! }
-type AdminCycleCounts { counts: [AdminCycleCount!]! }
-type AdminCycleEvent { id: ID!, eventType: String!, message: String!, createdAt: DateTime! }
-type AdminCycleEventList { events: [AdminCycleEvent!]! }
 
+"""One document this cycle requires, and the condition it is required under."""
+type AdminDocumentRule {
+  """Stable identifier."""
+  id: ID!
+
+  """Which evidence slot."""
+  documentType: DocumentType!
+
+  """When it becomes required."""
+  condition: ProgrammeDocumentCondition!
+}
+
+"""
+One identity number this cycle collects, and what it does with it.
+
+`requirement` and `duplicatePolicy` are **independent**, which is the point of
+the table: an account can be collected without a match ever blocking anybody —
+joint and family accounts are real — and a certificate can be compared without
+being demanded.
+"""
+type AdminIdentifierRule {
+  """Which number."""
+  kind: DeskReviewIdentifierKind!
+
+  """Whether the reviewer must transcribe it, and when."""
+  requirement: IdentifierRequirement!
+
+  """Whether it is compared against other applications."""
+  duplicatePolicy: IdentifierDuplicatePolicy!
+
+  """
+  The desk-review check this number is evidence for. Non-null exactly when
+  `requirement` is `REQUIRED_ON_PASS` — only a requirement conditional on a
+  check has a moment at which it applies.
+  """
+  checkType: DeskReviewCheckType
+}
+
+"""One assessment that must pass before a later phase may start."""
+type AdminAssessmentRule {
+  """Stable identifier."""
+  id: ID!
+
+  """What must be assessed before a later phase may start."""
+  assessmentType: AssessmentType!
+
+  """The outcome it must reach."""
+  requiredOutcome: AssessmentOutcome!
+}
+
+"""One approved reason for one administrative action."""
+type AdminReasonCategory {
+  """Stable identifier. Sent as `reasonCategoryId` when acting."""
+  id: ID!
+
+  """Which action this reason may be used for."""
+  context: ProgrammeReasonContext!
+
+  """
+  Stable code for reporting, safe to branch on.
+
+  **Example:** `"INCOMPLETE_EVIDENCE"`
+  """
+  code: String!
+
+  """What staff see in the reason picker."""
+  label: String!
+
+  """
+  Suggested wording for the applicant, which the officer may edit before
+  sending. Null where the action carries no applicant message.
+  """
+  applicantMessageTemplate: String
+}
+
+"""One page of programme cycles."""
+type AdminCycleConnection {
+  """This page, newest first."""
+  nodes: [AdminProgrammeCycle!]!
+
+  """Where this page sits in the whole list."""
+  pageInfo: PageInfo!
+}
+
+"""How many applications sit in one status."""
+type AdminCycleCount {
+  """The status counted."""
+  status: ApplicationStatus!
+
+  """How many are in it."""
+  count: Int!
+}
+
+"""A cycle's applications, counted by status."""
+type AdminCycleCounts {
+  """One entry per status that has applications in it."""
+  counts: [AdminCycleCount!]!
+}
+
+"""One thing that happened to a programme cycle."""
+type AdminCycleEvent {
+  """Stable identifier."""
+  id: ID!
+
+  """What happened, as a stable code safe to branch on."""
+  eventType: String!
+
+  """What to show, including the reason the officer gave."""
+  message: String!
+
+  """When it happened."""
+  createdAt: DateTime!
+}
+
+"""A cycle's recent history."""
+type AdminCycleEventList {
+  """The events, newest first."""
+  events: [AdminCycleEvent!]!
+}
+
+"""
+One application as a row in the work queue.
+
+Carries the enterprise and cycle names alongside the ids so a queue of twenty
+needs no second query per row.
+"""
 type AdminApplicationQueueItem {
+  """Stable identifier."""
   id: ID!
+
+  """The programme's reference. Null while never submitted."""
   referenceNumber: String
+
+  """Which enterprise is applying."""
   enterpriseId: ID!
+
+  """The enterprise's name, so the row needs no second query."""
   enterpriseName: String!
+
+  """Who submitted it."""
   applicantUserId: ID!
+
+  """The cycle this was applied into, whose frozen rules judge it."""
   programmeCycleId: ID!
+
+  """The cycle's short code."""
   cycleCode: String!
+
+  """The enterprise's sector."""
   sector: BusinessSector
+
+  """The funding band this application is for."""
   category: ApplicationCategory
+
+  """1 for a first application, 2 for the first expansion, and so on."""
   phaseNumber: Int!
+
+  """Whether this is a first application or a later phase."""
   applicationType: ApplicationType!
+
+  """Where the application is in the workflow."""
   status: ApplicationStatus!
+
+  """Send back as `expectedStatusVersion` when acting."""
   statusVersion: Int!
+
+  """Who worked it last. Null when nobody has."""
   assignedToUserId: ID
-  # Null when nobody holds it, and also when the holder's account is gone.
+
+  """
+  Who worked it last, resolved to a person. Null when nobody has, and also
+  when that account no longer exists.
+  """
   assignedTo: StaffMember
+
+  """When it was last worked. Null when nobody has."""
   assignedAt: DateTime
+
+  """
+  Moves when the record of who worked it changes. Advisory: no operation asks
+  a caller to have seen a particular value.
+  """
   assignmentVersion: Int!
+
+  """When it was first sent in."""
   firstSubmittedAt: DateTime
+
+  """Which submission this row is about, counting from 1."""
   submissionNumber: Int!
+
+  """When that submission arrived."""
   submittedAt: DateTime!
+
+  """When the status last changed."""
   statusChangedAt: DateTime!
+
+  """When anything about it last changed."""
   updatedAt: DateTime!
 }
+
+"""One application's workflow position, as the office acts on it."""
 type AdminApplicationState {
+  """Stable identifier."""
   id: ID!
+
+  """The programme's reference. Null while never submitted."""
   referenceNumber: String
+
+  """Where the application is in the workflow."""
   status: ApplicationStatus!
+
+  """Send back as `expectedStatusVersion` when acting."""
   statusVersion: Int!
-  # Exposed so the office screen can tell a member of staff that the file in
-  # front of them is their own. Acting on it is permitted; doing so without
-  # saying so is not, and the form cannot ask for the disclosure without this.
+
+  """
+  Who submitted it.
+
+  Exposed so the office screen can tell a member of staff that the file in
+  front of them is their own. Acting on it is permitted; doing so without
+  saying so is not, and the form cannot ask for the disclosure without this.
+  """
   applicantUserId: ID!
+
+  """Who worked it last. Null when nobody has."""
   assignedToUserId: ID
+
+  """Who worked it last, resolved to a person."""
   assignedTo: StaffMember
+
+  """When it was last worked."""
   assignedAt: DateTime
+
+  """Moves when the record of who worked it changes. Advisory."""
   assignmentVersion: Int!
+
+  """When anything about it last changed."""
   updatedAt: DateTime!
 }
-# Who holds an application, resolved rather than left as an id nobody can read.
-# Every row on a page is looked up together, so a queue of twenty costs one
-# query rather than twenty.
+
+"""
+A member of staff, resolved rather than left as an id nobody can read.
+
+Every row on a page is looked up together, so a queue of twenty costs one
+query rather than twenty.
+"""
 type StaffMember {
+  """Stable identifier."""
   id: ID!
+
+  """Their sign-in address, which is how the office refers to each other."""
   email: String!
-  # The roles held now, which is what decides what they can do with it.
+
+  """
+  The roles held **now**, which is what decides what they can do — not the
+  roles they held when they acted.
+  """
   roles: [UserRole!]!
 }
 
-type AdminApplicationConnection { nodes: [AdminApplicationQueueItem!]!, pageInfo: PageInfo! }
-# Every queue is reported, including empty ones, so the chips stay stable.
-type AdminQueueCount { queue: AdminIntakeQueueKey!, count: Int! }
-type AdminQueueSummary { queues: [AdminQueueCount!]! }
+"""One page of the work queue."""
+type AdminApplicationConnection {
+  """This page, in the requested order."""
+  nodes: [AdminApplicationQueueItem!]!
 
-# Workspaces deliberately expose fixed, non-sensitive operational summaries.
-# Internal notes are returned only through the administrator namespace.
+  """Where this page sits in the whole queue."""
+  pageInfo: PageInfo!
+}
+
+"""How much work sits in one named queue."""
+type AdminQueueCount {
+  """The named queue these are counted for."""
+  queue: AdminIntakeQueueKey!
+
+  """How many applications are in it."""
+  count: Int!
+}
+
+"""
+Every queue and its size.
+
+Every queue is reported, including empty ones, so the chips on the screen stay
+in the same place as work moves between them.
+"""
+type AdminQueueSummary {
+  """One entry per queue, always the full set."""
+  queues: [AdminQueueCount!]!
+}
+
+"""
+One application's whole case file.
+
+Returned in a single request so the screen cannot show two moments at once.
+Internal notes are here because this is the staff namespace; nothing in it is
+reachable by an applicant.
+"""
 type AdminWorkspace {
+  """The application's workflow position. Null if it could not be read."""
   application: AdminApplicationState
+
+  """The enterprise's name."""
   enterpriseName: String
+
+  """The cycle's short code."""
   cycleCode: String
+
+  """The cycle's name."""
   cycleDisplayName: String
+
+  """Every formal submission, oldest first."""
   submissions: [AdminSubmission!]!
+
+  """The exact form as each submission froze it."""
   snapshots: [ApplicationSnapshot!]!
+
+  """The exact document versions each submission carried."""
   documents: [AdminSubmittedDocument!]!
+
+  """What changed between consecutive submissions."""
   submissionChanges: [AdminSubmissionChange!]!
+
+  """Every correction request, including resolved and cancelled ones."""
   revisions: [AdminRevision!]!
+
+  """Who has worked this file, newest first. Advisory history, not a lock."""
   assignments: [AdminAssignmentEvent!]!
+
+  """Staff-only notes. Never shown to an applicant."""
   notes: [AdminInternalNote!]!
+
+  """Every desk review recorded, oldest first."""
   reviews: [AdminReview!]!
+
+  """The nine checks of each desk review."""
   reviewChecks: [AdminReviewCheck!]!
-  # Frozen with the submission, so a cycle edited afterwards does not change
-  # what this review is judged by. The desk-review form asks for exactly these.
+
+  """
+  The identifier rules frozen with the submission being reviewed, so a cycle
+  edited afterwards does not change what this review is judged by. The
+  desk-review form asks for exactly these.
+  """
   identifierRules: [AdminIdentifierRule!]!
+
+  """Every referral to a partner bank."""
   referrals: [AdminBankReferral!]!
+
+  """What the banks wrote back, including superseded corrections."""
   bankOutcomes: [AdminBankOutcomeRecord!]!
+
+  """This application's committee agenda items."""
   agenda: [AdminAgendaItem!]!
+
+  """Committee decisions, including superseded corrections."""
   decisions: [AdminDecisionRecord!]!
+
+  """The award, once one exists. Empty before that."""
   awards: [AdminAward!]!
+
+  """Every ledger entry: payments and reversals."""
   releases: [AdminDisbursement!]!
+
+  """Every assessment of how the award is being used."""
   assessments: [AdminAssessment!]!
+
+  """Any recovery cases opened against the award."""
   recoveries: [AdminRecoveryCase!]!
 }
-type AdminSubmission { id: ID!, submissionNumber: Int!, applicationVersion: Int!, submittedAt: DateTime! }
-type AdminSubmittedDocument { id: ID!, submissionId: ID!, documentId: ID!, documentType: DocumentType!, documentVersion: Int!, originalFilename: String!, contentType: String!, sizeBytes: Int! }
-type AdminSubmissionChange { fromSubmissionNumber: Int!, toSubmissionNumber: Int!, sections: [ApplicationSection!]! }
-type AdminRevision { id: ID!, section: ApplicationSection!, note: String!, requestedAt: DateTime!, resolvedAt: DateTime, cancelledAt: DateTime }
-type AdminAssignmentEvent { id: ID!, eventType: String!, assignmentVersion: Int!, fromUserId: ID, toUserId: ID, reason: String, conflictAcknowledged: Boolean!, actorUserId: ID!, createdAt: DateTime! }
-type AdminInternalNote { id: ID!, correctionOfNoteId: ID, note: String!, authoredByUserId: ID!, createdAt: DateTime! }
-type AdminReview { id: ID!, submissionId: ID!, outcome: String!, reviewedByUserId: ID!, reviewedAt: DateTime! }
-type AdminReviewCheck { id: ID!, deskReviewId: ID!, checkType: String!, result: String!, internalNote: String, createdAt: DateTime! }
-type AdminBankReferral { id: ID!, bankName: String!, bankBranch: String, referralReference: String!, referralDate: Date!, status: String!, currentVersion: Int! }
-type AdminBankOutcomeRecord { id: ID!, outcome: BankOutcome!, decisionReference: String!, decisionDate: Date!, applicantSummary: String!, createdAt: DateTime! }
-type AdminDecisionRecord { id: ID!, outcome: TtmDecisionOutcome!, decisionReference: String!, decisionDate: Date!, approvedAmountPaise: Money, applicantMessage: String!, createdAt: DateTime! }
 
-type AdminTtmMeeting { id: ID!, meetingReference: String!, scheduledAt: DateTime!, venue: String!, description: String, status: String!, currentVersion: Int! }
-type AdminAgendaItem { id: ID!, applicationId: ID!, submissionId: ID!, bankOutcomeId: ID!, position: Int!, status: String!, currentVersion: Int! }
-type AdminMeetingWorkspace { meeting: AdminTtmMeeting!, agenda: [AdminAgendaItem!]!, decisions: [AdminDecisionRecord!]! }
+"""One formal submission of an application."""
+type AdminSubmission {
+  """Stable identifier."""
+  id: ID!
 
+  """Which submission this is, counting from 1."""
+  submissionNumber: Int!
+
+  """Which form version it froze."""
+  applicationVersion: Int!
+
+  """When it arrived."""
+  submittedAt: DateTime!
+}
+
+"""
+One document exactly as a submission froze it.
+
+Replacing a file afterwards makes a new version and cannot change what was
+reviewed here.
+"""
+type AdminSubmittedDocument {
+  """Stable identifier for this pinned copy."""
+  id: ID!
+
+  """Which submission pinned it."""
+  submissionId: ID!
+
+  """The applicant's document slot it came from."""
+  documentId: ID!
+
+  """Which evidence slot it fills."""
+  documentType: DocumentType!
+
+  """The exact version pinned."""
+  documentVersion: Int!
+
+  """The file's name as the applicant uploaded it."""
+  originalFilename: String!
+
+  """The file's media type."""
+  contentType: String!
+
+  """The file's size in bytes."""
+  sizeBytes: Int!
+}
+
+"""What changed between two consecutive submissions."""
+type AdminSubmissionChange {
+  """The earlier submission."""
+  fromSubmissionNumber: Int!
+
+  """The later submission."""
+  toSubmissionNumber: Int!
+
+  """
+  The sections that differ. The same comparison the applicant is shown, so
+  the two can never disagree about what changed.
+  """
+  sections: [ApplicationSection!]!
+}
+
+"""One correction the office asked the applicant for."""
+type AdminRevision {
+  """Stable identifier."""
+  id: ID!
+
+  """Which part of the form."""
+  section: ApplicationSection!
+
+  """What was asked for. Shown to the applicant."""
+  note: String!
+
+  """When it was asked."""
+  requestedAt: DateTime!
+
+  """When the applicant resubmitted addressing it."""
+  resolvedAt: DateTime
+
+  """When the office withdrew it. A request made in error is cancelled."""
+  cancelledAt: DateTime
+}
+
+"""
+One entry in the record of who has worked a file.
+
+History rather than a control: nothing reads this to decide whether a write is
+allowed.
+"""
+type AdminAssignmentEvent {
+  """Stable identifier."""
+  id: ID!
+
+  """What happened, as a stable code."""
+  eventType: String!
+
+  """The assignment version this produced."""
+  assignmentVersion: Int!
+
+  """Who it moved from. Null when it moved from nobody."""
+  fromUserId: ID
+
+  """Who it moved to. Null when it moved to nobody."""
+  toUserId: ID
+
+  """The reason given, where the action required one."""
+  reason: String
+
+  """
+  Whether the officer disclosed that they were acting on their own
+  application. Permitted with disclosure; the disclosure is what is kept.
+  """
+  conflictAcknowledged: Boolean!
+
+  """Who did it."""
+  actorUserId: ID!
+
+  """When."""
+  createdAt: DateTime!
+}
+
+"""
+One staff-only note.
+
+Append-only: a correction is a new note pointing at the one it replaces, so
+nothing written about an application can quietly disappear.
+"""
+type AdminInternalNote {
+  """Stable identifier."""
+  id: ID!
+
+  """The note this one corrects. Null for an original note."""
+  correctionOfNoteId: ID
+
+  """What was written."""
+  note: String!
+
+  """Who wrote it."""
+  authoredByUserId: ID!
+
+  """When."""
+  createdAt: DateTime!
+}
+
+"""One completed desk review."""
+type AdminReview {
+  """Stable identifier."""
+  id: ID!
+
+  """Which submission was reviewed."""
+  submissionId: ID!
+
+  """What was decided, as a stable code."""
+  outcome: String!
+
+  """Who reviewed it."""
+  reviewedByUserId: ID!
+
+  """When."""
+  reviewedAt: DateTime!
+}
+
+"""One of the nine checks in a desk review."""
+type AdminReviewCheck {
+  """Stable identifier."""
+  id: ID!
+
+  """Which review this check belongs to."""
+  deskReviewId: ID!
+
+  """Which check, as a stable code."""
+  checkType: String!
+
+  """What the reviewer concluded, as a stable code."""
+  result: String!
+
+  """The reviewer's note. Never shown to the applicant."""
+  internalNote: String
+
+  """When the check was recorded."""
+  createdAt: DateTime!
+}
+
+"""One referral of an application to a partner bank."""
+type AdminBankReferral {
+  """Stable identifier."""
+  id: ID!
+
+  """The partner bank this was sent to, as the office recorded it."""
+  bankName: String!
+
+  """Which branch, where the office recorded one."""
+  bankBranch: String
+
+  """The office's reference for the referral."""
+  referralReference: String!
+
+  """When the office sent it, which may precede when it was recorded here."""
+  referralDate: Date!
+
+  """Where the referral is, as a stable code."""
+  status: String!
+
+  """Send back as `expectedReferralVersion` when acting."""
+  currentVersion: Int!
+}
+
+"""
+What a partner bank wrote back.
+
+Never edited: a correction is a new outcome superseding the earlier one, so the
+record shows what was believed and when.
+"""
+type AdminBankOutcomeRecord {
+  """Stable identifier."""
+  id: ID!
+
+  """What the bank concluded."""
+  outcome: BankOutcome!
+
+  """The bank's own reference."""
+  decisionReference: String!
+
+  """The date the bank decided."""
+  decisionDate: Date!
+
+  """The wording shown to the applicant."""
+  applicantSummary: String!
+
+  """When the office recorded it."""
+  createdAt: DateTime!
+}
+
+"""
+One committee decision.
+
+Never edited: a correction is a new decision superseding the earlier one.
+"""
+type AdminDecisionRecord {
+  """Stable identifier."""
+  id: ID!
+
+  """What the committee decided."""
+  outcome: TtmDecisionOutcome!
+
+  """The committee's reference for the decision."""
+  decisionReference: String!
+
+  """When the committee met, which may precede when this was recorded."""
+  decisionDate: Date!
+
+  """
+  How much was approved, in paise. Null for anything but an approval, and
+  never more than was requested.
+  """
+  approvedAmountPaise: Money
+
+  """The wording shown to the applicant."""
+  applicantMessage: String!
+
+  """When the office recorded it."""
+  createdAt: DateTime!
+}
+
+"""One committee meeting."""
+type AdminTtmMeeting {
+  """Stable identifier."""
+  id: ID!
+
+  """The office's reference for the meeting."""
+  meetingReference: String!
+
+  """When it is scheduled for."""
+  scheduledAt: DateTime!
+
+  """Where it is held."""
+  venue: String!
+
+  """What it is for, where the office recorded it."""
+  description: String
+
+  """Where the meeting is in its own life, as a stable code."""
+  status: String!
+
+  """Send back as `expectedVersion` when acting."""
+  currentVersion: Int!
+}
+
+"""One application on a committee agenda."""
+type AdminAgendaItem {
+  """Stable identifier."""
+  id: ID!
+
+  """The application this item puts before the committee."""
+  applicationId: ID!
+
+  """Which submission is before the committee."""
+  submissionId: ID!
+
+  """Which bank outcome accompanies it."""
+  bankOutcomeId: ID!
+
+  """Where it sits on the agenda, counting from 1."""
+  position: Int!
+
+  """Whether the item is still active, as a stable code."""
+  status: String!
+
+  """Send back as `expectedVersion` when acting."""
+  currentVersion: Int!
+}
+
+"""One meeting with its agenda and the decisions taken."""
+type AdminMeetingWorkspace {
+  """The meeting itself."""
+  meeting: AdminTtmMeeting!
+
+  """Its agenda, in order."""
+  agenda: [AdminAgendaItem!]!
+
+  """Decisions taken at it, including superseded corrections."""
+  decisions: [AdminDecisionRecord!]!
+}
+
+"""Everything about the money on one application."""
 type AdminFundingWorkspace {
+  """The award itself."""
   award: AdminAward!
+
+  """Every ledger entry: payments and reversals, oldest first."""
   ledger: [AdminDisbursement!]!
+
+  """When each payment must be accounted for."""
   obligations: [AdminUtilizationObligation!]!
+
+  """Every assessment, including superseded ones."""
   assessments: [AdminAssessment!]!
+
+  """Any recovery cases opened against this award."""
   recovery: [AdminRecoveryCase!]!
 }
-type AdminAward { id: ID!, applicationId: ID!, sanctionOrderNumber: String!, sanctionDate: Date!, sanctionedAmountPaise: Money!, applicantConditions: String, status: AwardStatus!, closureDisposition: AwardClosureDisposition, currentVersion: Int!, ledgerVersion: Int! }
-type AdminDisbursement { id: ID!, sequenceNumber: Int!, entryType: String!, relatedDisbursementId: ID, amountPaise: Money!, occurredAt: DateTime!, externalReference: String }
-type AdminUtilizationObligation { id: ID!, releaseDisbursementId: ID!, dueAt: DateTime! }
-type AdminAssessment { id: ID!, assessmentType: AssessmentType!, assessmentNumber: Int!, outcome: AssessmentOutcome!, utilizationObligationId: ID, evidenceReference: String!, applicantSummary: String!, assessedAt: DateTime! }
-type AdminRecoveryCase { id: ID!, fundingAwardId: ID!, status: String!, currentVersion: Int!, ledgerVersion: Int! }
-type AdminRecoveryEntry { id: ID!, sequenceNumber: Int!, entryType: RecoveryEntryType!, component: RecoveryComponent!, amountPaise: Money!, externalReference: String!, occurredAt: DateTime! }
-type AdminRecoveryBalance { principalDemanded: Money!, interestDemanded: Money!, receipts: Money!, waivers: Money!, outstanding: Money! }
-type AdminRecoveryWorkspace { recoveryCase: AdminRecoveryCase!, entries: [AdminRecoveryEntry!]!, balance: AdminRecoveryBalance! }
 
-type AdminCycleResult implements BaseResponse { success: Boolean!, message: String, response: AdminCycleAggregate }
-type AdminCycleConnectionResult implements BaseResponse { success: Boolean!, message: String, response: AdminCycleConnection }
-type AdminCycleCountsResult implements BaseResponse { success: Boolean!, message: String, response: AdminCycleCounts }
-type AdminCycleEventsResult implements BaseResponse { success: Boolean!, message: String, response: AdminCycleEventList }
-type AdminApplicationResult implements BaseResponse { success: Boolean!, message: String, response: AdminApplicationState }
-type AdminApplicationConnectionResult implements BaseResponse { success: Boolean!, message: String, response: AdminApplicationConnection }
-type AdminQueueSummaryResult implements BaseResponse { success: Boolean!, message: String, response: AdminQueueSummary }
-type AdminWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminWorkspace }
-type AdminMeetingConnection { nodes: [AdminTtmMeeting!]!, pageInfo: PageInfo! }
-type AdminMeetingsResult implements BaseResponse { success: Boolean!, message: String, response: AdminMeetingConnection }
-type AdminMeetingWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminMeetingWorkspace }
-type AdminFundingWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminFundingWorkspace }
-type AdminRecoveryWorkspaceResult implements BaseResponse { success: Boolean!, message: String, response: AdminRecoveryWorkspace }
+"""One award: what was sanctioned, and where it stands."""
+type AdminAward {
+  """Stable identifier."""
+  id: ID!
+
+  """Which application it was awarded on."""
+  applicationId: ID!
+
+  """The programme's sanction order number."""
+  sanctionOrderNumber: String!
+
+  """The date of the sanction order."""
+  sanctionDate: Date!
+
+  """What was sanctioned, in paise. The ceiling, not what has been paid."""
+  sanctionedAmountPaise: Money!
+
+  """Conditions the applicant must meet."""
+  applicantConditions: String
+
+  """Where the award is in its own life."""
+  status: AwardStatus!
+
+  """How a closed award ended. Null while still open."""
+  closureDisposition: AwardClosureDisposition
+
+  """Send back as `expectedVersion` when amending the award itself."""
+  currentVersion: Int!
+
+  """
+  Send back as `expectedLedgerVersion` when posting money.
+
+  Separate from `currentVersion` on purpose: recording a payment must not
+  invalidate somebody's in-flight amendment, and the reverse.
+  """
+  ledgerVersion: Int!
+}
+
+"""
+One entry in the award ledger.
+
+Append-only. A correction is posted as its own reversal entry rather than
+editing what was there, so the ledger always reconciles.
+"""
+type AdminDisbursement {
+  """Stable identifier."""
+  id: ID!
+
+  """Which entry this is, counting from 1."""
+  sequenceNumber: Int!
+
+  """Whether this is a payment or a reversal, as a stable code."""
+  entryType: String!
+
+  """The payment this reverses. Null on a payment."""
+  relatedDisbursementId: ID
+
+  """The amount, in paise. Always positive; the type says the direction."""
+  amountPaise: Money!
+
+  """When the money moved."""
+  occurredAt: DateTime!
+
+  """The bank's reference, for reconciliation."""
+  externalReference: String
+}
+
+"""When one payment must be accounted for."""
+type AdminUtilizationObligation {
+  """Stable identifier."""
+  id: ID!
+
+  """Which payment this obligation is about."""
+  releaseDisbursementId: ID!
+
+  """When the accounting for it is due."""
+  dueAt: DateTime!
+}
+
+"""One assessment of how an award is being used."""
+type AdminAssessment {
+  """Stable identifier."""
+  id: ID!
+
+  """What was assessed."""
+  assessmentType: AssessmentType!
+
+  """Which assessment of this type this is, counting from 1."""
+  assessmentNumber: Int!
+
+  """What was concluded."""
+  outcome: AssessmentOutcome!
+
+  """
+  Which payment this assesses, for utilization. Null for assessments about the
+  award as a whole.
+  """
+  utilizationObligationId: ID
+
+  """The office's reference for the evidence. Never shown to the applicant."""
+  evidenceReference: String!
+
+  """The wording shown to the applicant."""
+  applicantSummary: String!
+
+  """When it was concluded."""
+  assessedAt: DateTime!
+}
+
+"""One recovery case against an award."""
+type AdminRecoveryCase {
+  """Stable identifier."""
+  id: ID!
+
+  """Which award is being recovered against."""
+  fundingAwardId: ID!
+
+  """Where the case is, as a stable code."""
+  status: String!
+
+  """Send back as `expectedVersion` when acting on the case itself."""
+  currentVersion: Int!
+
+  """Send back as `expectedLedgerVersion` when posting an entry."""
+  ledgerVersion: Int!
+}
+
+"""
+One entry in a recovery ledger.
+
+Append-only, like the award ledger: a mistake is corrected by posting a
+reversal, never by editing what is there.
+"""
+type AdminRecoveryEntry {
+  """Stable identifier."""
+  id: ID!
+
+  """Which entry this is, counting from 1."""
+  sequenceNumber: Int!
+
+  """What this entry does to the balance."""
+  entryType: RecoveryEntryType!
+
+  """Which part of the recovery it applies to."""
+  component: RecoveryComponent!
+
+  """The amount, in paise. Always positive; the type says the direction."""
+  amountPaise: Money!
+
+  """The external reference, for reconciliation."""
+  externalReference: String!
+
+  """When it happened."""
+  occurredAt: DateTime!
+}
+
+"""
+A recovery case's running balance, folded from its entries.
+
+Derived rather than stored, so it cannot drift from the ledger behind it.
+"""
+type AdminRecoveryBalance {
+  """Principal claimed back, in paise."""
+  principalDemanded: Money!
+
+  """Interest claimed, in paise."""
+  interestDemanded: Money!
+
+  """Money received, in paise."""
+  receipts: Money!
+
+  """Money written off, in paise."""
+  waivers: Money!
+
+  """
+  What is still owed, in paise: demanded less receipts less waivers. **This is
+  the figure to show as outstanding.** Zero means the case can be closed.
+  """
+  outstanding: Money!
+}
+
+"""One recovery case with its entries and balance."""
+type AdminRecoveryWorkspace {
+  """The case itself."""
+  recoveryCase: AdminRecoveryCase!
+
+  """Every entry, oldest first."""
+  entries: [AdminRecoveryEntry!]!
+
+  """The running balance, folded from those entries."""
+  balance: AdminRecoveryBalance!
+}
+
+"""One cycle with its rules, or the reason the operation was refused."""
+type AdminCycleResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — a stale `expectedVersion`, an invalid
+  policy, or a transition the cycle's state does not allow.
+  """
+  message: String
+
+  """The cycle and its rules. Null whenever `success` is false."""
+  response: AdminCycleAggregate
+}
+
+"""One page of cycles, or the reason there is none."""
+type AdminCycleConnectionResult implements BaseResponse {
+  """Whether the page was returned."""
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """The page. Null whenever `success` is false."""
+  response: AdminCycleConnection
+}
+
+"""A cycle's applications counted by status, or the reason there is none."""
+type AdminCycleCountsResult implements BaseResponse {
+  """Whether the counts were returned."""
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """The counts. Null whenever `success` is false."""
+  response: AdminCycleCounts
+}
+
+"""A cycle's history, or the reason there is none."""
+type AdminCycleEventsResult implements BaseResponse {
+  """Whether the history was returned."""
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """The events. Null whenever `success` is false."""
+  response: AdminCycleEventList
+}
+
+"""One application's workflow position, or the reason it was refused."""
+type AdminApplicationResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — chiefly a stale
+  `expectedStatusVersion`, meaning somebody else acted first.
+  """
+  message: String
+
+  """The application. Null whenever `success` is false."""
+  response: AdminApplicationState
+}
+
+"""One page of the queue, or the reason there is none."""
+type AdminApplicationConnectionResult implements BaseResponse {
+  """Whether the page was returned."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — an invalid page size, a cursor from a
+  different ordering, or `queue` and `status` supplied together.
+  """
+  message: String
+
+  """The page. Null whenever `success` is false."""
+  response: AdminApplicationConnection
+}
+
+"""Every queue and its size, or the reason there is none."""
+type AdminQueueSummaryResult implements BaseResponse {
+  """Whether the summary was returned."""
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """The summary. Null whenever `success` is false."""
+  response: AdminQueueSummary
+}
+
+"""One case file, or the reason the operation was refused."""
+type AdminWorkspaceResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false. Desk-review refusals arrive here: a
+  passed check with no identifier the cycle demands, an identifier already on
+  another funding case, or a stale `expectedStatusVersion`.
+  """
+  message: String
+
+  """The case file as it now stands. Null whenever `success` is false."""
+  response: AdminWorkspace
+}
+
+"""One page of committee meetings."""
+type AdminMeetingConnection {
+  """This page, newest first."""
+  nodes: [AdminTtmMeeting!]!
+
+  """Where this page sits in the whole list."""
+  pageInfo: PageInfo!
+}
+
+"""One page of meetings, or the reason there is none."""
+type AdminMeetingsResult implements BaseResponse {
+  """Whether the page was returned."""
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """The page. Null whenever `success` is false."""
+  response: AdminMeetingConnection
+}
+
+"""One meeting, or the reason the operation was refused."""
+type AdminMeetingWorkspaceResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — a stale `expectedVersion`, an agenda
+  that is full, or a meeting whose state does not allow the change.
+  """
+  message: String
+
+  """The meeting as it now stands. Null whenever `success` is false."""
+  response: AdminMeetingWorkspace
+}
+
+"""The money on one application, or the reason the operation was refused."""
+type AdminFundingWorkspaceResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — a stale `expectedLedgerVersion`, an
+  amount over what remains, or a reversal larger than the payment it reverses.
+  """
+  message: String
+
+  """The funding position. Null whenever `success` is false."""
+  response: AdminFundingWorkspace
+}
+
+"""One recovery case, or the reason the operation was refused."""
+type AdminRecoveryWorkspaceResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — a stale `expectedLedgerVersion`, or a
+  closure attempted while a balance is still outstanding.
+  """
+  message: String
+
+  """The recovery case. Null whenever `success` is false."""
+  response: AdminRecoveryWorkspace
+}

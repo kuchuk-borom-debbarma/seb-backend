@@ -1,83 +1,229 @@
 extend type Query {
+  """
+  The portal's activity history.
+
+  **Use case:** `/admin/audit`. Readable only by a super administrator — this
+  carries more about people than any other read in the portal.
+  """
   audit: AuditQuery!
 }
 
-# Newest first is the default: recent activity is what gets looked at.
-enum AuditOrder { NEWEST_FIRST OLDEST_FIRST }
+"""Which way round the history is read."""
+enum AuditOrder {
+  """Most recent first. The default: recent activity is what gets looked at."""
+  NEWEST_FIRST
 
-enum AuditOutcome { SUCCESS FAILURE }
+  """Oldest first, for reading a sequence of events forwards."""
+  OLDEST_FIRST
+}
 
-# Every filter is optional and they combine with AND.
-#
-# `actorUserIds` and `actorRole` are the two halves of "selected people, or
-# everybody holding a role". Supplying both narrows to selected people who also
-# hold that role, which is a coherent question rather than a contradiction.
+"""Whether the recorded action succeeded."""
+enum AuditOutcome {
+  """The action was carried out."""
+  SUCCESS
+
+  """
+  The action was refused. Failures are recorded too — a run of refusals is
+  usually more interesting than a success.
+  """
+  FAILURE
+}
+
+"""
+How the history is filtered, ordered and paged.
+
+Every filter is optional and they combine with AND.
+
+`actorUserIds` and `actorRole` are the two halves of "selected people, or
+everybody holding a role". Supplying both narrows to selected people who also
+hold that role, which is a coherent question rather than a contradiction.
+"""
 input AuditQueryInput {
+  """How many to return, 1–100. Defaults to 20."""
   first: Int
+
+  """
+  The previous page's `endCursor`. Opaque, and it remembers which ordering it
+  came from — reusing one under a different `order` is refused.
+  """
   after: String
-  # At most 50. A person-picker will never legitimately need more, and an
-  # unbounded IN (...) is a way to make one request do arbitrary work.
+
+  """
+  Only events by these people. **At most 50.** A person-picker will never
+  legitimately need more, and an unbounded `IN (…)` is a way to make one
+  request do arbitrary work.
+  """
   actorUserIds: [ID!]
+
+  """
+  Only events by people currently holding this role. The role held **now**,
+  not the role held at the time of the event.
+  """
   actorRole: UserRole
-  # Matches events recorded against the application itself. Events recorded
-  # against one of its documents or submissions carry their own entity id and
-  # are not included — see the service README.
+
+  """
+  Only events recorded against this application itself.
+
+  Events recorded against one of its documents or submissions carry their own
+  entity id and are **not** included — a subtlety worth knowing before
+  concluding that nothing happened to a file.
+  """
   applicationId: ID
+
+  """
+  Only events about this kind of record.
+
+  **Example:** `"SEB_APPLICATION"`
+  """
   entityType: String
+
+  """
+  Only these actions. **At most 50.** Use `actions` for the names that
+  actually occur.
+  """
   action: [String!]
+
+  """Only successes, or only refusals."""
   outcome: AuditOutcome
+
+  """Only events at or after this instant."""
   from: DateTime
+
+  """Only events at or before this instant."""
   to: DateTime
+
+  """Which way round to read. Defaults to newest first."""
   order: AuditOrder
 }
 
-# Resolved rather than a bare id, so a page of fifty does not become fifty-one
-# requests. `roles` are the roles held now, not at the time of the event.
+"""
+Who did something, resolved rather than left as a bare id.
+
+Every actor on a page is looked up together, so a page of fifty does not become
+fifty-one requests.
+"""
 type AuditActor {
+  """Stable identifier."""
   id: ID!
+
+  """Their sign-in address."""
   email: String!
+
+  """
+  The roles held **now**, not the roles held at the time of the event. Somebody
+  whose access was revoked afterwards shows with what they hold today.
+  """
   roles: [UserRole!]!
 }
 
-# `actor` is null for trusted system transitions that have no operator at all,
-# such as verified signup and the first-administrator bootstrap.
+"""One recorded action."""
 type AuditEvent {
+  """Stable identifier."""
   id: ID!
+
+  """
+  What was done, as a stable code safe to branch on.
+
+  **Example:** `"SEB.DESK_REVIEW_STARTED"`
+  """
   action: String!
+
+  """What kind of record it was done to."""
   entityType: String!
+
+  """Which record. Null for actions that name no single one."""
   entityId: ID
+
+  """Whether it succeeded."""
   outcome: AuditOutcome!
+
+  """
+  Who did it. **Null for trusted system transitions that have no operator at
+  all** — verified signup, the first-administrator bootstrap, and the
+  scheduled handlers.
+  """
   actor: AuditActor
+
+  """The request this belonged to, for correlating several events."""
   requestId: String
+
+  """Where the request came from, where it was recorded."""
   ipAddress: String
+
+  """Which browser made it, where it was recorded."""
   userAgent: String
-  # The stored JSON text, passed through as written.
+
+  """
+  The stored JSON text, passed through exactly as written. Its shape depends
+  on the action and is not part of this contract — read it, do not depend on
+  it.
+  """
   metadata: String
+
+  """When it happened."""
   createdAt: DateTime!
 }
 
+"""One page of the activity history."""
 type AuditEventConnection {
+  """This page, in the requested order."""
   nodes: [AuditEvent!]!
+
+  """Where this page sits in the whole history."""
   pageInfo: PageInfo!
 }
 
+"""One page of history, or the reason there is none."""
 type AuditEventConnectionResult implements BaseResponse {
+  """Whether the page was returned."""
   success: Boolean!
+
+  """
+  What to show when `success` is false — a caller without the authority to
+  read the history, an invalid page size, or a cursor from a different
+  ordering.
+  """
   message: String
+
+  """The page. Null whenever `success` is false."""
   response: AuditEventConnection
 }
 
+"""The action names that occur, or the reason they could not be read."""
 type AuditActionsResult implements BaseResponse {
+  """Whether the names were returned."""
   success: Boolean!
+
+  """What to show when `success` is false."""
   message: String
+
+  """The names, alphabetically. Null whenever `success` is false."""
   response: [String!]
 }
 
-# Every field here is readable only by a super administrator. The history
-# carries more about people than any other read in the portal — who did what,
-# from which address, with which browser — so the gate is deliberately narrow.
+"""
+Reading the activity history.
+
+Every field here is readable only by a super administrator. The history carries
+more about people than any other read in the portal — who did what, from which
+address, with which browser — so the gate is deliberately narrow.
+"""
 type AuditQuery {
-  events(input: AuditQueryInput): AuditEventConnectionResult!
-  # The action names that actually occur, so a filter offers no dead ends.
+  """
+  The history, filtered and paged.
+
+  **Use case:** `/admin/audit`.
+  """
+  events(
+    """Filters, ordering and paging. Every field is optional."""
+    input: AuditQueryInput
+  ): AuditEventConnectionResult!
+
+  """
+  The action names that actually occur, so a filter offers no dead ends.
+
+  **Use case:** populating the action picker. Fetch once alongside the first
+  page.
+  """
   actions: AuditActionsResult!
 }

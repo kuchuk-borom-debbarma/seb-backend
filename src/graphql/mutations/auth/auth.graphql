@@ -1,33 +1,121 @@
 extend type Mutation {
+  """
+  Signing up, signing in, and ending sessions.
+
+  **Use case:** the screens outside the portal shell, plus the security screen
+  inside it.
+  """
   auth: AuthMutation!
 }
 
-# Starting signup sends an OTP but returns a separate high-entropy challenge.
+"""Begins applicant signup for one email address."""
 input StartApplicantSignupInput {
+  """
+  The address to register. Normalized before use, so case and surrounding
+  spaces do not create a second account.
+  """
   email: String!
 }
 
+"""Completes signup with the emailed code and a chosen password."""
 input VerifyApplicantSignupInput {
+  """
+  The `challengeToken` from `startApplicantSignup`.
+
+  Deliberately separate from the code: the token identifies the attempt and
+  the code proves the address was received, so neither alone is enough.
+  """
   challengeToken: String!
+
+  """The one-time code sent to the address."""
   otp: String!
+
+  """The password to set for the new account."""
   password: String!
 }
 
+"""Signs in with an address and password."""
 input SignInInput {
+  """The account's address."""
   email: String!
+
+  """The account's password."""
   password: String!
 }
 
+"""Signing up, signing in, and ending sessions."""
 type AuthMutation {
-  # Creates an independent ten-minute challenge without revealing account existence.
-  startApplicantSignup(input: StartApplicantSignupInput!): StartApplicantSignupResult!
-  # Creates a verified applicant only; the caller signs in separately for a session.
-  # Registration can never grant an administrative role.
-  verifyApplicantSignup(input: VerifyApplicantSignupInput!): UserResult!
-  # Accepts any person holding at least one active role, applicant or administrator.
-  signIn(input: SignInInput!): AuthResult!
+  """
+  Begins applicant signup and sends a one-time code.
+
+  Returns a ten-minute challenge that is **independent of the code**, and
+  succeeds identically whether or not an account already exists — so this
+  cannot be used to discover which addresses are registered.
+
+  **Use case:** `/sign-up`.
+  """
+  startApplicantSignup(
+    """The address to register."""
+    input: StartApplicantSignupInput!
+  ): StartApplicantSignupResult!
+
+  """
+  Completes signup, creating a verified applicant.
+
+  Creates the account only — the caller signs in separately for a session.
+  Registration can never grant an administrative role, whatever is sent.
+
+  **Refuses:** a wrong or expired code, and a challenge already used.
+  """
+  verifyApplicantSignup(
+    """The challenge, the emailed code, and the password to set."""
+    input: VerifyApplicantSignupInput!
+  ): UserResult!
+
+  """
+  Signs in and starts a session.
+
+  Accepts any person holding at least one active role, applicant or staff.
+
+  **Refuses:** a wrong address and a wrong password identically, so neither
+  can be used to discover the other.
+  """
+  signIn(
+    """The address and password."""
+    input: SignInInput!
+  ): AuthResult!
+
+  """
+  Ends the current session.
+
+  **Use case:** the sign-out control. Succeeds even with no session, so a
+  client need not check first.
+  """
   signOut: BooleanResult!
-  revokeSession(sessionId: ID!): BooleanResult!
+
+  """
+  Ends one named session.
+
+  **Use case:** the security screen, for a device somebody no longer has.
+  """
+  revokeSession(
+    """Which session to end. Must belong to the signed-in account."""
+    sessionId: ID!
+  ): BooleanResult!
+
+  """
+  Ends every session except this one.
+
+  **Use case:** "sign out everywhere else" after a suspected compromise. The
+  caller stays signed in here.
+  """
   revokeOtherSessions: BooleanResult!
+
+  """
+  Ends every session including this one.
+
+  The caller is signed out too, so a client must clear its own state
+  afterwards.
+  """
   revokeAllSessions: BooleanResult!
 }

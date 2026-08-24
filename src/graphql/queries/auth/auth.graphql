@@ -1,8 +1,35 @@
 extend type Query {
+  """
+  Who is signed in, and where else they are signed in from.
+
+  **Use case:** the shell, which reads the identity once per navigation and
+  shares it with every screen.
+  """
   auth: AuthQuery!
 }
 
+"""Reading the signed-in identity."""
 type AuthQuery {
+  """
+  Who is signed in, with the roles and capabilities they hold **now**.
+
+  Roles are read live rather than carried in a token, so revoking one takes
+  effect on the very next request. A client must never assume a role it saw
+  earlier is still held.
+
+  **Use case:** deciding what the interface offers. It never decides what is
+  permitted — every operation is re-checked by the API.
+
+  A signed-out visitor is a **successful** response with a null payload, not
+  an error.
+  """
   currentSession: AuthResult!
+
+  """
+  Every session this account currently has open.
+
+  **Use case:** the security screen, where somebody can see they are still
+  signed in on a device they no longer have.
+  """
   sessions: SessionsResult!
 }

@@ -1,118 +1,362 @@
+"""
+An exact instant, as an ISO-8601 string in UTC.
+
+Use `Date` where only the day matters — a date of birth has no time.
+
+**Example:** `"2026-04-01T09:30:00.000Z"`
+"""
 scalar DateTime
 
-# Every operation-specific result implements the same safe client envelope.
+"""
+The envelope every operation returns.
+
+**Expected failures live inside it, not in GraphQL `errors`.** A stale version,
+a refused permission, an application that cannot be found — all arrive as
+`success: false` with a `message` fit to show somebody. `errors` means the
+request itself was malformed or the server broke, which is a different kind of
+problem needing a different kind of handling.
+
+So: check `success`, show `message` when it is false, and treat `errors` as a
+bug rather than a user-facing outcome.
+"""
 interface BaseResponse {
+  """Whether the operation did what was asked."""
   success: Boolean!
+
+  """
+  What to show the person when `success` is false. Null when it succeeded.
+
+  Written to be read by whoever is looking at the screen, and deliberately
+  vague where being specific would help an attacker more than a user.
+  """
   message: String
 }
 
+"""
+A role an account can hold.
+
+Roles are **not ranked**: an approver may record a decision a reviewer may not,
+and neither may open a programme cycle. Ask what somebody *may do* through
+`Capability` rather than matching on role names, which would be a second copy
+of a policy that lives in one place on the server.
+"""
 enum UserRole {
+  """Applies for funding. Created only by verified signup."""
   APPLICANT
+
+  """Reads every casework screen and changes nothing."""
   REVIEWER
+
+  """Reads casework, and records and corrects the committee decision."""
   APPROVER
+
+  """The whole operational workflow. Cannot grant or revoke a role."""
   ADMIN
+
+  """Everything, including changing what other accounts may do."""
   SUPER_ADMIN
 }
 
+"""A signup attempt in progress."""
 type StartApplicantSignupResponse {
+  """
+  Identifies this attempt. Send it back with the emailed code.
+
+  Independent of the code on purpose: the token identifies the attempt and the
+  code proves the address was received, so neither alone is enough.
+  """
   challengeToken: String!
+
+  """When the attempt expires. Ten minutes after it started."""
   expiresAt: DateTime!
 }
 
-# What the roles held add up to. A screen uses this to decide what to offer;
-# it is never what authorizes anything, which stays a server-side refusal.
+"""
+What the roles held add up to.
+
+A screen uses this to decide what to **offer**. It is never what authorizes
+anything — every operation is re-checked by the server, which is what actually
+refuses.
+"""
 enum Capability {
+  """Read casework: queues, workspaces, documents, funding."""
   STAFF_READ
+
+  """Act on casework: desk review, referral, awards, notes."""
   STAFF_WRITE
+
+  """Record and correct the committee's decision."""
   DECIDE
+
+  """Grant and revoke roles directly."""
   ROLE_ADMIN
+
+  """Invite somebody to a role they accept themselves."""
   ROLE_INVITE
+
+  """Read the portal's activity history."""
   AUDIT_READ
 }
 
-# Roles are the caller's live grants. A person may hold more than one, and an
-# administrator may hold none of APPLICANT.
+"""
+Who is signed in.
+
+Roles are the caller's **live** grants, read on each request rather than
+carried in a token — so revoking one takes effect immediately. A person may
+hold more than one, and a member of staff may hold no `APPLICANT` role at all.
+"""
 type User {
+  """Stable identifier."""
   id: ID!
+
+  """The account's sign-in address."""
   email: String!
+
+  """Whether that address has been verified."""
   emailVerified: Boolean!
+
+  """Every role held now."""
   roles: [UserRole!]!
+
+  """
+  What those roles add up to. Read this rather than matching role names.
+  """
   capabilities: [Capability!]!
+
+  """When the account was created."""
   createdAt: DateTime!
 }
 
-# Public browser-safe session data. Raw tokens and token digests are absent.
+"""
+One open session.
+
+Browser-safe: the raw token and its digest are deliberately absent, so nothing
+here can be used to impersonate the session it describes.
+"""
 type Session {
+  """Stable identifier. Pass to `revokeSession` to end this one."""
   id: ID!
+
+  """When the session began."""
   createdAt: DateTime!
+
+  """When it was last used."""
   updatedAt: DateTime!
+
+  """When it expires on its own."""
   expiresAt: DateTime!
+
+  """Where it was signed in from, where that was recorded."""
   ipAddress: String
+
+  """Which browser signed in, where that was recorded."""
   userAgent: String
+
+  """
+  True for the session making this request. Lets a security screen show "this
+  device" rather than offering to sign somebody out of the page they are on.
+  """
   current: Boolean!
 }
 
+"""Who is signed in, and the session they are signed in with."""
 type AuthResponse {
+  """The signed-in account."""
   user: User!
+
+  """The session this request is using."""
   session: Session!
 }
 
+"""Every session an account has open."""
 type SessionsResponse {
+  """The sessions, including the current one."""
   sessions: [Session!]!
 }
 
+"""A plain yes or no, wrapped so it carries a message when it is no."""
 type BooleanResponse {
+  """What the operation concluded."""
   value: Boolean!
 }
 
+"""A signup attempt, or the reason one could not be started."""
 type StartApplicantSignupResult implements BaseResponse {
+  """
+  Whether the attempt was started.
+
+  Succeeds identically whether or not the address already has an account, so
+  this cannot be used to discover which addresses are registered.
+  """
   success: Boolean!
+
+  """What to show when `success` is false."""
   message: String
+
+  """The attempt. Null whenever `success` is false."""
   response: StartApplicantSignupResponse
 }
 
+"""One account, or the reason the operation was refused."""
 type UserResult implements BaseResponse {
+  """Whether the operation succeeded."""
   success: Boolean!
+
+  """
+  What to show when `success` is false — chiefly a wrong or expired one-time
+  code.
+  """
   message: String
+
+  """The account. Null whenever `success` is false."""
   response: User
 }
 
+"""The signed-in identity, or the reason there is none."""
 type AuthResult implements BaseResponse {
+  """
+  Whether the request could be answered.
+
+  A signed-out visitor is a **successful** response with a null `response`,
+  not a failure — being signed out is an ordinary state.
+  """
   success: Boolean!
+
+  """
+  What to show when `success` is false. A wrong address and a wrong password
+  are refused identically.
+  """
   message: String
+
+  """Who is signed in. Null when nobody is."""
   response: AuthResponse
 }
 
+"""The account's open sessions, or the reason they could not be read."""
 type SessionsResult implements BaseResponse {
+  """Whether the sessions were returned."""
   success: Boolean!
+
+  """What to show when `success` is false."""
   message: String
+
+  """The sessions. Null whenever `success` is false."""
   response: SessionsResponse
 }
 
+"""A yes or no, or the reason the operation was refused."""
 type BooleanResult implements BaseResponse {
+  """Whether the operation succeeded."""
   success: Boolean!
+
+  """What to show when `success` is false."""
   message: String
+
+  """The answer. Null whenever `success` is false."""
   response: BooleanResponse
 }
 
-# Shared vocabulary used by both the administrative and applicant surfaces.
-# Declared here so neither namespace's SDL depends on the other being loaded.
-enum ProgrammeCycleStatus { DRAFT OPEN CLOSED ARCHIVED }
-enum AwardStatus { ACTIVE SUSPENDED CANCELLED CLOSED }
-enum AwardClosureDisposition { RELEASES_COMPLETE REMAINDER_NOT_RELEASED }
-enum AssessmentType { UTILIZATION PERFORMANCE FINANCIAL_AUDIT }
-enum AssessmentOutcome { PASSED FAILED }
+"""
+Where a programme cycle is in its own life.
 
+Not the same as whether it is accepting applications — that is its
+`opensAt`/`closesAt` window.
+"""
+enum ProgrammeCycleStatus {
+  """Being configured. Its rules may still change, and it accepts nothing."""
+  DRAFT
+
+  """Published. Its rules are fixed and applications may be started."""
+  OPEN
+
+  """
+  No longer accepting new applications. Work already in it continues.
+  """
+  CLOSED
+
+  """Finished. Renders as read-only history."""
+  ARCHIVED
+}
+
+"""Where an award is in its own life."""
+enum AwardStatus {
+  """In force. Money may be released against it."""
+  ACTIVE
+
+  """Held. No money moves until it is active again."""
+  SUSPENDED
+
+  """Revoked. Anything already paid may become a recovery case."""
+  CANCELLED
+
+  """Finished. `closureDisposition` says how."""
+  CLOSED
+}
+
+"""How a closed award ended."""
+enum AwardClosureDisposition {
+  """Everything sanctioned was released."""
+  RELEASES_COMPLETE
+
+  """
+  Part of the sanctioned amount was never released. A deliberate outcome, not
+  an unfinished one.
+  """
+  REMAINDER_NOT_RELEASED
+}
+
+"""What is being assessed about an award."""
+enum AssessmentType {
+  """Whether one payment was used for what it was given for."""
+  UTILIZATION
+
+  """Whether the enterprise is doing what it said it would."""
+  PERFORMANCE
+
+  """A formal audit of the accounts."""
+  FINANCIAL_AUDIT
+}
+
+"""What an assessment concluded."""
+enum AssessmentOutcome {
+  """Satisfactory."""
+  PASSED
+
+  """Not satisfactory. May block a later phase, and may open a recovery."""
+  FAILED
+}
+
+"""Whether the API is up, and what it is connected to."""
 type Health {
+  """Which service this is."""
   name: String!
+
+  """Whether it is healthy."""
   status: String!
+
+  """
+  Which bindings are configured. Names only — never a value, a key, or a
+  connection string.
+  """
   bindings: [String!]!
 }
 
+"""Everything readable. Each namespace states its own authority."""
 type Query {
+  """
+  Whether the API is up. Requires no session.
+
+  **Use case:** an uptime check, and confirming a deployment is configured.
+  """
   health: Health!
 }
 
+"""Everything writable. Each namespace states its own authority."""
 type Mutation {
+  """
+  Placeholder so this type is never empty. Always null; ignore it.
+
+  The real mutations are added by each namespace's own SDL.
+  """
   _empty: Boolean
 }

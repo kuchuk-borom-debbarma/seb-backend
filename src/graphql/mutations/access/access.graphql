@@ -1,71 +1,214 @@
 extend type Mutation {
+  """
+  Changing what an account may do.
+
+  **Use case:** `/admin/access` and `/admin/invite`. Granting and revoking
+  directly requires super-administrator authority; inviting requires less.
+  """
   access: AccessMutation!
 }
 
-# APPLICANT is deliberately absent. It is created only by verified signup and no
-# operation can grant it back, so allowing it here would let one revocation
-# strip an applicant permanently with no recovery path.
+"""
+A role that may be granted or invited.
+
+`APPLICANT` is deliberately absent. It is created only by verified signup and
+no operation can grant it back, so allowing it here would let one revocation
+strip an applicant permanently with no recovery path.
+"""
 enum ManageableRole {
+  """Reads every casework screen and changes nothing."""
   REVIEWER
+
+  """Reads casework, and records and corrects the committee decision."""
   APPROVER
+
+  """The whole operational workflow. Cannot grant or revoke a role."""
   ADMIN
+
+  """
+  Everything, including changing what other accounts may do. Never available
+  by invitation — only an existing super administrator can create another.
+  """
   SUPER_ADMIN
 }
 
-# `currentPassword` is the step-up confirmation required before any change to
-# another person's authority. It is verified against the caller's own account.
+"""Grants a role directly, with a step-up confirmation."""
 input GrantRoleInput {
+  """Which account."""
   userId: ID!
+
+  """Which role to grant."""
   role: ManageableRole!
+
+  """Why, kept in the account's retained history."""
   reason: String!
+
+  """
+  The **caller's own** password, re-entered.
+
+  A step-up confirmation required before any change to another person's
+  authority: it is verified against the caller's account, not the subject's.
+  """
   currentPassword: String!
 }
 
-# Revocation names the exact grant it closes, so acting on a row that has
-# already changed fails loudly instead of resolving to a different grant.
+"""Closes one role grant."""
 input RevokeRoleInput {
+  """
+  Which grant to close.
+
+  Names the exact grant rather than the role, so acting on a row that has
+  already changed fails loudly instead of quietly resolving to a different
+  one.
+  """
   grantId: ID!
+
+  """Why, kept with the closed grant."""
   reason: String!
+
+  """The caller's own password, re-entered as a step-up confirmation."""
   currentPassword: String!
 }
 
-# No password confirmation: inviting grants nothing on its own. The role only
-# lands when the invited person accepts, which is a second act by a second
-# party, so this is not the step-up moment that a direct grant is.
+"""
+Invites somebody to take a role themselves.
+
+No password confirmation: inviting grants nothing on its own. The role lands
+only when the invited person accepts, which is a second act by a second party —
+so this is not the step-up moment a direct grant is.
+"""
 input InviteRoleInput {
+  """
+  Which account to invite. They must already have signed up — an invitation
+  changes what an existing account may do rather than creating one.
+  """
   userId: ID!
+
+  """
+  Which role to offer.
+
+  An administrator may offer `REVIEWER` or `APPROVER` and no more; offering
+  `ADMIN` would be a route to the authority they are directly forbidden.
+  Nobody is ever invited to `SUPER_ADMIN`.
+  """
   role: ManageableRole!
+
+  """Why, kept in the account's retained history."""
   reason: String!
 }
 
-# Deliberately carries no link. An issuer able to read it could forward it, and
-# the invitee's mailbox is what makes possession of the link mean anything.
+"""
+What was sent, and to whom.
+
+Deliberately carries **no link**. An issuer able to read it could forward it,
+and the invitee's own mailbox is what makes possession of the link mean
+anything.
+"""
 type RoleInvitation {
+  """The address it went to."""
   email: String!
+
+  """The role offered."""
   role: ManageableRole!
+
+  """When the invitation stops working. Forty-eight hours after issue."""
   expiresAt: DateTime!
 }
 
+"""The sent invitation, or the reason it was not sent."""
 type RoleInvitationResult implements BaseResponse {
+  """Whether the invitation was sent."""
   success: Boolean!
+
+  """
+  What to show when `success` is false — an account that does not exist, or a
+  role beyond what the caller may offer.
+  """
   message: String
+
+  """What was sent. Null whenever `success` is false."""
   response: RoleInvitation
 }
 
-type AcceptedRoleInvitation { role: UserRole! }
+"""The role the invited person now holds."""
+type AcceptedRoleInvitation {
+  """
+  The role now held. Their applicant access was exchanged for it, not added
+  to — so anything cached about who they are is wrong rather than stale.
+  """
+  role: UserRole!
+}
 
+"""The accepted role, or the reason the invitation was not usable."""
 type AcceptedRoleInvitationResult implements BaseResponse {
+  """Whether the invitation was accepted."""
   success: Boolean!
+
+  """
+  What to show when `success` is false.
+
+  Every way an invitation can fail — wrong key, altered bytes, expired,
+  already accepted, address since changed — returns the **same** message, so
+  the failure reveals nothing about which one it was.
+  """
   message: String
+
+  """The role now held. Null whenever `success` is false."""
   response: AcceptedRoleInvitation
 }
 
+"""Changing what an account may do."""
 type AccessMutation {
-  grantRole(input: GrantRoleInput!): ManagedUserResult!
-  revokeRole(input: RevokeRoleInput!): ManagedUserResult!
-  # Sends an invitation the person accepts themselves.
-  inviteRole(input: InviteRoleInput!): RoleInvitationResult!
-  # Takes no session: possession of the sealed token is the credential. Every
-  # protection is in the service — see controllers/access.ts.
-  acceptRoleInvite(token: String!): AcceptedRoleInvitationResult!
+  """
+  Grants a role directly.
+
+  **Use case:** `/admin/access`. Requires super-administrator authority and a
+  re-entered password.
+
+  **Refuses:** removing the last super administrator, and a wrong password.
+  """
+  grantRole(
+    """Which account, which role, why, and the caller's password."""
+    input: GrantRoleInput!
+  ): ManagedUserResult!
+
+  """
+  Closes a role grant.
+
+  **Refuses:** the grant that would leave the portal with no super
+  administrator — checked inside the write itself, so two operators cannot
+  each remove one at the same moment.
+  """
+  revokeRole(
+    """Which grant, why, and the caller's password."""
+    input: RevokeRoleInput!
+  ): ManagedUserResult!
+
+  """
+  Sends an invitation the person accepts themselves.
+
+  **Use case:** `/admin/invite`. The link is emailed and never returned here.
+
+  **Refuses:** a role beyond what the caller may offer.
+  """
+  inviteRole(
+    """Which account, which role, and why."""
+    input: InviteRoleInput!
+  ): RoleInvitationResult!
+
+  """
+  Accepts an emailed invitation, exchanging applicant access for a staff role.
+
+  **Takes no session by design:** possession of the sealed token is the
+  credential. It is authenticated so it cannot be edited, expires in
+  forty-eight hours, is void if the account's address changed since it was
+  sent, and works exactly once.
+
+  **Use case:** `/invite`, where the token arrives in the URL fragment so it
+  never reaches a server log.
+  """
+  acceptRoleInvite(
+    """The sealed token from the emailed link."""
+    token: String!
+  ): AcceptedRoleInvitationResult!
 }

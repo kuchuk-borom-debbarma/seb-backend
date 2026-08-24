@@ -173,10 +173,10 @@ enum ApplicantDesignation {
 
 """The applicant's gender, recorded for programme reporting."""
 enum Gender {
-  """Male."""
+  """Recorded for programme reporting, never used to decide eligibility."""
   MALE
 
-  """Female."""
+  """Recorded for programme reporting, never used to decide eligibility."""
   FEMALE
 
   """Neither, or not stated in those terms."""
@@ -409,7 +409,7 @@ type SebApplicationQuery {
   time is the failure this avoids.
   """
   validate(
-    """Which application to check."""
+    """The application whose history to read."""
     applicationId: ID!
   ): ApplicationValidationResult!
 
@@ -434,7 +434,7 @@ type SebApplicationQuery {
   only — internal office notes are never here.
   """
   timeline(
-    """Which application."""
+    """The application whose history to read."""
     applicationId: ID!
 
     """How many to return, 1–100. Defaults to 20."""
@@ -453,7 +453,7 @@ type SebApplicationQuery {
   rather than an error.
   """
   funding(
-    """Which application."""
+    """The application to read the money on. Needs an award to exist."""
     applicationId: ID!
   ): ApplicantFundingResult!
 
@@ -464,7 +464,7 @@ type SebApplicationQuery {
   have actually addressed what was asked.
   """
   draftChanges(
-    """Which application."""
+    """The application to compare. Must have been submitted at least once."""
     applicationId: ID!
   ): ApplicationChangedSectionsResult!
 
@@ -476,7 +476,7 @@ type SebApplicationQuery {
   stable address for the file.
   """
   documentDownloadUrl(
-    """Which document."""
+    """From `ApplicationDocument.id`. Must belong to the signed-in applicant."""
     documentId: ID!
   ): DocumentDownloadResult!
 }
@@ -832,7 +832,7 @@ type ApplicantProfileSnapshot {
 
 """What the project costs and who pays for it. Every amount is in paise."""
 type FinancialSnapshot {
-  """Total cost of the project, in paise."""
+  """What the whole project costs, in paise. The seed fund covers part of it."""
   totalProjectCostPaise: Money
 
   """How much seed funding is asked for, in paise."""
@@ -918,7 +918,7 @@ type ApplicationSnapshot {
   """Whether this is a first application or a later phase."""
   applicationType: ApplicationType!
 
-  """Which phase this is."""
+  """1 for a first application, 2 for the first expansion, and so on."""
   phaseNumber: Int!
 
   """Why this version exists — a save, a submission, a resubmission."""
@@ -1046,7 +1046,7 @@ type Application {
   """Whether this is a first application or a later phase."""
   applicationType: ApplicationType!
 
-  """Which phase this is."""
+  """1 for a first application, 2 for the first expansion, and so on."""
   phaseNumber: Int!
 
   """The programme's reference. Null until first submitted."""

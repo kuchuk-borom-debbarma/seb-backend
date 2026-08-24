@@ -1,46 +1,122 @@
 extend type Query {
+  """
+  Looking up one account, to see or change what it may do.
+
+  **Use case:** `/admin/access` and `/admin/invite`. Readable only by somebody
+  who may administer roles.
+  """
   access: AccessQuery!
 }
 
-# Administrative view of one identity. Lookup is exact-match only: there is
-# deliberately no listing or prefix search, so this namespace cannot be used to
-# enumerate accounts.
+"""
+Administrative view of one identity.
+
+Lookup is **exact-match only**: there is deliberately no listing and no prefix
+search, so this namespace cannot be used to enumerate accounts.
+"""
 type AccessQuery {
-  userByEmail(email: String!): ManagedUserResult!
-  userById(id: ID!): ManagedUserResult!
+  """
+  Finds one account by its exact address.
+
+  **Use case:** the lookup on `/admin/invite`, where an operator has the
+  address in front of them.
+  """
+  userByEmail(
+    """The exact address. Normalized before matching."""
+    email: String!
+  ): ManagedUserResult!
+
+  """
+  Finds one account by id.
+
+  **Use case:** following a link from the activity history.
+  """
+  userById(
+    """Which account."""
+    id: ID!
+  ): ManagedUserResult!
 }
 
-# One entry in the retained role history. Revocation closes a grant rather than
-# deleting it, so a closed grant keeps who revoked it, when, and why.
+"""
+One entry in the retained role history.
+
+Revocation **closes** a grant rather than deleting it, so a closed grant still
+carries who revoked it, when, and why.
+"""
 type RoleGrant {
+  """Stable identifier."""
   id: ID!
+
+  """Which role was granted."""
   role: UserRole!
+
+  """Why it was granted, in the operator's words."""
   grantReason: String!
+
+  """When it was granted."""
   grantedAt: DateTime!
-  # Null identifies a trusted system transition such as verified signup or the
-  # one-time first-super-admin bootstrap, never an anonymous portal user.
+
+  """
+  Who granted it.
+
+  **Null identifies a trusted system transition** — verified signup, or the
+  one-time first-super-administrator bootstrap. It never means an anonymous
+  portal user did this.
+  """
   grantedByUserId: ID
+
+  """Who revoked it. Null while the grant is still active."""
   revokedByUserId: ID
+
+  """When it was revoked. Null while still active."""
   revokedAt: DateTime
+
+  """Why it was revoked. Null while still active."""
   revocationReason: String
 }
 
+"""One account, as somebody administering roles sees it."""
 type ManagedUser {
+  """Stable identifier."""
   id: ID!
+
+  """The account's address."""
   email: String!
+
+  """Whether the address has been verified."""
   emailVerified: Boolean!
-  # Soft-deleted accounts are shown rather than hidden, so an operator
-  # investigating a closed account can still read its role history.
+
+  """
+  Whether the account is closed.
+
+  Closed accounts are **shown rather than hidden**, so an operator
+  investigating one can still read its role history.
+  """
   deleted: Boolean!
+
+  """When the account was created."""
   createdAt: DateTime!
-  # Active grants only, in the fixed role-catalogue order.
+
+  """
+  The roles held now, in the fixed catalogue order. Active grants only.
+  """
   roles: [UserRole!]!
-  # Complete retained history, oldest first.
+
+  """The complete retained history, oldest first."""
   grants: [RoleGrant!]!
 }
 
+"""One account, or the reason the operation was refused."""
 type ManagedUserResult implements BaseResponse {
+  """Whether the operation succeeded."""
   success: Boolean!
+
+  """
+  What to show when `success` is false. An account that does not exist and one
+  the caller may not administer are refused identically.
+  """
   message: String
+
+  """The account. Null whenever `success` is false."""
   response: ManagedUser
 }
