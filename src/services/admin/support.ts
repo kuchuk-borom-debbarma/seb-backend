@@ -10,7 +10,8 @@
  * Audit metadata stays deliberately smaller than the business record: a flat
  * map of primitives, never the form itself.
  */
-import { coreAuditEvent, type auditActions } from '../../db/schema'
+import { sql, type SQL } from 'drizzle-orm'
+import { coreAuditEvent, sebApplication, type auditActions } from '../../db/schema'
 import { failure } from '../envelope'
 import { authenticatedWithCapability, type Capability } from '../auth'
 import type { AdminOperationContext, AdminResult } from './types'
@@ -133,6 +134,31 @@ export const undisclosedSelfReview = (
 
 export const SELF_REVIEW_MESSAGE =
   'Acknowledge that you are acting on your own application.'
+
+/**
+ * Whether an act is a *disclosed self-review*, as a term the write evaluates.
+ *
+ * Deliberately not the caller's word. `undisclosedSelfReview` above refuses an
+ * acknowledgement that is **missing** from the applicant; nothing there stops
+ * anybody asserting one on a file that is not theirs, and a review wrongly
+ * marked as a self-review is worse than one not marked at all — it is a false
+ * statement in a record kept for an auditor, and it makes
+ * `SEB.SELF_REVIEW_DISCLOSED` return files that were nothing of the kind.
+ *
+ * So the ownership half is read from the application row inside the same
+ * statement that stores the answer, which is the layering rule this codebase
+ * follows everywhere else: the controller decides, and the write proves it
+ * again in SQL.
+ */
+export const disclosedSelfReview = (
+  applicationId: string,
+  actorUserId: string,
+  acknowledged: boolean | null | undefined,
+): SQL => sql`(
+  SELECT ${Number(acknowledged === true)} = 1
+    AND ${sebApplication.applicantUserId} = ${actorUserId}
+  FROM ${sebApplication} WHERE ${sebApplication.id} = ${applicationId}
+)`
 
 /**
  * The preamble every reasoned, version-guarded administrative transition shares.

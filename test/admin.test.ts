@@ -656,6 +656,25 @@ describe('Mission SEP administration', () => {
       expect((await complete(true)).data?.admin.intake.completeDeskReview.success).toBe(true)
 
       /*
+       * Permitting the act is half of it. The policy is "permitted *with
+       * disclosure*", so the disclosure has to survive the transition — a
+       * guard that refuses and then discards the answer leaves nobody able to
+       * tell, afterwards, that anyone was ever asked.
+       */
+      const review = await env.DB.prepare(
+        'SELECT conflict_acknowledged AS acknowledged FROM seb_desk_review WHERE application_id = ?',
+      ).bind(submitted.applicationId).first<{ acknowledged: number }>()
+      expect(review?.acknowledged).toBe(1)
+
+      // And it is findable by action, rather than only by joining actor to
+      // applicant on every decided file.
+      const disclosures = await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM core_audit_event
+         WHERE action = 'SEB.SELF_REVIEW_DISCLOSED' AND actor_user_id = ?`,
+      ).bind(administrator.userId).first<{ n: number }>()
+      expect(disclosures?.n).toBe(1)
+
+      /*
        * And the same on the decision, which is the other place a self-review
        * is decided. Asserted against an application that has not reached the
        * committee, because the disclosure is checked before anything about the
@@ -675,6 +694,60 @@ describe('Mission SEP administration', () => {
         success: false,
         message: 'Acknowledge that you are acting on your own application.',
       })
+    })
+
+    it('records no disclosure when the reviewer is somebody else', async () => {
+      /*
+       * The ordinary case, and the one every other fixture in this file skips:
+       * the officer and the applicant are different people. Worth asserting
+       * because the disclosure is only meaningful if it is absent from reviews
+       * that are not self-reviews — a column set on every row would say
+       * nothing, and neither would an audit action written every time.
+       */
+      const officer = await adminSession(['ADMIN'])
+      const applicant = await adminSession(['APPLICANT'])
+      const cycle = await createOpenedCycle(officer.cookie)
+      const submitted = await createSubmittedApplication(
+        applicant.cookie, applicant.userId, cycle.id,
+      )
+      await graphql<any>(`mutation($input: StartDeskReviewInput!) {
+        admin { intake { startDeskReview(input: $input) { success } } }
+      }`, { input: {
+        applicationId: submitted.applicationId, expectedStatusVersion: 2,
+      } }, officer.cookie)
+
+      /*
+       * Sent as `true` even though this is not the officer's own application.
+       * The server knows whose it is, so the claim is refused rather than
+       * recorded: a copied payload or a client regression must not be able to
+       * mark an independent review as a self-review, which would put a false
+       * statement in a record kept for an auditor and would make the audit
+       * action mean nothing.
+       */
+      const completed = await graphql<{
+        admin: { intake: { completeDeskReview: { success: boolean } } }
+      }>(`mutation($input: CompleteDeskReviewInput!) {
+        admin { intake { completeDeskReview(input: $input) { success } } }
+      }`, { input: {
+        conflictAcknowledged: true,
+        applicationId: submitted.applicationId, expectedStatusVersion: 3,
+        outcome: 'ADVANCE_TO_BANK', reasonCategoryId: null, applicantMessage: null,
+        checks: deskCheckTypes.map((checkType) => ({
+          checkType, result: checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS',
+        })), revisions: [], identifiers: passingIdentifiers(),
+      } }, officer.cookie)
+      expect(completed.data?.admin.intake.completeDeskReview.success).toBe(true)
+
+      const review = await env.DB.prepare(
+        'SELECT conflict_acknowledged AS acknowledged FROM seb_desk_review WHERE application_id = ?',
+      ).bind(submitted.applicationId).first<{ acknowledged: number }>()
+      expect(review?.acknowledged).toBe(0)
+
+      const disclosures = await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM core_audit_event
+         WHERE action = 'SEB.SELF_REVIEW_DISCLOSED' AND actor_user_id = ?`,
+      ).bind(officer.userId).first<{ n: number }>()
+      expect(disclosures?.n).toBe(0)
     })
 
     it('lets a reviewer open a document without holding the file', async () => {
@@ -2188,11 +2261,18 @@ describe('Mission SEP administration', () => {
       { outcome: 'APPROVED', approvedAmountPaise: '900000', reasonCategoryId: null, revisions: [
         { section: 'DOCUMENTS', reasonCategoryId: revisionReason, note: 'Unexpected.' },
       ] },
+      // A correction that does not say why. The superseded decision is kept
+      // forever, so the record of what was wrong with it is not optional.
+      { outcome: 'REJECTED', reasonCategoryId: ttmRejectionReason, revisions: [],
+        correctionReason: '   ' },
     ]
     for (const [index, candidate] of invalidDecisionCorrections.entries()) {
       const invalid = await graphql<any>(`mutation($input: CorrectTtmDecisionInput!) {
         admin { decision { correctDecision(input: $input) { success } } }
       }`, { input: {
+        // Disclosed, so each candidate below is refused for the reason it names
+        // rather than for the self-review guard it would otherwise trip first.
+        conflictAcknowledged: true,
         applicationId, agendaItemId: agendaId, supersedesDecisionId: initialDecisionId,
         expectedStatusVersion: 9, decisionReference: `INVALID-TTM-CORR-${index}`,
         decisionDate: '2026-06-16', approvedAmountPaise: null, applicantConditions: null,
@@ -2201,9 +2281,34 @@ describe('Mission SEP administration', () => {
       } }, administrator.cookie)
       expect(invalid.data.admin.decision.correctDecision.success).toBe(false)
     }
+    /*
+     * A correction is its own act on the file, and this officer is the
+     * applicant. Superseding a decision without disclosing is refused exactly
+     * as recording one is — otherwise the disclosure could be sidestepped by
+     * recording a decision and immediately correcting it.
+     */
+    const undisclosedCorrection = await graphql<{
+      admin: { decision: { correctDecision: { success: boolean; message: string | null } } }
+    }>(`mutation($input: CorrectTtmDecisionInput!) {
+      admin { decision { correctDecision(input: $input) { success message } } }
+    }`, { input: {
+      applicationId, agendaItemId: agendaId, supersedesDecisionId: initialDecisionId,
+      expectedStatusVersion: 9, outcome: 'REJECTED',
+      decisionReference: `TTM-UNDISCLOSED-${applicationId}`, decisionDate: '2026-06-16',
+      approvedAmountPaise: null, applicantConditions: null,
+      reasonCategoryId: ttmRejectionReason, correctionReasonCategoryId: decisionCorrectionReason,
+      correctionReason: 'The initial revision direction was incorrect.',
+      applicantMessage: 'TTM rejected the application.', nextAction: null, revisions: [],
+    } }, administrator.cookie)
+    expect(undisclosedCorrection.data?.admin.decision.correctDecision).toMatchObject({
+      success: false,
+      message: 'Acknowledge that you are acting on your own application.',
+    })
+
     const rejectedDecision = await graphql<any>(`mutation($input: CorrectTtmDecisionInput!) {
       admin { decision { correctDecision(input: $input) { response { decisions { id } application { status statusVersion assignmentVersion } } } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId, agendaItemId: agendaId, supersedesDecisionId: initialDecisionId,
       expectedStatusVersion: 9, outcome: 'REJECTED',
       decisionReference: `TTM-REJECT-${applicationId}`, decisionDate: '2026-06-16',
@@ -2220,6 +2325,7 @@ describe('Mission SEP administration', () => {
     const revisionDecision = await graphql<any>(`mutation($input: CorrectTtmDecisionInput!) {
       admin { decision { correctDecision(input: $input) { response { decisions { id approvedAmountPaise } application { statusVersion } } } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId, agendaItemId: agendaId, supersedesDecisionId: rejectedDecisionId,
       expectedStatusVersion: 10, outcome: 'REVISION_REQUIRED',
       decisionReference: `TTM-CORR-${applicationId}`, decisionDate: '2026-06-17',
@@ -2238,6 +2344,7 @@ describe('Mission SEP administration', () => {
     const deferredDecision = await graphql<any>(`mutation($input: CorrectTtmDecisionInput!) {
       admin { decision { correctDecision(input: $input) { response { decisions { id } application { statusVersion } } } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId, agendaItemId: agendaId, supersedesDecisionId: revisionDecisionId,
       expectedStatusVersion: 11, outcome: 'DEFERRED',
       decisionReference: `TTM-DEFER-${applicationId}`, decisionDate: '2026-06-18',
@@ -2253,6 +2360,7 @@ describe('Mission SEP administration', () => {
     const correctedDecision = await graphql<any>(`mutation($input: CorrectTtmDecisionInput!) {
       admin { decision { correctDecision(input: $input) { response { decisions { id approvedAmountPaise } application { statusVersion } } } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId, agendaItemId: agendaId, supersedesDecisionId: deferredDecisionId,
       expectedStatusVersion: 12, outcome: 'APPROVED',
       decisionReference: `TTM-APPROVE-${applicationId}`, decisionDate: '2026-06-19',
@@ -2267,6 +2375,7 @@ describe('Mission SEP administration', () => {
     const staleDecisionCorrection = await graphql<any>(`mutation($input: CorrectTtmDecisionInput!) {
       admin { decision { correctDecision(input: $input) { success } } }
     }`, { input: {
+      conflictAcknowledged: true,
       applicationId, agendaItemId: agendaId, supersedesDecisionId: deferredDecisionId,
       expectedStatusVersion: 12, outcome: 'APPROVED',
       decisionReference: `STALE-APPROVAL-${applicationId}`, decisionDate: '2026-06-19',

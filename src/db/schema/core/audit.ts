@@ -73,6 +73,7 @@ export const auditActions = {
   ttmAgendaChanged: 'SEB.TTM_AGENDA_CHANGED',
   ttmDecisionRecorded: 'SEB.TTM_DECISION_RECORDED',
   ttmDecisionCorrected: 'SEB.TTM_DECISION_CORRECTED',
+  selfReviewDisclosed: 'SEB.SELF_REVIEW_DISCLOSED',
   awardCreated: 'SEB.AWARD_CREATED',
   awardChanged: 'SEB.AWARD_CHANGED',
   releaseRecorded: 'SEB.RELEASE_RECORDED',

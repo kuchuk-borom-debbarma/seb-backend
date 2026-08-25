@@ -195,9 +195,15 @@ harmless and does **nothing** for a table that already exists in an older shape
 — the statement is skipped and reported as success. SQLite cannot `ALTER` a
 `CHECK` at all, so changing one is a four-statement table rebuild.
 
-Changes to existing tables go in `database/migrations/`. `db:schema:check`
-builds a database from the baseline and another from the migration chain and
-compares them, because nothing else makes the two agree.
+Nothing is deployed, so today a change to an existing table is made in the
+Drizzle schema and regenerated — `database/schema.sql` is the whole schema and
+`database/migrations/` is empty. Once a database exists that cannot be
+recreated, changes to existing tables go in that directory instead.
+
+`db:schema:check` always proves the baseline parses and re-applies to no effect.
+It compares the baseline against the migration chain only when there is a chain,
+because with none the two sides are built from the same file and would agree
+whatever either said.
 
 ## A test that cannot fail is worse than no test
 

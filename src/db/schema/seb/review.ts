@@ -28,9 +28,7 @@ export const deskReviewOutcomes = [
   'REJECT',
 ] as const
 
-/** What a reviewer transcribes off the document they are looking at. */
-
-/** Every change to the current queue owner, including self-review disclosure. */
+/** Every change to the current queue owner. */
 export const sebApplicationAssignmentEvent = sqliteTable(
   'seb_application_assignment_event',
   {
@@ -51,9 +49,6 @@ export const sebApplicationAssignmentEvent = sqliteTable(
       { onDelete: 'restrict' },
     ),
     reason: text('reason'),
-    conflictAcknowledged: integer('conflict_acknowledged', { mode: 'boolean' })
-      .notNull()
-      .default(false),
     actorUserId: text('actor_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
@@ -71,10 +66,6 @@ export const sebApplicationAssignmentEvent = sqliteTable(
     check(
       'seb_application_assignment_event_version_check',
       sql`${table.assignmentVersion} >= 1`,
-    ),
-    check(
-      'seb_application_assignment_event_conflict_check',
-      sql`${table.conflictAcknowledged} IN (0, 1)`,
     ),
     check(
       'seb_application_assignment_event_state_check',
@@ -141,6 +132,19 @@ export const sebDeskReview = sqliteTable(
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
     reviewedAt: integer('reviewed_at', { mode: 'timestamp_ms' }).notNull(),
+    /*
+     * Whether the reviewer disclosed that this is their own application.
+     *
+     * Acting on your own file is permitted with disclosure, so the disclosure
+     * is the whole control and belongs beside the judgement it qualifies —
+     * not on the assignment, which changes only on rejection and would keep
+     * nothing for an approval. Last in the column list on purpose: every write
+     * here is a positional `INSERT ... SELECT`, so a column added anywhere
+     * else shifts every value after it.
+     */
+    conflictAcknowledged: integer('conflict_acknowledged', { mode: 'boolean' })
+      .notNull()
+      .default(false),
   },
   (table) => [
     foreignKey({
@@ -153,6 +157,10 @@ export const sebDeskReview = sqliteTable(
     check(
       'seb_desk_review_outcome_check',
       sql`${table.outcome} IN ('ADVANCE_TO_BANK', 'REQUEST_REVISION', 'REJECT')`,
+    ),
+    check(
+      'seb_desk_review_conflict_check',
+      sql`${table.conflictAcknowledged} IN (0, 1)`,
     ),
     check(
       'seb_desk_review_reason_check',

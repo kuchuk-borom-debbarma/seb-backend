@@ -375,6 +375,18 @@ export const sebTtmDecision = sqliteTable(
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    /*
+     * Whether the officer disclosed that this is their own application. Kept
+     * on the decision, and again on a correction, because each is its own act
+     * and a disclosure made for the first does not cover the second.
+     *
+     * Last in the column list on purpose: every write here is a positional
+     * `INSERT ... SELECT`, so a column added anywhere else shifts every value
+     * after it.
+     */
+    conflictAcknowledged: integer('conflict_acknowledged', { mode: 'boolean' })
+      .notNull()
+      .default(false),
   },
   (table) => [
     foreignKey({
@@ -391,6 +403,10 @@ export const sebTtmDecision = sqliteTable(
     uniqueIndex('seb_ttm_decision_agenda_id_uq').on(table.agendaItemId, table.id),
     uniqueIndex('seb_ttm_decision_one_correction_uq').on(table.supersedesDecisionId),
     check('seb_ttm_decision_number_check', sql`${table.decisionNumber} >= 1`),
+    check(
+      'seb_ttm_decision_conflict_check',
+      sql`${table.conflictAcknowledged} IN (0, 1)`,
+    ),
     check(
       'seb_ttm_decision_outcome_check',
       sql`${table.outcome} IN ('APPROVED', 'REJECTED', 'DEFERRED', 'REVISION_REQUIRED')`,

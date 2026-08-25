@@ -63,7 +63,7 @@ import { changedSections } from '../../application/sections'
 import { MAX_COLLECTION_ROWS } from '../../application/pagination'
 import { encodeAdminCursor, type SortKey } from '../pagination'
 import { prefixMatchAny, prefixPattern } from '../../search'
-import { adminAudit } from '../support'
+import { adminAudit, disclosedSelfReview } from '../support'
 import { intakeQueueKeys } from '../types'
 import type { IdentifierKind } from '../identifiers'
 import type {
@@ -709,10 +709,17 @@ export const completeDeskReviewWrite = async (
       matchedReason: string | null
     }[]
     fundingCaseId: string
+    /** True only where the reviewer is the applicant and said so. */
+    conflictAcknowledged?: boolean | null
     now: Date
   },
 ): Promise<boolean> => {
   const reviewId = crypto.randomUUID()
+  // Both the stored value and a term in the audit guard below. Read from the
+  // application rather than from the caller — see `disclosedSelfReview`.
+  const disclosed = disclosedSelfReview(
+    input.applicationId, input.actorUserId, input.conflictAcknowledged,
+  )
   const nextStatus = input.outcome === 'ADVANCE_TO_BANK'
     ? 'PARTNER_BANK_EVALUATION'
     : input.outcome === 'REQUEST_REVISION' ? 'REVISION_REQUIRED' : 'REJECTED'
@@ -739,7 +746,8 @@ export const completeDeskReviewWrite = async (
     context.db.insert(sebDeskReview).select(sql`
       SELECT ${reviewId}, ${input.applicationId}, ${input.submissionId},
         ${input.outcome}, ${input.reasonCategoryId ?? null},
-        ${input.applicantMessage ?? null}, ${input.actorUserId}, ${input.now.getTime()}
+        ${input.applicantMessage ?? null}, ${input.actorUserId}, ${input.now.getTime()},
+        ${disclosed}
       WHERE EXISTS (
         SELECT 1 FROM ${sebApplication}
         WHERE ${sebApplication.id} = ${input.applicationId}
@@ -767,7 +775,7 @@ export const completeDeskReviewWrite = async (
     ...(releasesAssignment ? [context.db.insert(sebApplicationAssignmentEvent).select(sql`
       SELECT ${crypto.randomUUID()}, application.id, 'RELEASED', application.assignment_version,
         ${input.actorUserId}, NULL, ${input.reasonCategoryId!},
-        ${input.applicantMessage!}, 0,
+        ${input.applicantMessage!},
         ${input.actorUserId}, ${input.now.getTime()}
       FROM ${sebApplication} AS application
       WHERE application.id = ${input.applicationId}
@@ -789,6 +797,20 @@ export const completeDeskReviewWrite = async (
         'SEB_DESK_REVIEW', ${reviewId}, 'SUCCESS', NULL, NULL, NULL, NULL,
         ${JSON.stringify({ outcome: input.outcome })}, ${input.now.getTime()}
       WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
+    `),
+    /*
+     * Its own action, and only where there was something to disclose — the
+     * `disclosed` term is what makes an ordinary review write nothing here.
+     * The column on the review is the record; this is what makes "every file
+     * decided by its own applicant" a query on `action` rather than a join of
+     * actor against applicant across every decided application.
+     */
+    context.db.insert(coreAuditEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.SELF_REVIEW_DISCLOSED',
+        'SEB_DESK_REVIEW', ${reviewId}, 'SUCCESS', NULL, NULL, NULL, NULL,
+        NULL, ${input.now.getTime()}
+      WHERE ${disclosed} = 1
+        AND EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
     `),
   ]
   const [changed] = await context.db.batch(

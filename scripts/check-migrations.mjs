@@ -1,16 +1,25 @@
 /**
- * Proves the two ways to reach the current schema agree.
+ * Proves the ways to reach the current schema agree.
  *
- * A database can arrive at today's shape by two routes: applying
- * `database/schema.sql` to an empty file, or applying the migrations in order
- * to a database that predates them. Nothing makes those agree by construction —
- * they are written separately, and a change made to one and forgotten in the
- * other is invisible until a deploy.
+ * Two properties, and only one of them depends on a migration existing.
  *
- * So both are built here and their `sqlite_master` compared. The check also
- * asserts the baseline is re-appliable, because that is the other property the
- * generated file is supposed to have and it costs one more `executescript` to
- * be sure of rather than to assume.
+ * **The baseline is executable and re-appliable.** `database/schema.sql` is
+ * applied twice to an empty database and the resulting shape compared. The
+ * first apply is what proves the generated file parses at all; the second is
+ * what proves `IF NOT EXISTS` does what the file's own header claims. Nothing
+ * else in the repo applies it twice, so if this goes, that claim is untested.
+ *
+ * **The baseline and the migration chain agree.** A database can also reach
+ * today's shape by applying the migrations in order to one that predates them.
+ * Nothing makes the two agree by construction — they are written separately,
+ * and a change made to one and forgotten in the other is invisible until a
+ * deploy.
+ *
+ * `database/migrations/` is currently empty, so the second proof is skipped
+ * rather than run against nothing. Run anyway it would compare the baseline
+ * with itself and could not fail, which is worse than not running: it would
+ * report agreement that was never tested. See the directory's README for when
+ * the first migration becomes necessary.
  *
  * Runs against node:sqlite rather than D1. D1 *is* SQLite, the statements here
  * are plain DDL, and needing a Worker to run a schema check would mean it never
@@ -66,9 +75,20 @@ const afterFirst = shapeOf(fresh)
 fresh.exec(baselineSql)
 const afterSecond = shapeOf(fresh)
 
-if (afterFirst.size !== afterSecond.size) {
+/*
+ * Compared by contents, not by count. Counting would pass a second apply that
+ * replaced an object's definition while leaving the number of objects alone —
+ * unlikely from `IF NOT EXISTS` DDL, which can only add, but this is the only
+ * proof the baseline has and a proof worth keeping is worth making exact.
+ */
+const changedOnReapply = [
+  ...[...afterSecond].filter((object) => !afterFirst.has(object)),
+  ...[...afterFirst].filter((object) => !afterSecond.has(object)),
+]
+if (changedOnReapply.length > 0) {
   throw new Error(
-    'database/schema.sql is not re-appliable: a second apply changed the schema.',
+    'database/schema.sql is not re-appliable: a second apply changed the ' +
+      `schema.\n\n${changedOnReapply.map((object) => `  ${object}`).join('\n')}\n`,
   )
 }
 
@@ -82,33 +102,7 @@ if (afterFirst.size !== afterSecond.size) {
  * applied newest-first, so this list reads in the opposite order to the
  * directory.
  */
-const rewind = [
-  {
-    migration: '0003-identifier-rules.sql',
-    age: (sql) => {
-      const start = sql.indexOf(
-        'CREATE TABLE IF NOT EXISTS `seb_programme_cycle_identifier_rule` (',
-      )
-      const end = sql.indexOf('\n);\n', start) + '\n);\n'.length
-      return (sql.slice(0, start) + sql.slice(end))
-        .split('\n')
-        .filter((line) => !line.includes(' ON `seb_programme_cycle_identifier_rule` '))
-        .join('\n')
-    },
-  },
-  {
-    migration: '0002-upload-cap-5mb.sql',
-    age: (sql) => sql.replaceAll('<= 5242880', '<= 10485760'),
-  },
-  {
-    migration: '0001-staff-roles.sql',
-    age: (sql) =>
-      sql.replace(
-        `CHECK("core_user_role_grant"."role" IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'SUPER_ADMIN'))`,
-        `CHECK("core_user_role_grant"."role" IN ('APPLICANT', 'ADMIN', 'SUPER_ADMIN'))`,
-      ),
-  },
-]
+const rewind = []
 
 const unknown = rewind.filter((entry) => !migrations.includes(entry.migration))
 const unrewound = migrations.filter(
@@ -122,29 +116,13 @@ if (unknown.length > 0 || unrewound.length > 0) {
   )
 }
 
-let agedSql = baselineSql
-for (const entry of rewind) agedSql = entry.age(agedSql)
-
-if (agedSql === baselineSql) {
-  throw new Error('Ageing the baseline changed nothing; the rewind rules no longer match.')
-}
-
-const migrated = new DatabaseSync(':memory:')
-migrated.exec(agedSql)
-for (const name of migrations) {
-  migrated.exec(readFileSync(new URL(name, migrationsUrl), 'utf8'))
-}
-
-const baselineShape = afterFirst
-const migratedShape = shapeOf(migrated)
-
 /**
- * Reports the difference in a form somebody can act on.
+ * Indexes a shape by object, so the two sides can be compared one at a time.
  *
  * Printing two normalised `CREATE TABLE` statements in full is technically
  * complete and practically useless — they are a thousand characters that differ
- * in four. Objects present on one side only are named; objects present on both
- * get the differing region, with a little context either side.
+ * in four. Splitting them lets objects present on one side only be named, and
+ * objects present on both be reported as just the differing region.
  */
 const byKey = (shapes) => {
   const index = new Map()
@@ -155,54 +133,80 @@ const byKey = (shapes) => {
   return index
 }
 
-const baselineByKey = byKey(baselineShape)
-const migratedByKey = byKey(migratedShape)
-const problems = []
+/*
+ * The other route to today's shape, compared with the baseline.
+ *
+ * Only built when there is a chain to compare. With none, ageing the baseline
+ * is the identity and this would compare the file with itself — a check that
+ * always passes and therefore proves nothing. Written inline rather than as
+ * helpers because nothing here is reachable from a test: scripts carry no
+ * coverage, so a named function would report as untested code forever.
+ */
+if (migrations.length === 0) {
+  console.log(
+    'database/schema.sql is the whole schema: it applies cleanly and re-applies '
+      + 'to no effect. No migrations to reconcile it with.',
+  )
+} else {
+  let agedSql = baselineSql
+  for (const entry of rewind) agedSql = entry.age(agedSql)
 
-for (const [key, baselineSqlText] of baselineByKey) {
-  if (!migratedByKey.has(key)) {
-    problems.push(`${key}: in the baseline, absent after migrating`)
-    continue
+  if (agedSql === baselineSql) {
+    throw new Error('Ageing the baseline changed nothing; the rewind rules no longer match.')
   }
-  const migratedSqlText = migratedByKey.get(key)
-  if (migratedSqlText === baselineSqlText) continue
 
-  // The first and last positions at which the two disagree, so the report is
-  // the changed region rather than the whole statement.
-  let head = 0
-  while (
-    head < baselineSqlText.length &&
-    baselineSqlText[head] === migratedSqlText[head]
-  ) head += 1
-  let tail = 0
-  while (
-    tail < baselineSqlText.length - head &&
-    tail < migratedSqlText.length - head &&
-    baselineSqlText.at(-1 - tail) === migratedSqlText.at(-1 - tail)
-  ) tail += 1
+  const migrated = new DatabaseSync(':memory:')
+  migrated.exec(agedSql)
+  for (const name of migrations) {
+    migrated.exec(readFileSync(new URL(name, migrationsUrl), 'utf8'))
+  }
 
-  const from = Math.max(0, head - 40)
-  problems.push(
-    `${key} differs:\n` +
-      `    baseline: …${baselineSqlText.slice(from, baselineSqlText.length - tail + 40)}…\n` +
-      `    migrated: …${migratedSqlText.slice(from, migratedSqlText.length - tail + 40)}…`,
+  const baselineByKey = byKey(afterFirst)
+  const migratedByKey = byKey(shapeOf(migrated))
+  const problems = []
+
+  for (const [key, before] of baselineByKey) {
+    if (!migratedByKey.has(key)) {
+      problems.push(`${key}: in the baseline, absent after migrating`)
+      continue
+    }
+    const after = migratedByKey.get(key)
+    if (after === before) continue
+
+    // The first and last positions at which the two disagree, so the report is
+    // the changed region rather than the whole statement.
+    let head = 0
+    while (head < before.length && before[head] === after[head]) head += 1
+    let tail = 0
+    while (
+      tail < before.length - head &&
+      tail < after.length - head &&
+      before.at(-1 - tail) === after.at(-1 - tail)
+    ) tail += 1
+
+    const from = Math.max(0, head - 40)
+    problems.push(
+      `${key} differs:\n` +
+        `    baseline: \u2026${before.slice(from, before.length - tail + 40)}\u2026\n` +
+        `    migrated: \u2026${after.slice(from, after.length - tail + 40)}\u2026`,
+    )
+  }
+
+  for (const key of migratedByKey.keys()) {
+    if (!baselineByKey.has(key)) {
+      problems.push(`${key}: created by a migration, absent from the baseline`)
+    }
+  }
+
+  if (problems.length > 0) {
+    throw new Error(
+      'The baseline and the migration chain do not agree. One of the two was ' +
+        `updated without the other.\n\n${problems.map((line) => `  ${line}`).join('\n')}\n`,
+    )
+  }
+
+  console.log(
+    `Schema paths agree: baseline re-applies cleanly, and ${migrations.length} ` +
+      'migration(s) reproduce it exactly.',
   )
 }
-
-for (const key of migratedByKey.keys()) {
-  if (!baselineByKey.has(key)) {
-    problems.push(`${key}: created by a migration, absent from the baseline`)
-  }
-}
-
-if (problems.length > 0) {
-  throw new Error(
-    'The baseline and the migration chain do not agree. One of the two was ' +
-      `updated without the other.\n\n${problems.map((line) => `  ${line}`).join('\n')}\n`,
-  )
-}
-
-console.log(
-  `Schema paths agree: baseline re-applies cleanly, and ${migrations.length} ` +
-    'migration(s) reproduce it exactly.',
-)

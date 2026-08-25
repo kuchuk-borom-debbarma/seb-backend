@@ -619,7 +619,12 @@ with no recovery path.
   control is disabled by what it says.
 - [x] Warn when the reviewer is also the applicant or enterprise owner; allow
   the action under the selected policy and retain the acknowledgement on the
-  transition that decides something.
+  transition that decides something. The acknowledgement is stored on the desk
+  review and on the decision it was given for, a superseding correction carries
+  its own, and each writes a `SEB.SELF_REVIEW_DISCLOSED` audit row so the cases
+  are findable by action rather than by joining actor to applicant.
+- [x] Show the acknowledgement wherever the review or decision it belongs to is
+  shown, so a reader of the record sees that the officer was the applicant.
 - [x] Prevent two administrators from unknowingly completing the same review
   transition from the same old status.
 - [x] Widen who may act on money. Awards, releases and recovery no longer
@@ -934,10 +939,13 @@ complete.
 
 - [ ] Provision the approved provider's key. The console transport cannot be
   reached from a delivering environment, but nothing is sent without a key.
-- [x] Build a forward path for the schema. The baseline re-applies safely,
-  ordered migrations in `database/migrations/` carry changes to existing
-  tables, `core_schema_migration` records what has run, and `db:schema:check`
-  proves the two paths still produce the same database.
+- [x] Build a forward path for the schema. `database/schema.sql` is the whole
+  schema while nothing is deployed, and `db:schema:check` proves it parses and
+  re-applies to no effect. The path for afterwards is built and unused:
+  `database/migrations/` is empty, `scripts/migrate.mjs` applies ordered files
+  and records them in `core_schema_migration`, and the same check compares the
+  two routes from the first file added. Adding that file is what will exercise
+  it — until then the comparison is skipped rather than run against nothing.
 - [x] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits. One
   policy names which operations are limited and by how much, counted against
   the caller's address, their session, and the account being acted on; a

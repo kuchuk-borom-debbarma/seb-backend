@@ -37,6 +37,9 @@ import type {
   TtmDecisionOutcome,
 } from '../types'
 
+/** One message for a correction that cannot be made, whatever is wrong with it. */
+const CORRECTION_MESSAGE = 'Enter a valid approved TTM decision correction.'
+
 const validDate = (value: string) => parseDateOnly(value) !== null
 const validExpected = (value: number) => Number.isInteger(value) && value >= 1
 const validInstant = (value: Date) => value instanceof Date && !Number.isNaN(value.getTime())
@@ -540,14 +543,30 @@ export const correctTtmDecision = async (
 ): Promise<AdminResult<unknown>> => {
   const administrator = await currentStaff(context, 'DECIDE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
-  const submission = await latestSubmission(context.db, input.applicationId)
+  /*
+   * The head is read only for the owner. It cannot come from the submission
+   * snapshot beside it — that carries who last edited the application, not
+   * whose application it is — and the two cannot share a batch, because a
+   * batch maps results by column name and both carry an `id`.
+   */
+  const [application, submission] = await Promise.all([
+    loadApplicationHead(context.db, input.applicationId),
+    latestSubmission(context.db, input.applicationId),
+  ])
+  if (!application || !submission) return failure(CORRECTION_MESSAGE)
+  // Superseding a decision is its own act on the file, so it discloses for
+  // itself. Checked before the details, so a refusal here is never mistaken
+  // for a malformed correction.
+  if (undisclosedSelfReview(
+    application.application.applicantUserId, administrator.id, input.conflictAcknowledged,
+  )) return failure(SELF_REVIEW_MESSAGE)
   const reference = normalizeRequiredText(input.decisionReference, 100)
   const conditions = normalizeOptionalText(input.applicantConditions, 2_000)
   const message = normalizeRequiredText(input.applicantMessage, 1_000)
   const nextAction = normalizeOptionalText(input.nextAction, 1_000)
   const correction = normalizeRequiredText(input.correctionReason, 1_000)
   const amount = input.approvedAmountPaise ?? null
-  if (!submission || !validExpected(input.expectedStatusVersion) || !reference ||
+  if (!validExpected(input.expectedStatusVersion) || !reference ||
       !validDate(input.decisionDate) || !message || conditions === 'INVALID' ||
       nextAction === 'INVALID' || !correction ||
       approvalProblem(input.outcome, amount, submission.snapshot.seedFundRequestedPaise!) ||
@@ -557,7 +576,7 @@ export const correctTtmDecision = async (
         cycleId: submission.snapshot.programmeCycleId,
         version: submission.snapshot.programmeCycleVersion,
         context: 'TTM_DECISION_CORRECTION',
-      })) return failure('Enter a valid approved TTM decision correction.')
+      })) return failure(CORRECTION_MESSAGE)
   const reasonContext = decisionReasonContext(input.outcome)
   if (reasonContext) {
     if (!input.reasonCategoryId || !await approvedReason(context.db, {

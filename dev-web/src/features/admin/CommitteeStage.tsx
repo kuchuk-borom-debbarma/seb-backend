@@ -46,6 +46,7 @@ type Decision = {
   approvedAmountPaise?: string | null
   applicantMessage: string
   createdAt: string
+  conflictAcknowledged: boolean
 }
 
 const OUTCOMES: { value: TtmDecisionOutcome; label: string; means: string }[] = [
@@ -90,6 +91,7 @@ export function CommitteeStage({
   agenda,
   decisions,
   reasons,
+  decidingOwnApplication,
   onChanged,
 }: {
   applicationId: string
@@ -100,6 +102,7 @@ export function CommitteeStage({
   agenda: AgendaItem[]
   decisions: Decision[]
   reasons: ReasonCategory[] | undefined
+  decidingOwnApplication: boolean
   onChanged: () => Promise<unknown>
 }) {
   // An item waiting to be taken, or one already decided. A removed item is
@@ -145,6 +148,14 @@ export function CommitteeStage({
                     {decision.id === latestDecision?.id ? null : (
                       <span className="field-hint">Superseded</span>
                     )}
+                    {/* Shown wherever the decision is, because a decision an
+                        officer took on their own file is the thing somebody
+                        reading this record afterwards needs to notice. */}
+                    {decision.conflictAcknowledged ? (
+                      <span className="field-hint">
+                        Decided by the applicant, declared
+                      </span>
+                    ) : null}
                   </td>
                   <td className="tabular">{decision.decisionReference}</td>
                   <td>{formatDate(decision.decisionDate)}</td>
@@ -179,6 +190,7 @@ export function CommitteeStage({
             title="Record what the committee decided"
             confirmLabel="Record the decision"
             reasons={reasons}
+            decidingOwnApplication={decidingOwnApplication}
             onSubmit={async (draft) => {
               const data = await gql(RecordDecisionDocument, {
                 input: {
@@ -201,6 +213,7 @@ export function CommitteeStage({
             supersedesDecisionId={latestDecision.id}
             statusVersion={statusVersion}
             reasons={reasons}
+            decidingOwnApplication={decidingOwnApplication}
             onChanged={onChanged}
           />
         ) : null}
@@ -365,18 +378,21 @@ type DecisionDraft = {
     reasonCategoryId: string
     note: string
   }[]
+  conflictAcknowledged?: boolean | null
 }
 
 function DecisionForm({
   title,
   confirmLabel,
   reasons,
+  decidingOwnApplication,
   extra,
   onSubmit,
 }: {
   title: string
   confirmLabel: string
   reasons: ReasonCategory[] | undefined
+  decidingOwnApplication: boolean
   extra?: React.ReactNode
   onSubmit: (draft: DecisionDraft) => Promise<void>
 }) {
@@ -388,6 +404,7 @@ function DecisionForm({
   const [applicantMessage, setMessage] = useState('')
   const [nextAction, setNextAction] = useState('')
   const [reasonCategoryId, setCategoryId] = useState('')
+  const [conflictAcknowledged, setConflictAcknowledged] = useState(false)
   const [revisions, setRevisions] = useState<
     Partial<Record<ApplicationSection, { reasonCategoryId: string; note: string }>>
   >({})
@@ -424,6 +441,7 @@ function DecisionForm({
                 note: value.note.trim(),
               }))
             : [],
+        conflictAcknowledged: decidingOwnApplication ? conflictAcknowledged : null,
       }),
     onMutate: () => setError(null),
     onError: (cause) => setError(messageFor(cause)),
@@ -446,7 +464,10 @@ function DecisionForm({
     (outcomeReasons.length === 0 || Boolean(reasonCategoryId)) &&
     (outcome !== 'REVISION_REQUIRED' ||
       (chosen.length > 0 &&
-        chosen.every(([, value]) => value.reasonCategoryId && value.note.trim())))
+        chosen.every(([, value]) => value.reasonCategoryId && value.note.trim()))) &&
+    // The API refuses this the same way, so a disabled button is the honest
+    // preview of that refusal rather than a second rule invented here.
+    (!decidingOwnApplication || conflictAcknowledged)
 
   return (
     <form
@@ -669,6 +690,27 @@ function DecisionForm({
 
       {extra}
 
+      {decidingOwnApplication ? (
+        /*
+         * Deciding your own application is permitted with disclosure, and this
+         * is the disclosure. Deliberately not a warning: a small office will
+         * have officers who are also applicants, and that is expected rather
+         * than suspect. Without this control the API's refusal is unanswerable
+         * from the screen.
+         */
+        <p className="notice" style={{ marginTop: '1rem' }}>
+          <span className="notice-title">This is your own application</span>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={conflictAcknowledged}
+              onChange={(event) => setConflictAcknowledged(event.target.checked)}
+            />
+            I am deciding an application I submitted, and I am recording that.
+          </label>
+        </p>
+      ) : null}
+
       {error ? (
         <p
           className="notice"
@@ -699,6 +741,7 @@ function CorrectDecision({
   supersedesDecisionId,
   statusVersion,
   reasons,
+  decidingOwnApplication,
   onChanged,
 }: {
   applicationId: string
@@ -706,6 +749,7 @@ function CorrectDecision({
   supersedesDecisionId: string
   statusVersion: number
   reasons: ReasonCategory[] | undefined
+  decidingOwnApplication: boolean
   onChanged: () => Promise<unknown>
 }) {
   const [open, setOpen] = useState(false)
@@ -727,6 +771,7 @@ function CorrectDecision({
       title="Correct the recorded decision"
       confirmLabel="Record the correction"
       reasons={reasons}
+      decidingOwnApplication={decidingOwnApplication}
       extra={
         <div className="detail-grid" style={{ marginTop: '0.75rem' }}>
           <div>

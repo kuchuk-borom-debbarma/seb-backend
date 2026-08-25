@@ -79,12 +79,42 @@ whether to go and ask them; it disables nothing.
 | **Entry** | `admin.intake.completeDeskReview` |
 | **Guard** | `STAFF_WRITE` |
 | **Refuses** | a missing or duplicated check; an expansion check that disagrees with the application type; a value for an identifier this cycle does not collect; a passed check with no transcribed number where the cycle demands one; an identifier already recorded on another funding case and not explained; reviewing your own application without `conflictAcknowledged`; for `ADVANCE_TO_BANK`, any submitted document whose latest scan is not `ACCEPTED` |
-| **Writes** | status, the immutable review, its nine checks, the transcribed identifiers, any revision requests, the applicant-visible event, and the audit row — one batch |
+| **Writes** | status, the immutable review including whether the reviewer declared it was their own application, its nine checks, the transcribed identifiers, any revision requests, the applicant-visible event, the audit row, and a `SEB.SELF_REVIEW_DISCLOSED` row where there was something to declare — one batch |
 | **Guarded by** | `status_version` and the current status |
 | **Fails** | the specific refusal, or `The record changed.` |
 
 The nine checks and the outcome are one write, not a wizard, so a review cannot
 be left half-recorded.
+
+### Acting on your own application
+
+Permitted, with disclosure. A small office has officers who are also applicants,
+so this is expected rather than suspect — but `docs/policy-alignment.md` records
+the permission as conditional on saying so, and TTAADC has yet to decide whether
+recusal or a second approval should replace it. Until they do, the disclosure is
+the whole control.
+
+It is therefore kept, on the act it qualifies:
+
+| Act | Column | Also writes |
+| --- | --- | --- |
+| `completeDeskReview` | `seb_desk_review.conflict_acknowledged` | `SEB.SELF_REVIEW_DISCLOSED` |
+| `recordTtmDecision` | `seb_ttm_decision.conflict_acknowledged` | `SEB.SELF_REVIEW_DISCLOSED` |
+| `correctTtmDecision` | the superseding row's own column | `SEB.SELF_REVIEW_DISCLOSED` |
+
+Three properties are worth stating because none is accidental.
+
+**It is on the act, not the assignment.** An assignment event is written only
+when a decision releases the file, which happens on rejection — so an approved
+self-review would have kept nothing.
+
+**A correction discloses for itself.** An acknowledgement given when the
+original decision was recorded says nothing about who is superseding it, perhaps
+months later.
+
+**The answer is the caller's own.** `undisclosedSelfReview` refuses an absent
+acknowledgement; it does not verify one. The value of the record is that it
+exists and is attributable, not that it was independently checked.
 
 ### Transcribed identifiers
 
