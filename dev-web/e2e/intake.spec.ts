@@ -18,6 +18,7 @@ import {
   openProgrammeCycle,
   signIn,
   signUpApplicant,
+  submitApplication,
   uniqueEmail,
 } from './support'
 
@@ -312,5 +313,69 @@ test.describe('committee meetings', () => {
     await page.getByRole('button', { name: 'Save the change' }).click()
 
     await expect(page.getByText('Agartala circuit house')).toBeVisible()
+  })
+})
+
+/*
+ * Asking an applicant to correct something.
+ *
+ * Untested until now, and broken the whole time: the form sent no outcome
+ * reason for a revision, so every attempt was refused with "Select an approved
+ * outcome reason." over a form that offered nowhere to select one. The whole
+ * revision route — the way a case goes back to the applicant — could not be
+ * used at all.
+ */
+test.describe('sending an application back for correction', () => {
+  test('asks for a revision, naming why, and the applicant sees it', async ({ page }) => {
+    test.setTimeout(180_000)
+    const application = await submitApplication(page, { prefix: 'rev' })
+
+    await page.context().clearCookies()
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await page.goto(`/admin/applications/${application.id}`)
+    await page.getByRole('button', { name: 'Start desk review' }).click()
+
+    for (const check of [
+      'IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION',
+      'FORM_COMPLETENESS', 'DOCUMENT_COMPLETENESS', 'ANSWER_DOCUMENT_CONSISTENCY',
+      'DPR_FEASIBILITY',
+    ]) {
+      await page.locator(`input[name="${check}"]`).first().check()
+    }
+    await page.locator('input[name="EXPANSION_EVIDENCE"]').nth(2).check()
+
+    // Passing the checks that gate them means the cycle demands these, exactly
+    // as it would for a referral. Unique, so the duplicate check stays quiet.
+    const unique = Date.now().toString().slice(-6)
+    await page.getByLabel('Scheduled Tribe certificate number').fill(`TR/ST/2026-R${unique}`)
+    await page.getByLabel('Identity document number').fill(`9333${unique}`)
+    await page.getByLabel('Bank account number').fill(`5009${unique}`)
+    await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
+
+    await page.getByRole('radio', { name: /Ask the applicant to correct it/u }).check()
+
+    // The reason the application is going back, distinct from each section's.
+    const outcomeReason = page.getByLabel('Why this is going back')
+    await expect(outcomeReason).toBeVisible()
+    await outcomeReason.selectOption({ index: 1 })
+
+    // One section, with its own reason and instruction.
+    await page.getByRole('checkbox', { name: 'Evidence' }).check()
+    await page.getByLabel('Reason', { exact: true }).last().selectOption({ index: 1 })
+    await page.getByLabel('What the applicant must do').last().fill('Attach the missing quotation.')
+
+    await page
+      .getByLabel('Message to the applicant')
+      .fill('Please attach the missing quotation and resubmit.')
+
+    await page.getByRole('button', { name: 'Complete the review' }).click()
+    await expect(page.locator('.badge').filter({ hasText: 'Revision required' }).first())
+      .toBeVisible()
+
+    // And the applicant is actually told, which is the point of the outcome.
+    await page.context().clearCookies()
+    await signIn(page, application.email, PASSWORD)
+    await page.goto(`/applications/${application.id}`)
+    await expect(page.getByText('Attach the missing quotation.')).toBeVisible()
   })
 })

@@ -381,6 +381,32 @@ type DecisionDraft = {
   conflictAcknowledged?: boolean | null
 }
 
+/**
+ * Which reason catalogue applies, if any, for the chosen outcome.
+ *
+ * The API decides this from the outcome alone — anything but an approval needs
+ * a reason, and `seb_ttm_decision` will not store one without it. Falling
+ * through to `[]` for a revision therefore did not mean "no reason needed", it
+ * meant the decision was refused with no way to satisfy it.
+ */
+const reasonsForOutcome = (
+  outcome: TtmDecisionOutcome | '',
+  catalogues: {
+    deferral: ReasonCategory[]
+    rejection: ReasonCategory[]
+    revision: ReasonCategory[]
+  },
+): ReasonCategory[] => {
+  if (outcome === 'DEFERRED') return catalogues.deferral
+  if (outcome === 'REJECTED') return catalogues.rejection
+  if (outcome === 'REVISION_REQUIRED') return catalogues.revision
+  return []
+}
+
+/** Whether the API will demand an outcome reason. Approval is the only one that does not. */
+const needsOutcomeReason = (outcome: TtmDecisionOutcome | ''): boolean =>
+  outcome !== '' && outcome !== 'APPROVED'
+
 function DecisionForm({
   title,
   confirmLabel,
@@ -419,6 +445,12 @@ function DecisionForm({
     { reasonCategoryId: string; note: string },
   ][]
 
+  const outcomeReasons = reasonsForOutcome(outcome, {
+    deferral: deferralReasons,
+    rejection: rejectionReasons,
+    revision: revisionReasons,
+  })
+
   const submit = useMutation({
     mutationFn: () =>
       onSubmit({
@@ -447,13 +479,6 @@ function DecisionForm({
     onError: (cause) => setError(messageFor(cause)),
   })
 
-  /** Which reason catalogue applies, if any, for the chosen outcome. */
-  const outcomeReasons =
-    outcome === 'DEFERRED'
-      ? deferralReasons
-      : outcome === 'REJECTED'
-        ? rejectionReasons
-        : []
 
   const ready =
     Boolean(outcome) &&
@@ -461,7 +486,10 @@ function DecisionForm({
     decisionDate &&
     applicantMessage.trim() &&
     (outcome !== 'APPROVED' || approvedRupees.trim() !== '') &&
-    (outcomeReasons.length === 0 || Boolean(reasonCategoryId)) &&
+    // Derived from the outcome, not from whether a catalogue happens to be
+    // non-empty. The old form was true precisely when the list was empty, so an
+    // outcome with no select enabled the button and the API refused it.
+    (!needsOutcomeReason(outcome) || Boolean(reasonCategoryId)) &&
     (outcome !== 'REVISION_REQUIRED' ||
       (chosen.length > 0 &&
         chosen.every(([, value]) => value.reasonCategoryId && value.note.trim()))) &&
@@ -543,6 +571,19 @@ function DecisionForm({
             </span>
           </div>
         ) : null}
+        {/*
+          Said out loud rather than left as a disabled button. The decision
+          needs a reason from this cycle's catalogue, and if the cycle has none
+          there is nothing to choose and no way to tell from the form.
+        */}
+        {needsOutcomeReason(outcome) && outcomeReasons.length === 0 ? (
+          <p className="notice" data-tone="warn">
+            <span className="notice-title">This cycle has no reason for that outcome</span>
+            A decision must name a reason from the cycle's catalogue. Add one in cycle
+            administration first.
+          </p>
+        ) : null}
+
         {outcomeReasons.length > 0 ? (
           <div>
             <label className="field-label" htmlFor="decision-reason">

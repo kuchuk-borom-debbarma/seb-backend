@@ -213,7 +213,7 @@ export function DeskReviewForm({
   const [notes, setNotes] = useState<Partial<Record<DeskReviewCheckType, string>>>({})
   const [outcome, setOutcome] = useState<DeskReviewOutcome | ''>('')
   const [applicantMessage, setApplicantMessage] = useState('')
-  const [rejectionReasonId, setRejectionReasonId] = useState('')
+  const [outcomeReasonId, setOutcomeReasonId] = useState('')
   const [revisions, setRevisions] = useState<
     Partial<Record<ApplicationSection, { reasonCategoryId: string; note: string }>>
   >({})
@@ -263,6 +263,18 @@ export function DeskReviewForm({
   const revisionReasons = useMemo(() => reasonsFor(reasons, 'REVISION'), [reasons])
   const rejectionReasons = useMemo(() => reasonsFor(reasons, 'REJECTION'), [reasons])
 
+  /*
+   * One outcome reason, chosen from whichever catalogue the outcome names.
+   *
+   * The API decides this from the outcome — `REJECT` reads the rejection
+   * catalogue and everything else reads the revision one — and `seb_desk_review`
+   * will not store a revision or a rejection without one. Only the rejection
+   * select existed, so asking for a revision sent no reason and was refused
+   * with nothing on the form to fix.
+   */
+  const needsOutcomeReason = outcome === 'REJECT' || outcome === 'REQUEST_REVISION'
+  const outcomeReasons = outcome === 'REJECT' ? rejectionReasons : revisionReasons
+
   const chosen = Object.entries(revisions) as [
     ApplicationSection,
     { reasonCategoryId: string; note: string },
@@ -280,7 +292,7 @@ export function DeskReviewForm({
     (outcome !== 'REQUEST_REVISION' ||
       (chosen.length > 0 &&
         chosen.every(([, value]) => value.reasonCategoryId && value.note.trim()))) &&
-    (outcome !== 'REJECT' || Boolean(rejectionReasonId)) &&
+    (!needsOutcomeReason || Boolean(outcomeReasonId)) &&
     (outcome === 'ADVANCE_TO_BANK' || applicantMessage.trim().length > 0) &&
     required.every((entry) => {
       const entered = typed[entry.kind]
@@ -303,7 +315,7 @@ export function DeskReviewForm({
         result: results[check.type] as DeskReviewCheckResult,
         internalNote: notes[check.type]?.trim() || null,
       })),
-      reasonCategoryId: outcome === 'REJECT' ? rejectionReasonId : null,
+      reasonCategoryId: needsOutcomeReason ? outcomeReasonId : null,
       applicantMessage: applicantMessage.trim() || null,
       revisions:
         outcome === 'REQUEST_REVISION'
@@ -599,24 +611,41 @@ export function DeskReviewForm({
           </div>
         ) : null}
 
-        {outcome === 'REJECT' ? (
+        {/* Otherwise the button is simply disabled and nothing says why. */}
+        {needsOutcomeReason && outcomeReasons.length === 0 ? (
+          <p className="notice" data-tone="warn" style={{ marginTop: '1rem' }}>
+            <span className="notice-title">This cycle has no reason for that outcome</span>
+            A review must name a reason from the cycle's catalogue. Add one in cycle
+            administration first.
+          </p>
+        ) : null}
+
+        {needsOutcomeReason && outcomeReasons.length > 0 ? (
           <div style={{ marginTop: '1rem' }}>
-            <label className="field-label" htmlFor="rejection-reason">
-              Reason for rejection
+            <label className="field-label" htmlFor="outcome-reason">
+              {outcome === 'REJECT' ? 'Reason for rejection' : 'Why this is going back'}
             </label>
             <select
-              id="rejection-reason"
+              id="outcome-reason"
               className="select"
-              value={rejectionReasonId}
-              onChange={(event) => setRejectionReasonId(event.target.value)}
+              value={outcomeReasonId}
+              onChange={(event) => setOutcomeReasonId(event.target.value)}
             >
               <option value="">Choose a reason</option>
-              {rejectionReasons.map((reason) => (
+              {outcomeReasons.map((reason) => (
                 <option key={reason.id} value={reason.id}>
                   {reason.label}
                 </option>
               ))}
             </select>
+            {/* Distinct from the per-section reasons above: this one says why
+                the application is going back, each of those says what is wrong
+                with one section. */}
+            {outcome === 'REQUEST_REVISION' ? (
+              <span className="field-hint">
+                The whole application's reason. Each section you ticked carries its own.
+              </span>
+            ) : null}
           </div>
         ) : null}
 
