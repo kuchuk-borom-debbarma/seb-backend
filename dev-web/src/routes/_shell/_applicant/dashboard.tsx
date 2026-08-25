@@ -2,10 +2,16 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   ArrowRight,
+  Briefcase,
   Building2,
+  Calendar,
   CalendarDays,
-  ClipboardList,
+  Check,
+  ChevronRight,
+  CirclePlus,
   FilePenLine,
+  FilePlus2,
+  FileText,
 } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
 import { applicantDashboardQuery } from '#/features/dashboard/dashboardQueries'
@@ -16,6 +22,52 @@ export const Route = createFileRoute('/_shell/_applicant/dashboard')({
   loader: ({ context }) => context.queryClient.ensureQueryData(applicantDashboardQuery),
   component: ApplicantDashboard,
 })
+
+function CycleLandscapeArtwork() {
+  return (
+    <svg
+      viewBox="0 0 320 180"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={styles.cycleHeroArtwork}
+      aria-hidden="true"
+    >
+      {/* Soft circular sun / highlight */}
+      <circle cx="260" cy="48" r="16" fill="#93c5fd" fillOpacity="0.4" />
+
+      {/* Background mountains */}
+      <path
+        d="M100 180 L160 105 L210 135 L270 80 L320 120 L320 180 Z"
+        fill="#bfdbfe"
+        fillOpacity="0.45"
+      />
+
+      {/* Mid-range rolling hills */}
+      <path
+        d="M140 180 L195 125 L245 145 L320 95 L320 180 Z"
+        fill="#93c5fd"
+        fillOpacity="0.35"
+      />
+
+      {/* Foreground slope */}
+      <path
+        d="M80 180 Q160 135 250 150 T320 155 L320 180 Z"
+        fill="#dbeafe"
+        fillOpacity="0.8"
+      />
+
+      {/* Torana / Monument Gate Silhouette */}
+      <g transform="translate(240, 110) scale(0.65)" opacity="0.38" fill="#3b82f6">
+        <path d="M-4 12 Q24 0 52 12 L48 17 Q24 8 0 17 Z" />
+        <path d="M0 23 Q24 14 48 23 L45 28 Q24 21 3 28 Z" />
+        <rect x="7" y="16" width="6" height="44" rx="1" />
+        <rect x="35" y="16" width="6" height="44" rx="1" />
+        <rect x="2" y="58" width="44" height="4" rx="1" />
+        <rect x="-2" y="62" width="52" height="4" rx="1" />
+      </g>
+    </svg>
+  )
+}
 
 function ApplicantDashboard() {
   const { data } = useQuery(applicantDashboardQuery)
@@ -65,99 +117,114 @@ function ApplicantDashboard() {
         actions={
           <Link {...primaryAction} className="button" data-variant="primary">
             {primaryAction.label}
-            <ArrowRight size={15} aria-hidden="true" />
+            <CirclePlus size={15} aria-hidden="true" />
           </Link>
         }
       />
 
-      <div className="stack" style={{ gap: '1rem' }}>
+      <div className={styles.dashboard}>
+        {/* Top 3 Summary Metric Cards */}
         <section className={styles.metrics} aria-label="Account summary">
-          <Link to="/applications" className={styles.metric}>
-            <span className={styles.metricTop}>
-              Applications <ClipboardList aria-hidden="true" />
-            </span>
-            <strong className={styles.metricValue}>{applications}</strong>
+          <Link to="/applications" className={styles.metricCard}>
+            <div className={styles.metricLeft}>
+              <div className={styles.metricIconBadge} data-color="blue">
+                <FileText aria-hidden="true" />
+              </div>
+              <div className={styles.metricInfo}>
+                <span className={styles.metricLabel}>Applications</span>
+                <strong className={styles.metricValue}>{applications}</strong>
+              </div>
+            </div>
+            <ChevronRight className={styles.metricChevron} size={18} aria-hidden="true" />
           </Link>
-          <Link to="/enterprises" className={styles.metric}>
-            <span className={styles.metricTop}>
-              Enterprises <Building2 aria-hidden="true" />
-            </span>
-            <strong className={styles.metricValue}>{enterprises}</strong>
+
+          <Link to="/enterprises" className={styles.metricCard}>
+            <div className={styles.metricLeft}>
+              <div className={styles.metricIconBadge} data-color="green">
+                <Briefcase aria-hidden="true" />
+              </div>
+              <div className={styles.metricInfo}>
+                <span className={styles.metricLabel}>Enterprises</span>
+                <strong className={styles.metricValue}>{enterprises}</strong>
+              </div>
+            </div>
+            <ChevronRight className={styles.metricChevron} size={18} aria-hidden="true" />
           </Link>
-          <Link to="/cycles" className={styles.metric}>
-            <span className={styles.metricTop}>
-              Open cycles <CalendarDays aria-hidden="true" />
-            </span>
-            <strong className={styles.metricValue}>{cycles.length}</strong>
+
+          <Link to="/cycles" className={styles.metricCard}>
+            <div className={styles.metricLeft}>
+              <div className={styles.metricIconBadge} data-color="purple">
+                <Calendar aria-hidden="true" />
+              </div>
+              <div className={styles.metricInfo}>
+                <span className={styles.metricLabel}>Open cycles</span>
+                <strong className={styles.metricValue}>{cycles.length}</strong>
+              </div>
+            </div>
+            <ChevronRight className={styles.metricChevron} size={18} aria-hidden="true" />
           </Link>
         </section>
 
-        {firstCycle ? (
-          <section className={styles.cycleCallout}>
-            <div>
-              <h2>{firstCycle.displayName} is open</h2>
-              <p>
-                Applications close {formatDateTime(firstCycle.closesAt)} ·{' '}
-                {formatRelative(firstCycle.closesAt)}
-              </p>
-            </div>
-            <Link
-              to="/applications/new"
-              search={{ cycleId: firstCycle.id }}
-              className="button"
-              data-variant="primary"
-            >
-              Apply in this cycle
-            </Link>
-          </section>
-        ) : null}
+        {/* Middle Section: Active Cycle Hero + Needs Your Attention */}
+        <div className={styles.middleGrid}>
+          {firstCycle ? (
+            <section className={styles.cycleHero} aria-label="Active cycle">
+              <CycleLandscapeArtwork />
+              <div className={styles.cycleHeroContent}>
+                <span className={styles.cycleHeroPill}>
+                  {firstCycle.displayName} is open
+                </span>
+                <p className={styles.cycleHeroDates}>
+                  Applications close {formatDateTime(firstCycle.closesAt)} ·{' '}
+                  <span className={styles.cycleHeroRelative}>
+                    {formatRelative(firstCycle.closesAt)}
+                  </span>
+                </p>
+              </div>
+              <Link
+                to="/applications/new"
+                search={{ cycleId: firstCycle.id }}
+                className={styles.cycleHeroButton}
+              >
+                Apply in this cycle
+                <ArrowRight size={15} aria-hidden="true" />
+              </Link>
+            </section>
+          ) : (
+            <section className={styles.cycleHero} aria-label="Active cycle">
+              <CycleLandscapeArtwork />
+              <div className={styles.cycleHeroContent}>
+                <span className={styles.cycleHeroPill}>No open cycle</span>
+                <p className={styles.cycleHeroDates}>
+                  No application windows are currently accepting submissions.
+                </p>
+              </div>
+              <Link to="/cycles" className={styles.cycleHeroButton}>
+                View programme cycles
+                <ArrowRight size={15} aria-hidden="true" />
+              </Link>
+            </section>
+          )}
 
-        {enterprises === 0 || applications === 0 || cycles.length === 0 ? (
-          <section className={styles.emptyStates} aria-label="Account readiness">
-            {enterprises === 0 ? (
-              <div className={styles.emptyState}>
-                <Building2 aria-hidden="true" />
-                <span>
-                  <strong>No enterprises yet</strong>
-                  <small>Register an enterprise before starting an application.</small>
-                </span>
-                <Link to="/enterprises/new">Register enterprise</Link>
-              </div>
-            ) : null}
-            {applications === 0 ? (
-              <div className={styles.emptyState}>
-                <ClipboardList aria-hidden="true" />
-                <span>
-                  <strong>No applications yet</strong>
-                  <small>Your saved and submitted applications will appear here.</small>
-                </span>
-                <Link to="/applications/new">Start application</Link>
-              </div>
-            ) : null}
-            {cycles.length === 0 ? (
-              <div className={styles.emptyState}>
-                <CalendarDays aria-hidden="true" />
-                <span>
-                  <strong>No open programme cycles</strong>
-                  <small>No cycle is accepting applications right now.</small>
-                </span>
-                <Link to="/cycles">View cycles</Link>
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
-        <div className={styles.dashboardGrid}>
-          <section className={styles.section}>
-            <div className={styles.sectionHeader}>
-              <h2>Needs your attention</h2>
-              <Link to="/applications">View all</Link>
+          <section className={styles.attentionCard} aria-label="Needs your attention">
+            <div className={styles.cardHeader}>
+              <h2 className={styles.cardTitle}>Needs your attention</h2>
+              <Link to="/applications" className={styles.cardLink}>
+                View all
+              </Link>
             </div>
             {attention.length === 0 ? (
-              <p className={styles.empty}>
-                Nothing needs action right now. New drafts and requested revisions will
-                appear here.
-              </p>
+              <div className={styles.attentionEmpty}>
+                <div className={styles.checkBadge}>
+                  <Check size={22} aria-hidden="true" />
+                </div>
+                <p className={styles.attentionEmptyText}>
+                  Nothing needs action right now.
+                </p>
+                <p className={styles.attentionEmptySubtext}>
+                  New drafts and requested revisions will appear here.
+                </p>
+              </div>
             ) : (
               <div className={styles.applicationList}>
                 {attention.map((application) => {
@@ -197,25 +264,94 @@ function ApplicantDashboard() {
               </div>
             )}
           </section>
-
-          <section className={styles.section}>
-            <div className={styles.sectionHeader}>
-              <h2>Get started</h2>
-              <Link to="/guide">Full guide</Link>
-            </div>
-            <div className={styles.quickActions}>
-              <Link to="/enterprises/new" className={styles.quickAction}>
-                <Building2 aria-hidden="true" /> Register an enterprise
-              </Link>
-              <Link to="/applications/new" className={styles.quickAction}>
-                <ClipboardList aria-hidden="true" /> Start an application
-              </Link>
-              <Link to="/cycles" className={styles.quickAction}>
-                <CalendarDays aria-hidden="true" /> Check programme cycles
-              </Link>
-            </div>
-          </section>
         </div>
+
+        {/* Readiness Checklist Banners for Empty Data */}
+        {enterprises === 0 || applications === 0 || cycles.length === 0 ? (
+          <section className={styles.emptyStates} aria-label="Account readiness">
+            {enterprises === 0 ? (
+              <div className={styles.emptyState}>
+                <Building2 aria-hidden="true" />
+                <span>
+                  <strong>No enterprises yet</strong>
+                  <small>Register an enterprise before starting an application.</small>
+                </span>
+                <Link to="/enterprises/new">Register enterprise</Link>
+              </div>
+            ) : null}
+            {applications === 0 ? (
+              <div className={styles.emptyState}>
+                <FileText aria-hidden="true" />
+                <span>
+                  <strong>No applications yet</strong>
+                  <small>Your saved and submitted applications will appear here.</small>
+                </span>
+                <Link to="/applications/new">Start application</Link>
+              </div>
+            ) : null}
+            {cycles.length === 0 ? (
+              <div className={styles.emptyState}>
+                <CalendarDays aria-hidden="true" />
+                <span>
+                  <strong>No open programme cycles</strong>
+                  <small>No cycle is accepting applications right now.</small>
+                </span>
+                <Link to="/cycles">View cycles</Link>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {/* Bottom Section: Get Started Action Grid */}
+        <section className={styles.getStartedCard} aria-label="Get started">
+          <div className={styles.cardHeader}>
+            <h2 className={styles.cardTitle}>Get started</h2>
+            <Link to="/guide" className={styles.cardLink}>
+              Full guide <ChevronRight size={14} aria-hidden="true" />
+            </Link>
+          </div>
+          <div className={styles.getStartedGrid}>
+            <Link to="/enterprises/new" className={styles.getStartedItem}>
+              <div className={styles.getStartedItemLeft}>
+                <div className={styles.getStartedIconBadge} data-color="blue">
+                  <Building2 aria-hidden="true" />
+                </div>
+                <span className={styles.getStartedLabel}>Register an enterprise</span>
+              </div>
+              <ChevronRight
+                className={styles.getStartedChevron}
+                size={16}
+                aria-hidden="true"
+              />
+            </Link>
+            <Link to="/applications/new" className={styles.getStartedItem}>
+              <div className={styles.getStartedItemLeft}>
+                <div className={styles.getStartedIconBadge} data-color="green">
+                  <FilePlus2 aria-hidden="true" />
+                </div>
+                <span className={styles.getStartedLabel}>Start an application</span>
+              </div>
+              <ChevronRight
+                className={styles.getStartedChevron}
+                size={16}
+                aria-hidden="true"
+              />
+            </Link>
+            <Link to="/cycles" className={styles.getStartedItem}>
+              <div className={styles.getStartedItemLeft}>
+                <div className={styles.getStartedIconBadge} data-color="purple">
+                  <CalendarDays aria-hidden="true" />
+                </div>
+                <span className={styles.getStartedLabel}>Check programme cycles</span>
+              </div>
+              <ChevronRight
+                className={styles.getStartedChevron}
+                size={16}
+                aria-hidden="true"
+              />
+            </Link>
+          </div>
+        </section>
       </div>
     </main>
   )

@@ -1,9 +1,130 @@
+/* ==========================================================================
+   Applicant Dashboard Soft Modern Design System
+   ========================================================================== */
+
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Top Summary Metric Cards
+   ========================================================================== */
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 16px;
 }
 
+.metricCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border: 1px solid #e9eaec;
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--text);
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.metricCard:hover {
+  border-color: #d1d5db;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.06);
+}
+
+.metricLeft {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.metricIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.metricCard:hover .metricIconBadge {
+  transform: scale(1.05);
+}
+
+.metricIconBadge[data-color='blue'] {
+  background: #edf5ff;
+  color: #2563eb;
+}
+
+.metricIconBadge[data-color='green'] {
+  background: #edf7ee;
+  color: #16a34a;
+}
+
+.metricIconBadge[data-color='purple'] {
+  background: #f3effc;
+  color: #7c3aed;
+}
+
+.metricIconBadge svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.8;
+}
+
+.metricInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metricLabel {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.metricValue {
+  color: #111827;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.metricChevron {
+  color: #9ca3af;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.metricCard:hover .metricChevron {
+  color: #374151;
+  transform: translateX(3px);
+}
+
+/* Base metric style for admin screens */
 .metric {
   display: flex;
   min-height: 112px;
@@ -36,13 +157,346 @@
   stroke-width: 1.6;
 }
 
-.metricValue {
-  color: var(--text);
-  font-size: 27px;
-  font-weight: 600;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
+/* ==========================================================================
+   Middle Section: Active Cycle Hero + Needs Your Attention
+   ========================================================================== */
+
+.middleGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 16px;
 }
+
+.cycleHero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 220px;
+  padding: 24px;
+  border: 1px solid #d4e4f7;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #f0f7ff 0%, #e7f1fc 50%, #dbeafe 100%);
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+
+.cycleHeroArtwork {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  height: 100%;
+  max-width: 60%;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.cycleHeroContent {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cycleHeroPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 9999px;
+  background: #dbeafe;
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.cycleHeroDates {
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.cycleHeroRelative {
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.cycleHeroButton {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin-top: 18px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.15);
+  transition: all 0.2s ease;
+}
+
+.cycleHeroButton:hover {
+  background: #1e293b;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+}
+
+.cycleHeroButton svg {
+  transition: transform 0.2s ease;
+}
+
+.cycleHeroButton:hover svg {
+  transform: translateX(3px);
+}
+
+/* Needs Your Attention Card */
+
+.attentionCard {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px;
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.cardTitle {
+  color: #111827;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.cardLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.cardLink:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+.attentionEmpty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px 10px;
+}
+
+.checkBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 12px;
+  border-radius: 50%;
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.checkBadge svg {
+  width: 22px;
+  height: 22px;
+}
+
+.attentionEmptyText {
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.attentionEmptySubtext {
+  color: #6b7280;
+  font-size: 12px;
+  max-width: 280px;
+  line-height: 1.45;
+}
+
+.applicationList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.applicationRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #f0f2f5;
+  border-radius: 10px;
+  background: #fafbfc;
+  color: var(--text);
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.applicationRow:hover {
+  border-color: #e5e7eb;
+  background: #f3f4f6;
+  transform: translateX(2px);
+}
+
+.rowIcon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.rowText {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowText strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowText small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Bottom Section: Get Started
+   ========================================================================== */
+
+.getStartedCard {
+  padding: 20px 22px;
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.getStartedGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.getStartedItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border: 1px solid #f0f2f5;
+  border-radius: 12px;
+  background: #fafbfc;
+  color: #111827;
+  text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.getStartedItem:hover {
+  border-color: #d1d5db;
+  background: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px -2px rgba(0, 0, 0, 0.05);
+}
+
+.getStartedItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.getStartedIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.getStartedItem:hover .getStartedIconBadge {
+  transform: scale(1.05);
+}
+
+.getStartedIconBadge[data-color='blue'] {
+  background: #edf5ff;
+  color: #2563eb;
+}
+
+.getStartedIconBadge[data-color='green'] {
+  background: #edf7ee;
+  color: #16a34a;
+}
+
+.getStartedIconBadge[data-color='purple'] {
+  background: #f3effc;
+  color: #7c3aed;
+}
+
+.getStartedIconBadge svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.8;
+}
+
+.getStartedLabel {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.getStartedChevron {
+  color: #9ca3af;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.getStartedItem:hover .getStartedChevron {
+  color: #374151;
+  transform: translateX(3px);
+}
+
+/* ==========================================================================
+   Fallback Empty Readiness Banners & Legacy/Admin Sections
+   ========================================================================== */
 
 .dashboardGrid {
   display: grid;
@@ -80,14 +534,12 @@
   color: var(--text);
 }
 
-.applicationList,
 .meetingList,
 .quickActions {
   display: flex;
   flex-direction: column;
 }
 
-.applicationRow,
 .meetingRow,
 .quickAction {
   display: flex;
@@ -99,49 +551,22 @@
   text-decoration: none;
 }
 
-.applicationRow:last-child,
 .meetingRow:last-child,
 .quickAction:last-child {
   border-bottom: 0;
 }
 
-.applicationRow:hover,
 .meetingRow:hover,
 .quickAction:hover {
   background: #fafafa;
 }
 
-.rowIcon,
 .quickAction svg {
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
   color: var(--text-muted);
   stroke-width: 1.6;
-}
-
-.rowText {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.rowText strong {
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rowText small {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .cycleCallout {
@@ -168,8 +593,9 @@
 .emptyStates {
   display: grid;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid #e9eaec;
+  border-radius: 12px;
+  background: #ffffff;
 }
 
 .emptyState {
@@ -210,7 +636,7 @@
 }
 
 .emptyState a {
-  color: var(--text);
+  color: #2563eb;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -262,9 +688,23 @@
   font-size: 11px;
 }
 
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
+
+@media (max-width: 64rem) {
+  .middleGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 54rem) {
   .metrics,
   .queueSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .getStartedGrid {
     grid-template-columns: 1fr;
   }
 
@@ -278,6 +718,10 @@
 }
 
 @media (max-width: 32rem) {
+  .cycleHero {
+    padding: 18px;
+  }
+
   .cycleCallout {
     align-items: stretch;
     flex-direction: column;

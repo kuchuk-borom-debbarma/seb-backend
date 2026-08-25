@@ -47,18 +47,16 @@
 
 .portalLabel {
   display: flex;
-  min-height: 48px;
   align-items: center;
-  gap: 10px;
-  padding: 7px 8px;
+  min-height: 52px;
+  padding: 8px 10px;
 }
 
 .portalSelector summary {
   display: flex;
   align-items: center;
-  min-height: 48px;
-  gap: 10px;
-  padding: 7px 8px;
+  min-height: 52px;
+  padding: 8px 10px;
   border-radius: 8px;
   list-style: none;
   cursor: default;
@@ -72,18 +70,42 @@
   background: var(--sidebar-hover);
 }
 
-.brandMark,
-.mobileMark {
-  display: grid;
+.brandContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.brandLogoRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brandRoleText {
+  color: #374151;
+  font-size: 13.5px;
+  font-weight: 500;
+  padding-left: 2px;
+}
+
+.brandEmblem {
+  display: block;
   flex: 0 0 auto;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: var(--brand);
-  color: white;
-  font-weight: 700;
-  letter-spacing: -0.04em;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: contain;
+}
+
+.brandLogo {
+  display: block;
+  height: 22px;
+  width: auto;
+  max-width: 150px;
+  object-fit: contain;
+  object-position: left center;
 }
 
 .brandText,
@@ -92,6 +114,8 @@
   min-width: 0;
   flex: 1;
   flex-direction: column;
+  justify-content: center;
+  gap: 2px;
 }
 
 .brandText strong,
@@ -118,6 +142,7 @@
 
 .selectorChevron {
   color: var(--text-muted);
+  margin-left: auto;
 }
 
 .portalMenu,
@@ -176,43 +201,44 @@
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 36px;
-  gap: 10px;
-  padding: 7px 10px;
+  min-height: 38px;
+  gap: 12px;
+  padding: 8px 12px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 9px;
   background: transparent;
-  color: var(--text-secondary);
+  color: #4b5563;
   font: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
   text-align: left;
   text-decoration: none;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .navLink svg,
 .menuItem svg,
 .iconButton svg,
 .mobileClose svg {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   flex: 0 0 auto;
-  stroke-width: 1.6;
+  stroke-width: 1.7;
 }
 
 .navLink:hover {
-  background: var(--sidebar-hover);
-  color: var(--text);
+  background: #f0f2f5;
+  color: #111827;
 }
 
 .navLinkActive {
-  background: var(--sidebar-active);
-  color: var(--text);
-  font-weight: 500;
+  background: #f0f2f5;
+  color: #111827;
+  font-weight: 600;
 }
 
 .navLinkActive svg {
-  color: var(--brand);
+  color: #111827;
 }
 
 .navLabel {
@@ -338,6 +364,8 @@
 }
 
 .shell[data-collapsed='true'] .brandText,
+.shell[data-collapsed='true'] .brandLogo,
+.shell[data-collapsed='true'] .brandRoleText,
 .shell[data-collapsed='true'] .selectorChevron,
 .shell[data-collapsed='true'] .groupTitle,
 .shell[data-collapsed='true'] .navLabel,
@@ -412,16 +440,23 @@
     background: var(--sidebar-hover);
   }
 
-  .mobileMark {
+  .mobileEmblem {
+    display: block;
+    flex: 0 0 auto;
     width: 28px;
     height: 28px;
-    border-radius: 7px;
-    font-size: 12px;
+    border-radius: 50%;
+    object-fit: contain;
   }
 
-  .mobileTitle {
-    font-size: 13px;
-    font-weight: 600;
+  .mobileLogo {
+    display: block;
+    flex: 0 0 auto;
+    height: 18px;
+    width: auto;
+    max-width: 120px;
+    object-fit: contain;
+    object-position: left center;
   }
 
   .mobilePortal {

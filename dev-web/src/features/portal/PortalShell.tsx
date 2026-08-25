@@ -8,13 +8,15 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useRouter } from '@tanstack/react-router'
 import {
-  Building2,
+  ArrowLeft,
+  ArrowRight,
+  Briefcase,
   CalendarDays,
-  ChevronsLeft,
-  ChevronsRight,
   CircleHelp,
   ClipboardList,
+  FileText,
   History,
+  Home,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -32,6 +34,8 @@ import { forgetGuide } from '#/features/guide/GuideContext'
 import { gql } from '#/lib/graphql'
 import { can, isApplicant, type SignedInUser } from '#/lib/session'
 import styles from './PortalShell.module.css'
+import logoEmblem from '@/assets/mission-sep-emblem.png'
+import logoRightColor from '@/assets/mission-sep-right.png'
 
 export type Portal = 'applicant' | 'office'
 
@@ -96,21 +100,21 @@ export function PlatformNavigation({
               <NavLink
                 to="/dashboard"
                 label="Dashboard"
-                icon={LayoutDashboard}
+                icon={Home}
                 exact
                 onNavigate={onClose}
               />
               <NavLink
                 to="/applications"
                 label="Applications"
-                icon={ClipboardList}
+                icon={FileText}
                 activePrefixes={['/applications']}
                 onNavigate={onClose}
               />
               <NavLink
                 to="/enterprises"
                 label="Enterprises"
-                icon={Building2}
+                icon={Briefcase}
                 activePrefixes={['/enterprises']}
                 onNavigate={onClose}
               />
@@ -218,9 +222,9 @@ export function PlatformNavigation({
           title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
         >
           {collapsed ? (
-            <ChevronsRight aria-hidden="true" />
+            <ArrowRight aria-hidden="true" />
           ) : (
-            <ChevronsLeft aria-hidden="true" />
+            <ArrowLeft aria-hidden="true" />
           )}
           <span className={styles.navLabel}>
             {collapsed ? 'Expand navigation' : 'Collapse navigation'}
@@ -258,10 +262,8 @@ export function MobileHeader({
       >
         <Menu aria-hidden="true" />
       </button>
-      <span className={styles.mobileMark} aria-hidden="true">
-        M
-      </span>
-      <span className={styles.mobileTitle}>Mission SEP</span>
+      <img src={logoEmblem} alt="TTAADC Seal" className={styles.mobileEmblem} />
+      <img src={logoRightColor} alt="Mission SEP" className={styles.mobileLogo} />
       <span className={styles.mobilePortal}>
         {portal === 'applicant' ? 'Applicant' : 'Programme office'}
       </span>
@@ -386,13 +388,13 @@ function PortalSelector({
         className={styles.portalLabel}
         title={collapsed ? `Mission SEP · ${label}` : undefined}
       >
-        <span className={styles.brandMark} aria-hidden="true">
-          M
-        </span>
-        <span className={styles.brandText}>
-          <strong>Mission SEP</strong>
-          <small>{label}</small>
-        </span>
+        <div className={styles.brandContainer}>
+          <div className={styles.brandLogoRow}>
+            <img src={logoEmblem} alt="TTAADC Seal" className={styles.brandEmblem} />
+            <img src={logoRightColor} alt="Mission SEP" className={styles.brandLogo} />
+          </div>
+          <span className={styles.brandRoleText}>{label}</span>
+        </div>
       </div>
     )
   }
@@ -400,16 +402,16 @@ function PortalSelector({
   return (
     <details className={styles.portalSelector} ref={selectorRef}>
       <summary title={collapsed ? `Mission SEP · ${label}` : undefined}>
-        <span className={styles.brandMark} aria-hidden="true">
-          M
-        </span>
-        <span className={styles.brandText}>
-          <strong>Mission SEP</strong>
-          <small>{label}</small>
-        </span>
-        <span className={styles.selectorChevron} aria-hidden="true">
-          ⌄
-        </span>
+        <div className={styles.brandContainer}>
+          <div className={styles.brandLogoRow}>
+            <img src={logoEmblem} alt="TTAADC Seal" className={styles.brandEmblem} />
+            <img src={logoRightColor} alt="Mission SEP" className={styles.brandLogo} />
+            <span className={styles.selectorChevron} aria-hidden="true">
+              ⌄
+            </span>
+          </div>
+          <span className={styles.brandRoleText}>{label}</span>
+        </div>
       </summary>
       <div className={styles.portalMenu}>
         <p>Switch portal</p>
