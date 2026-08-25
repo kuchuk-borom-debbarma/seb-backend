@@ -1,6 +1,14 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { Pager, SearchBox } from '#/components/ListControls'
+import {
+  Building2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CirclePlus,
+  MoreVertical,
+  Search as SearchIcon,
+} from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
 import { MyEnterprisesDocument } from '#/graphql/generated/operations'
@@ -8,6 +16,7 @@ import type { BusinessSector, EnterpriseStatus } from '#/graphql/generated/schem
 import { formatDate, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
+import styles from '#/features/enterprise/Enterprises.module.css'
 
 /** The server's page size. Kept small because these lists are browsed, not scanned. */
 const PAGE_SIZE = 20
@@ -101,196 +110,280 @@ function EnterprisesPage() {
             data-variant="primary"
             {...mark('enterprise-list')}
           >
+            <CirclePlus size={15} aria-hidden="true" />
             Register an enterprise
           </Link>
         }
       />
 
-      <div className="filters">
-        <SearchBox
-          id="enterprise-search"
-          label="Name starts with"
-          placeholder="Khumulwng"
-          value={search.search}
-          onChange={(value) => filter({ search: value })}
-        />
-
-        <div>
-          <label className="field-label" htmlFor="enterprise-status">
-            State
-          </label>
-          <select
-            id="enterprise-status"
-            className="select"
-            value={search.status ?? ''}
-            onChange={(event) =>
-              filter({
-                status: (event.target.value || undefined) as EnterpriseStatus | undefined,
-              })
-            }
-          >
-            <option value="">Any state</option>
-            {STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {humanize(status)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="field-label" htmlFor="enterprise-sector">
-            Sector
-          </label>
-          <select
-            id="enterprise-sector"
-            className="select"
-            value={search.sector ?? ''}
-            onChange={(event) =>
-              filter({
-                sector: (event.target.value || undefined) as BusinessSector | undefined,
-              })
-            }
-          >
-            <option value="">Any sector</option>
-            {SECTORS.map((sector) => (
-              <option key={sector} value={sector}>
-                {humanize(sector)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={search.includeDeleted ?? false}
-            onChange={(event) =>
-              filter({ includeDeleted: event.target.checked ? true : undefined })
-            }
-          />
-          Include removed enterprises
-        </label>
-      </div>
-
-      {enterprises.length === 0 ? (
-        <div className="card">
-          {/* Two different facts, and telling them apart is the point of
-              knowing the total: nothing matched, or there is nothing here. */}
-          {filtered ? (
-            <div className="empty">
-              <h3>Nothing matches</h3>
-              <p>
-                No enterprise matches these filters. Clearing one may bring some back.
-              </p>
-              <button
-                type="button"
-                className="button"
-                style={{ marginTop: '1rem' }}
-                onClick={() =>
-                  filter({ search: undefined, status: undefined, sector: undefined })
-                }
-              >
-                Clear the filters
-              </button>
+      <div className={styles.pageContainer}>
+        {/* Top Filter Card */}
+        <section className={styles.filterCard} aria-label="Enterprise filters">
+          <div className={styles.filterGrid}>
+            <div className={styles.fieldGroup}>
+              <label className={styles.fieldLabel} htmlFor="enterprise-search">
+                Name starts with
+              </label>
+              <div className={styles.searchWrap}>
+                <input
+                  id="enterprise-search"
+                  aria-label="Name starts with"
+                  type="search"
+                  className={styles.searchInput}
+                  placeholder="Search enterprise name..."
+                  value={search.search ?? ''}
+                  onChange={(event) =>
+                    filter({ search: event.target.value || undefined })
+                  }
+                />
+                <SearchIcon className={styles.searchIcon} aria-hidden="true" />
+              </div>
             </div>
-          ) : (
-            <div className="empty">
-              <h3>No enterprises yet</h3>
-              <p>
-                Register the enterprise you are applying for, then start an application in
-                an open programme cycle.
-              </p>
-              <Link
-                to="/enterprises/new"
-                className="button"
-                data-variant="primary"
-                style={{ marginTop: '1rem' }}
-              >
-                Register an enterprise
-              </Link>
+
+            <div className={styles.fieldGroup}>
+              <label className={styles.fieldLabel} htmlFor="enterprise-status">
+                State
+              </label>
+              <div className={styles.selectWrap}>
+                <select
+                  id="enterprise-status"
+                  aria-label="State"
+                  className={styles.filterSelect}
+                  value={search.status ?? ''}
+                  onChange={(event) =>
+                    filter({
+                      status: (event.target.value || undefined) as
+                        EnterpriseStatus | undefined,
+                    })
+                  }
+                >
+                  <option value="">Any state</option>
+                  {STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {humanize(status)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className={styles.selectChevron} aria-hidden="true" />
+              </div>
             </div>
-          )}
-        </div>
-      ) : (
-        <div className="card">
-          <div className="table-wrap">
-            <table className="table">
-              <caption className="visually-hidden">Your enterprises</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Enterprise</th>
-                  <th scope="col">Sector</th>
-                  <th scope="col">Where</th>
-                  <th scope="col">Established</th>
-                  <th scope="col">State</th>
-                </tr>
-              </thead>
-              <tbody>
-                {enterprises.map((enterprise) => (
-                  <tr key={enterprise.id}>
-                    <td>
-                      <Link
-                        to="/enterprises/$id"
-                        params={{ id: enterprise.id }}
-                        style={{ fontWeight: 500 }}
-                      >
-                        {enterprise.name}
-                      </Link>
-                    </td>
-                    <td>
-                      {enterprise.businessSector
-                        ? enterprise.businessSector === 'OTHER'
-                          ? (enterprise.otherBusinessSector ?? 'Other')
-                          : humanize(enterprise.businessSector)
-                        : '—'}
-                    </td>
-                    <td>
-                      {[enterprise.businessBlockOrVillage, enterprise.businessDistrict]
-                        .filter(Boolean)
-                        .join(', ') || '—'}
-                    </td>
-                    <td>{formatDate(enterprise.establishmentDate)}</td>
-                    <td>
-                      {enterprise.deletedAt ? (
-                        <span className="badge" data-tone="error">
-                          Removed
-                        </span>
-                      ) : (
-                        <span className="badge">{humanize(enterprise.status)}</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+            <div className={styles.fieldGroup}>
+              <label className={styles.fieldLabel} htmlFor="enterprise-sector">
+                Sector
+              </label>
+              <div className={styles.selectWrap}>
+                <select
+                  id="enterprise-sector"
+                  aria-label="Sector"
+                  className={styles.filterSelect}
+                  value={search.sector ?? ''}
+                  onChange={(event) =>
+                    filter({
+                      sector: (event.target.value || undefined) as
+                        BusinessSector | undefined,
+                    })
+                  }
+                >
+                  <option value="">Any sector</option>
+                  {SECTORS.map((sector) => (
+                    <option key={sector} value={sector}>
+                      {humanize(sector)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className={styles.selectChevron} aria-hidden="true" />
+              </div>
+            </div>
           </div>
 
-          {/*
-            Cursor paging only ever moves forward, because that is what the API
-            provides. "Start again" replaces a back button that could not be
-            made correct.
-          */}
-          <Pager
-            shown={enterprises.length}
-            totalCount={data?.pageInfo.totalCount ?? 0}
-            hasNextPage={data?.pageInfo.hasNextPage ?? false}
-            atStart={!search.after}
-            pageSize={PAGE_SIZE}
-            onFirst={() =>
-              navigate({ search: (previous) => ({ ...previous, after: undefined }) })
-            }
-            onNext={() =>
-              navigate({
-                search: (previous) => ({
-                  ...previous,
-                  after: data?.pageInfo.endCursor ?? undefined,
-                }),
-              })
-            }
-          />
-        </div>
-      )}
+          <label className={styles.checkboxRow}>
+            <input
+              type="checkbox"
+              className={styles.checkbox}
+              checked={search.includeDeleted ?? false}
+              onChange={(event) =>
+                filter({ includeDeleted: event.target.checked ? true : undefined })
+              }
+            />
+            Include removed enterprises
+          </label>
+        </section>
+
+        {/* Your Enterprises Card */}
+        {enterprises.length === 0 ? (
+          <div className={styles.tableCard}>
+            <div className={styles.emptyCard}>
+              <div className={styles.emptyIcon}>
+                <Building2 size={24} aria-hidden="true" />
+              </div>
+              {filtered ? (
+                <>
+                  <h3 className={styles.emptyTitle}>Nothing matches</h3>
+                  <p className={styles.emptyDescription}>
+                    No enterprise matches these filters. Clearing one may bring some back.
+                  </p>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() =>
+                      filter({ search: undefined, status: undefined, sector: undefined })
+                    }
+                  >
+                    Clear the filters
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h3 className={styles.emptyTitle}>No enterprises yet</h3>
+                  <p className={styles.emptyDescription}>
+                    Register the enterprise you are applying for, then start an
+                    application in an open programme cycle.
+                  </p>
+                  <Link to="/enterprises/new" className="button" data-variant="primary">
+                    Register an enterprise
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className={styles.tableCard}>
+            <div className={styles.cardHeader}>
+              <h2 className={styles.cardTitle}>Your enterprises</h2>
+            </div>
+            <div className={styles.tableWrap}>
+              <table className={styles.table}>
+                <caption className="visually-hidden">Your enterprises</caption>
+                <thead>
+                  <tr>
+                    <th scope="col" className={styles.th}>
+                      Enterprise
+                    </th>
+                    <th scope="col" className={styles.th}>
+                      Sector
+                    </th>
+                    <th scope="col" className={styles.th}>
+                      Where established
+                    </th>
+                    <th scope="col" className={styles.th}>
+                      State
+                    </th>
+                    <th scope="col" className={styles.th}>
+                      Status
+                    </th>
+                    <th scope="col" className={styles.th} style={{ textAlign: 'right' }}>
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {enterprises.map((enterprise) => (
+                    <tr key={enterprise.id} className={styles.tr}>
+                      <td className={styles.td}>
+                        <Link
+                          to="/enterprises/$id"
+                          params={{ id: enterprise.id }}
+                          className={styles.enterpriseLink}
+                        >
+                          {enterprise.name}
+                        </Link>
+                      </td>
+                      <td className={styles.td}>
+                        {enterprise.businessSector
+                          ? enterprise.businessSector === 'OTHER'
+                            ? (enterprise.otherBusinessSector ?? 'Other')
+                            : humanize(enterprise.businessSector)
+                          : '—'}
+                      </td>
+                      <td className={styles.td}>
+                        {[enterprise.businessBlockOrVillage, enterprise.businessDistrict]
+                          .filter(Boolean)
+                          .join(', ') || '—'}
+                      </td>
+                      <td className={styles.td}>
+                        {formatDate(enterprise.establishmentDate)}
+                      </td>
+                      <td className={styles.td}>
+                        {enterprise.deletedAt ? (
+                          <span className={styles.statusPill} data-status="REMOVED">
+                            Removed
+                          </span>
+                        ) : (
+                          <span
+                            className={styles.statusPill}
+                            data-status={enterprise.status}
+                          >
+                            {humanize(enterprise.status)}
+                          </span>
+                        )}
+                      </td>
+                      <td className={styles.td} style={{ textAlign: 'right' }}>
+                        <Link
+                          to="/enterprises/$id"
+                          params={{ id: enterprise.id }}
+                          className={styles.actionLink}
+                          title="View enterprise"
+                          aria-label={`View enterprise ${enterprise.name}`}
+                        >
+                          <MoreVertical size={16} aria-hidden="true" />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className={styles.cardFooter}>
+              <span className={styles.resultsCount}>
+                {enterprises.length === 1 ? '1 result' : `${enterprises.length} results`}
+              </span>
+              {(data?.pageInfo.hasNextPage || search.after) && (
+                <div className={styles.pageControls}>
+                  <button
+                    type="button"
+                    className={styles.pageBtn}
+                    disabled={!search.after}
+                    onClick={() =>
+                      navigate({
+                        search: (previous) => ({ ...previous, after: undefined }),
+                      })
+                    }
+                    title="Previous page"
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft size={16} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.pageBtn} ${styles.pageBtnActive}`}
+                  >
+                    1
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.pageBtn}
+                    disabled={!data?.pageInfo.hasNextPage}
+                    onClick={() =>
+                      navigate({
+                        search: (previous) => ({
+                          ...previous,
+                          after: data?.pageInfo.endCursor ?? undefined,
+                        }),
+                      })
+                    }
+                    title="Next page"
+                    aria-label="Next page"
+                  >
+                    <ChevronRight size={16} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </main>
   )
 }

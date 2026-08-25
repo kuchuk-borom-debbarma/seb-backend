@@ -1,0 +1,389 @@
+/* ==========================================================================
+   Programme Cycles Soft Modern Design System
+   ========================================================================== */
+
+.pageContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sectionTitle {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* ==========================================================================
+   Active Cycle Showcase Card
+   ========================================================================== */
+
+.cycleCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 36px;
+  padding: 32px;
+  border: 1px solid #e9eaec;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  align-items: center;
+}
+
+.cycleLeft {
+  display: flex;
+  flex-direction: column;
+}
+
+.pillTag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: #edf7ee;
+  color: #16a34a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cycleTitle {
+  color: #111827;
+  font-size: 26px;
+  font-weight: 700;
+  margin: 12px 0 18px;
+  letter-spacing: -0.01em;
+}
+
+.applyBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin-bottom: 24px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.15);
+  transition: all 0.2s ease;
+}
+
+.applyBtn:hover {
+  background: #1e293b;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+}
+
+.applyBtn svg {
+  transition: transform 0.2s ease;
+}
+
+.applyBtn:hover svg {
+  transform: translateX(3px);
+}
+
+.infoList {
+  display: flex;
+  flex-direction: column;
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 0;
+  border-top: 1px solid #f3f4f6;
+  gap: 16px;
+}
+
+.infoRowLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.infoIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+
+.infoIconBadge[data-color='green'] {
+  background: #edf7ee;
+  color: #16a34a;
+}
+
+.infoIconBadge[data-color='purple'] {
+  background: #f3effc;
+  color: #7c3aed;
+}
+
+.infoIconBadge[data-color='blue'] {
+  background: #edf5ff;
+  color: #2563eb;
+}
+
+.infoIconBadge[data-color='amber'] {
+  background: #fef8ee;
+  color: #d97706;
+}
+
+.infoIconBadge svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.8;
+}
+
+.infoLabel {
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.infoValue {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.relativeTime {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.guidanceLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.guidanceLink:hover {
+  text-decoration: underline;
+}
+
+/* ==========================================================================
+   Artwork Right Container
+   ========================================================================== */
+
+.artworkContainer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 280px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #f0f6ff 0%, #e6f0fa 60%, #dbeafe 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.artworkSvg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ==========================================================================
+   Bottom "Stay Informed" Callout Card
+   ========================================================================== */
+
+.stayInformedCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 24px;
+  border: 1px solid #e0ebf9;
+  border-radius: 14px;
+  background: #f8faff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.informedLeft {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.informedIcon {
+  color: #2563eb;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.informedTextGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.informedTitle {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.informedText {
+  color: #6b7280;
+  font-size: 13px;
+  margin: 0;
+}
+
+.informedButton {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.informedButton:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+/* ==========================================================================
+   History Table Card
+   ========================================================================== */
+
+.historyCard {
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  overflow: hidden;
+}
+
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.th {
+  padding: 14px 24px;
+  border-bottom: 1px solid #f0f2f5;
+  background: #fafbfc;
+  color: #6b7280;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.tr {
+  border-bottom: 1px solid #f0f2f5;
+  transition: background-color 0.15s ease;
+}
+
+.tr:last-child {
+  border-bottom: 0;
+}
+
+.tr:hover {
+  background-color: #fafbfc;
+}
+
+.td {
+  padding: 16px 24px;
+  color: #374151;
+  font-size: 13.5px;
+  vertical-align: middle;
+}
+
+/* ==========================================================================
+   Empty State
+   ========================================================================== */
+
+.emptyCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 50px 20px;
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  text-align: center;
+}
+
+.emptyTitle {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.emptyText {
+  color: #6b7280;
+  font-size: 13.5px;
+  max-width: 360px;
+  margin: 0;
+}
+
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
+
+@media (max-width: 54rem) {
+  .cycleCard {
+    grid-template-columns: 1fr;
+  }
+
+  .stayInformedCard {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
