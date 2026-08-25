@@ -785,6 +785,40 @@ export const transitionMeetingWrite = async (
   return changedExactlyOne(changed)
 }
 
+/**
+ * Whether this agenda item's meeting is actually sitting.
+ *
+ * Read so the controller can say so. The write repeats the condition in its own
+ * predicate — that is what makes it safe — but a failed predicate is
+ * indistinguishable from a lost race, so without this an officer deciding
+ * before the meeting starts was told "The record changed. Reload and try
+ * again.", which is untrue and which reloading never fixes.
+ */
+export const agendaItemMeetingSitting = async (
+  db: Database,
+  input: { applicationId: string; agendaItemId: string },
+): Promise<boolean> => {
+  const [row] = await db
+    .select({ id: sebTtmAgendaItem.id })
+    .from(sebTtmAgendaItem)
+    .innerJoin(sebTtmMeeting, eq(sebTtmMeeting.id, sebTtmAgendaItem.meetingId))
+    .where(and(
+      eq(sebTtmAgendaItem.id, input.agendaItemId),
+      eq(sebTtmAgendaItem.applicationId, input.applicationId),
+      /*
+       * The meeting's state only, deliberately — not the item's.
+       *
+       * The write also requires the item to still be ACTIVE, and that term must
+       * stay there rather than here: an item already decided is a lost race,
+       * and reporting it as "the meeting is not sitting" would replace one
+       * misleading message with another.
+       */
+      eq(sebTtmMeeting.status, 'IN_SESSION'),
+    ))
+    .limit(1)
+  return Boolean(row)
+}
+
 export const recordTtmDecisionWrite = async (
   context: AdminOperationContext,
   input: {

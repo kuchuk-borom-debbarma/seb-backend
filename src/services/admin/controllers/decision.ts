@@ -1,6 +1,7 @@
 /** Input validation and authorization for bank and TTM operations. */
 import { parseDateOnly } from '../../application/validation'
 import {
+  agendaItemMeetingSitting,
   addAgendaItemWrite,
   cancelMeetingWrite,
   changeAgendaItemWrite,
@@ -516,6 +517,23 @@ export const recordTtmDecision = async (
     unexpectedMessage: 'This decision cannot include revisions.',
   })
   if (decisionRevisionProblem) return failure(decisionRevisionProblem)
+  /*
+   * Checked here so the refusal can name the cause.
+   *
+   * The write carries the same condition in its predicate, and must — that is
+   * what makes it safe against a meeting closing mid-request. But a predicate
+   * that does not match is indistinguishable from a lost race, so the officer
+   * was told the record had changed and to reload, which was untrue and which
+   * reloading never fixed.
+   */
+  if (!await agendaItemMeetingSitting(context.db, {
+    applicationId: input.applicationId,
+    agendaItemId: input.agendaItemId,
+  })) {
+    return failure(
+      'The committee meeting is not sitting. Start it from committee meetings first.',
+    )
+  }
   const changed = await constraintSafe(() => recordTtmDecisionWrite(context, {
     ...input,
     reference,

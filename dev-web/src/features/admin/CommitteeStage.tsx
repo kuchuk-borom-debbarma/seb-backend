@@ -464,7 +464,9 @@ function DecisionForm({
         applicantConditions: applicantConditions.trim() || null,
         reasonCategoryId: reasonCategoryId || null,
         applicantMessage: applicantMessage.trim(),
-        nextAction: nextAction.trim() || null,
+        // Only ever for a deferral. Switching outcome after typing here would
+        // otherwise carry the text into a decision the API forbids it on.
+        nextAction: outcome === 'DEFERRED' ? nextAction.trim() || null : null,
         revisions:
           outcome === 'REVISION_REQUIRED'
             ? chosen.map(([section, value]) => ({
@@ -493,6 +495,8 @@ function DecisionForm({
     (outcome !== 'REVISION_REQUIRED' ||
       (chosen.length > 0 &&
         chosen.every(([, value]) => value.reasonCategoryId && value.note.trim()))) &&
+    // A deferral is refused without one, so the button says so first.
+    (outcome !== 'DEFERRED' || nextAction.trim().length > 0) &&
     // The API refuses this the same way, so a disabled button is the honest
     // preview of that refusal rather than a second rule invented here.
     (!decidingOwnApplication || conflictAcknowledged)
@@ -716,18 +720,30 @@ function DecisionForm({
         />
       </div>
 
-      <div style={{ marginTop: '0.75rem' }}>
-        <label className="field-label" htmlFor="decision-next">
-          What happens next
-        </label>
-        <input
-          id="decision-next"
-          className="input"
-          value={nextAction}
-          onChange={(event) => setNextAction(event.target.value)}
-        />
-        <span className="field-hint">Optional.</span>
-      </div>
+      {/*
+        A deferral, and nothing else.
+        `deferralProblem` requires this for `DEFERRED` and forbids it for every
+        other outcome, so offering it everywhere meant an approval carrying a
+        next action was refused with "Only a deferral may contain the next
+        action" — over a field the form had invited. Required here rather than
+        optional, because a deferral without one is refused too.
+      */}
+      {outcome === 'DEFERRED' ? (
+        <div style={{ marginTop: '0.75rem' }}>
+          <label className="field-label" htmlFor="decision-next">
+            What happens next
+          </label>
+          <input
+            id="decision-next"
+            className="input"
+            value={nextAction}
+            onChange={(event) => setNextAction(event.target.value)}
+          />
+          <span className="field-hint">
+            What the application waits for, and roughly when.
+          </span>
+        </div>
+      ) : null}
 
       {extra}
 

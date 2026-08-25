@@ -2174,6 +2174,33 @@ describe('Mission SEP administration', () => {
     expect(afterAgenda.filter((action) => action === 'SEB.TTM_AGENDA_CHANGED'))
       .toHaveLength(2)
 
+    /*
+     * Before the meeting starts, and refused for the reason that is actually
+     * true.
+     *
+     * The write carries the `IN_SESSION` term in its own predicate, so this was
+     * always refused — but a predicate that does not match is indistinguishable
+     * from a lost race, and the officer was told "The record changed. Reload and
+     * try again." Reloading never helped, because nothing had changed.
+     */
+    const beforeSitting = await graphql<{
+      admin: { decision: { recordDecision: { success: boolean; message: string | null } } }
+    }>(`mutation($input: TtmDecisionInput!) {
+      admin { decision { recordDecision(input: $input) { success message } } }
+    }`, { input: {
+      conflictAcknowledged: true,
+      applicationId, agendaItemId: agendaId, expectedStatusVersion: 8,
+      outcome: 'APPROVED', decisionReference: `TTM-EARLY-${applicationId}`,
+      decisionDate: '2026-06-15', approvedAmountPaise: '900000',
+      applicantConditions: null, reasonCategoryId: null,
+      applicantMessage: 'Recorded before the committee sat.',
+      nextAction: null, revisions: [],
+    } }, administrator.cookie)
+    expect(beforeSitting.data?.admin.decision.recordDecision).toMatchObject({
+      success: false,
+      message: 'The committee meeting is not sitting. Start it from committee meetings first.',
+    })
+
     await graphql<any>(`mutation($input: TtmMeetingTransitionInput!) {
       admin { decision { startMeeting(input: $input) { success } } }
     }`, { input: { meetingId: meetingHead.id, expectedVersion: 2 } }, administrator.cookie)

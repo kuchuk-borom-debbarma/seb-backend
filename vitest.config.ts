@@ -18,6 +18,24 @@ export default defineWorkersConfig({
      * rather than to look.
      */
     testTimeout: 150_000,
+    /*
+     * Bounded rather than left to the core count.
+     *
+     * ## One run costs about 10,800 loopback sockets
+     *
+     * Measured. The ephemeral range is 16,384 ports and macOS holds each for
+     * 2×MSL — thirty seconds. **So a second run started within thirty seconds
+     * of the first fails with `EADDRNOTAVAIL`**, which surfaces as a workerd
+     * connection error and looks like a broken test rather than an exhausted
+     * machine. Wait a moment between runs.
+     *
+     * That is the price of the parallelism, and it is worth naming rather than
+     * leaving to be rediscovered: serial runs never hit it because taking 133
+     * seconds gave the sockets time to drain as they went. Four workers is most
+     * of the speed of eight and holds fewer at once.
+     */
+    maxWorkers: 4,
+    minWorkers: 1,
     coverage: {
       provider: 'istanbul',
       all: true,
@@ -66,8 +84,12 @@ export default defineWorkersConfig({
     poolOptions: {
       workers: {
         main: './src/index.ts',
+        /*
+         * Kept. It is what makes one test independent of the last within a
+         * file — writes are undone after each — and dropping it would buy
+         * speed by making the suite stop proving anything.
+         */
         isolatedStorage: true,
-        singleWorker: true,
         wrangler: {
           configPath: './wrangler.test.jsonc',
         },
