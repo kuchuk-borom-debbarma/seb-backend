@@ -17,8 +17,8 @@ export const PASSWORD = 'correct horse battery staple'
 /**
  * The account the suite bootstraps as the first super administrator.
  *
- * It must match `FIRST_SUPER_ADMIN_EMAIL` in `.env.local`, because the Worker
- * will only ever promote that exact address.
+ * It matches the test-only binding passed by `npm run test:worker`, because the
+ * Worker will only ever promote that exact address.
  */
 export const SUPER_ADMIN_EMAIL = 'founder@example.com'
 
@@ -57,21 +57,22 @@ export const latestOtp = async (afterByteOffset = 0): Promise<string> => {
 export const workerLogLength = async (): Promise<number> =>
   (await readFile(WORKER_LOG, 'utf8').catch(() => '')).length
 
-/** Registers a real applicant through the signup screens and returns the email. */
+/** Registers a real applicant through the combined login screen. */
 export const signUpApplicant = async (page: Page, email: string): Promise<void> => {
   const offset = await workerLogLength()
 
-  await page.goto('/sign-up')
-  await page.getByLabel('Email address').fill(email)
+  await page.goto('/login')
+  await page.getByRole('button', { name: 'Create Account' }).click()
+  await page.getByLabel('Email Address').fill(email)
   await page.getByRole('button', { name: 'Send verification code' }).click()
 
   const code = await latestOtp(offset)
   await page.getByLabel(/Six-digit code/u).fill(code)
   await page.getByLabel('Choose a password').fill(PASSWORD)
-  await page.getByRole('button', { name: 'Create account' }).click()
+  await page.getByRole('button', { name: 'Create Applicant Account' }).click()
 
-  // Signup deliberately does not create a session, so it lands on sign-in.
-  await page.waitForURL('**/sign-in')
+  // Signup deliberately does not create a session, so it returns to login.
+  await expect(page.getByRole('status')).toContainText('Account created')
 }
 
 export const signIn = async (
@@ -79,17 +80,17 @@ export const signIn = async (
   email: string,
   password = PASSWORD,
 ): Promise<void> => {
-  await page.goto('/sign-in')
-  await page.getByLabel('Email address').fill(email)
-  await page.getByLabel('Password').fill(password)
-  await page.getByRole('button', { name: 'Sign in' }).click()
-  await page.waitForURL((url) => !url.pathname.startsWith('/sign-in'))
+  await page.goto('/login')
+  await page.getByLabel('Email Address').fill(email)
+  await page.getByLabel('Password', { exact: true }).fill(password)
+  await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
+  await page.waitForURL((url) => url.pathname !== '/login')
 }
 
 export const signOut = async (page: Page): Promise<void> => {
   await page.getByRole('button', { name: 'Account menu' }).click()
   await page.getByRole('menuitem', { name: 'Sign out' }).click()
-  await page.waitForURL('**/sign-in')
+  await expect(page).toHaveURL('/')
 }
 
 /**
@@ -181,16 +182,33 @@ export const startApplication = async (
   await signUpApplicant(page, email)
   await signIn(page, email)
 
-  await page.goto('/enterprises/new')
-  await page.getByLabel('Registered or trading name').fill(businessName)
-  await page.getByRole('button', { name: 'Register enterprise' }).click()
+  await registerEnterprise(page, businessName)
 
   await page.goto('/applications/new')
   await page.getByLabel('Enterprise').selectOption({ label: businessName })
   await page.getByLabel('Programme cycle').selectOption({ index: 1 })
+  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByLabel('Initial application').check()
   await page.getByRole('button', { name: 'Start an initial application' }).click()
-  await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
-  return page.url().split('/').pop() as string
+  await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}\/form\?/u)
+  return new URL(page.url()).pathname.split('/')[2] as string
+}
+
+/** Registers the minimum valid enterprise through all four form categories. */
+export const registerEnterprise = async (page: Page, name: string): Promise<string> => {
+  await page.goto('/enterprises/new')
+  await page.getByLabel('Registered or trading name').fill(name)
+  for (const category of [
+    'Registration and tax',
+    'Business location',
+    'Contact details',
+  ]) {
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(page.getByRole('heading', { name: category })).toBeVisible()
+  }
+  await page.getByRole('button', { name: 'Register enterprise' }).click()
+  await expect(page).toHaveURL(/\/enterprises\/[0-9a-f-]{36}$/u)
+  return new URL(page.url()).pathname.split('/')[2] as string
 }
 
 /**
@@ -236,9 +254,7 @@ export const submitApplication = async (
   await signUpApplicant(page, email)
   await signIn(page, email)
 
-  await page.goto('/enterprises/new')
-  await page.getByLabel('Registered or trading name').fill(businessName)
-  await page.getByRole('button', { name: 'Register enterprise' }).click()
+  await registerEnterprise(page, businessName)
 
   await page.goto('/applications/new')
   await page.getByLabel('Enterprise').selectOption({ label: businessName })
@@ -254,9 +270,11 @@ export const submitApplication = async (
     .filter({ hasText: cycleCode })
     .innerText()
   await page.getByLabel('Programme cycle').selectOption({ label: cycleOption })
+  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByLabel('Initial application').check()
   await page.getByRole('button', { name: 'Start an initial application' }).click()
-  await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
-  const id = page.url().split('/').pop() as string
+  await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}\/form\?/u)
+  const id = new URL(page.url()).pathname.split('/')[2] as string
 
   await fillEveryAnswer(page, id, businessName)
 
@@ -323,6 +341,9 @@ export const fillEveryAnswer = async (
   await page.getByLabel('Category', { exact: true }).selectOption({ index: 1 })
   await page.getByLabel('Sector').selectOption({ label: 'Food processing' })
   await page.getByLabel('Majority ownership is held by Scheduled Tribe members').check()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page.getByRole('heading', { name: 'About you' })).toBeVisible()
+
   await page.getByLabel('Your full name').fill('Bethel Debbarma')
   await page.getByLabel('Your role in the enterprise').selectOption({ index: 1 })
   await page.getByLabel('Date of birth').fill('1996-07-14')
@@ -332,10 +353,20 @@ export const fillEveryAnswer = async (
   await page.getByLabel('PIN code').fill('799045')
   await page.getByLabel('Contact number').fill('+919876543210')
   await page.getByLabel('Contact email').fill('bethel@example.test')
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Project cost and funding' }),
+  ).toBeVisible()
+
   await page.getByLabel('Total project cost (₹)').fill('1000000')
   await page.getByLabel('Seed fund requested (₹)').fill('250000')
   await page.getByLabel('Bank loan proposed (₹)').fill('600000')
   await page.getByLabel('Your own contribution (₹)').fill('150000')
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Previous support and credit' }),
+  ).toBeVisible()
+
   await page
     .getByRole('group', {
       name: 'Has this enterprise received government funding before?',
@@ -346,12 +377,18 @@ export const fillEveryAnswer = async (
     .getByRole('group', { name: 'Does this enterprise have existing bank credit?' })
     .getByLabel('No')
     .check()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page.getByRole('heading', { name: 'Evidence requirements' })).toBeVisible()
+
   await page
     .getByRole('group', {
       name: 'Is a no-objection certificate needed for these premises?',
     })
     .getByLabel('No')
     .check()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page.getByRole('heading', { name: 'Declaration' })).toBeVisible()
+
   await page.getByLabel('Relationship').selectOption({ index: 1 })
   await page.getByLabel('Of (name)').fill('Sanjoy Debbarma')
   await page.getByLabel('Place').fill('Khumulwng')
@@ -359,8 +396,9 @@ export const fillEveryAnswer = async (
     .getByLabel('I declare that everything in this application is true and complete.')
     .check()
 
-  // The indicator is the honest signal that the server has the last answer.
-  await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 20_000 })
+  // Next flushes the last pending autosave before leaving for evidence.
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
 }
 
 /**

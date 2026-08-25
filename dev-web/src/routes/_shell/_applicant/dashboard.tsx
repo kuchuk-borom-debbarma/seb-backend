@@ -12,7 +12,7 @@ import { applicantDashboardQuery } from '#/features/dashboard/dashboardQueries'
 import { formatDateTime, formatRelative, humanize } from '#/lib/format'
 import styles from '#/features/dashboard/Dashboard.module.css'
 
-export const Route = createFileRoute('/_shell/_applicant/')({
+export const Route = createFileRoute('/_shell/_applicant/dashboard')({
   loader: ({ context }) => context.queryClient.ensureQueryData(applicantDashboardQuery),
   component: ApplicantDashboard,
 })
@@ -35,9 +35,9 @@ function ApplicantDashboard() {
     }
     if (revisions[0]) {
       return {
-        to: '/applications/$id/review',
+        to: '/applications/$id/form',
         params: { id: revisions[0].id },
-        label: 'Review requested changes',
+        label: 'Continue requested changes',
       } as const
     }
     if (drafts[0]) {
@@ -162,14 +162,10 @@ function ApplicantDashboard() {
               <div className={styles.applicationList}>
                 {attention.map((application) => {
                   const status = guide.get(application.status)
-                  const to =
-                    application.status === 'DRAFT'
-                      ? '/applications/$id/form'
-                      : '/applications/$id/review'
                   return (
                     <Link
                       key={application.id}
-                      to={to}
+                      to="/applications/$id/form"
                       params={{ id: application.id }}
                       className={styles.applicationRow}
                     >

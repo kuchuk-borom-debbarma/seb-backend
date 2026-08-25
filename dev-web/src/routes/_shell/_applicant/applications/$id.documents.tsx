@@ -8,9 +8,13 @@
  * not a rule restated here.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, createFileRoute } from '@tanstack/react-router'
-import { useMemo, useRef, useState } from 'react'
+import { Link, createFileRoute, useLocation, useRouter } from '@tanstack/react-router'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
+import {
+  ApplicationJourney,
+  issuesForStep,
+} from '#/features/application/ApplicationJourney'
 import {
   applicationQuery,
   loadApplication,
@@ -47,9 +51,23 @@ export const Route = createFileRoute('/_shell/_applicant/applications/$id/docume
 
 function DocumentsPage() {
   const { id } = Route.useParams()
+  const router = useRouter()
   const queryClient = useQueryClient()
   const { data: application } = useQuery(applicationQuery(id))
   const { data: validation } = useQuery(validationQuery(id))
+  const hash = useLocation({ select: (location) => location.hash })
+
+  useEffect(() => {
+    if (!hash || !application) return
+    const slot = document.getElementById(hash)
+    if (!slot) return
+    const stillness = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    slot.scrollIntoView({
+      block: 'center',
+      behavior: stillness ? 'auto' : 'smooth',
+    })
+    slot.focus({ preventScroll: true })
+  }, [application, hash])
 
   /** The API's message for each document type it says is missing. */
   const requirements = useMemo(() => {
@@ -82,11 +100,25 @@ function DocumentsPage() {
   if (!application) return null
 
   const editable = application.editableSections.includes('DOCUMENTS')
+  const documentIssues = issuesForStep(validation?.issues ?? [], 'ATTACH_EVIDENCE')
+
+  const continueToReview = async () => {
+    if (documentIssues.length > 0) {
+      const row = document.getElementById(documentIssues[0]?.field ?? '')
+      row?.focus()
+      row?.scrollIntoView({ block: 'center' })
+      return
+    }
+    await router.navigate({
+      to: '/applications/$id/review',
+      params: { id },
+    })
+  }
 
   return (
     <main className="page">
       <PageHeader
-        title="Evidence"
+        title="Application form"
         description={
           editable
             ? 'Attach a PDF, JPEG or PNG for each document, up to 5 MB.'
@@ -94,33 +126,58 @@ function DocumentsPage() {
         }
       />
 
-      <div className="stack">
-        {DOCUMENT_TYPES.map((documentType) => (
-          <DocumentRow
-            key={documentType}
-            applicationId={id}
-            documentType={documentType}
-            document={attached[documentType]}
-            requirement={requirements[documentType]}
-            editable={editable}
-            onChanged={refresh}
-          />
-        ))}
-      </div>
-
-      <div className="row" style={{ marginTop: '1.5rem' }}>
-        <Link
-          to="/applications/$id/review"
-          params={{ id }}
-          className="button"
-          data-variant="primary"
-        >
-          Check and submit
-        </Link>
-        <Link to="/applications/$id/form" params={{ id }} className="button">
-          Back to the form
-        </Link>
-      </div>
+      <ApplicationJourney
+        applicationId={id}
+        activeStep="ATTACH_EVIDENCE"
+        issues={validation?.issues ?? []}
+        editableSections={application.editableSections}
+        footerStatus={
+          documentIssues.length > 0 ? (
+            <span className="badge" data-tone="error" aria-live="polite">
+              {documentIssues.length}{' '}
+              {documentIssues.length === 1 ? 'required file' : 'required files'} missing
+            </span>
+          ) : (
+            <span className="badge" data-tone="ok">
+              Evidence requirements complete
+            </span>
+          )
+        }
+        footer={
+          <>
+            <Link
+              to="/applications/$id/form"
+              params={{ id }}
+              search={{ section: 'DECLARATION' }}
+              className="button"
+            >
+              Back
+            </Link>
+            <button
+              type="button"
+              className="button"
+              data-variant="primary"
+              onClick={continueToReview}
+            >
+              Check and submit
+            </button>
+          </>
+        }
+      >
+        <div className="stack">
+          {DOCUMENT_TYPES.map((documentType) => (
+            <DocumentRow
+              key={documentType}
+              applicationId={id}
+              documentType={documentType}
+              document={attached[documentType]}
+              requirement={requirements[documentType]}
+              editable={editable}
+              onChanged={refresh}
+            />
+          ))}
+        </div>
+      </ApplicationJourney>
     </main>
   )
 }
@@ -228,7 +285,7 @@ function DocumentRow({
   }
 
   return (
-    <section className="card">
+    <section className="card" id={documentType} tabIndex={-1}>
       <div className="card-header">
         <div>
           <h3>{DOCUMENT_TITLES[documentType]}</h3>

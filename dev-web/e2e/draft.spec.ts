@@ -5,6 +5,7 @@ import {
   openProgrammeCycle,
   signIn,
   startApplication,
+  submitApplication,
 } from './support'
 
 test.describe('the application form', () => {
@@ -30,6 +31,34 @@ test.describe('the application form', () => {
     await expect(page.getByLabel('Business name')).toHaveValue('Draft Works Foods')
   })
 
+  test('requires each category before moving to the next one', async ({ page }) => {
+    const id = await startApplication(page, {
+      prefix: 'draft',
+      businessName: 'Guided Draft Works',
+    })
+    await page.goto(`/applications/${id}/form?section=FINANCIAL`)
+
+    await expect(page.getByRole('heading', { name: 'Enterprise details' })).toBeVisible()
+    await expect(page).toHaveURL(
+      new RegExp(`/applications/${id}/form\\?section=ENTERPRISE$`, 'u'),
+    )
+    await expect(page.getByLabel('Your full name')).toBeHidden()
+
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(page.getByLabel('Sector')).toBeFocused()
+    await expect(page.getByLabel('Your full name')).toBeHidden()
+
+    await page.getByLabel('Date established').fill('2025-03-10')
+    await page.getByLabel('Category', { exact: true }).selectOption({ index: 1 })
+    await page.getByLabel('Sector').selectOption({ label: 'Food processing' })
+    await page.getByLabel('Majority ownership is held by Scheduled Tribe members').check()
+    await page.getByRole('button', { name: 'Next' }).click()
+
+    await expect(page.getByRole('heading', { name: 'About you' })).toBeVisible()
+    await expect(page).toHaveURL(/section=APPLICANT_PROFILE/u)
+    await expect(page.getByLabel('Business name')).toBeHidden()
+  })
+
   test('shows every section of the form', async ({ page }) => {
     const id = await startApplication(page, {
       prefix: 'draft',
@@ -37,15 +66,18 @@ test.describe('the application form', () => {
     })
     await page.goto(`/applications/${id}/form`)
 
+    const categories = page.getByRole('navigation', { name: 'Form categories' })
     for (const title of [
-      'The enterprise',
+      'Enterprise details',
       'About you',
       'Project cost and funding',
       'Previous support and credit',
-      'Evidence',
+      'Evidence requirements',
       'Declaration',
+      'Attach evidence',
+      'Review and submit',
     ]) {
-      await expect(page.getByText(title, { exact: true })).toBeVisible()
+      await expect(categories.getByRole('button', { name: title })).toBeAttached()
     }
   })
 
@@ -54,7 +86,9 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/applications/${id}/form`)
+    await page.goto(
+      `/applications/${id}/form?section=PRIOR_FUNDING#receivedGovernmentFunding`,
+    )
 
     // The API refuses details for support that was not received, so the fields
     // are not offered until the answer calls for them.
@@ -101,7 +135,7 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/applications/${id}/form`)
+    await page.goto(`/applications/${id}/form?section=FINANCIAL#totalProjectCostPaise`)
 
     await page.getByLabel('Total project cost (₹)').fill('500000')
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
@@ -156,10 +190,87 @@ test.describe('the validation report', () => {
     await row.getByRole('link').click()
 
     await expect(page).toHaveURL(
-      new RegExp(`/applications/${id}/form#primaryApplicantName$`, 'u'),
+      new RegExp(
+        `/applications/${id}/form\\?section=APPLICANT_PROFILE#primaryApplicantName$`,
+        'u',
+      ),
     )
     // Focused, not merely scrolled into view — a keyboard or screen reader user
     // has to land on the control too.
     await expect(page.getByLabel('Your full name')).toBeFocused()
+  })
+})
+
+test.describe('locked application categories', () => {
+  test('opens a requested revision at the editable category and keeps others locked', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000)
+    const { email, id } = await submitApplication(page, {
+      prefix: 'revision-journey',
+      businessName: 'Revision Journey Works',
+    })
+
+    await page.context().clearCookies()
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await page.goto(`/admin/applications/${id}`)
+    await page.getByRole('button', { name: 'Start desk review' }).click()
+
+    for (const check of [
+      'IDENTITY_KYC',
+      'ST_ELIGIBILITY',
+      'MAJORITY_OWNERSHIP',
+      'JURISDICTION',
+      'FORM_COMPLETENESS',
+      'DOCUMENT_COMPLETENESS',
+      'ANSWER_DOCUMENT_CONSISTENCY',
+      'DPR_FEASIBILITY',
+    ]) {
+      await page.locator(`input[name="${check}"]`).nth(1).check()
+    }
+    await page.locator('input[name="EXPANSION_EVIDENCE"]').last().check()
+    await page.getByRole('radio', { name: 'Ask the applicant to correct it' }).check()
+    await page.getByLabel('About you').check()
+    await page.getByLabel('Reason', { exact: true }).selectOption({ index: 1 })
+    await page
+      .getByLabel('What the applicant must do')
+      .fill('Confirm the applicant contact details.')
+    await page
+      .getByLabel('Message to the applicant')
+      .fill('Please confirm the contact details and send the application again.')
+    await page.getByRole('button', { name: 'Complete the review' }).click()
+    await expect(
+      page.locator('.badge').filter({ hasText: 'Revision required' }).first(),
+    ).toBeVisible()
+
+    await page.context().clearCookies()
+    await signIn(page, email)
+    await page.goto(`/applications/${id}/form`)
+    await expect(page.getByRole('heading', { name: 'About you' })).toBeVisible()
+    await expect(page.getByLabel('Your full name')).toBeEnabled()
+
+    await page.getByRole('button').filter({ hasText: 'Enterprise details' }).click()
+    await expect(page.getByLabel('Business name')).toBeDisabled()
+    await expect(page.getByText('must stay exactly as it was submitted')).toBeVisible()
+  })
+
+  test('allows every category of a submitted application to be browsed read only', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000)
+    const { id } = await submitApplication(page, {
+      prefix: 'read-only-journey',
+      businessName: 'Read Only Journey Works',
+    })
+
+    await page.goto(`/applications/${id}/form`)
+    await expect(page.getByLabel('Business name')).toBeDisabled()
+    await page.getByRole('button').filter({ hasText: 'About you' }).click()
+    await expect(page.getByLabel('Your full name')).toBeDisabled()
+    await page.getByRole('button').filter({ hasText: 'Attach evidence' }).click()
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
+    await expect(page.getByRole('heading', { name: 'Attach evidence' })).toBeVisible()
+    await page.getByRole('button').filter({ hasText: 'Review and submit' }).click()
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/review$`, 'u'))
   })
 })

@@ -56,7 +56,7 @@ function SecuritySettings() {
     onSuccess: async (result) => {
       if (result.endsThisSession) {
         queryClient.clear()
-        await router.navigate({ to: '/sign-in' })
+        await router.navigate({ to: '/' })
         return
       }
       await queryClient.invalidateQueries({ queryKey: sessionsQuery.queryKey })

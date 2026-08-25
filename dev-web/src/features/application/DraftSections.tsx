@@ -610,20 +610,6 @@ export const FinancialSection = memo(function FinancialSection({
     </Field>
   )
 
-  /*
-   * The API requires the three parts to add up to the total exactly. Doing the
-   * arithmetic here — in paise, so there is nothing to round — lets the form say
-   * where the applicant is rather than restating the rule and leaving them to
-   * check it. It is a reading of what has been typed, not a second validation:
-   * the server still decides.
-   */
-  const parts =
-    Number(value.seedFundRequestedPaise ?? 0) +
-    Number(value.bankLoanProposedPaise ?? 0) +
-    Number(value.promoterContributionPaise ?? 0)
-  const total = Number(value.totalProjectCostPaise ?? 0)
-  const difference = total - parts
-
   return (
     <div className="stack">
       <div className="detail-grid">
@@ -632,21 +618,10 @@ export const FinancialSection = memo(function FinancialSection({
         {money('bankLoanProposedPaise', FIELD_LABELS.bankLoanProposedPaise)}
         {money('promoterContributionPaise', FIELD_LABELS.promoterContributionPaise)}
       </div>
-
-      {total > 0 || parts > 0 ? (
-        <p className="field-hint">
-          {difference === 0
-            ? `Seed fund, bank loan and your own contribution come to ${formatMoney(String(parts))}, matching the total project cost.`
-            : difference > 0
-              ? `Seed fund, bank loan and your own contribution come to ${formatMoney(String(parts))}. That is ${formatMoney(String(difference))} short of the total project cost.`
-              : `Seed fund, bank loan and your own contribution come to ${formatMoney(String(parts))}. That is ${formatMoney(String(-difference))} more than the total project cost.`}
-        </p>
-      ) : (
-        <p className="field-hint">
-          Seed fund, bank loan and your own contribution must add up to the total project
-          cost.
-        </p>
-      )}
+      <p className="field-hint">
+        Enter each source that applies. These amounts do not have to add up to the total
+        project cost.
+      </p>
     </div>
   )
 })

@@ -86,7 +86,7 @@ test.describe('how this works', () => {
   })
 
   test('is kept with the shared navigation utilities', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/dashboard')
     const navigation = page.getByRole('navigation', { name: 'Portal sections' })
     const links = await navigation.getByRole('link').allInnerTexts()
     expect(links.slice(-2)).toEqual(['How this works', 'Settings'])
@@ -627,7 +627,7 @@ test.describe('the first visit', () => {
     await signIn(page, both)
     await forgetGuide(page)
 
-    await page.goto('/')
+    await page.goto('/dashboard')
     await expect(page.getByText('First time here?')).toBeVisible()
     await page.getByRole('button', { name: 'Not now' }).click()
     await expect(page.getByText('First time here?')).toHaveCount(0)
@@ -641,7 +641,7 @@ test.describe('the first visit', () => {
     await expect(page.getByText('First time in the programme office?')).toBeVisible()
     await page.getByRole('button', { name: 'Not now' }).click()
 
-    await page.goto('/')
+    await page.goto('/dashboard')
     await expect(page.getByText('First time here?')).toHaveCount(0)
     await page.goto('/admin')
     await expect(page.getByText('First time in the programme office?')).toHaveCount(0)

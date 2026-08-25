@@ -35,7 +35,7 @@ export const Route = createFileRoute('/_shell')({
   beforeLoad: async ({ context, location }) => {
     const session = await ensureSession(context.queryClient)
     if (!session) {
-      throw redirect({ to: '/sign-in', search: { next: location.href } })
+      throw redirect({ to: '/login', search: { next: location.href } })
     }
     return { user: session.user }
   },

@@ -11,10 +11,20 @@ import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 
 export const Route = createFileRoute('/_shell/_applicant/enterprises/new')({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { returnTo?: 'application'; cycleId?: string } => ({
+    returnTo: search.returnTo === 'application' ? 'application' : undefined,
+    cycleId:
+      search.returnTo === 'application' && typeof search.cycleId === 'string'
+        ? search.cycleId
+        : undefined,
+  }),
   component: NewEnterprisePage,
 })
 
 function NewEnterprisePage() {
+  const search = Route.useSearch()
   const router = useRouter()
   const queryClient = useQueryClient()
 
@@ -27,10 +37,21 @@ function NewEnterprisePage() {
       // The list is now wrong on every page and with every filter, so the whole
       // key prefix goes rather than the one page we happen to have cached.
       await queryClient.invalidateQueries({ queryKey: ['enterprises'] })
-      await router.navigate({
-        to: '/enterprises/$id',
-        params: { id: enterprise.id },
-      })
+      if (search.returnTo === 'application') {
+        await router.navigate({
+          to: '/applications/new',
+          search: {
+            enterpriseId: enterprise.id,
+            cycleId: search.cycleId,
+            step: search.cycleId ? 'TYPE' : 'SETUP',
+          },
+        })
+      } else {
+        await router.navigate({
+          to: '/enterprises/$id',
+          params: { id: enterprise.id },
+        })
+      }
     },
   })
 
@@ -38,7 +59,7 @@ function NewEnterprisePage() {
     <main className="page">
       <PageHeader
         title="Register an enterprise"
-        description="Only the name and whether it is registered are required now. Everything else can be completed before you submit an application."
+        description="Complete the enterprise profile one category at a time. Only the registered or trading name is required to register it."
       />
 
       {create.isError ? (

@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
+import {
+  ApplicationJourney,
+  sectionForField,
+} from '#/features/application/ApplicationJourney'
 import { ClosingNotice } from '#/features/application/ClosingNotice'
 import {
   applicationQuery,
@@ -72,7 +76,7 @@ function ReviewPage() {
   return (
     <main className="page">
       <PageHeader
-        title={resubmission ? 'Check and resubmit' : 'Check and submit'}
+        title="Application form"
         description={
           resubmission
             ? 'Your corrections are checked against the whole application, not just the sections you changed.'
@@ -80,48 +84,77 @@ function ReviewPage() {
         }
       />
 
-      <div className="stack">
-        <ClosingNotice programmeCycleId={application.programmeCycleId} />
+      <ApplicationJourney
+        applicationId={id}
+        activeStep="REVIEW"
+        issues={validation.issues}
+        editableSections={application.editableSections}
+        footerStatus={
+          validation.valid ? (
+            <span className="badge" data-tone="ok">
+              Ready to submit
+            </span>
+          ) : (
+            <span className="badge" data-tone="error">
+              {issues.length} {issues.length === 1 ? 'item' : 'items'} to fix
+            </span>
+          )
+        }
+        footer={
+          <>
+            <Link to="/applications/$id/documents" params={{ id }} className="button">
+              Back
+            </Link>
+            <button
+              type="button"
+              className="button"
+              data-variant="primary"
+              disabled={!validation.valid || submit.isPending}
+              onClick={() => submit.mutate()}
+            >
+              {submit.isPending
+                ? 'Submitting…'
+                : resubmission
+                  ? 'Resubmit application'
+                  : 'Submit application'}
+            </button>
+          </>
+        }
+      >
+        <div className="stack">
+          <ClosingNotice programmeCycleId={application.programmeCycleId} />
 
-        {validation.valid ? (
-          <p className="notice" data-tone="ok">
-            <span className="notice-title">Everything needed is present</span>
-            {resubmission
-              ? 'Resubmitting resolves every open correction request and returns the application to the programme office.'
-              : 'Submitting issues your reference number and sends the application to the programme office.'}
-          </p>
-        ) : (
-          <div className="card">
-            <div className="card-header">
-              <div>
-                <p className="eyebrow">Not ready yet</p>
-                <h2 style={{ marginTop: '0.25rem' }}>
-                  {issues.length} {issues.length === 1 ? 'thing' : 'things'} to fix
-                </h2>
+          {validation.valid ? (
+            <p className="notice" data-tone="ok">
+              <span className="notice-title">Everything needed is present</span>
+              {resubmission
+                ? 'Resubmitting resolves every open correction request and returns the application to the programme office.'
+                : 'Submitting issues your reference number and sends the application to the programme office.'}
+            </p>
+          ) : (
+            <div className="card">
+              <div className="card-header">
+                <div>
+                  <p className="eyebrow">Not ready yet</p>
+                  <h2 style={{ marginTop: '0.25rem' }}>
+                    {issues.length} {issues.length === 1 ? 'thing' : 'things'} to fix
+                  </h2>
+                </div>
               </div>
-              <div className="row">
-                <Link to="/applications/$id/form" params={{ id }} className="button">
-                  Go to the form
-                </Link>
-                <Link to="/applications/$id/documents" params={{ id }} className="button">
-                  Evidence
-                </Link>
-              </div>
-            </div>
-            <div className="table-wrap">
-              <table className="table">
-                <caption className="visually-hidden">Outstanding issues</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Section</th>
-                    <th scope="col">Question</th>
-                    <th scope="col">What to do</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {issues.map((issue) => (
-                    <tr key={`${issue.section}-${issue.field}-${issue.code}`}>
-                      {/*
+              <div className="table-wrap">
+                <table className="table">
+                  <caption className="visually-hidden">Outstanding issues</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Section</th>
+                      <th scope="col">Question</th>
+                      <th scope="col">What to do</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {issues.map((issue) => (
+                      <tr key={`${issue.section}-${issue.field}-${issue.code}`}>
+                        {/*
                         Each issue links to the screen that fixes it, decided by
                         the field rather than by the section.
 
@@ -133,99 +166,91 @@ function ReviewPage() {
                         to a screen with no such control on it — the applicant
                         was told to fix something in a place it does not exist.
                       */}
-                      <td>
-                        <Link
-                          to={
-                            isDocumentIssue(issue.field)
-                              ? '/applications/$id/documents'
-                              : '/applications/$id/form'
-                          }
-                          params={{ id }}
-                          /*
-                           * The control itself, not just the screen it is on.
-                           * Every field carries its own name as its id, so the
-                           * browser scrolls to it and focuses it on arrival —
-                           * which for a form of forty questions is the
-                           * difference between being told what is wrong and
-                           * being taken to it.
-                           */
-                          hash={isDocumentIssue(issue.field) ? undefined : issue.field}
-                        >
-                          {isDocumentIssue(issue.field)
-                            ? 'Evidence'
-                            : (SECTION_TITLES[issue.section] ?? humanize(issue.section))}
-                        </Link>
-                      </td>
-                      {/* The question as the form asks it, so somebody sent to
+                        <td>
+                          <Link
+                            to={
+                              isDocumentIssue(issue.field)
+                                ? '/applications/$id/documents'
+                                : '/applications/$id/form'
+                            }
+                            params={{ id }}
+                            search={
+                              isDocumentIssue(issue.field)
+                                ? undefined
+                                : {
+                                    section: sectionForField(issue.field) ?? 'ENTERPRISE',
+                                  }
+                            }
+                            /*
+                             * The control itself, not just the screen it is on.
+                             * Every field carries its own name as its id, so the
+                             * browser scrolls to it and focuses it on arrival —
+                             * which for a form of forty questions is the
+                             * difference between being told what is wrong and
+                             * being taken to it.
+                             */
+                            hash={issue.field}
+                          >
+                            {isDocumentIssue(issue.field)
+                              ? 'Evidence'
+                              : (SECTION_TITLES[issue.section] ??
+                                humanize(issue.section))}
+                          </Link>
+                        </td>
+                        {/* The question as the form asks it, so somebody sent to
                           fix it is looking for the same words. */}
-                      <td className="muted">
-                        {isDocumentIssue(issue.field)
-                          ? DOCUMENT_TITLES[issue.field]
-                          : fieldLabel(issue.field)}
-                      </td>
-                      <td>{issue.message}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        <td className="muted">
+                          {isDocumentIssue(issue.field)
+                            ? DOCUMENT_TITLES[issue.field]
+                            : fieldLabel(issue.field)}
+                        </td>
+                        <td>{issue.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/*
+          {/*
           Before resubmitting, the applicant sees exactly which sections their
           answers change — the same comparison a reviewer is shown.
         */}
-        {changes?.response ? (
-          <div className="card">
-            <div className="card-header">
-              <p className="eyebrow">
-                What changed since submission{' '}
-                {changes.response.comparedToSubmissionNumber}
-              </p>
-            </div>
-            <div className="card-body">
-              {changedSections.length === 0 ? (
-                <p className="muted">
-                  Nothing has changed yet. Resubmitting without a change would send the
-                  same answers back.
+          {changes?.response ? (
+            <div className="card">
+              <div className="card-header">
+                <p className="eyebrow">
+                  What changed since submission{' '}
+                  {changes.response.comparedToSubmissionNumber}
                 </p>
-              ) : (
-                <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
-                  {changedSections.map((section) => (
-                    <li key={section}>{SECTION_TITLES[section] ?? humanize(section)}</li>
-                  ))}
-                </ul>
-              )}
+              </div>
+              <div className="card-body">
+                {changedSections.length === 0 ? (
+                  <p className="muted">
+                    Nothing has changed yet. Resubmitting without a change would send the
+                    same answers back.
+                  </p>
+                ) : (
+                  <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
+                    {changedSections.map((section) => (
+                      <li key={section}>
+                        {SECTION_TITLES[section] ?? humanize(section)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {submit.isError ? (
-          <p className="notice" data-tone="error" role="alert">
-            {messageFor(submit.error)}
-          </p>
-        ) : null}
-
-        <div className="row">
-          <button
-            type="button"
-            className="button"
-            data-variant="primary"
-            disabled={!validation.valid || submit.isPending}
-            onClick={() => submit.mutate()}
-          >
-            {submit.isPending
-              ? 'Submitting…'
-              : resubmission
-                ? 'Resubmit application'
-                : 'Submit application'}
-          </button>
-          <Link to="/applications/$id/form" params={{ id }} className="button">
-            Back to the form
-          </Link>
+          {submit.isError ? (
+            <p className="notice" data-tone="error" role="alert">
+              {messageFor(submit.error)}
+            </p>
+          ) : null}
         </div>
-      </div>
+      </ApplicationJourney>
     </main>
   )
 }

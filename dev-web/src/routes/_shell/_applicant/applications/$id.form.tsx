@@ -1,8 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, createFileRoute, useLocation } from '@tanstack/react-router'
+import { Link, createFileRoute, useLocation, useRouter } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import { ClosingNotice } from '#/features/application/ClosingNotice'
+import {
+  APPLICATION_JOURNEY_STEPS,
+  ApplicationJourney,
+  firstIncompleteStep,
+  issuesForStep,
+  sectionForField,
+} from '#/features/application/ApplicationJourney'
 import {
   ApplicantSection,
   DeclarationSection,
@@ -12,12 +19,7 @@ import {
   PriorFundingSection,
   type SectionIssues,
 } from '#/features/application/DraftSections'
-import {
-  FORM_SECTIONS,
-  SECTION_TITLES,
-  draftFromSnapshot,
-  sameDraft,
-} from '#/features/application/draft'
+import { FORM_SECTIONS, draftFromSnapshot, sameDraft } from '#/features/application/draft'
 import {
   applicationQuery,
   loadApplication,
@@ -34,6 +36,13 @@ import { messageFor, unwrap } from '#/lib/result'
 const AUTOSAVE_DELAY_MS = 900
 
 export const Route = createFileRoute('/_shell/_applicant/applications/$id/form')({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { section?: ApplicationSection } => ({
+    section: FORM_SECTIONS.includes(search.section as ApplicationSection)
+      ? (search.section as ApplicationSection)
+      : undefined,
+  }),
   loader: ({ context, params }) => loadApplication(context.queryClient, params.id),
   component: DraftFormPage,
 })
@@ -42,6 +51,9 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'failed'
 
 function DraftFormPage() {
   const { id } = Route.useParams()
+  const search = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const router = useRouter()
   const queryClient = useQueryClient()
   const { data: application } = useQuery(applicationQuery(id))
   const { data: validation } = useQuery(validationQuery(id))
@@ -52,6 +64,7 @@ function DraftFormPage() {
   const inFlight = useRef(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [advanceIssueCount, setAdvanceIssueCount] = useState<number | null>(null)
 
   /*
    * What was last agreed with the server. Autosave compares against this rather
@@ -101,12 +114,12 @@ function DraftFormPage() {
     },
     onSuccess: async (saved, next) => {
       persisted.current = next
-      setSaveState('saved')
       setSavedAt(saved.updatedAt)
       // The version moved, so the next save needs the new one. Validation is
       // now stale too.
       await queryClient.invalidateQueries({ queryKey: ['application', id] })
       await queryClient.invalidateQueries({ queryKey: ['validation', id] })
+      setSaveState('saved')
     },
     onError: (error) => {
       setSaveState('failed')
@@ -195,6 +208,7 @@ function DraftFormPage() {
   const update = useCallback(
     (next: ApplicationDraftInput) => {
       setDraft(next)
+      setAdvanceIssueCount(null)
       /*
        * "Saving" from the keystroke, not from the request. Autosave is
        * debounced, and leaving the indicator on "Saved" through that window
@@ -223,10 +237,102 @@ function DraftFormPage() {
     return grouped
   }, [validation])
 
-  if (!application || !draft) return null
+  const editable = new Set<ApplicationSection>(application?.editableSections ?? [])
+  const readOnly = Boolean(application) && editable.size === 0
+  const hashSection = hash ? sectionForField(hash) : null
+  const incomplete = firstIncompleteStep(validation?.issues ?? [])
+  const firstEditableSection = FORM_SECTIONS.find((section) => editable.has(section))
+  const defaultSection =
+    application?.status === 'REVISION_REQUIRED' && firstEditableSection
+      ? firstEditableSection
+      : !readOnly && FORM_SECTIONS.includes(incomplete as ApplicationSection)
+        ? (incomplete as ApplicationSection)
+        : 'ENTERPRISE'
+  const requestedSection = search.section ?? hashSection
+  const requestedIndex = requestedSection ? FORM_SECTIONS.indexOf(requestedSection) : -1
+  const earliestIndex = FORM_SECTIONS.indexOf(defaultSection)
+  const explicitIssueLink = hashSection !== null && hashSection === requestedSection
+  const activeSection =
+    requestedSection &&
+    (readOnly ||
+      application?.status === 'REVISION_REQUIRED' ||
+      explicitIssueLink ||
+      requestedIndex <= earliestIndex)
+      ? requestedSection
+      : defaultSection
 
-  const editable = new Set<ApplicationSection>(application.editableSections)
-  const readOnly = editable.size === 0
+  /*
+   * A valid section name can still be unreachable because an earlier category
+   * is incomplete. Keep the address honest when that happens: browser history
+   * and a copied link must name the category that is actually on screen. Field
+   * hashes remain the explicit exception and retain their requested category.
+   */
+  useEffect(() => {
+    if (
+      !application ||
+      !validation ||
+      !search.section ||
+      search.section === activeSection ||
+      explicitIssueLink
+    ) {
+      return
+    }
+    void navigate({
+      search: { section: activeSection },
+      hash: '',
+      replace: true,
+    })
+  }, [
+    activeSection,
+    application,
+    explicitIssueLink,
+    navigate,
+    search.section,
+    validation,
+  ])
+
+  if (!application || !draft || !validation) return null
+
+  const activeIndex = FORM_SECTIONS.indexOf(activeSection)
+  const locked = !editable.has(activeSection)
+
+  const moveTo = async (step: (typeof APPLICATION_JOURNEY_STEPS)[number]) => {
+    if (FORM_SECTIONS.includes(step as ApplicationSection)) {
+      await navigate({ search: { section: step as ApplicationSection }, hash: '' })
+    } else if (step === 'ATTACH_EVIDENCE') {
+      await router.navigate({
+        to: '/applications/$id/documents',
+        params: { id },
+      })
+    } else {
+      await router.navigate({ to: '/applications/$id/review', params: { id } })
+    }
+  }
+
+  const advance = async () => {
+    if (timer.current) clearTimeout(timer.current)
+    if (!locked && persisted.current && !sameDraft(persisted.current, draft)) {
+      try {
+        await save.mutateAsync(draft)
+      } catch {
+        return
+      }
+    }
+
+    const currentValidation = await queryClient.fetchQuery(validationQuery(id))
+    const outstanding = issuesForStep(currentValidation.issues, activeSection)
+    if (outstanding.length > 0) {
+      setAdvanceIssueCount(outstanding.length)
+      const field = document.getElementById(outstanding[0]?.field ?? '')
+      field?.focus()
+      field?.scrollIntoView({ block: 'center' })
+      return
+    }
+
+    setAdvanceIssueCount(null)
+    const next = APPLICATION_JOURNEY_STEPS[activeIndex + 1]
+    if (next) await moveTo(next)
+  }
 
   return (
     <main className="page">
@@ -239,7 +345,6 @@ function DraftFormPage() {
               ? 'Only the sections the programme office asked you to correct can be changed.'
               : 'Your answers are saved as you type.'
         }
-        actions={<SaveIndicator state={saveState} savedAt={savedAt} />}
       />
 
       {saveError ? (
@@ -261,60 +366,74 @@ function DraftFormPage() {
         </div>
       ) : null}
 
-      <div className="stack">
-        {FORM_SECTIONS.map((section) => {
-          const locked = !editable.has(section)
-          return (
-            <fieldset className="fieldset" key={section} disabled={locked}>
-              <legend className="eyebrow">
-                {SECTION_TITLES[section]}
-                {locked ? (
-                  <span className="badge" style={{ marginLeft: '0.5rem' }}>
-                    Locked
-                  </span>
-                ) : null}
-              </legend>
+      <ApplicationJourney
+        applicationId={id}
+        activeStep={activeSection}
+        issues={validation?.issues ?? []}
+        editableSections={application.editableSections}
+        footerStatus={<SaveIndicator state={saveState} savedAt={savedAt} />}
+        footer={
+          <>
+            {activeIndex > 0 ? (
+              <button
+                type="button"
+                className="button"
+                disabled={save.isPending}
+                onClick={() =>
+                  moveTo(APPLICATION_JOURNEY_STEPS[activeIndex - 1] ?? 'ENTERPRISE')
+                }
+              >
+                Back
+              </button>
+            ) : (
+              <Link to="/applications/$id" params={{ id }} className="button">
+                Exit form
+              </Link>
+            )}
+            <button
+              type="button"
+              className="button"
+              data-variant="primary"
+              disabled={save.isPending}
+              onClick={advance}
+            >
+              {save.isPending ? 'Saving…' : 'Next'}
+            </button>
+          </>
+        }
+      >
+        {locked && application.status === 'REVISION_REQUIRED' ? (
+          <p className="notice" data-tone="action" style={{ marginBottom: '1rem' }}>
+            No correction was requested for this category, so it must stay exactly as it
+            was submitted.
+          </p>
+        ) : null}
 
-              {/*
-                A locked section is explained rather than silently inert: while
-                a revision is open, only the sections named by the programme
-                office may change.
-              */}
-              {locked && application.status === 'REVISION_REQUIRED' ? (
-                <p className="field-hint" style={{ marginBottom: '0.75rem' }}>
-                  No correction was requested for this section, so it must stay exactly as
-                  it was submitted.
-                </p>
-              ) : null}
+        {advanceIssueCount ? (
+          <p
+            className="notice"
+            data-tone="error"
+            role="alert"
+            style={{ marginBottom: '1rem' }}
+          >
+            Fix {advanceIssueCount} {advanceIssueCount === 1 ? 'item' : 'items'} in this
+            category before continuing.
+          </p>
+        ) : null}
 
-              <SectionFields
-                section={section}
-                draft={draft}
-                issues={issuesBySection[section] ?? {}}
-                disabled={locked}
-                onChange={update}
-              />
-            </fieldset>
-          )
-        })}
-      </div>
-
-      <div className="row" style={{ marginTop: '1.5rem' }}>
-        <Link
-          to="/applications/$id/documents"
-          params={{ id }}
-          className="button"
-          data-variant="primary"
+        <fieldset
+          disabled={locked}
+          style={{ border: 0, padding: 0, margin: 0, minInlineSize: 0 }}
         >
-          Attach evidence
-        </Link>
-        <Link to="/applications/$id/review" params={{ id }} className="button">
-          Check and submit
-        </Link>
-        <Link to="/applications/$id" params={{ id }} className="button">
-          Back to the application
-        </Link>
-      </div>
+          <SectionFields
+            section={activeSection}
+            draft={draft}
+            issues={issuesBySection[activeSection] ?? {}}
+            disabled={locked}
+            onChange={update}
+          />
+        </fieldset>
+      </ApplicationJourney>
     </main>
   )
 }

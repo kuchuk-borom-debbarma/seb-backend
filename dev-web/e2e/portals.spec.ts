@@ -86,7 +86,7 @@ test.describe('the programme office', () => {
 
   test('refuses the applicant portal to an account that is not one', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await page.goto('/')
+    await page.goto('/dashboard')
 
     await expect(
       page.getByRole('heading', { name: 'This part of Mission SEP is for applicants' }),
@@ -190,7 +190,7 @@ test.describe('the two densities', () => {
     await page.context().clearCookies()
     await signIn(page, both)
 
-    await page.goto('/')
+    await page.goto('/dashboard')
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
     const applicant = Number.parseFloat(await shellSize(page))
 

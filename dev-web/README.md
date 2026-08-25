@@ -46,7 +46,8 @@ The database starts empty and there is no administrator, by design. Create one
 the same way a real deployment does:
 
 1. `npm run db:setup:local` applies the canonical schema.
-2. Sign up at `/sign-up` with the address in `FIRST_SUPER_ADMIN_EMAIL`.
+2. Open `/login`, choose **Create Account**, and use the address in
+   `FIRST_SUPER_ADMIN_EMAIL`.
 3. Read the six-digit code from the Wrangler console (see the limitation
    below) and finish signing up.
 4. Run the curl promotion in the
@@ -159,12 +160,16 @@ rather than hidden:
 
 Built:
 
-- **Authentication and settings** — sign in, sign up with the console code,
-  sign out, read-only account identity at `/settings/general`, and signed-in
-  devices at `/settings/security` with per-session and bulk revocation.
+- **Authentication and settings** — `/login` gives applicants and programme
+  staff one role-aware sign-in screen. Applicant signup requests a code first,
+  then verifies that code while choosing a password; it does not create a
+  session until the applicant signs in. Signing out, including revoking every
+  session from Security, returns to the public site at `/`. Account identity is
+  read-only at `/settings/general`, and `/settings/security` lists signed-in
+  devices with per-session and bulk revocation.
 - **The applicant portal** — enterprises, starting an initial or expansion
-  application, the six-section draft form with autosave, the evidence screen,
-  the validation report and submission or resubmission, the timeline, the
+  application, categorized enterprise and application journeys, autosave,
+  evidence, validation and submission or resubmission, the timeline, the
   funding view, and the cycles an applicant can apply in.
 - **Programme cycle administration** — the list, the dense policy form, and
   every transition the API exposes.
@@ -201,12 +206,15 @@ document rules are all `OPTIONAL`. That is a legitimate policy the API accepts,
 not a fixture: an application in such a cycle genuinely requires no files. Every
 other cycle in the suite keeps the ordinary rules.
 
-## Two portals
+## Public site and two portals
 
-The client is two portals sharing one institution.
+The public programme site and both signed-in portals share one institution.
 
-- **`/` — the applicant portal.** Dashboard, applications, enterprises, and
-  the cycles available to the applicant. Needs the `APPLICANT` role.
+- **`/` — the public programme site.** The landing page, programme information,
+  eligibility guidance, and links to `/login`; it requires no session.
+- **`/dashboard` — the applicant portal.** Dashboard, applications,
+  enterprises, and the cycles available to the applicant. Needs the
+  `APPLICANT` role.
 - **`/admin` — the programme office.** Dashboard, applications and committee
   meetings for every account with `STAFF_READ`, followed by administration
   links gated independently by `STAFF_WRITE`, `ROLE_INVITE`, `ROLE_ADMIN`, and
@@ -217,10 +225,12 @@ The client is two portals sharing one institution.
   address redirects to Security so bookmarks continue to work.
 
 Signing in lands each account in the portal its roles fit, so an officer with no
-applicant grant never has to read a refusal after every sign-in. Opening a
-portal you cannot use **refuses in place** rather than redirecting: the screen
-names the roles the account does hold, links to the portal it can use, and when
-it holds none, gives the exact sentence to send a super administrator.
+applicant grant never has to read a refusal after every sign-in. On the combined
+login screen, an account that can use both portals follows the Applicant or
+Administrator selection. Opening a portal you cannot use **refuses in place**
+rather than redirecting: the screen names the roles the account does hold, links
+to the portal it can use, and when it holds none, gives the exact sentence to
+send a super administrator.
 
 The navigation beside a refusal is the one that *works*. If an applicant opens
 `/admin`, the sidebar shows the applicant portal — listing four office links
@@ -248,9 +258,53 @@ The applicant Dashboard composes one operation from existing API fields. It
 shows linked totals for applications and enterprises, the currently available
 cycle count, the nearest closing time, and requested revisions before saved
 drafts. The main action is chosen from live state: register an enterprise,
-start an application, continue a draft, review requested changes, or view the
+start an application, continue at the earliest reachable category, or view the
 application list. Empty enterprise, application and open-cycle states are
 stated explicitly.
+
+### Categorized applicant forms
+
+Enterprise registration and editing use the same four-category journey:
+enterprise details, registration and tax, business location, then contact
+details. Values stay in component state as the applicant moves back and forward;
+the complete profile reaches GraphQL only from the last category. Nothing is
+written to browser storage. Cancel confirms before discarding changed answers,
+while the create or update mutation remains authoritative for uniqueness and
+concurrent-edit failures.
+
+Application setup has two categories. The first holds the enterprise and
+programme cycle, and the second presents initial and expansion as described
+selection cards. Expansion stays disabled unless `expansionEligibility` says it
+is eligible, and all of that operation's reasons and eligible date are shown.
+The draft is created only from the second category. Registration opened from
+setup uses the validated `returnTo=application` context and an optional cycle
+id; arbitrary return addresses are never accepted.
+
+An application then shares one journey frame across its form, evidence and
+review routes. Its ordered categories are enterprise details, about you,
+project cost and funding, previous support and credit, evidence requirements,
+declaration, attach evidence, and review and submit. On desktop a sticky rail
+names the current, complete, blocked, error and read-only states with icons and
+text. At 52rem and below it becomes a Step X of Y selector. The sticky action
+footer has enough trailing clearance for 360–390 pixel screens, and the frame
+inherits the portal's keyboard focus, screen-reader announcements and
+reduced-motion behavior.
+
+`/applications/$id/form?section=APPLICANT_PROFILE` is the linkable form-category
+shape. Unknown section values are discarded. A plain `/form` address opens the
+earliest incomplete category; complete and fully read-only forms start at the
+first. Existing `/form#fieldName` bookmarks still resolve the field's category,
+scroll to the control and focus it. Validation-report links are the deliberate
+exception to normal forward gating: they include both `section` and the field
+hash so they can open the exact later question that needs work.
+
+Typing keeps the existing debounced autosave and stale-write protection. Next
+cancels the pending timer, flushes changed answers immediately, fetches a fresh
+server validation report, and advances only when the active category has no
+issues. Required missing files are assigned to Attach evidence, not to the NOC
+question category; they prevent moving to Review, while optional documents do
+not. Revision categories outside the request are readable and marked read only,
+and every category remains browsable when the whole application is read only.
 
 The programme-office Dashboard retains the intake queue and reference lookup,
 adds an actionable total and a total across the named queues, and links every
@@ -442,6 +496,11 @@ looking at.
 It runs against the built artifact rather than the dev server, because Vite's
 dependency optimizer pre-bundles on first request and a cold server raced with
 the first navigation leaves the page unhydrated.
+
+That artifact and Nitro's intermediate files live under the ignored
+`dev-web/.playwright/` directory. A normal `npm run build` can therefore run in
+another terminal without replacing hashed assets while the suite is serving
+them.
 
 Seeding uses the product's own paths — signup, the real six-digit code read from
 the Worker's output, the curl bootstrap — so the documented setup procedure

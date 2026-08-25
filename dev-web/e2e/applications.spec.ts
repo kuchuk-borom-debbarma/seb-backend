@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { signIn, signUpApplicant, uniqueEmail } from './support'
+import { registerEnterprise, signIn, signUpApplicant, uniqueEmail } from './support'
 
 const asNewApplicant = async (page: Page) => {
   const email = uniqueEmail('applicant')
@@ -8,17 +8,10 @@ const asNewApplicant = async (page: Page) => {
   return email
 }
 
-const registerEnterprise = async (page: Page, name: string) => {
-  await page.goto('/enterprises/new')
-  await page.getByLabel('Registered or trading name').fill(name)
-  await page.getByRole('button', { name: 'Register enterprise' }).click()
-  await expect(page).toHaveURL(/\/enterprises\/[0-9a-f-]{36}$/u)
-}
-
 test.describe('applications', () => {
   test('says what to do first when there is nothing yet', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/')
+    await page.goto('/dashboard')
     await expect(page.getByText('No enterprises yet')).toBeVisible()
     await expect(page.getByText('No applications yet')).toBeVisible()
     await expect(page.getByText('No open programme cycles')).toBeVisible()

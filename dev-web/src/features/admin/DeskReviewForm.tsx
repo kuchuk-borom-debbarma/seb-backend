@@ -303,7 +303,18 @@ export function DeskReviewForm({
         result: results[check.type] as DeskReviewCheckResult,
         internalNote: notes[check.type]?.trim() || null,
       })),
-      reasonCategoryId: outcome === 'REJECT' ? rejectionReasonId : null,
+      /*
+       * The API records one approved reason on the review outcome as well as
+       * one on every requested category. The first category's approved reason
+       * is the honest summary reason; sending null here made an otherwise
+       * complete revision request fail after the reviewer had filled it all in.
+       */
+      reasonCategoryId:
+        outcome === 'REJECT'
+          ? rejectionReasonId
+          : outcome === 'REQUEST_REVISION'
+            ? (chosen[0]?.[1].reasonCategoryId ?? null)
+            : null,
       applicantMessage: applicantMessage.trim() || null,
       revisions:
         outcome === 'REQUEST_REVISION'

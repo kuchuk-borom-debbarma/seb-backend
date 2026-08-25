@@ -11,23 +11,16 @@
  * quietly meant "starts with" would be discovered by somebody typing a word
  * from the middle of a name and getting nothing.
  */
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
   openProgrammeCycle,
+  registerEnterprise,
   signIn,
   signUpApplicant,
   uniqueEmail,
 } from './support'
-
-/** Registers an enterprise through its own screen. */
-const registerEnterprise = async (page: Page, name: string) => {
-  await page.goto('/enterprises/new')
-  await page.getByLabel('Registered or trading name').fill(name)
-  await page.getByRole('button', { name: 'Register enterprise' }).click()
-  await expect(page).toHaveURL(/\/enterprises\/[0-9a-f-]{36}$/u)
-}
 
 test.describe('the enterprises list', () => {
   test.beforeEach(async ({ page }) => {

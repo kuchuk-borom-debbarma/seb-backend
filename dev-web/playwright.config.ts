@@ -68,8 +68,8 @@ export default defineConfig({
        * unfetchable and the page unhydrated. Testing the build removes that
        * class of flake entirely and exercises what would actually be deployed.
        */
-      command: `npm run build && SEB_API_URL=http://localhost:${WORKER_PORT} PORT=${WEB_PORT} node .output/server/index.mjs`,
-      url: `http://localhost:${WEB_PORT}/sign-in`,
+      command: `SEP_E2E_BUILD_ROOT=.playwright npm run build && SEB_API_URL=http://localhost:${WORKER_PORT} PORT=${WEB_PORT} node .playwright/output/server/index.mjs`,
+      url: `http://localhost:${WEB_PORT}/login`,
       reuseExistingServer: false,
       // A cold build includes route splitting and both client and SSR bundles.
       // Leave headroom for slower development machines before treating it as

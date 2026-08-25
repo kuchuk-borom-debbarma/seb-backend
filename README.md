@@ -54,7 +54,7 @@ all of them require the `APPLICANT` role.
 | 2 | Register the enterprise the application is for | `seb.enterprise.create` |
 | 3 | See which programme cycles are open to apply in | `seb.application.availableProgrammeCycles` |
 | 4 | Start an application — a first one, or a later phase | `seb.application.startInitial`, `startExpansion` |
-| 5 | Answer six sections, saved as they type | `seb.application.saveDraft` |
+| 5 | Complete six answer categories one at a time, saved as they type | `seb.application.saveDraft` |
 | 6 | Attach evidence, uploaded straight to storage | `seb.application.issueDocumentUpload`, `finalizeDocumentUpload` |
 | 7 | Check what is still missing before sending | `seb.application.validate` |
 | 8 | Submit, which freezes a copy and issues the reference number | `seb.application.submit` |

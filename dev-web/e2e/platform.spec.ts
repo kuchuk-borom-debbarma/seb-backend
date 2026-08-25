@@ -57,7 +57,7 @@ test.describe('the platform shell', () => {
       prefix: 'platform-dashboard',
       businessName: 'Dashboard Works',
     })
-    await page.goto('/')
+    await page.goto('/dashboard')
 
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
     const summary = page.getByRole('region', { name: 'Account summary' })
@@ -110,7 +110,7 @@ test.describe('the platform shell', () => {
 
     await account.click()
     await page.getByRole('menuitem', { name: 'Sign out' }).click()
-    await expect(page).toHaveURL(/\/sign-in$/u)
+    await expect(page).toHaveURL('/')
   })
 })
 

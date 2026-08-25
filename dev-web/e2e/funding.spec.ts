@@ -49,7 +49,7 @@ test.describe('funding', () => {
     // A draft is offered the form and the check, not a funding screen that
     // could only say "nothing yet".
     await expect(page.getByRole('link', { name: 'Funding' })).toHaveCount(0)
-    await expect(page.getByRole('link', { name: 'Fill in the form' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Continue application' })).toBeVisible()
   })
 
   test('leads back to the application', async ({ page }) => {

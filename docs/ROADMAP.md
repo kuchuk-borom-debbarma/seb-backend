@@ -97,6 +97,8 @@ These rules are already agreed and must remain true throughout the roadmap.
 - [x] A signed-in applicant can see the current session and all their other
   signed-in sessions.
 - [x] An applicant can sign out the current device.
+- [x] Signing out returns the person to the public programme site, not to a
+  second legacy authentication screen.
 - [x] An applicant can revoke one selected session, every other session, or all
   sessions.
 - [x] Removing applicant access stops applicant operations on the next request,
@@ -134,6 +136,12 @@ without altering older submitted applications.
 
 - [x] The enterprise profile records its current name, establishment date,
   registration details, GSTIN, sector, business address, phone, and email.
+- [x] Enterprise registration and editing present one category at a time:
+  enterprise details, registration and tax, business location, then contact
+  details. Earlier categories remain available while later ones stay blocked.
+- [x] Enterprise answers remain local while moving between categories and the
+  complete profile is created or updated only from the final category. Leaving
+  through Cancel after making a change asks before discarding the answers.
 - [x] Registration and GST fields may remain empty when they do not apply; their
   necessity is checked when an application is submitted.
 - [x] Every meaningful enterprise edit creates a new historical version.
@@ -189,6 +197,13 @@ submitted in an older cycle.
 
 - [x] The applicant chooses one owned, active enterprise and one open programme
   cycle.
+- [x] Starting an application first confirms the enterprise and cycle, then
+  presents initial and expansion as described choices in a separate gated
+  category. No draft is created until the applicant confirms its type.
+- [x] Registering another enterprise from application setup returns with that
+  enterprise selected, preserves the chosen cycle, and advances to application
+  type when both choices are present. A registration opened directly continues
+  to the new enterprise profile.
 - [x] Starting an initial application creates phase 1 and copies the
   enterprise's current profile into the first draft.
 - [x] The application remains attached to the selected enterprise and its
@@ -239,6 +254,29 @@ submitted in an older cycle.
 ### 5.1 Draft behaviour
 
 - [x] The applicant can save an incomplete form as a draft.
+- [x] The applicant completes one ordered category at a time: enterprise
+  details, about you, project cost and funding, previous support and credit,
+  evidence requirements, declaration, attached evidence, then review and
+  submission. The application shell and business rules remain the same across
+  the journey.
+- [x] The active answer category is held in a validated `section` address
+  parameter. An address without it opens the earliest incomplete category,
+  while existing field bookmarks still open and focus the exact question.
+- [x] Next immediately saves pending answers and requests fresh server
+  validation. It advances only when the current category has no issues, reports
+  how many remain, and focuses the first question to fix. Completed categories
+  remain available and future categories stay blocked.
+- [x] Missing document files are enforced on the attach-evidence category,
+  separately from the NOC applicability question, so applicants can answer the
+  question before being asked for the resulting files. Required files block
+  review while optional files do not.
+- [x] Desktop forms use a sticky category rail and action footer. Narrow screens
+  use a Step X of Y selector without horizontal scrolling, preserve action
+  clearance at 360–390 pixels, and respect keyboard, screen-reader and reduced-
+  motion preferences.
+- [x] Revision-locked categories remain readable and explicitly marked read
+  only. Every category remains browsable after an application becomes fully
+  read only.
 - [x] Each meaningful save preserves a complete historical snapshot.
 - [x] Saving exactly the same information returns the existing draft version
   instead of creating another copy.
@@ -548,9 +586,10 @@ with no recovery path.
 
 ### 9.4 Two portals
 
-- [x] Separate the applicant portal at `/` from the programme office at
-  `/admin`, so the two audiences do not share one navigation list filtered by
-  role.
+- [x] Keep public programme information at `/`, the applicant portal at
+  `/dashboard`, and the programme office at `/admin`, so visitors can learn
+  about the programme without a session and the two signed-in audiences do not
+  share one navigation list filtered by role.
 - [x] Send each account to the portal its roles fit at sign-in, so an officer
   holding no applicant grant never reads a refusal after signing in.
 - [x] Refuse a portal in place rather than redirecting: name the roles the

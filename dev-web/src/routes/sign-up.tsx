@@ -14,7 +14,7 @@ import styles from './sign-in.module.css'
 export const Route = createFileRoute('/sign-up')({
   beforeLoad: async ({ context }) => {
     const session = await ensureSession(context.queryClient)
-    if (session) throw redirect({ to: '/' })
+    if (session) throw redirect({ to: '/dashboard' })
   },
   component: SignUpPage,
 })
@@ -53,7 +53,7 @@ function SignUpPage() {
         )}
 
         <p className={styles.footer}>
-          Already registered? <Link to="/sign-in">Sign in</Link>
+          Already registered? <Link to="/login">Sign in</Link>
         </p>
       </div>
     </main>
@@ -145,7 +145,7 @@ function VerifyStep({
       // Verified signup creates the account but deliberately does not create a
       // session, so the person still has to sign in.
       await forgetSession(queryClient)
-      await router.navigate({ to: '/sign-in' })
+      await router.navigate({ to: '/login' })
     },
   })
 

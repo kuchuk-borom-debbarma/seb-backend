@@ -94,7 +94,7 @@ export function PlatformNavigation({
           portal === 'applicant' ? (
             <NavGroup title="Workspace" collapsed={collapsed}>
               <NavLink
-                to="/"
+                to="/dashboard"
                 label="Dashboard"
                 icon={LayoutDashboard}
                 exact
@@ -524,7 +524,7 @@ function AccountMenu({
       // for a moment to the person who signs in next.
       queryClient.clear()
       forgetGuide()
-      await router.navigate({ to: '/sign-in' })
+      await router.navigate({ to: '/' })
     },
   })
 

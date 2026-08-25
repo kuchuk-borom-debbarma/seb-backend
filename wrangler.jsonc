@@ -25,7 +25,7 @@
   // a deploy to a different account. That is not hypothetical: it happened once
   // while this environment was being set up, and sent a read to the wrong
   // account entirely. An account id is an identifier, not a credential.
-  "account_id": "15a26eaa33db8561da8f42e036dfe627",
+  "account_id": "4dcb59945a3ebc536119860a18354f73",
 
   // Workers Logs. Sampling is left at 1 because the traffic is a programme
   // office's, not a consumer product's, and a dropped log during an intake
@@ -37,6 +37,11 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
+  },
+  "vars": {
+    "FRONTEND_ORIGINS": "https://seb-web.sdmydbr.workers.dev",
+    "PORTAL_BASE_URL": "https://seb-web.sdmydbr.workers.dev",
+    "AUTH_COOKIE_SAME_SITE": "None"
   },
 
   "rules": [
@@ -72,12 +77,15 @@
   ],
   "d1_databases": [
     {
-      "binding": "DB"
+      "binding": "DB",
+      "database_name": "seb-db",
+      "database_id": "b965cc55-f8ab-44a7-919c-cc10d2f36938"
     }
   ],
   "r2_buckets": [
     {
-      "binding": "STORAGE"
+      "binding": "STORAGE",
+      "bucket_name": "seb-storage"
     }
   ],
   "queues": {

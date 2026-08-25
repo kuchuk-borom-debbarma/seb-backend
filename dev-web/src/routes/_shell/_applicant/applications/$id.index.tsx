@@ -1,12 +1,17 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
+import {
+  firstIncompleteStep,
+  type ApplicationJourneyStep,
+} from '#/features/application/ApplicationJourney'
 import { StatusRail } from '#/features/application/StatusRail'
 import { FORM_SECTIONS, SECTION_TITLES } from '#/features/application/draft'
 import { statusGuideQuery } from '#/features/application/queries'
 import {
   applicationQuery,
   timelineQuery,
+  validationQuery,
 } from '#/features/application/applicationQueries'
 import { formatDate, formatDateTime, humanize } from '#/lib/format'
 
@@ -27,6 +32,7 @@ export const Route = createFileRoute('/_shell/_applicant/applications/$id/')({
     await Promise.all([
       context.queryClient.ensureQueryData(applicationQuery(params.id)),
       context.queryClient.ensureQueryData(timelineQuery(params.id)),
+      context.queryClient.fetchQuery(validationQuery(params.id)),
       context.queryClient.ensureQueryData(statusGuideQuery),
     ])
   },
@@ -37,9 +43,10 @@ function ApplicationPage() {
   const { id } = Route.useParams()
   const { data: application } = useQuery(applicationQuery(id))
   const { data: timeline } = useQuery(timelineQuery(id))
+  const { data: validation } = useQuery(validationQuery(id))
   const { data: guide } = useQuery(statusGuideQuery)
 
-  if (!application || !guide) return null
+  if (!application || !guide || !validation) return null
 
   const openRevisions = application.revisionRequests.filter(
     (request) => request.resolvedAt === null && request.cancelledAt === null,
@@ -61,6 +68,10 @@ function ApplicationPage() {
   const editableFormSections = FORM_SECTIONS.filter((section) =>
     application.editableSections.includes(section),
   )
+  const continuationStep =
+    application.status === 'REVISION_REQUIRED'
+      ? (editableFormSections[0] ?? 'REVIEW')
+      : firstIncompleteStep(validation.issues)
 
   return (
     <main className="page">
@@ -85,24 +96,11 @@ function ApplicationPage() {
               Funding
             </Link>
           ) : application.editableSections.length > 0 ? (
-            <>
-              <Link
-                to="/applications/$id/form"
-                params={{ id }}
-                className="button"
-                data-variant="primary"
-              >
-                {application.status === 'REVISION_REQUIRED'
-                  ? 'Make the corrections'
-                  : 'Fill in the form'}
-              </Link>
-              <Link to="/applications/$id/documents" params={{ id }} className="button">
-                Evidence
-              </Link>
-              <Link to="/applications/$id/review" params={{ id }} className="button">
-                Check and submit
-              </Link>
-            </>
+            <ContinueApplicationLink
+              id={id}
+              step={continuationStep}
+              revision={application.status === 'REVISION_REQUIRED'}
+            />
           ) : null
         }
       />
@@ -223,6 +221,54 @@ function ApplicationPage() {
         <Link to="/applications">Back to applications</Link>
       </p>
     </main>
+  )
+}
+
+/** One continuation action always lands at the first category that needs work. */
+function ContinueApplicationLink({
+  id,
+  step,
+  revision,
+}: {
+  id: string
+  step: ApplicationJourneyStep
+  revision: boolean
+}) {
+  const label = revision ? 'Make the corrections' : 'Continue application'
+  if (step === 'ATTACH_EVIDENCE') {
+    return (
+      <Link
+        to="/applications/$id/documents"
+        params={{ id }}
+        className="button"
+        data-variant="primary"
+      >
+        {label}
+      </Link>
+    )
+  }
+  if (step === 'REVIEW') {
+    return (
+      <Link
+        to="/applications/$id/review"
+        params={{ id }}
+        className="button"
+        data-variant="primary"
+      >
+        {label}
+      </Link>
+    )
+  }
+  return (
+    <Link
+      to="/applications/$id/form"
+      params={{ id }}
+      search={{ section: step }}
+      className="button"
+      data-variant="primary"
+    >
+      {label}
+    </Link>
   )
 }
 

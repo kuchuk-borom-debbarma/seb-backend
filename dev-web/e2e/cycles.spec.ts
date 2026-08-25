@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
+  registerEnterprise,
   signIn,
   signUpApplicant,
   uniqueEmail,
@@ -96,22 +97,47 @@ test.describe('cycle administration', () => {
     await applicantPage.goto('/cycles')
     await expect(applicantPage.getByText(code).first()).toBeVisible()
 
-    await applicantPage.goto('/enterprises/new')
-    await applicantPage.getByLabel('Registered or trading name').fill('Journey Works')
-    await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
+    await registerEnterprise(applicantPage, 'Journey Works')
 
     await applicantPage.goto('/applications/new')
     await applicantPage.getByLabel('Enterprise').selectOption({ label: 'Journey Works' })
     await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
+    const selectedCycle = await applicantPage.getByLabel('Programme cycle').inputValue()
+
+    // Registration opened from setup returns to the same cycle, selects the
+    // new enterprise, and advances because both setup choices are now present.
+    await applicantPage.getByRole('link', { name: 'Register another enterprise' }).click()
+    await applicantPage
+      .getByLabel('Registered or trading name')
+      .fill('Contextual Journey Works')
+    for (const category of [
+      'Registration and tax',
+      'Business location',
+      'Contact details',
+    ]) {
+      await applicantPage.getByRole('button', { name: 'Next' }).click()
+      await expect(applicantPage.getByRole('heading', { name: category })).toBeVisible()
+    }
+    await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
+    await expect(applicantPage).toHaveURL(/\/applications\/new\?.*step=TYPE/u)
+    const resumedSearch = new URL(applicantPage.url()).searchParams
+    expect(resumedSearch.get('enterpriseId')).toBeTruthy()
+    expect(resumedSearch.get('cycleId')).toBe(selectedCycle)
+    await expect(
+      applicantPage.getByRole('heading', { name: 'Application type' }),
+    ).toBeVisible()
+
+    await applicantPage.getByLabel('Initial application').check()
     await applicantPage
       .getByRole('button', { name: 'Start an initial application' })
       .click()
 
-    // The application exists, and the status rail says whose turn it is.
-    await expect(applicantPage).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
-    await expect(applicantPage.getByText('Your turn')).toBeVisible()
+    // The application exists and opens directly at its first form category.
+    await expect(applicantPage).toHaveURL(
+      /\/applications\/[0-9a-f-]{36}\/form\?section=ENTERPRISE/u,
+    )
     await expect(
-      applicantPage.getByRole('heading', { name: 'Unsubmitted draft' }),
+      applicantPage.getByRole('heading', { name: 'Enterprise details' }),
     ).toBeVisible()
 
     await applicant.close()
@@ -130,13 +156,12 @@ test.describe('cycle administration', () => {
     await signUpApplicant(applicantPage, email)
     await signIn(applicantPage, email)
 
-    await applicantPage.goto('/enterprises/new')
-    await applicantPage.getByLabel('Registered or trading name').fill('Unfunded Works')
-    await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
+    await registerEnterprise(applicantPage, 'Unfunded Works')
 
     await applicantPage.goto('/applications/new')
     await applicantPage.getByLabel('Enterprise').selectOption({ label: 'Unfunded Works' })
     await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
+    await applicantPage.getByRole('button', { name: 'Next' }).click()
 
     // The API's own wording, not a message invented by the client.
     await expect(
@@ -144,9 +169,7 @@ test.describe('cycle administration', () => {
         'This enterprise has no sanctioned funding award to expand from.',
       ),
     ).toBeVisible()
-    await expect(
-      applicantPage.getByRole('button', { name: /Start (an expansion|phase)/u }),
-    ).toBeDisabled()
+    await expect(applicantPage.getByLabel('Expansion application')).toBeDisabled()
 
     await applicant.close()
   })

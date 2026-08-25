@@ -106,8 +106,8 @@ test.describe('signed-in devices', () => {
     await expect(page.getByRole('row')).toHaveCount(2) // header + this device
 
     // The other device is genuinely signed out, not just hidden from the list.
-    await secondPage.goto('/')
-    await expect(secondPage).toHaveURL(/\/sign-in/u)
+    await secondPage.goto('/dashboard')
+    await expect(secondPage).toHaveURL(/\/login/u)
     await second.close()
   })
 
@@ -116,10 +116,10 @@ test.describe('signed-in devices', () => {
     await page.goto('/account/sessions')
 
     await page.getByRole('button', { name: 'Sign out everywhere' }).click()
-    await expect(page).toHaveURL(/\/sign-in/u)
+    await expect(page).toHaveURL('/')
 
-    await page.goto('/')
-    await expect(page).toHaveURL('/sign-in?next=%2F')
+    await page.goto('/dashboard')
+    await expect(page).toHaveURL('/login?next=%2Fdashboard')
   })
 })
 
@@ -163,10 +163,10 @@ test.describe('on a narrow screen', () => {
 })
 
 test.describe('by keyboard alone', () => {
-  test('every control on the sign-in screen is reachable and visibly focused', async ({
+  test('every control on the login screen is reachable and visibly focused', async ({
     page,
   }) => {
-    await page.goto('/sign-in')
+    await page.goto('/login')
 
     const reached: string[] = []
     for (let step = 0; step < 12; step += 1) {
@@ -181,7 +181,7 @@ test.describe('by keyboard alone', () => {
       if (here) reached.push(here)
     }
 
-    // Email, password, the submit button and the sign-up link at least.
+    // Role controls, email, password, the submit button and signup control at least.
     expect(reached.length).toBeGreaterThanOrEqual(4)
     // Nothing lands with no ring at all.
     expect(reached.every((entry) => !entry.endsWith(':0px'))).toBe(true)

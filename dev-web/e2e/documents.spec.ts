@@ -72,6 +72,10 @@ test.describe('evidence', () => {
     await expect(
       page.getByText('Not attached. This one is optional.').first(),
     ).toBeVisible()
+
+    await page.getByRole('button', { name: 'Check and submit' }).click()
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
+    await expect(page.locator('section[tabindex="-1"]:focus')).toHaveCount(1)
   })
 
   test('refuses a file of the wrong type before sending it anywhere', async ({
@@ -188,7 +192,8 @@ test.describe('evidence', () => {
       .filter({ hasText: 'Upload the detailed project report.' })
       .getByRole('link')
     await documentIssue.click()
-    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents#DPR$`, 'u'))
+    await expect(page.locator('#DPR')).toBeFocused()
 
     // An answer on the form leads to the form.
     await page.goto(`/applications/${id}/review`)
@@ -200,7 +205,9 @@ test.describe('evidence', () => {
     await formIssue.click()
     // With the field named in the address — the form is forty questions long,
     // and the section alone is not where the answer goes.
-    await expect(page).toHaveURL(new RegExp(`/applications/${id}/form#\\w+$`, 'u'))
+    await expect(page).toHaveURL(
+      new RegExp(`/applications/${id}/form\\?section=[A-Z_]+#\\w+$`, 'u'),
+    )
   })
 
   test('sends the no-objection question to the form, not to the evidence screen', async ({
@@ -228,23 +235,26 @@ test.describe('evidence', () => {
     )
 
     await row.getByRole('link').click()
-    await expect(page).toHaveURL(new RegExp(`/applications/${id}/form#nocRequired$`, 'u'))
+    await expect(page).toHaveURL(
+      new RegExp(`/applications/${id}/form\\?section=DOCUMENTS#nocRequired$`, 'u'),
+    )
     // And the control is genuinely there.
     await expect(page.locator('#nocRequired')).toBeVisible()
   })
 
-  test('is reachable from the application and from the form', async ({ page }) => {
+  test('stays inside the application journey', async ({ page }) => {
     const id = await startApplication(page, {
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
 
-    await page.goto(`/applications/${id}`)
-    await page.getByRole('link', { name: 'Evidence' }).click()
+    await page.goto(`/applications/${id}/documents`)
     await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
-
-    await page.goto(`/applications/${id}/form`)
-    await page.getByRole('link', { name: 'Attach evidence' }).click()
-    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
+    await expect(page.getByRole('heading', { name: 'Attach evidence' })).toBeVisible()
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Form categories' })
+        .getByRole('button', { name: 'Review and submit' }),
+    ).toBeAttached()
   })
 })

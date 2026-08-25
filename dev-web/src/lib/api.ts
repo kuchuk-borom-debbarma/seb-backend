@@ -49,7 +49,15 @@ export const forwardToWorker = async <TData>(
   request: GraphQLRequest,
   cookie: string | undefined,
 ): Promise<{ body: GraphQLResponse<TData>; setCookie: string[] }> => {
-  const response = await fetch(`${workerOrigin()}/graphql`, {
+  const serviceBinding = (
+    globalThis as unknown as { __env__?: { API?: { fetch: typeof fetch } } }
+  ).__env__?.API
+  const fetcher = serviceBinding ? serviceBinding.fetch.bind(serviceBinding) : fetch
+  const targetUrl = serviceBinding
+    ? 'https://seb-backend.internal/graphql'
+    : `${workerOrigin()}/graphql`
+
+  const response = await fetcher(targetUrl, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
