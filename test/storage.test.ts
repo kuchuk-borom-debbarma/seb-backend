@@ -8,11 +8,12 @@
  * path is firmly closed everywhere else.
  */
 import { SELF, env } from 'cloudflare:test'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AppBindings } from '../src/bindings'
 import { createDatabase } from '../src/db'
-import { storage, usesLocalStorage } from '../src/services/storage'
+import { objectStore, storage, usesLocalStorage } from '../src/services/storage'
 import { handleLocalStorageRequest } from '../src/services/storage/route'
+import { base64FromBytes } from '../src/services/storage/policy'
 
 describe('storage on a machine with no bucket', () => {
   /*
@@ -304,5 +305,193 @@ describe('what a backend reports about an object', () => {
     for (const environment of ['develop', ' Develop ', 'production']) {
       expect(usesLocalStorage(bindings({ ENVIRONMENT: environment }))).toBe(false)
     }
+  })
+})
+
+describe('storage in Cloudinary', () => {
+  /*
+   * Cloudinary takes a signed multipart POST rather than a signed URL, so the
+   * Worker relays the bytes. What is asserted here is that relaying does not
+   * loosen anything: the grant a caller sees is the same shape as every other
+   * backend's, no provider URL escapes, and an upload the provider refuses is a
+   * failure rather than a silent success.
+   */
+  const ORIGIN = 'http://localhost:9999'
+  const configured = {
+    ENVIRONMENT: 'develop',
+    STORAGE_TRANSPORT: 'cloudinary',
+    CLOUDINARY_CLOUD_NAME: 'test-cloud',
+    CLOUDINARY_API_KEY: 'test-key',
+    CLOUDINARY_API_SECRET: 'test-secret',
+  }
+  const bindings = (extra: Partial<AppBindings> = {}) =>
+    ({ ...env, ...configured, ...extra }) as AppBindings
+  const backend = (extra: Partial<AppBindings> = {}) =>
+    storage(bindings(extra), `${ORIGIN}/graphql`)
+
+  it('is chosen only when named, and r2 remains the default', () => {
+    expect(backend().name).toBe('cloudinary')
+    for (const named of [undefined, '', '  ', 'r2', ' R2 ']) {
+      expect(
+        storage(bindings({ STORAGE_TRANSPORT: named }), `${ORIGIN}/graphql`).name,
+        String(named),
+      ).toBe('r2')
+    }
+  })
+
+  it('refuses an unrecognised provider rather than picking one', () => {
+    expect(() => backend({ STORAGE_TRANSPORT: 'gcs' })).toThrow(
+      'STORAGE_TRANSPORT must be either "r2" or "cloudinary".',
+    )
+  })
+
+  it('refuses rather than accepting documents it cannot durably keep', () => {
+    for (const missing of [
+      'CLOUDINARY_CLOUD_NAME',
+      'CLOUDINARY_API_KEY',
+      'CLOUDINARY_API_SECRET',
+    ]) {
+      expect(() => backend({ [missing]: undefined }), missing).toThrow(
+        'Cloudinary configuration is required.',
+      )
+    }
+  })
+
+  it('hands out this Worker rather than the provider, in both directions', async () => {
+    const grant = await backend().authorizeUpload({
+      uploadId: 'upload-xyz',
+      objectKey: 'applications/a/DPR/1',
+      originalFilename: 'plan.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 4,
+      checksumSha256: `${'A'.repeat(43)}=`,
+      expiresAt: new Date('2026-01-01T00:00:00Z'),
+    })
+    expect(grant.uploadUrl).toBe(
+      'http://localhost:9999/internal/storage/uploads/upload-xyz',
+    )
+    expect(grant.requiredHeaders.map((header) => header.name)).toEqual([
+      'Content-Type',
+      'Content-Disposition',
+      'Content-Length',
+    ])
+
+    const download = await backend().authorizeDownload(
+      'applications/a/DPR/1',
+      'plan.pdf',
+      new Date('2026-01-01T00:00:00Z'),
+    )
+    // The whole point: a browser never learns where the file actually is.
+    expect(download.downloadUrl).toContain(ORIGIN)
+    expect(download.downloadUrl).not.toContain('cloudinary')
+  })
+})
+
+describe('relaying bytes to Cloudinary', () => {
+  /*
+   * The provider is stubbed. What matters is not that `fetch` was called but
+   * what it was called with: an upload the provider could actually verify, and
+   * a refusal that never quotes the request back, because the request carries a
+   * signature.
+   */
+  const configured = {
+    ENVIRONMENT: 'develop',
+    STORAGE_TRANSPORT: 'cloudinary',
+    CLOUDINARY_CLOUD_NAME: 'test-cloud',
+    CLOUDINARY_API_KEY: 'test-key',
+    CLOUDINARY_API_SECRET: 'test-secret',
+  }
+  const bindings = () => ({ ...env, ...configured }) as AppBindings
+  const backend = () => storage(bindings(), 'http://localhost:9999/graphql')
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  /** Records every call, and answers with whatever the test supplies. */
+  const stubFetch = (reply: () => Response) => {
+    const calls: Array<{ url: string; request: RequestInit | undefined }> = []
+    vi.stubGlobal('fetch', async (url: string, request?: RequestInit) => {
+      calls.push({ url: String(url), request })
+      return reply()
+    })
+    return calls
+  }
+
+  it('signs the upload with everything the provider will verify', async () => {
+    const calls = stubFetch(() => new Response('{}', { status: 200 }))
+    await objectStore(bindings()).put(
+      'applications/a/DPR/1',
+      new TextEncoder().encode('hello').buffer as ArrayBuffer,
+      { contentType: 'application/pdf' },
+    )
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://api.cloudinary.com/v1_1/test-cloud/raw/upload')
+    const form = calls[0]!.request!.body as FormData
+    expect(form.get('public_id')).toBe('applications/a/DPR/1')
+    // Unreachable without a signature. A default upload is readable by anyone
+    // holding the link, and this evidence includes identity documents.
+    expect(form.get('type')).toBe('authenticated')
+    expect(form.get('api_key')).toBe('test-key')
+    expect(String(form.get('signature'))).toMatch(/^[0-9a-f]{40}$/u)
+    // The secret signs the request and must never travel in it.
+    expect([...form.keys()]).not.toContain('api_secret')
+  })
+
+  it('treats a refused upload as a failure, and does not quote the request', async () => {
+    stubFetch(() => new Response('signature mismatch for api_key=test-key', { status: 401 }))
+    await expect(
+      objectStore(bindings()).put(
+        'applications/a/DPR/1',
+        new TextEncoder().encode('hello').buffer as ArrayBuffer,
+        { contentType: 'application/pdf' },
+      ),
+    ).rejects.toThrow(/^Cloudinary refused the upload \(401\)\.$/u)
+  })
+
+  it('describes an object by what actually came back', async () => {
+    const calls = stubFetch(
+      () =>
+        new Response(new TextEncoder().encode('hello'), {
+          status: 200,
+          headers: { 'content-type': 'application/pdf' },
+        }),
+    )
+    const facts = await backend().describe('applications/a/DPR/1')
+
+    // Signed, and pointed at the authenticated delivery path.
+    expect(calls[0]!.url).toMatch(
+      /^https:\/\/res\.cloudinary\.com\/test-cloud\/raw\/authenticated\/s--[\w-]{8}--\/applications\/a\/DPR\/1$/u,
+    )
+    /*
+     * Null rather than what delivery echoed. A `raw` asset comes back as
+     * `application/octet-stream` whatever went up, so reporting the header
+     * would tell finalization every document is the wrong type — which refused
+     * every upload until it was caught against the real provider.
+     */
+    expect(facts).toMatchObject({ sizeBytes: 5, contentType: null })
+    /*
+     * Cloudinary records no SHA-256, so it is computed from the bytes returned.
+     * A null here would make finalization's comparison against the applicant's
+     * declaration pass silently, which is the one thing it exists to stop.
+     */
+    expect(facts?.checksumSha256).toBe(
+      base64FromBytes(
+        await crypto.subtle.digest('SHA-256', new TextEncoder().encode('hello')),
+      ),
+    )
+  })
+
+  it('reads only the prefix a caller asked for', async () => {
+    stubFetch(() => new Response(new TextEncoder().encode('%PDF-1.7 rest')))
+    expect(await backend().readPrefix('applications/a/DPR/1', 5)).toEqual(
+      new TextEncoder().encode('%PDF-'),
+    )
+  })
+
+  it('reports a missing object as missing rather than as an error', async () => {
+    stubFetch(() => new Response('not found', { status: 404 }))
+    expect(await backend().describe('applications/a/gone/1')).toBeNull()
+    expect(await backend().readPrefix('applications/a/gone/1', 5)).toBeNull()
+    expect(await objectStore(bindings()).get('applications/a/gone/1')).toBeNull()
   })
 })

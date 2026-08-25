@@ -65,9 +65,19 @@ const applyCorsHeaders = (
   env: AppBindings,
   requestUrl: string,
 ): boolean => {
-  // Echo only an explicitly trusted origin; wildcard origins cannot be used
-  // together with credentialed browser requests.
-  if (!origin || !allowedOrigins(env, requestUrl).has(origin)) return false
+  if (!origin) return false
+  /*
+   * `FRONTEND_ORIGINS = "*"` echoes whichever origin asks.
+   *
+   * Not the same as sending `*`, which a browser refuses on a credentialed
+   * request — so an allow-all still has to name the caller. **It also means any
+   * site can call this API as a signed-in user.** The session cookie is
+   * `SameSite=Lax`, which stops the simplest cross-site form posts, and that is
+   * the whole of what stands behind it. Deliberate, and only for a demo whose
+   * frontend host is not yet known: name the origin before public launch.
+   */
+  const trusted = allowedOrigins(env, requestUrl)
+  if (!trusted.has('*') && !trusted.has(origin)) return false
 
   headers.set('access-control-allow-origin', origin)
   headers.set('access-control-allow-credentials', 'true')
@@ -247,8 +257,10 @@ app.use(
   }),
   async (c, next) => {
     // Reject an untrusted browser origin before Yoga parses or executes GraphQL.
+    // `*` trusts every origin — see `applyCorsHeaders` for what that costs.
     const origin = c.req.header('Origin')
-    if (origin && !allowedOrigins(c.env, c.req.url).has(origin)) {
+    const trusted = allowedOrigins(c.env, c.req.url)
+    if (origin && !trusted.has('*') && !trusted.has(origin)) {
       return c.json({ success: false, message: 'Origin is not allowed.' }, 403)
     }
     await next()

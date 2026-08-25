@@ -49,8 +49,22 @@ export type AppBindings = CloudflareBindings & {
       names a deployed environment; see services/external-notification. */
   PINGRAM_API_KEY?: string
   PINGRAM_NOTIFICATION_TYPE?: string
+  /** Regional API host, e.g. https://api.eu.pingram.io. Unset means default. */
+  PINGRAM_BASE_URL?: string
+  /** Who a message appears to come from. Unset leaves it to the account. */
+  PINGRAM_FROM_NAME?: string
+  PINGRAM_FROM_ADDRESS?: string
+  /** Which provider keeps documents: `r2` or `cloudinary`. Unset means `r2`,
+      so an environment already configured for it does not change store by
+      upgrading. Read only where ENVIRONMENT names a deployed environment. */
+  STORAGE_TRANSPORT?: string
   R2_ACCOUNT_ID?: string
   R2_BUCKET_NAME?: string
   R2_ACCESS_KEY_ID?: string
   R2_SECRET_ACCESS_KEY?: string
+  /** Required once STORAGE_TRANSPORT is `cloudinary`; see
+      services/storage/transports/cloudinary.ts. */
+  CLOUDINARY_CLOUD_NAME?: string
+  CLOUDINARY_API_KEY?: string
+  CLOUDINARY_API_SECRET?: string
 }

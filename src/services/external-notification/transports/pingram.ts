@@ -19,12 +19,18 @@
  */
 import type { Delivery, Notification, NotificationTransport } from '../types'
 
-const ENDPOINT = 'https://api.pingram.io/email'
+/** Where the account lives. Regional, so it is configuration rather than a constant. */
+const DEFAULT_BASE_URL = 'https://api.pingram.io'
 
 export type PingramConfiguration = {
   apiKey: string
   /** Pingram's own notification-type identifier. */
   notificationType: string
+  /** Regional API host. Unset means the default region. */
+  baseUrl?: string
+  /** Who the message appears to come from. Unset leaves it to the account. */
+  fromName?: string
+  fromAddress?: string
 }
 
 /** Escapes text so a message containing `<` or `&` renders as written. */
@@ -62,7 +68,7 @@ export const pingramTransport = (
   send: async (notification: Notification): Promise<Delivery> => {
     let response: Response
     try {
-      response = await fetch(ENDPOINT, {
+      response = await fetch(`${configuration.baseUrl ?? DEFAULT_BASE_URL}/email`, {
         method: 'POST',
         headers: {
           authorization: `Bearer ${configuration.apiKey}`,
@@ -73,6 +79,10 @@ export const pingramTransport = (
           to: notification.to,
           subject: notification.subject,
           html: asHtml(notification.body),
+          ...(configuration.fromName ? { fromName: configuration.fromName } : {}),
+          ...(configuration.fromAddress
+            ? { fromAddress: configuration.fromAddress }
+            : {}),
         }),
       })
     } catch {

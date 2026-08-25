@@ -185,6 +185,27 @@ export const documentCostRule = (context: ValidationContext): ASTVisitor => {
 
   return {
     OperationDefinition(operation) {
+      /*
+       * Introspection is exempt, and only introspection.
+       *
+       * The limits above exist because one document can make the server do
+       * unbounded work — five hundred `workspace` fields is thousands of
+       * database reads. An introspection query does none: it is answered from
+       * the schema already in memory, and it is the same query every time,
+       * because every client generates it from the specification.
+       *
+       * It is also unavoidably deep. GraphiQL's asks for roughly fifteen
+       * levels, so a limit tuned to this programme's own operations refuses
+       * every schema fetch — which is what a frontend developer meets first.
+       * Raising `MAX_DEPTH` to admit it would have loosened the guard for
+       * every real operation instead.
+       */
+      const introspectionOnly = operation.selectionSet.selections.every(
+        (selection) =>
+          selection.kind === 'Field' && selection.name.value.startsWith('__'),
+      )
+      if (introspectionOnly) return
+
       const { fields, depth } = measureSelectionSet(
         operation.selectionSet,
         0,

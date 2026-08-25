@@ -70,16 +70,35 @@
     { "name": "RL_INVITE_IP", "namespace_id": "1007", "simple": { "limit": 10, "period": 60 } },
     { "name": "RL_UPLOAD_SESSION", "namespace_id": "1008", "simple": { "limit": 20, "period": 60 } }
   ],
+  // Non-secret configuration. Credentials are never here — they are set with
+  // `wrangler secret put`, which keeps them out of a public repository.
+  //
+  // FRONTEND_ORIGINS is "*", which echoes whichever origin asks rather than
+  // sending a literal `*` (a browser refuses that on a credentialed request).
+  // It means any site can call this API as a signed-in user, and it is here
+  // because the frontend host is not yet known. Name the origin before launch.
+  "vars": {
+    "ENVIRONMENT": "production",
+    "FRONTEND_ORIGINS": "*",
+    "STORAGE_TRANSPORT": "cloudinary",
+    "PINGRAM_NOTIFICATION_TYPE": "seb",
+    "PINGRAM_BASE_URL": "https://api.eu.pingram.io",
+    "PINGRAM_FROM_NAME": "Mission SEP",
+    "PINGRAM_FROM_ADDRESS": "noreply@pingram.io"
+  },
+
   "d1_databases": [
     {
-      "binding": "DB"
+      "binding": "DB",
+      "database_name": "seb-backend",
+      "database_id": "3be23488-48c3-43a7-b561-5037a521daf2"
     }
   ],
-  "r2_buckets": [
-    {
-      "binding": "STORAGE"
-    }
-  ],
+  // No `r2_buckets` binding: R2 is not enabled on this account, and a binding
+  // without a bucket name refuses to deploy. Storage therefore runs on
+  // STORAGE_TRANSPORT=cloudinary, which never touches this binding. Restore
+  // this block, with a `bucket_name`, the moment R2 is turned on.
+
   "queues": {
     "producers": [
       {

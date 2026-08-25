@@ -124,7 +124,14 @@ export const verifyUploadedObject = async (
   ) {
     return { valid: false, message: 'The uploaded file size does not match the authorization.' }
   }
-  if (facts.contentType !== input.contentType) {
+  /*
+   * Compared only where the backend recorded a type. A store that keeps one —
+   * R2 does — must agree with the declaration. A store that keeps none says so
+   * with `null`, and treating that as a mismatch would refuse every document it
+   * holds. Nothing is waived: the signature check below reads the actual bytes,
+   * which is the evidence this comparison is only a cheap proxy for.
+   */
+  if (facts.contentType !== null && facts.contentType !== input.contentType) {
     return { valid: false, message: 'The uploaded file type does not match the authorization.' }
   }
   if (facts.checksumSha256 !== input.checksumSha256) {

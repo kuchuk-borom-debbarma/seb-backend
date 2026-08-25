@@ -54,7 +54,13 @@ export const notificationTransport = (env: AppBindings): NotificationTransport =
       `Notification delivery is not configured for the ${environment} environment.`,
     )
   }
-  return pingramTransport({ apiKey, notificationType })
+  return pingramTransport({
+    apiKey,
+    notificationType,
+    baseUrl: env.PINGRAM_BASE_URL?.trim() || undefined,
+    fromName: env.PINGRAM_FROM_NAME?.trim() || undefined,
+    fromAddress: env.PINGRAM_FROM_ADDRESS?.trim() || undefined,
+  })
 }
 
 /**

@@ -20,7 +20,7 @@ import { eq } from 'drizzle-orm'
 import { sebDocumentUploadIntent } from '../../db/schema'
 import type { AppBindings } from '../../bindings'
 import type { Database } from '../../db'
-import { usesLocalStorage } from './index'
+import { objectStore, relaysThroughWorker } from './index'
 import { base64FromBytes, LOCAL_STORAGE_PATH } from './policy'
 
 /**
@@ -49,8 +49,9 @@ export const handleLocalStorageRequest = async (
   const url = new URL(request.url)
   if (!url.pathname.startsWith(`${LOCAL_STORAGE_PATH}/`)) return null
 
-  // The boundary. Everything below assumes a developer's machine.
-  if (!usesLocalStorage(context.env)) return refuse(404, 'Not found.')
+  // The boundary. Everything below assumes a backend that relays rather than
+  // sending the browser to the provider.
+  if (!relaysThroughWorker(context.env)) return refuse(404, 'Not found.')
 
   if (request.method === 'PUT') {
     const uploadId = url.pathname.slice(`${LOCAL_STORAGE_PATH}/uploads/`.length)
@@ -115,12 +116,8 @@ const putObject = async (
     return refuse(400, 'The uploaded file checksum does not match.')
   }
 
-  await context.env.STORAGE.put(intent.objectKey, body, {
-    sha256: digest,
-    httpMetadata: {
-      contentType: intent.contentType,
-      contentDisposition: request.headers.get('content-disposition') ?? undefined,
-    },
+  await objectStore(context.env).put(intent.objectKey, body, {
+    contentType: intent.contentType,
   })
   // Finalization stays where it is: this accepts bytes and records the digest.
   // The existing mutation is what checks the file's own signature and turns the
@@ -133,17 +130,17 @@ const getObject = async (
   url: URL,
 ): Promise<Response> => {
   const key = url.searchParams.get('key')
-  const object = key ? await context.env.STORAGE.get(key) : null
+  const object = key ? await objectStore(context.env).get(key) : null
   if (!object) return refuse(404, 'Not found.')
 
   const filename = url.searchParams.get('filename') ?? 'document'
-  return new Response(object.body, {
-    headers: {
-      'content-type': object.httpMetadata?.contentType ?? 'application/octet-stream',
-      // Attachment-only, matching what a signed download would force.
-      'content-disposition': `attachment; filename="${
-        filename.replace(/[^A-Za-z0-9._ -]/gu, '_')
-      }"`,
-    },
-  })
+  // The store already decided the content type, including what an object with
+  // none is served as, so it is carried through rather than decided twice.
+  const headers = new Headers(object.headers)
+  // Attachment-only, matching what a signed download would force.
+  headers.set(
+    'content-disposition',
+    `attachment; filename="${filename.replace(/[^A-Za-z0-9._ -]/gu, '_')}"`,
+  )
+  return new Response(object.body, { headers })
 }
