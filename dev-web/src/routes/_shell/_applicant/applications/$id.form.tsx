@@ -242,22 +242,31 @@ function DraftFormPage() {
   const hashSection = hash ? sectionForField(hash) : null
   const incomplete = firstIncompleteStep(validation?.issues ?? [])
   const firstEditableSection = FORM_SECTIONS.find((section) => editable.has(section))
+  const firstIncompleteFormIndex = FORM_SECTIONS.findIndex(
+    (section) => issuesForStep(validation?.issues ?? [], section).length > 0,
+  )
+  /*
+   * Evidence lives on its own route. Its missing files must not make all six
+   * completed answer categories appear unreachable: they remain available for
+   * review and correction until the applicant returns to the upload step.
+   */
+  const lastReachableFormIndex =
+    firstIncompleteFormIndex === -1 ? FORM_SECTIONS.length - 1 : firstIncompleteFormIndex
   const defaultSection =
     application?.status === 'REVISION_REQUIRED' && firstEditableSection
       ? firstEditableSection
-      : !readOnly && FORM_SECTIONS.includes(incomplete as ApplicationSection)
-        ? (incomplete as ApplicationSection)
+      : !readOnly && firstIncompleteFormIndex !== -1
+        ? FORM_SECTIONS[firstIncompleteFormIndex]!
         : 'ENTERPRISE'
   const requestedSection = search.section ?? hashSection
   const requestedIndex = requestedSection ? FORM_SECTIONS.indexOf(requestedSection) : -1
-  const earliestIndex = FORM_SECTIONS.indexOf(defaultSection)
   const explicitIssueLink = hashSection !== null && hashSection === requestedSection
   const activeSection =
     requestedSection &&
     (readOnly ||
       application?.status === 'REVISION_REQUIRED' ||
       explicitIssueLink ||
-      requestedIndex <= earliestIndex)
+      (requestedIndex >= 0 && requestedIndex <= lastReachableFormIndex))
       ? requestedSection
       : defaultSection
 
@@ -291,7 +300,32 @@ function DraftFormPage() {
     validation,
   ])
 
-  if (!application || !draft || !validation) return null
+  /*
+   * The evidence screen is part of the same ordered journey, but it has its
+   * own route rather than a form `section`. Once the six answer categories are
+   * complete, rendering a plain `/form` address would otherwise fall through
+   * to Enterprise details even though the next reachable work is attaching
+   * files. That makes a declaration-to-evidence continuation appear stuck.
+   *
+   * Field bookmarks, revision work and read-only browsing retain their normal
+   * form behavior; only an ordinary draft resume is redirected.
+   */
+  const resumeAtEvidence =
+    !readOnly &&
+    application?.status !== 'REVISION_REQUIRED' &&
+    !search.section &&
+    !hash &&
+    incomplete === 'ATTACH_EVIDENCE'
+  useEffect(() => {
+    if (!resumeAtEvidence) return
+    void router.navigate({
+      to: '/applications/$id/documents',
+      params: { id },
+      replace: true,
+    })
+  }, [id, resumeAtEvidence, router])
+
+  if (!application || !draft || !validation || resumeAtEvidence) return null
 
   const activeIndex = FORM_SECTIONS.indexOf(activeSection)
   const locked = !editable.has(activeSection)

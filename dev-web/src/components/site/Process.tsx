@@ -1,55 +1,69 @@
 import { useEffect, useRef } from 'react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { Laptop, ClipboardCheck, Landmark, BadgeCheck, ArrowDown } from 'lucide-react'
+import {
+  Laptop,
+  ClipboardCheck,
+  Landmark,
+  BadgeCheck,
+  ArrowDown,
+  ArrowRight,
+  ShieldCheck,
+  Zap,
+  CheckCircle2,
+} from 'lucide-react'
 
 interface StepItem {
   step: string
   title: string
   desc: string
   Icon: React.ElementType
-  img: string
-  imgAlt: string
 }
 
 const steps: StepItem[] = [
   {
     step: 'STEP 01',
     title: 'Apply Online',
-    desc: 'Submit your basic profile and Detailed Project Report (DPR) through the portal.',
+    desc: 'Submit your basic profile and Detailed Project Report (DPR) through the single-window portal.',
     Icon: Laptop,
-    img: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?q=80&w=800&auto=format&fit=crop',
-    imgAlt: 'Applicant submitting DPR through online single-window portal',
   },
   {
     step: 'STEP 02',
     title: 'Desk Review',
-    desc: 'Department of Industries validates KYC, ST identity, and DPR feasibility.',
+    desc: 'Department of Industries validates KYC, ST certificate identity, and DPR feasibility.',
     Icon: ClipboardCheck,
-    img: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?q=80&w=800&auto=format&fit=crop',
-    imgAlt: 'Department reviewing documentation and verifying eligibility',
   },
   {
     step: 'STEP 03',
     title: 'Bank Evaluation',
-    desc: 'Partner banks conduct fast-track credit appraisal for institutional loan linkages.',
+    desc: 'Partner commercial and regional rural banks conduct fast-track credit appraisal.',
     Icon: Landmark,
-    img: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=800&auto=format&fit=crop',
-    imgAlt: 'Scheduled commercial bank partner conducting credit assessment',
   },
   {
     step: 'STEP 04',
     title: 'Sanction & Release',
-    desc: 'TTM issues final seed grant sanction and disburses funds against milestones.',
+    desc: 'TTM issues formal seed grant sanction and releases milestone funding directly to your account.',
     Icon: BadgeCheck,
-    img: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?q=80&w=800&auto=format&fit=crop',
-    imgAlt: 'Formal grant sanction and funds release ceremony',
   },
 ]
 
-const IMAGE_REVEAL_RADIUS = '0.75rem'
-const IMAGE_REVEAL_HIDDEN = `inset(0% 0% 100% 0% round ${IMAGE_REVEAL_RADIUS})`
-const IMAGE_REVEAL_VISIBLE = `inset(0% 0% 0% 0% round ${IMAGE_REVEAL_RADIUS})`
+const keyHighlights = [
+  {
+    icon: Zap,
+    title: '100% Digital Single-Window',
+    desc: 'Submit DPR & documents from any block across Tripura without visiting physical offices.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Transparent Milestone Tracking',
+    desc: 'Stage-by-stage status updates and direct feedback at each verification level.',
+  },
+  {
+    icon: CheckCircle2,
+    title: 'Milestone DBT Transfers',
+    desc: 'Sanctioned grants disbursed directly to your verified business bank account.',
+  },
+]
 
 export function Process() {
   const sectionRef = useRef<HTMLElement>(null)
@@ -104,13 +118,9 @@ export function Process() {
       items.forEach((item) => {
         const iconNode = item.querySelector<HTMLElement>('.proc-icon-badge')
         const textNode = item.querySelector<HTMLElement>('.proc-text-block')
-        const reveal = item.querySelector<HTMLElement>('.proc-image-reveal')
-        const mediaNode = item.querySelector<HTMLElement>('.proc-image-media')
 
         if (iconNode) gsap.set(iconNode, { opacity: 0, scale: 0.75 })
         if (textNode) gsap.set(textNode, { opacity: 0, y: 18 })
-        if (reveal) gsap.set(reveal, { clipPath: IMAGE_REVEAL_HIDDEN })
-        if (mediaNode) gsap.set(mediaNode, { scale: 1.12, yPercent: 5 })
       })
 
       const tl = gsap.timeline({
@@ -118,7 +128,7 @@ export function Process() {
         scrollTrigger: {
           trigger: desktopStageRef.current,
           start: 'top top',
-          end: () => `+=${window.innerHeight * (steps.length * 0.85)}`,
+          end: () => `+=${window.innerHeight * (steps.length * 0.75)}`,
           pin: true,
           scrub: 1.1,
           anticipatePin: 1,
@@ -131,8 +141,6 @@ export function Process() {
       items.forEach((item, index) => {
         const iconNode = item.querySelector<HTMLElement>('.proc-icon-badge')
         const textNode = item.querySelector<HTMLElement>('.proc-text-block')
-        const reveal = item.querySelector<HTMLElement>('.proc-image-reveal')
-        const mediaNode = item.querySelector<HTMLElement>('.proc-image-media')
 
         const at = index * 0.95
 
@@ -142,14 +150,6 @@ export function Process() {
 
         if (textNode) {
           tl.to(textNode, { opacity: 1, y: 0, duration: 0.38 }, at + 0.05)
-        }
-
-        if (reveal) {
-          tl.to(reveal, { clipPath: IMAGE_REVEAL_VISIBLE, duration: 0.75 }, at + 0.15)
-        }
-
-        if (mediaNode) {
-          tl.to(mediaNode, { scale: 1, yPercent: 0, duration: 0.75 }, at + 0.15)
         }
       })
     })
@@ -166,30 +166,78 @@ export function Process() {
         ref={desktopStageRef}
         className="hidden lg:flex relative h-[100svh] min-h-[700px] w-full overflow-hidden"
       >
-        <div className="relative flex w-1/2 flex-col justify-between p-10 xl:p-14 text-white">
+        {/* Left Column (Dark Slate Background with Highlights & CTAs - Pure Text & Icons) */}
+        <div className="relative flex w-[46%] flex-col justify-between p-8 xl:p-12 2xl:p-14 text-white z-10">
           <div className="absolute inset-0 z-0 bg-[#0c141f]" />
+
+          {/* Top: Section Title & Intro */}
           <div className="relative z-10">
             <p className="text-xs xl:text-sm font-semibold uppercase tracking-[0.24em] text-[#d1ab76]">
               How To Apply
             </p>
-            <h2 className="mt-3 font-serif text-3xl xl:text-4xl 2xl:text-5xl font-bold leading-tight text-white">
-              A transparent process, end to end.
+            <h2 className="mt-3 font-serif text-3xl xl:text-4xl 2xl:text-[2.75rem] font-bold leading-[1.12] text-white">
+              A transparent process,
+              <br />
+              end to end.
             </h2>
-            <p className="mt-4 text-xs xl:text-sm 2xl:text-base leading-relaxed text-white/80 max-w-lg">
+            <p className="mt-3 text-xs xl:text-sm leading-relaxed text-white/80 max-w-md">
               Simple steps. Clear checks. Faster decisions. Smarter support. From
               application to grant, we&apos;ve made it seamless.
             </p>
           </div>
 
-          <div className="relative z-10 flex items-center gap-3 text-xs text-white/70">
-            <div className="flex size-7 items-center justify-center rounded-full bg-white/10">
-              <ArrowDown className="size-3.5" />
+          {/* Middle: Feature Highlights - Pure Text and Icons (No Cards) */}
+          <div className="relative z-10 my-5 space-y-4 xl:space-y-5 max-w-md">
+            {keyHighlights.map((item) => (
+              <div key={item.title} className="flex items-start gap-3.5">
+                <item.icon className="size-5 xl:size-5.5 text-[#d1ab76] shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-[14px] xl:text-[15px] font-semibold text-white leading-snug">
+                    {item.title}
+                  </h4>
+                  <p className="mt-0.5 text-[12px] xl:text-[13px] leading-relaxed text-white/75">
+                    {item.desc}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Bottom: Action link & Scroll hint */}
+          <div className="relative z-10 flex flex-col gap-3.5 pt-2 border-t border-white/10">
+            <div className="flex items-center gap-3">
+              <a
+                href="/login"
+                className="inline-flex items-center gap-2 rounded-xl bg-[#1d4ed8] px-4.5 py-2.5 text-xs xl:text-sm font-bold text-white shadow-sm transition-all hover:bg-[#2563eb] hover:gap-2.5 cursor-pointer"
+              >
+                <span className="text-white">Proceed to Apply</span>
+                <ArrowRight className="size-3.5 xl:size-4 stroke-[2.2] text-white" />
+              </a>
+
+              <a
+                href="/policy.pdf"
+                download="TTAADC_Mission_SEP_Policy_and_Application_Form.pdf"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/5 px-3.5 py-2.5 text-xs xl:text-sm font-medium text-white transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <span className="text-white">DPR Guidelines</span>
+              </a>
             </div>
-            <span>Scroll to explore application milestones</span>
+
+            <div className="flex items-center gap-2 text-[11px] xl:text-xs text-white/60">
+              <div className="flex size-5 items-center justify-center rounded-full bg-white/10">
+                <ArrowDown className="size-3 text-white/80" />
+              </div>
+              <span className="text-white/60">
+                Scroll to explore application milestones
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="relative flex w-1/2 flex-col justify-center bg-[#ded8ce] p-10 xl:p-14">
+        {/* Right Column (Beige Stage with Steps Timeline - Pure Text & Icons) */}
+        <div className="relative flex w-[54%] flex-col justify-center bg-[#ded8ce] p-8 xl:p-12 2xl:p-16">
           <div className="relative mx-auto w-full max-w-lg">
             <div
               ref={desktopContainerRef}
@@ -202,35 +250,21 @@ export function Process() {
 
               {steps.map((item) => (
                 <div key={`dt-${item.step}`} className="proc-desktop-item relative">
-                  <div className="grid grid-cols-[auto_1fr_auto] gap-4 xl:gap-5 items-center">
-                    <div className="proc-icon-badge relative z-10 flex size-9 xl:size-10 shrink-0 items-center justify-center rounded-full border border-[#181715]/20 bg-[#ded8ce] text-[#181715] shadow-xs">
-                      <item.Icon className="size-4 xl:size-4.5 stroke-[1.5]" />
+                  <div className="flex items-start gap-4 xl:gap-5">
+                    <div className="proc-icon-badge relative z-10 flex size-11 xl:size-12 shrink-0 items-center justify-center rounded-full border border-[#181715]/25 bg-[#ded8ce] text-[#181715] shadow-xs mt-0.5">
+                      <item.Icon className="size-5 xl:size-5.5 stroke-[1.5]" />
                     </div>
 
-                    <div className="proc-text-block min-w-0 pr-2">
-                      <span className="text-[10px] xl:text-[11px] font-bold uppercase tracking-[0.2em] text-[#a47b46]">
+                    <div className="proc-text-block min-w-0 flex-1">
+                      <span className="text-[11px] xl:text-[12px] font-bold uppercase tracking-[0.22em] text-[#a47b46]">
                         {item.step}
                       </span>
-                      <h3 className="mt-0.5 font-serif text-base xl:text-lg font-bold tracking-tight text-[#181715]">
+                      <h3 className="mt-0.5 font-serif text-lg xl:text-xl font-bold tracking-tight text-[#181715]">
                         {item.title}
                       </h3>
-                      <p className="mt-0.5 text-[12px] xl:text-[13px] leading-snug text-[#181715]/75 line-clamp-2">
+                      <p className="mt-1 text-[13px] xl:text-[14px] leading-relaxed text-[#181715]/75">
                         {item.desc}
                       </p>
-                    </div>
-
-                    <div className="shrink-0 w-28 sm:w-32 xl:w-40">
-                      <div
-                        className="proc-image-reveal overflow-hidden rounded-xl shadow-sm border border-[#181715]/10"
-                        style={{ clipPath: IMAGE_REVEAL_HIDDEN }}
-                      >
-                        <img
-                          src={item.img}
-                          alt={item.imgAlt}
-                          loading="lazy"
-                          className="proc-image-media aspect-[4/3] w-full object-cover"
-                        />
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -241,24 +275,49 @@ export function Process() {
       </div>
 
       {/* ========================================================================= */}
-      {/* MOBILE & TABLET VIEW (< 1024px: Static Clean Touch Layout)                 */}
+      {/* MOBILE & TABLET VIEW (< 1024px: Static Clean Touch Layout - Pure Text & Icons) */}
       {/* ========================================================================= */}
       <div className="relative block lg:hidden px-4 sm:px-6 pt-20 pb-14 bg-[#ded8ce] text-[#181715]">
         {/* Mobile Header Banner */}
-        <div className="mb-8 rounded-2xl bg-[#0c141f] p-5 sm:p-7 text-white">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#d1ab76]">
-            How To Apply
-          </p>
-          <h2 className="mt-2 font-serif text-2xl sm:text-3xl font-bold leading-tight text-white">
-            A transparent process, end to end.
-          </h2>
-          <p className="mt-2.5 text-xs sm:text-sm leading-relaxed text-white/80">
-            Simple steps. Clear checks. Faster decisions. Smarter support. From
-            application to grant, we&apos;ve made it seamless.
-          </p>
+        <div className="mb-8 rounded-2xl bg-[#0c141f] p-5 sm:p-7 text-white space-y-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#d1ab76]">
+              How To Apply
+            </p>
+            <h2 className="mt-2 font-serif text-2xl sm:text-3xl font-bold leading-tight text-white">
+              A transparent process, end to end.
+            </h2>
+            <p className="mt-2.5 text-xs sm:text-sm leading-relaxed text-white/80">
+              Simple steps. Clear checks. Faster decisions. Smarter support. From
+              application to grant, we&apos;ve made it seamless.
+            </p>
+          </div>
+
+          {/* Mobile Highlights */}
+          <div className="space-y-2 pt-2 border-t border-white/10">
+            {keyHighlights.map((item) => (
+              <div
+                key={item.title}
+                className="flex items-center gap-2.5 text-xs text-white/90"
+              >
+                <item.icon className="size-3.5 text-[#d1ab76] shrink-0" />
+                <span className="font-medium">{item.title}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-2">
+            <a
+              href="/login"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#1d4ed8] py-2.5 px-4 text-xs font-bold text-white shadow-sm active:bg-[#2563eb]"
+            >
+              <span className="text-white">Proceed to Application</span>
+              <ArrowRight className="size-3.5 stroke-[2.2] text-white" />
+            </a>
+          </div>
         </div>
 
-        {/* Mobile Steps Timeline (Clean static flow, no hidden clipPath) */}
+        {/* Mobile Steps Timeline (Clean static flow, no cards) */}
         <div className="relative max-w-xl mx-auto">
           <div className="relative flex flex-col gap-6 pl-4 border-l-2 border-dashed border-[#181715]/20 ml-4">
             {steps.map((item) => (
@@ -268,28 +327,17 @@ export function Process() {
                   <item.Icon className="size-4 stroke-[1.5]" />
                 </div>
 
-                {/* Step Content & Image */}
-                <div className="rounded-2xl bg-white/70 p-4 border border-[#181715]/10 shadow-sm space-y-3">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#a47b46]">
-                      {item.step}
-                    </span>
-                    <h3 className="mt-0.5 font-serif text-base sm:text-lg font-bold tracking-tight text-[#181715]">
-                      {item.title}
-                    </h3>
-                    <p className="mt-1 text-xs sm:text-[13px] leading-relaxed text-[#181715]/75">
-                      {item.desc}
-                    </p>
-                  </div>
-
-                  <div className="overflow-hidden rounded-xl border border-[#181715]/10 aspect-[16/9] w-full">
-                    <img
-                      src={item.img}
-                      alt={item.imgAlt}
-                      loading="lazy"
-                      className="size-full object-cover"
-                    />
-                  </div>
+                {/* Step Content */}
+                <div className="py-1">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#a47b46]">
+                    {item.step}
+                  </span>
+                  <h3 className="mt-0.5 font-serif text-base sm:text-lg font-bold tracking-tight text-[#181715]">
+                    {item.title}
+                  </h3>
+                  <p className="mt-1 text-xs sm:text-[13px] leading-relaxed text-[#181715]/75">
+                    {item.desc}
+                  </p>
                 </div>
               </div>
             ))}

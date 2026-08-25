@@ -13,8 +13,7 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react'
-import heroImage from '@/assets/hero-admin-building.jpg'
-import imgOne from '@/assets/one.png'
+import heroImage from '@/assets/hero-landscape.jpg'
 import imgTwo from '@/assets/two.png'
 
 // Custom Sprout In Hand Icon
@@ -311,9 +310,9 @@ export function Hero() {
           <img
             src={heroImage}
             alt="TTAADC Main Administrative Building at Tangnok Kotor, Khumulwng"
-            width={1920}
-            height={1280}
-            className="size-full object-cover object-[center_35%] scale-[1.15] origin-[center_42%] transform-gpu filter brightness-[0.97] contrast-[1.03]"
+            width={4032}
+            height={2268}
+            className="size-full object-cover object-[center_35%] brightness-[0.98] contrast-[1.04]"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-slate-950/75 via-slate-900/35 to-transparent pointer-events-none" />
           <div className="absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-slate-950/60 via-slate-950/20 to-transparent pointer-events-none" />
@@ -349,14 +348,6 @@ export function Hero() {
               assistance and application tracking.
             </p>
             <div className="flex gap-3 pt-1">
-              <div className="size-18 overflow-hidden rounded-full border-2 border-white bg-white/95 shadow-xl transition-transform hover:scale-105">
-                <img
-                  src={imgOne}
-                  alt="Indigenous Tripuri founders"
-                  loading="lazy"
-                  className="size-full object-contain object-top pt-1 scale-110"
-                />
-              </div>
               <div className="size-18 overflow-hidden rounded-full border-2 border-white bg-white/95 shadow-xl transition-transform hover:scale-105">
                 <img
                   src={imgTwo}
@@ -504,8 +495,8 @@ export function Hero() {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-xl bg-[#0c2340] px-5 py-2.5 text-[13px] font-semibold text-white shadow-sm transition-all duration-300 hover:bg-[#1d4ed8] hover:gap-2.5 shrink-0 whitespace-nowrap"
               >
-                <Download className="size-3.5" />
-                <span>Download Policy PDF</span>
+                <Download className="size-3.5 text-white" />
+                <span className="text-white">Download Policy PDF</span>
               </a>
             </div>
           </div>
@@ -526,7 +517,9 @@ export function Hero() {
             <img
               src={heroImage}
               alt="TTAADC Main Administrative Building at Tangnok Kotor, Khumulwng"
-              className="size-full object-cover object-[center_35%] brightness-[0.88] contrast-[1.05]"
+              width={4032}
+              height={2268}
+              className="size-full object-cover object-[center_35%] brightness-[0.92] contrast-[1.05]"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-900/40 to-slate-950/70 pointer-events-none" />
             <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-slate-950/80 via-slate-950/30 to-transparent pointer-events-none" />

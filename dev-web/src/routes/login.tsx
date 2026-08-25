@@ -245,7 +245,9 @@ function LoginPage() {
               className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium !text-white/90 hover:!text-white transition-colors"
             >
               <HelpCircle className="size-3.5 !text-white/80" />
-              <span style={{ color: 'rgba(255, 255, 255, 0.9)' }}>Helpdesk &amp; FAQs</span>
+              <span style={{ color: 'rgba(255, 255, 255, 0.9)' }}>
+                Helpdesk &amp; FAQs
+              </span>
             </Link>
 
             <Link

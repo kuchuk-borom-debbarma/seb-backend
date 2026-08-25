@@ -3,62 +3,95 @@ import { Reveal } from './Reveal'
 
 export function Contact() {
   return (
-    <section id="contact" className="bg-[#faf9f6] border-t border-[#e2e8f0]">
-      <div className="mx-auto max-w-[1500px] px-6 py-20 md:px-10 md:py-28">
+    <section
+      id="contact"
+      className="relative bg-[#0c141f] text-white border-t border-white/10"
+    >
+      <div className="mx-auto max-w-[1400px] px-6 py-16 sm:py-20 md:px-10 md:py-24">
         <Reveal>
-          <div className="grid gap-12 md:grid-cols-12 items-start">
-            <div className="md:col-span-7">
-              <h2 className="font-serif text-[clamp(2.2rem,4vw,3.5rem)] font-bold leading-[1.08] tracking-tight text-[#0c1a30]">
-                Ready to start
-                <br />
-                your application?
-              </h2>
-              <p className="mt-5 max-w-lg text-[16px] md:text-[17px] leading-relaxed text-[#475569]">
-                Prepare your Detailed Project Report (DPR) and submit your proposal to the
-                Industry Department, TTAADC. For inquiries, reach out to the Programme
-                Nodal Cell.
+          <div className="grid gap-10 lg:grid-cols-12 lg:gap-16 items-center">
+            {/* Left Column: Ultra-minimalist Heading & Action */}
+            <div className="lg:col-span-5 flex flex-col justify-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#d1ab76]">
+                Nodal Desk
               </p>
-              <div className="mt-8 flex flex-wrap gap-4">
+              <h2 className="mt-2 font-serif text-3xl sm:text-4xl lg:text-[2.6rem] font-bold leading-[1.12] tracking-tight text-white">
+                Ready to apply?
+              </h2>
+              <p className="mt-2 text-sm sm:text-[15px] leading-relaxed text-white/75 max-w-sm">
+                Submit your DPR proposal online or get in touch for scheme guidance.
+              </p>
+
+              <div className="mt-6">
                 <a
-                  href="mailto:sep@ttaadc.gov.in"
-                  className="inline-flex items-center gap-3 rounded-full bg-[#0f2444] px-8 py-3.5 text-[15px] font-semibold text-white shadow-xs transition-all duration-300 hover:bg-[#1d4ed8] hover:-translate-y-0.5"
+                  href="/login"
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#1d4ed8] px-5 py-2.5 sm:px-6 sm:py-3 text-xs sm:text-sm font-semibold text-white shadow-xs transition-all duration-300 hover:bg-[#2563eb] hover:gap-2.5 cursor-pointer"
                 >
-                  <span>Contact Nodal Cell</span>
-                  <ArrowRight className="size-4.5" strokeWidth={1.8} />
+                  <span className="text-white">Proceed to Apply</span>
+                  <ArrowRight className="size-4 text-white" strokeWidth={2} />
                 </a>
               </div>
             </div>
 
-            <div className="md:col-span-5 md:col-start-8 md:pl-6 md:border-l md:border-[#e2e8f0]">
-              <h3 className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-[#1d4ed8]">
-                Programme Nodal Office
-              </h3>
-              <div className="mt-6 space-y-5 text-[15.5px] text-[#334155]">
-                <p className="flex items-start gap-4">
-                  <MapPin
-                    className="mt-0.5 size-5 shrink-0 text-[#1d4ed8]"
-                    strokeWidth={1.8}
-                  />
-                  <span>
-                    Industry Department, TTAADC
-                    <br />
-                    Khumulwng, West Tripura - 799045
-                  </span>
-                </p>
-                <p className="flex items-start gap-4">
-                  <Phone
-                    className="mt-0.5 size-5 shrink-0 text-[#1d4ed8]"
-                    strokeWidth={1.8}
-                  />
-                  <span>+91 381 234 5678 (Helpdesk)</span>
-                </p>
-                <p className="flex items-start gap-4">
-                  <Mail
-                    className="mt-0.5 size-5 shrink-0 text-[#1d4ed8]"
-                    strokeWidth={1.8}
-                  />
-                  <span>sep@ttaadc.gov.in</span>
-                </p>
+            {/* Right Column: Minimalist Contact Channel Grid */}
+            <div className="lg:col-span-7">
+              <div className="divide-y divide-white/10 border-y border-white/10">
+                {/* Location */}
+                <div className="flex items-start gap-4 py-4 sm:py-5">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white mt-0.5">
+                    <MapPin className="size-4.5 text-[#d1ab76]" strokeWidth={1.75} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">
+                      Head Office
+                    </p>
+                    <p className="mt-0.5 text-sm sm:text-[15px] font-semibold text-white">
+                      Industry Department, TTAADC
+                    </p>
+                    <p className="mt-0.5 text-xs sm:text-[13px] text-white/70">
+                      Khumulwng, West Tripura — 799045
+                    </p>
+                  </div>
+                </div>
+
+                {/* Phone */}
+                <div className="flex items-start gap-4 py-4 sm:py-5">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white mt-0.5">
+                    <Phone className="size-4.5 text-[#d1ab76]" strokeWidth={1.75} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">
+                      Helpline
+                    </p>
+                    <p className="mt-0.5 text-sm sm:text-[15px] font-semibold text-white">
+                      +91 381 234 5678
+                    </p>
+                    <p className="mt-0.5 text-xs sm:text-[13px] text-white/70">
+                      Monday – Friday, 10:00 AM – 5:00 PM IST
+                    </p>
+                  </div>
+                </div>
+
+                {/* Email */}
+                <div className="flex items-start gap-4 py-4 sm:py-5">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white mt-0.5">
+                    <Mail className="size-4.5 text-[#d1ab76]" strokeWidth={1.75} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">
+                      Official Email
+                    </p>
+                    <a
+                      href="mailto:sep@ttaadc.gov.in"
+                      className="mt-0.5 inline-block text-sm sm:text-[15px] font-semibold text-[#d1ab76] hover:underline"
+                    >
+                      sep@ttaadc.gov.in
+                    </a>
+                    <p className="mt-0.5 text-xs sm:text-[13px] text-white/70">
+                      Single-Window Applicant Support Desk
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -32,19 +32,19 @@ const columns = [
 
 export function Footer() {
   return (
-    <footer className="border-t border-[#e2e8f0] bg-white text-[#15233d]">
+    <footer className="border-t border-white/10 bg-[#0c141f] text-white">
       <div className="mx-auto grid max-w-[1500px] gap-12 px-6 py-16 md:grid-cols-12 md:px-10">
         <div className="md:col-span-4">
-          <Logo />
-          <p className="mt-6 max-w-xs text-[14.5px] leading-relaxed text-[#64748b]">
-            Mission Sustainable Entrepreneurship & Business Programme (SEP) — Industry
+          <Logo light={true} />
+          <p className="mt-6 max-w-xs text-[14px] leading-relaxed text-white/70">
+            Mission Sustainable Entrepreneurship &amp; Business Programme (SEP) — Industry
             Department, Tripura Tribal Areas Autonomous District Council (TTAADC),
             Khumulwng.
           </p>
         </div>
         {columns.map((c) => (
           <div key={c.title} className="md:col-span-2">
-            <p className="font-mono text-xs font-bold uppercase tracking-[0.18em] text-[#0c1a30]">
+            <p className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-white/90">
               {c.title}
             </p>
             <ul className="mt-5 space-y-3">
@@ -52,7 +52,7 @@ export function Footer() {
                 <li key={l.label}>
                   <a
                     href={l.href}
-                    className="text-[14px] font-medium text-[#64748b] transition-colors hover:text-[#1d4ed8]"
+                    className="text-[14px] font-medium text-white/60 transition-colors hover:text-white"
                   >
                     {l.label}
                   </a>
@@ -62,8 +62,8 @@ export function Footer() {
           </div>
         ))}
       </div>
-      <div className="border-t border-[#f1f5f9]">
-        <div className="mx-auto flex max-w-[1500px] flex-col gap-2 px-6 py-6 text-[13px] text-[#94a3b8] md:flex-row md:items-center md:justify-between md:px-10">
+      <div className="border-t border-white/10">
+        <div className="mx-auto flex max-w-[1500px] flex-col gap-2 px-6 py-6 text-[13px] text-white/50 md:flex-row md:items-center md:justify-between md:px-10">
           <p>
             © 2026 TTAADC · Mission Sustainable Entrepreneurship &amp; Business Programme
             (SEP)

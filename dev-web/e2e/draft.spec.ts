@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
+  fillEveryAnswer,
   openProgrammeCycle,
   signIn,
   startApplication,
@@ -79,6 +80,56 @@ test.describe('the application form', () => {
     ]) {
       await expect(categories.getByRole('button', { name: title })).toBeAttached()
     }
+  })
+
+  test('moves from the declaration to evidence and resumes there while files are missing', async ({
+    page,
+  }) => {
+    const id = await startApplication(page, {
+      prefix: 'evidence-resume',
+      businessName: 'Evidence Resume Works',
+    })
+
+    // The final form-category Next must reach the upload screen even though
+    // the cycle's required files have not been attached yet.
+    await fillEveryAnswer(page, id, 'Evidence Resume Works')
+
+    // A continuation link or a browser reload through the plain form address
+    // must preserve that reachable next step, rather than returning to the
+    // first form category just because the upload screen has no `section`.
+    await page.goto(`/applications/${id}/form`)
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
+    await expect(page.getByRole('heading', { name: 'Attach evidence' })).toBeVisible()
+  })
+
+  test('keeps completed categories clickable while evidence is still outstanding', async ({
+    page,
+  }) => {
+    const id = await startApplication(page, {
+      prefix: 'evidence-navigation',
+      businessName: 'Evidence Navigation Works',
+    })
+    await fillEveryAnswer(page, id, 'Evidence Navigation Works')
+
+    const categories = page.getByRole('navigation', { name: 'Form categories' })
+    await categories.getByRole('button', { name: 'About you' }).click()
+    await expect(page).toHaveURL(
+      new RegExp(`/applications/${id}/form\\?section=APPLICANT_PROFILE$`, 'u'),
+    )
+    await expect(page.getByRole('heading', { name: 'About you' })).toBeVisible()
+
+    await categories.getByRole('button', { name: 'Evidence requirements' }).click()
+    await expect(page).toHaveURL(
+      new RegExp(`/applications/${id}/form\\?section=DOCUMENTS$`, 'u'),
+    )
+    await expect(
+      page.getByRole('heading', { name: 'Evidence requirements' }),
+    ).toBeVisible()
+
+    // Evidence itself remains reachable so the missing required files can be
+    // attached; only Review stays blocked until that work is done.
+    await categories.getByRole('button', { name: 'Attach evidence' }).click()
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
   })
 
   test('reveals conditional questions only when they apply', async ({ page }) => {

@@ -16,7 +16,12 @@
   font-family: 'Playfair Display', Georgia, serif;
 }
 
-/* Ensure landing site navigation links and buttons are not overridden by global styles.css */
+/* Ensure landing site links and buttons are not overridden by global styles.css a { color: var(--green) } */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
 header nav a {
   text-decoration: none !important;
 }
@@ -36,4 +41,3 @@ header nav a {
 .site-nav-link-light:hover {
   color: rgba(24, 23, 21, 0.75) !important;
 }
-

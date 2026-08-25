@@ -82,7 +82,7 @@ export function About() {
 
     const mm = gsap.matchMedia()
 
-    // Desktop only pinned gallery scrub
+    // Desktop only pinned gallery scrub & entrance reveal
     mm.add('(min-width: 1024px)', () => {
       const cardCenter = section.querySelector('[data-card-center]')
       const cardsInnerPair = section.querySelectorAll('[data-card-inner-pair]')
@@ -90,11 +90,12 @@ export function About() {
       const statement = section.querySelector('.about-statement')
       const controls = section.querySelector('.about-controls')
 
+      // Initial state: subtle offset and opacity 0 so items are ready to enter promptly
       if (cardCenter) {
         gsap.set(cardCenter, {
-          y: '115vh',
+          y: 60,
           rotation: 0,
-          scale: 0.82,
+          scale: 0.92,
           opacity: 0,
           transformOrigin: '50% 100%',
         })
@@ -103,9 +104,9 @@ export function About() {
       cardsInnerPair.forEach((card, i) => {
         const rot = i % 2 === 0 ? -6 : 6
         gsap.set(card, {
-          y: '120vh',
+          y: 75,
           rotation: rot,
-          scale: 0.82,
+          scale: 0.9,
           opacity: 0,
           transformOrigin: '50% 100%',
         })
@@ -114,96 +115,136 @@ export function About() {
       cardsOuterPair.forEach((card, i) => {
         const rot = i === 0 ? -8 : 8
         gsap.set(card, {
-          y: '125vh',
+          y: 90,
           rotation: rot,
-          scale: 0.8,
+          scale: 0.88,
           opacity: 0,
           transformOrigin: '50% 100%',
         })
       })
 
       if (statement) {
-        gsap.set(statement, { opacity: 0, y: 35, filter: 'blur(8px)' })
+        gsap.set(statement, { opacity: 0, y: 25, filter: 'blur(4px)' })
       }
       if (controls) {
-        gsap.set(controls, { opacity: 0, y: 22 })
+        gsap.set(controls, { opacity: 0, y: 16 })
       }
 
-      const tl = gsap.timeline({
+      // 1. Entrance timeline: starts as section approaches viewport (top 85% to top 15%)
+      // This ensures photos appear immediately without any blank screen at the top
+      const entryTl = gsap.timeline({
         scrollTrigger: {
           trigger: section,
-          start: 'top top',
-          end: '+=2600',
-          pin: true,
-          scrub: 1.2,
-          anticipatePin: 1,
+          start: 'top 85%',
+          end: 'top 15%',
+          scrub: 0.5,
           invalidateOnRefresh: true,
         },
       })
 
       if (cardCenter) {
-        tl.fromTo(
+        entryTl.to(
           cardCenter,
-          { y: '115vh', rotation: 0, scale: 0.82, opacity: 0 },
           {
             y: 0,
             rotation: 0,
             scale: 1,
             opacity: 1,
-            duration: 1.1,
-            ease: 'back.out(1.4)',
+            duration: 0.6,
+            ease: 'power2.out',
           },
-          0.05,
+          0,
         )
       }
 
-      cardsInnerPair.forEach((card, i) => {
-        const rot = i % 2 === 0 ? -6 : 6
-        tl.fromTo(
+      cardsInnerPair.forEach((card) => {
+        entryTl.to(
           card,
-          { y: '120vh', rotation: rot, scale: 0.82, opacity: 0 },
           {
             y: 0,
             rotation: 0,
             scale: 1,
             opacity: 1,
-            duration: 1.1,
-            ease: 'back.out(1.35)',
+            duration: 0.6,
+            ease: 'power2.out',
           },
-          0.38,
+          0.08,
         )
       })
 
-      cardsOuterPair.forEach((card, i) => {
-        const rot = i === 0 ? -8 : 8
-        tl.fromTo(
+      cardsOuterPair.forEach((card) => {
+        entryTl.to(
           card,
-          { y: '125vh', rotation: rot, scale: 0.8, opacity: 0 },
           {
             y: 0,
             rotation: 0,
             scale: 1,
             opacity: 1,
-            duration: 1.1,
-            ease: 'back.out(1.25)',
+            duration: 0.6,
+            ease: 'power2.out',
           },
-          0.68,
+          0.16,
         )
       })
 
       if (statement) {
-        tl.to(
+        entryTl.to(
           statement,
-          { opacity: 1, y: 0, filter: 'blur(0px)', duration: 0.7, ease: 'power2.out' },
-          0.92,
+          {
+            opacity: 1,
+            y: 0,
+            filter: 'blur(0px)',
+            duration: 0.5,
+            ease: 'power2.out',
+          },
+          0.2,
         )
       }
 
       if (controls) {
-        tl.to(controls, { opacity: 1, y: 0, duration: 0.55, ease: 'power2.out' }, 1.18)
+        entryTl.to(
+          controls,
+          {
+            opacity: 1,
+            y: 0,
+            duration: 0.45,
+            ease: 'power2.out',
+          },
+          0.28,
+        )
       }
 
-      tl.to({}, { duration: 1.2 })
+      // 2. Pinned showcase timeline: fast, responsive snap pin at top top
+      const pinTl = gsap.timeline({
+        scrollTrigger: {
+          trigger: section,
+          start: 'top top',
+          end: () => `+=${Math.round(window.innerHeight * 0.75)}`,
+          pin: true,
+          scrub: 0.4,
+          snap: {
+            snapTo: [0, 1],
+            duration: { min: 0.2, max: 0.4 },
+            ease: 'power2.out',
+            delay: 0.02,
+          },
+          anticipatePin: 1,
+          invalidateOnRefresh: true,
+        },
+      })
+
+      // Subtle parallax depth shift during pin
+      if (cardsOuterPair.length >= 2) {
+        pinTl.to(cardsOuterPair[0]!, { x: -10, duration: 0.6, ease: 'sine.inOut' }, 0)
+        pinTl.to(cardsOuterPair[1]!, { x: 10, duration: 0.6, ease: 'sine.inOut' }, 0)
+      }
+      if (cardsInnerPair.length >= 2) {
+        pinTl.to(cardsInnerPair[0]!, { x: -5, duration: 0.6, ease: 'sine.inOut' }, 0)
+        pinTl.to(cardsInnerPair[1]!, { x: 5, duration: 0.6, ease: 'sine.inOut' }, 0)
+      }
+      if (cardCenter) {
+        pinTl.to(cardCenter, { scale: 1.02, duration: 0.6, ease: 'sine.inOut' }, 0)
+      }
     })
 
     return () => mm.revert()

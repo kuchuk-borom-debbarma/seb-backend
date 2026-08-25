@@ -219,7 +219,7 @@ SECTION 7: APPLICANT UNDERTAKING
               <div className="rule-line mt-7" />
             </div>
             <div className="flex items-center gap-3">
-              <span className="rounded-full bg-emerald-100 px-3.5 py-1.5 text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+              <span className="rounded-full bg-[#1d4ed8]/10 px-3.5 py-1.5 text-xs font-bold text-[#1d4ed8] flex items-center gap-1.5 border border-[#1d4ed8]/20">
                 <Sparkles className="size-3.5" /> Direct Seed Support: Up to ₹5,00,000
               </span>
             </div>
@@ -227,14 +227,14 @@ SECTION 7: APPLICANT UNDERTAKING
         </Reveal>
 
         {submitted ? (
-          <div className="mt-14 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-8 md:p-12 text-center">
-            <div className="mx-auto grid size-16 place-items-center rounded-full bg-emerald-600 text-white">
+          <div className="mt-14 rounded-2xl border border-[#1d4ed8]/25 bg-[#faf9f6] p-8 md:p-12 text-center shadow-xs">
+            <div className="mx-auto grid size-16 place-items-center rounded-full bg-[#0c1a30] text-white">
               <CheckCircle className="size-9" />
             </div>
-            <h3 className="mt-6 text-2xl md:text-3xl font-extrabold text-emerald-950">
+            <h3 className="mt-6 text-2xl md:text-3xl font-extrabold text-[#0c1a30]">
               Application Successfully Submitted!
             </h3>
-            <p className="mx-auto mt-3 max-w-xl text-[16px] text-emerald-900/80">
+            <p className="mx-auto mt-3 max-w-xl text-[16px] text-[#334155]">
               Your application for{' '}
               <strong>{formData.businessName || 'your enterprise'}</strong> has been
               registered on the TTAADC single-window portal under Reference ID:{' '}
@@ -244,7 +244,7 @@ SECTION 7: APPLICANT UNDERTAKING
               <button
                 type="button"
                 onClick={handleDownloadApplicationDraft}
-                className="inline-flex items-center gap-2 rounded-full bg-emerald-800 px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-emerald-900"
+                className="inline-flex items-center gap-2 rounded-full bg-[#0c1a30] px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-[#15233d] cursor-pointer"
               >
                 <Download className="size-4" />
                 <span>Download Submission Receipt (.txt)</span>
@@ -252,7 +252,7 @@ SECTION 7: APPLICANT UNDERTAKING
               <button
                 type="button"
                 onClick={() => setSubmitted(false)}
-                className="inline-flex items-center gap-2 rounded-full border border-emerald-700 px-6 py-3 text-sm font-semibold text-emerald-900 transition-all hover:bg-emerald-100"
+                className="inline-flex items-center gap-2 rounded-full border border-[#0c1a30] px-6 py-3 text-sm font-semibold text-[#0c1a30] transition-all hover:bg-[#0c1a30]/5 cursor-pointer"
               >
                 <span>Edit / Submit Another Form</span>
               </button>
