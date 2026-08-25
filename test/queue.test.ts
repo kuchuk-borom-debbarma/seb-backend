@@ -7,7 +7,7 @@
  * gets there.
  */
 import { env } from 'cloudflare:test'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AppBindings } from '../src/bindings'
 import {
   drainMemoryQueue,
@@ -17,7 +17,12 @@ import {
   type QueueMessage,
 } from '../src/services/queue'
 import { cloudflareQueueTransport } from '../src/services/queue/transports/cloudflare'
-import { documentScanner, NO_SCANNER_REFERENCE } from '../src/services/document-scanner'
+import {
+  CLOUDMERSIVE_SCAN_REFERENCE,
+  documentScanner,
+  NO_SCANNER_REFERENCE,
+} from '../src/services/document-scanner'
+import { cloudmersiveScanner } from '../src/services/document-scanner/transports/cloudmersive'
 
 const bindings = (extra: Partial<AppBindings> = {}) => ({ ...env, ...extra }) as AppBindings
 
@@ -134,5 +139,173 @@ describe('scanning a document that was queued', () => {
      */
     expect(() => documentScanner(bindings({ ENVIRONMENT: 'production' })))
       .toThrowError(/No malware scanner is configured for the production environment/u)
+  })
+
+  it('is satisfied in production by a real scanner', () => {
+    const scanner = documentScanner(bindings({
+      ENVIRONMENT: 'production',
+      SCANNER_TRANSPORT: 'cloudmersive',
+      CLOUDMERSIVE_API_KEY: 'test-key',
+      STORAGE_TRANSPORT: 'cloudinary',
+      CLOUDINARY_CLOUD_NAME: 'test-cloud',
+      CLOUDINARY_API_KEY: 'k',
+      CLOUDINARY_API_SECRET: 's',
+    }))
+    expect(scanner.name).toBe('cloudmersive')
+  })
+
+  it('refuses a transport it does not have, rather than falling back', () => {
+    // Falling back would be the dangerous kind of forgiving: a typo in
+    // configuration would silently stop documents being examined.
+    expect(() => documentScanner(bindings({ SCANNER_TRANSPORT: 'clamav' })))
+      .toThrowError('SCANNER_TRANSPORT must be either "none" or "cloudmersive".')
+  })
+
+  it('refuses cloudmersive without its key, at construction', () => {
+    expect(() => documentScanner(bindings({ SCANNER_TRANSPORT: 'cloudmersive' })))
+      .toThrowError(/CLOUDMERSIVE_API_KEY is required/u)
+    // Whitespace is not a key either.
+    expect(() => documentScanner(bindings({
+      SCANNER_TRANSPORT: 'cloudmersive',
+      CLOUDMERSIVE_API_KEY: '   ',
+    }))).toThrowError(/CLOUDMERSIVE_API_KEY is required/u)
+  })
+
+  it('names "none" explicitly as well as by absence', () => {
+    expect(documentScanner(bindings({ SCANNER_TRANSPORT: 'none' })).name).toBe('permissive')
+    expect(() => documentScanner(bindings({
+      SCANNER_TRANSPORT: 'NONE',
+      ENVIRONMENT: 'production',
+    }))).toThrowError(/No malware scanner is configured/u)
+  })
+})
+
+describe('scanning with Cloudmersive', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  const OBJECT_KEY = 'applications/a/documents/DPR/object'
+
+  /** Records every call, and answers with whatever the test supplies. */
+  const stubFetch = (reply: () => Response) => {
+    const calls: Array<{ url: string; request: RequestInit | undefined }> = []
+    vi.stubGlobal('fetch', async (url: string, request?: RequestInit) => {
+      calls.push({ url: String(url), request })
+      return reply()
+    })
+    return calls
+  }
+
+  type Reader = (objectKey: string) => Promise<Response | null>
+  const reader: Reader = async () => new Response('file bytes')
+  const scanner = (read: Reader = reader) => cloudmersiveScanner('test-key', read)
+
+  it('sends the bytes, and never the key or the object key, in the body', async () => {
+    const calls = stubFetch(() => Response.json({ CleanResult: true, FoundViruses: [] }))
+    const outcome = await scanner().scan(OBJECT_KEY)
+
+    expect(outcome).toEqual({
+      verdict: 'ACCEPTED',
+      reference: CLOUDMERSIVE_SCAN_REFERENCE,
+      message: null,
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://api.cloudmersive.com/virus/scan/file')
+    // The key authenticates the request and belongs in a header, not the body.
+    expect((calls[0]!.request!.headers as Record<string, string>).Apikey).toBe('test-key')
+
+    const form = calls[0]!.request!.body as FormData
+    const sent = form.get('inputFile') as File
+    expect(await sent.text()).toBe('file bytes')
+    /*
+     * The filename is a constant. The object key names an applicant's evidence
+     * in a store, and there is no reason for a third party that only needs the
+     * bytes to learn it.
+     */
+    expect(sent.name).toBe('document')
+    expect(sent.name).not.toContain('applications')
+  })
+
+  it('rejects a file the scanner found something in, and names what', async () => {
+    stubFetch(() => Response.json({
+      CleanResult: false,
+      FoundViruses: [{ FileName: 'document', VirusName: 'Eicar-Test-Signature' }],
+    }))
+    const outcome = await scanner().scan(OBJECT_KEY)
+
+    expect(outcome.verdict).toBe('REJECTED')
+    expect(outcome.reference).toBe(CLOUDMERSIVE_SCAN_REFERENCE)
+    // Shown to staff, so it has to say something a person can act on.
+    expect(outcome.message).toContain('Eicar-Test-Signature')
+  })
+
+  it('still rejects when the provider names nothing it found', async () => {
+    // Both shapes of "nothing named": the field absent, and an empty list. A
+    // rejection has to survive either, because the verdict is the boolean.
+    for (const body of [{ CleanResult: false }, { CleanResult: false, FoundViruses: [] }]) {
+      stubFetch(() => Response.json(body))
+      const outcome = await scanner().scan(OBJECT_KEY)
+      expect(outcome.verdict).toBe('REJECTED')
+      expect(outcome.message).toBe('The scanner found malware in this file.')
+    }
+  })
+
+  it('reads the bytes from storage when built by the factory', async () => {
+    /*
+     * The factory wires the scanner to `objectReader`, and that wiring is the
+     * part no transport test can reach: given only a key, the queue consumer
+     * has to be able to fetch what the key names. Stored through the binding
+     * here, which is what a local environment reads.
+     */
+    const key = `scan/${crypto.randomUUID()}`
+    await env.STORAGE.put(key, new TextEncoder().encode('stored bytes'))
+
+    const calls = stubFetch(() => Response.json({ CleanResult: true }))
+    const outcome = await documentScanner(bindings({
+      SCANNER_TRANSPORT: 'cloudmersive',
+      CLOUDMERSIVE_API_KEY: 'test-key',
+    })).scan(key)
+
+    expect(outcome.verdict).toBe('ACCEPTED')
+    const sent = (calls[0]!.request!.body as FormData).get('inputFile') as File
+    expect(await sent.text()).toBe('stored bytes')
+  })
+
+  it('ignores entries that name no virus, rather than showing blanks', async () => {
+    stubFetch(() => Response.json({
+      CleanResult: false,
+      FoundViruses: [{ FileName: 'd' }, { VirusName: '  ' }, null, { VirusName: 'Real.Threat' }],
+    }))
+    expect((await scanner().scan(OBJECT_KEY)).message).toBe(
+      'The scanner identified Real.Threat.',
+    )
+  })
+
+  /*
+   * Everything below must throw rather than conclude. A document that was not
+   * examined stays unopenable and the queue message can be retried, which is
+   * the safe direction — resolving ACCEPTED for a file nothing looked at is
+   * the one outcome a scanner must never produce.
+   */
+  it('refuses to conclude when the object cannot be read', async () => {
+    stubFetch(() => Response.json({ CleanResult: true }))
+    await expect(scanner(async () => null).scan(OBJECT_KEY))
+      .rejects.toThrowError('The document could not be read for scanning.')
+  })
+
+  it('refuses to conclude when the provider rejects the request', async () => {
+    stubFetch(() => new Response('Apikey test-key is over quota', { status: 429 }))
+    // The status, and not the body: a provider's error can quote the request,
+    // and the request carries the key.
+    await expect(scanner().scan(OBJECT_KEY))
+      .rejects.toThrowError('The malware scanner refused the request (429).')
+    await expect(scanner().scan(OBJECT_KEY)).rejects.not.toThrowError(/test-key/u)
+  })
+
+  it('refuses to conclude when the answer is not a verdict', async () => {
+    for (const body of ['not json at all', '{"CleanResult":"true"}', '{}']) {
+      stubFetch(() => new Response(body, { status: 200 }))
+      await expect(scanner().scan(OBJECT_KEY))
+        .rejects.toThrowError('The malware scanner returned no verdict.')
+    }
   })
 })

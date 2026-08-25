@@ -20,6 +20,7 @@ import {
   DOCUMENT_TITLES,
   DOCUMENT_TYPES,
   FILE_ACCEPT,
+  MAX_DOCUMENT_MEGABYTES,
   formatBytes,
   rejectFile,
   uploadDocument,
@@ -89,7 +90,7 @@ function DocumentsPage() {
         title="Evidence"
         description={
           editable
-            ? 'Attach a PDF, JPEG or PNG for each document, up to 5 MB.'
+            ? `Attach a PDF, JPEG or PNG for each document, up to ${MAX_DOCUMENT_MEGABYTES} MB.`
             : 'These documents are part of a submitted application and can no longer be changed.'
         }
       />

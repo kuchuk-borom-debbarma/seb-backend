@@ -482,7 +482,7 @@ input IssueDocumentUploadInput {
   contentType: String!
 
   """
-  The exact size in bytes. At most 5 MB (5,242,880). Checked again against
+  The exact size in bytes. At most 2 MB (2,097,152). Checked again against
   what actually arrives.
   """
   sizeBytes: Int!
@@ -557,7 +557,7 @@ type UploadAuthorizationResult implements BaseResponse {
 
   """
   What to show the applicant when `success` is false — an unsupported file
-  type, a file over 5 MB, or a document that changed in another tab.
+  type, a file over 2 MB, or a document that changed in another tab.
   """
   message: String
 
@@ -675,7 +675,7 @@ type SebApplicationMutation {
   `finalizeDocumentUpload`. Nothing is attached until that second call, so an
   abandoned upload leaves the application untouched.
 
-  **Refuses:** a file over 5 MB, a type other than PDF, JPEG or PNG, a filename
+  **Refuses:** a file over 2 MB, a type other than PDF, JPEG or PNG, a filename
   whose extension disagrees with its type, and an application whose status no
   longer allows documents to change.
   """

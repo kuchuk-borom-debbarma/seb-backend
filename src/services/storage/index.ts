@@ -7,8 +7,8 @@
  * Built per call rather than cached, for the reason `src/index.ts` gives for
  * its own configuration: parsed on demand "so tests and local Wrangler
  * overrides can supply different bindings without global mutable
- * configuration". The suite runs `singleWorker: true`, so a cached backend
- * would be shared by every test in the run.
+ * configuration". Every test in a file shares one isolate, so a cached backend
+ * would outlive the test that configured it.
  */
 import type { AppBindings } from '../../bindings'
 import {
@@ -75,30 +75,49 @@ export const relaysThroughWorker = (env: AppBindings): boolean =>
  */
 export const objectStore = (env: AppBindings) =>
   usesLocalStorage(env)
-    ? {
-        put: async (key: string, body: ArrayBuffer, facts: { contentType: string }) => {
-          await env.STORAGE.put(key, body, {
-            sha256: await crypto.subtle.digest('SHA-256', body),
-            httpMetadata: { contentType: facts.contentType },
-          })
-        },
-        get: async (key: string) => {
-          const object = await env.STORAGE.get(key)
-          if (!object) return null
-          /*
-           * Carried as a header so both stores answer in the same shape, and
-           * defaulted here rather than at the caller: an object stored without
-           * a type is a real state, and the most inert type is the right answer
-           * to it wherever it is served.
-           */
-          return new Response(object.body, {
-            headers: {
-              'content-type':
-                object.httpMetadata?.contentType ?? 'application/octet-stream',
-            },
-          })
-        },
-      }
+    ? bindingObjectStore(env.STORAGE)
+    : cloudinaryObjectStore(requireCloudinaryConfiguration(env))
+
+/** The `STORAGE` binding as an object store. Backs both `local` and `r2`. */
+const bindingObjectStore = (bucket: R2Bucket) => ({
+  put: async (key: string, body: ArrayBuffer, facts: { contentType: string }) => {
+    await bucket.put(key, body, {
+      sha256: await crypto.subtle.digest('SHA-256', body),
+      httpMetadata: { contentType: facts.contentType },
+    })
+  },
+  get: async (key: string) => {
+    const object = await bucket.get(key)
+    if (!object) return null
+    /*
+     * Carried as a header so both stores answer in the same shape, and
+     * defaulted here rather than at the caller: an object stored without
+     * a type is a real state, and the most inert type is the right answer
+     * to it wherever it is served.
+     */
+    return new Response(object.body, {
+      headers: {
+        'content-type': object.httpMetadata?.contentType ?? 'application/octet-stream',
+      },
+    })
+  },
+})
+
+/**
+ * Reading a stored object's bytes, whichever transport holds them.
+ *
+ * Distinct from `objectStore`, which exists for the relaying *route* and is
+ * documented as never being asked about R2 — that store is only reached when
+ * the browser talks to this Worker instead of to the provider. A reader has no
+ * such luxury: the malware scanner must fetch bytes under every transport,
+ * including the one where uploads bypass this Worker entirely.
+ *
+ * Only `get` is meaningful here. Writing belongs to whoever received the
+ * upload, and this is for callers that look at what already landed.
+ */
+export const objectReader = (env: AppBindings) =>
+  usesLocalStorage(env) || deployedTransport(env) === 'r2'
+    ? bindingObjectStore(env.STORAGE)
     : cloudinaryObjectStore(requireCloudinaryConfiguration(env))
 
 /**

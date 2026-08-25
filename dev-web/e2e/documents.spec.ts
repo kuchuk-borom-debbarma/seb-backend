@@ -126,9 +126,9 @@ test.describe('evidence', () => {
     await choose(page, {
       name: 'big.pdf',
       mimeType: 'application/pdf',
-      buffer: Buffer.alloc(6 * 1024 * 1024, 0x20),
+      buffer: Buffer.alloc(3 * 1024 * 1024, 0x20),
     })
-    await expect(page.getByText('The largest a document can be is 5 MB.')).toBeVisible()
+    await expect(page.getByText('The largest a document can be is 2 MB.')).toBeVisible()
 
     /*
      * The name is the one thing about an upload that is stored and served back

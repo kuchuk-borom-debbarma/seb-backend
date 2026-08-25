@@ -67,4 +67,11 @@ export type AppBindings = CloudflareBindings & {
   CLOUDINARY_CLOUD_NAME?: string
   CLOUDINARY_API_KEY?: string
   CLOUDINARY_API_SECRET?: string
+  /** What examines uploaded documents: `cloudmersive`, or `none` to accept
+      them unexamined. Unset means `none`, which `production` refuses — see
+      services/document-scanner. */
+  SCANNER_TRANSPORT?: string
+  /** Required once SCANNER_TRANSPORT is `cloudmersive`; see
+      services/document-scanner/transports/cloudmersive.ts. */
+  CLOUDMERSIVE_API_KEY?: string
 }

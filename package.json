@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "fallow": "fallow --type-aware",
-    "check": "npm run typecheck && npm run test:coverage && npm run fallow && npm run check:sdl && npm run check:audit && npm run check:rate-limits && npm run db:schema:check",
+    "check": "npm run typecheck && npm run test:coverage && npm run fallow && npm run check:sdl && npm run check:audit && npm run check:rate-limits && npm run check:document-limit && npm run db:schema:check",
     "db:schema:generate": "node scripts/check-schema.mjs --write",
     "db:schema:check": "node scripts/check-schema.mjs && node --no-warnings scripts/check-migrations.mjs",
     "db:setup:local": "wrangler d1 execute DB --config wrangler.dev.jsonc --local --file=database/schema.sql && node scripts/migrate.mjs --stamp",
@@ -18,7 +18,8 @@
     "db:migrate:remote": "node scripts/migrate.mjs --remote",
     "check:sdl": "node scripts/check-sdl-descriptions.mjs",
     "check:audit": "node scripts/check-audit-actions.mjs",
-    "check:rate-limits": "node scripts/check-rate-limits.mjs"
+    "check:rate-limits": "node scripts/check-rate-limits.mjs",
+    "check:document-limit": "node scripts/check-document-limit.mjs"
   },
   "dependencies": {
     "@noble/hashes": "^2.3.0",

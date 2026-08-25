@@ -76,7 +76,17 @@ export const ALLOWED_CONTENT_TYPES = [
   'image/jpeg',
   'image/png',
 ] as const
-export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
+/**
+ * The largest a document may be, refused here so the applicant hears it before
+ * spending the upload rather than after.
+ *
+ * **Stated twice and checked.** The API holds the real rule in
+ * `src/services/application/uploads.ts`, which explains why this number is what
+ * it is — the malware scanner's free tier is what sets it. This is a separate
+ * package and cannot import that, so `npm run check:document-limit` reads both
+ * files and fails when they stop agreeing. Change one and change the other.
+ */
+export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 
 /** Stated once, so the limit and the sentence describing it cannot drift. */
 export const MAX_DOCUMENT_MEGABYTES = MAX_DOCUMENT_BYTES / (1024 * 1024)

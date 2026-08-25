@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AppBindings } from '../src/bindings'
 import { createDatabase } from '../src/db'
 import {
+  objectReader,
   objectStore,
   relaysThroughWorker,
   storage,
@@ -519,5 +520,72 @@ describe('relaying bytes to Cloudinary', () => {
     expect(await backend().describe('applications/a/gone/1')).toBeNull()
     expect(await backend().readPrefix('applications/a/gone/1', 5)).toBeNull()
     expect(await objectStore(bindings()).get('applications/a/gone/1')).toBeNull()
+  })
+})
+
+describe('reading an object under any transport', () => {
+  /*
+   * `objectStore` exists for the relaying route and is documented as never
+   * being asked about R2 — that store is only reached when the browser talks to
+   * this Worker rather than to the provider. `objectReader` has no such luxury:
+   * the malware scanner must fetch bytes under every transport, including the
+   * one where uploads bypass this Worker entirely. So each transport is
+   * exercised here, and R2 is the one that would have thrown.
+   */
+  const bindings = (extra: Partial<AppBindings> = {}) => ({ ...env, ...extra }) as AppBindings
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  const stored = async (body: string) => {
+    const key = `reader/${crypto.randomUUID()}`
+    await env.STORAGE.put(key, new TextEncoder().encode(body), {
+      httpMetadata: { contentType: 'application/pdf' },
+    })
+    return key
+  }
+
+  it('reads through the binding locally', async () => {
+    const key = await stored('local bytes')
+    const object = await objectReader(bindings()).get(key)
+    expect(await object!.text()).toBe('local bytes')
+    expect(object!.headers.get('content-type')).toBe('application/pdf')
+  })
+
+  it('reads through the binding under r2, where objectStore would refuse', async () => {
+    const key = await stored('r2 bytes')
+    const r2 = bindings({ ENVIRONMENT: 'develop', STORAGE_TRANSPORT: 'r2' })
+    expect(await (await objectReader(r2).get(key))!.text()).toBe('r2 bytes')
+    // The distinction this function exists for.
+    expect(() => objectStore(r2)).toThrowError()
+  })
+
+  it('reads from the provider under cloudinary', async () => {
+    vi.stubGlobal('fetch', async () => new Response('cloudinary bytes'))
+    const object = await objectReader(bindings({
+      ENVIRONMENT: 'develop',
+      STORAGE_TRANSPORT: 'cloudinary',
+      CLOUDINARY_CLOUD_NAME: 'test-cloud',
+      CLOUDINARY_API_KEY: 'test-key',
+      CLOUDINARY_API_SECRET: 'test-secret',
+    })).get('applications/a/DPR/1')
+    expect(await object!.text()).toBe('cloudinary bytes')
+  })
+
+  it('reports an object that is not there as absent', async () => {
+    expect(await objectReader(bindings()).get(`missing/${crypto.randomUUID()}`)).toBeNull()
+  })
+
+  it('defaults a type-less object to the most inert type', async () => {
+    const key = `reader/${crypto.randomUUID()}`
+    await env.STORAGE.put(key, new TextEncoder().encode('no type'))
+    const object = await objectReader(bindings()).get(key)
+    expect(object!.headers.get('content-type')).toBe('application/octet-stream')
+    /*
+     * Read even though the header is what is being asserted. The response wraps
+     * the R2 object's stream, and leaving it unconsumed holds the bucket open —
+     * isolated storage then cannot unwind after the test and the whole file
+     * fails with "unable to pop R2 storage", nowhere near the cause.
+     */
+    expect(await object!.text()).toBe('no type')
   })
 })

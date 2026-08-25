@@ -13,7 +13,7 @@
  * the same trade the local transport already makes.
  *
  * The cost is real and bounded: a document is held in memory once, and the
- * programme caps a document at 5 MB.
+ * programme caps a document at 2 MB.
  *
  * ## Why uploads are `authenticated`
  *

@@ -356,10 +356,16 @@ submitted in an older cycle.
 - [x] Route every finalized document through a scanner before it becomes
   available to programme staff. The seam, the producer and the consumer are all
   real; which product does the scanning is the open decision below.
-- [ ] Choose and configure a real malware scanner. Until one exists, `local` and
+- [x] Choose a real malware scanner. Cloudmersive, selected by
+  `SCANNER_TRANSPORT` alongside the permissive `none`. With `none`, `local` and
   `develop` accept documents without examining them and record
   `NO_SCANNER_CONFIGURED` against each one, so an unexamined file can never be
-  mistaken for a checked one. `production` refuses to start without a scanner.
+  mistaken for a checked one. `production` refuses `none` at construction.
+- [ ] Provision `CLOUDMERSIVE_API_KEY` and turn the transport on in the deployed
+  configuration. The code is delivered and tested; what remains is an account.
+  Its free tier is ~600-800 scans a month, one at a time, and refuses a file
+  over 2.5 MB — which is why documents are capped at 2 MB. An intake round of
+  any size needs a paid tier or a different transport.
 - [ ] Show applicants the malware-scan states “Pending”, “Accepted”, and
   “Rejected”, with a safe reason and a replacement action for rejected files.
 - [ ] Prevent submission while any required document is awaiting or has failed
@@ -957,9 +963,10 @@ complete.
   a minute" — bulk abuse is stopped, a patient attacker trickling requests is
   not. A Durable Object counts any window; swapping to one changes a single
   transport file and the numbers in the policy.
-- [ ] Configure a real malware scanner. This is a **production** blocker rather
-  than a blanket one: the seam exists, and `local` and `develop` are usable
-  without it because they record plainly that nothing examined the file.
+- [ ] Provision the malware scanner's API key and enable it. This is a
+  **production** blocker rather than a blanket one: the transport is delivered,
+  and `local` and `develop` are usable without it because they record plainly
+  that nothing examined the file.
 - [ ] Complete administrator recovery procedures. Provisioning is delivered.
 - [ ] Approve applicant privacy notice, consent text, retention schedule, and
   grievance/contact process.
