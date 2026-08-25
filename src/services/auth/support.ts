@@ -22,6 +22,7 @@ export type AuthAuditEntityType =
   | 'CORE_USER_ROLE_GRANT'
   | 'CORE_SESSION'
   | 'CORE_SIGNUP_CHALLENGE'
+  | 'CORE_ACCOUNT_CHALLENGE'
 
 /**
  * Builds one allow-listed audit record. Callers provide only public IDs and

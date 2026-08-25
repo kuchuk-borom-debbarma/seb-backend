@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ShellRouteImport } from './routes/_shell'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as InviteRouteImport } from './routes/invite'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
@@ -18,6 +19,8 @@ import { Route as ShellAdminRouteRouteImport } from './routes/_shell/admin/route
 import { Route as ShellGuideRouteImport } from './routes/_shell/guide'
 import { Route as ShellApplicantIndexRouteImport } from './routes/_shell/_applicant/index'
 import { Route as ShellApplicantCyclesRouteImport } from './routes/_shell/_applicant/cycles'
+import { Route as ShellAccountProfileRouteImport } from './routes/_shell/account/profile'
+import { Route as ShellAccountSecurityRouteImport } from './routes/_shell/account/security'
 import { Route as ShellAccountSessionsRouteImport } from './routes/_shell/account/sessions'
 import { Route as ShellAdminIndexRouteImport } from './routes/_shell/admin/index'
 import { Route as ShellAdminAuditRouteImport } from './routes/_shell/admin/audit'
@@ -45,6 +48,11 @@ import { Route as ShellAdminApplicationsIdFundingRouteImport } from './routes/_s
 
 const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InviteRoute = InviteRouteImport.update({
@@ -85,6 +93,16 @@ const ShellApplicantCyclesRoute = ShellApplicantCyclesRouteImport.update({
   id: '/cycles',
   path: '/cycles',
   getParentRoute: () => ShellApplicantRoute,
+} as any)
+const ShellAccountProfileRoute = ShellAccountProfileRouteImport.update({
+  id: '/account/profile',
+  path: '/account/profile',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellAccountSecurityRoute = ShellAccountSecurityRouteImport.update({
+  id: '/account/security',
+  path: '/account/security',
+  getParentRoute: () => ShellRoute,
 } as any)
 const ShellAccountSessionsRoute = ShellAccountSessionsRouteImport.update({
   id: '/account/sessions',
@@ -223,12 +241,15 @@ const ShellAdminApplicationsIdFundingRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellApplicantIndexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/invite': typeof InviteRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/admin': typeof ShellAdminRouteRouteWithChildren
   '/guide': typeof ShellGuideRoute
   '/cycles': typeof ShellApplicantCyclesRoute
+  '/account/profile': typeof ShellAccountProfileRoute
+  '/account/security': typeof ShellAccountSecurityRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
   '/admin/audit': typeof ShellAdminAuditRoute
   '/admin/invite': typeof ShellAdminInviteRoute
@@ -256,11 +277,14 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof ShellApplicantIndexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/invite': typeof InviteRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/guide': typeof ShellGuideRoute
   '/cycles': typeof ShellApplicantCyclesRoute
+  '/account/profile': typeof ShellAccountProfileRoute
+  '/account/security': typeof ShellAccountSecurityRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
   '/admin/audit': typeof ShellAdminAuditRoute
   '/admin/invite': typeof ShellAdminInviteRoute
@@ -289,6 +313,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_shell': typeof ShellRouteWithChildren
+  '/forgot-password': typeof ForgotPasswordRoute
   '/invite': typeof InviteRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
@@ -296,6 +321,8 @@ export interface FileRoutesById {
   '/_shell/_applicant': typeof ShellApplicantRouteWithChildren
   '/_shell/guide': typeof ShellGuideRoute
   '/_shell/_applicant/cycles': typeof ShellApplicantCyclesRoute
+  '/_shell/account/profile': typeof ShellAccountProfileRoute
+  '/_shell/account/security': typeof ShellAccountSecurityRoute
   '/_shell/account/sessions': typeof ShellAccountSessionsRoute
   '/_shell/admin/audit': typeof ShellAdminAuditRoute
   '/_shell/admin/invite': typeof ShellAdminInviteRoute
@@ -326,12 +353,15 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/forgot-password'
     | '/invite'
     | '/sign-in'
     | '/sign-up'
     | '/admin'
     | '/guide'
     | '/cycles'
+    | '/account/profile'
+    | '/account/security'
     | '/account/sessions'
     | '/admin/audit'
     | '/admin/invite'
@@ -359,11 +389,14 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/forgot-password'
     | '/invite'
     | '/sign-in'
     | '/sign-up'
     | '/guide'
     | '/cycles'
+    | '/account/profile'
+    | '/account/security'
     | '/account/sessions'
     | '/admin/audit'
     | '/admin/invite'
@@ -391,6 +424,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_shell'
+    | '/forgot-password'
     | '/invite'
     | '/sign-in'
     | '/sign-up'
@@ -398,6 +432,8 @@ export interface FileRouteTypes {
     | '/_shell/_applicant'
     | '/_shell/guide'
     | '/_shell/_applicant/cycles'
+    | '/_shell/account/profile'
+    | '/_shell/account/security'
     | '/_shell/account/sessions'
     | '/_shell/admin/audit'
     | '/_shell/admin/invite'
@@ -427,6 +463,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ShellRoute: typeof ShellRouteWithChildren
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   InviteRoute: typeof InviteRoute
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
@@ -439,6 +476,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof ShellRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/invite': {
@@ -496,6 +540,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/cycles'
       preLoaderRoute: typeof ShellApplicantCyclesRouteImport
       parentRoute: typeof ShellApplicantRoute
+    }
+    '/_shell/account/profile': {
+      id: '/_shell/account/profile'
+      path: '/account/profile'
+      fullPath: '/account/profile'
+      preLoaderRoute: typeof ShellAccountProfileRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/account/security': {
+      id: '/_shell/account/security'
+      path: '/account/security'
+      fullPath: '/account/security'
+      preLoaderRoute: typeof ShellAccountSecurityRouteImport
+      parentRoute: typeof ShellRoute
     }
     '/_shell/account/sessions': {
       id: '/_shell/account/sessions'
@@ -747,6 +805,8 @@ interface ShellRouteChildren {
   ShellAdminRouteRoute: typeof ShellAdminRouteRouteWithChildren
   ShellApplicantRoute: typeof ShellApplicantRouteWithChildren
   ShellGuideRoute: typeof ShellGuideRoute
+  ShellAccountProfileRoute: typeof ShellAccountProfileRoute
+  ShellAccountSecurityRoute: typeof ShellAccountSecurityRoute
   ShellAccountSessionsRoute: typeof ShellAccountSessionsRoute
 }
 
@@ -754,6 +814,8 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellAdminRouteRoute: ShellAdminRouteRouteWithChildren,
   ShellApplicantRoute: ShellApplicantRouteWithChildren,
   ShellGuideRoute: ShellGuideRoute,
+  ShellAccountProfileRoute: ShellAccountProfileRoute,
+  ShellAccountSecurityRoute: ShellAccountSecurityRoute,
   ShellAccountSessionsRoute: ShellAccountSessionsRoute,
 }
 
@@ -761,6 +823,7 @@ const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   ShellRoute: ShellRouteWithChildren,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   InviteRoute: InviteRoute,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,

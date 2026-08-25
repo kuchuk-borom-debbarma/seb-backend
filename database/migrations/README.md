@@ -1,18 +1,20 @@
 # Migrations
 
-**This directory is empty, and that is the current state rather than an
-oversight.**
+**That day has arrived.** This directory held nothing until
+`0001-account-self-service.sql`, and the paragraph that used to open this file
+— "No database exists that anybody has to keep" — is no longer true.
 
-`../schema.sql` is the whole schema. No database exists that anybody has to
-keep — `wrangler.jsonc` declares `DB` with no `database_id`, the Worker suite
-applies the baseline into a fresh database for every run, and the end-to-end
-suite deletes its database directory before rebuilding it. A change made in
-`src/db/schema/` and regenerated into the baseline is therefore complete, and
-there is nothing for a migration to carry it into.
+`wrangler.jsonc` now names a `database_id`, and the database behind it holds
+real accounts. The Worker suite still applies the baseline into a fresh database
+for every run, and the end-to-end suite still deletes its database directory
+before rebuilding it, so both of those are unaffected. The deployed one is not:
+a change made in `src/db/schema/` and regenerated into `../schema.sql` reaches
+it only through a file here.
 
-That ends the day a database exists that cannot be thrown away. From then on
-every change to a table that already exists needs a file here, for the reason
-below.
+From here on, **every change to a table that already exists needs a migration**,
+for the reason below. New tables and new indexes are still carried by the
+baseline for a fresh database — but the deployed database is not fresh, so put
+those in the migration too, as `0001` does.
 
 ## Why the baseline will not be enough
 

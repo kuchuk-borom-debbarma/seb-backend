@@ -1,5 +1,11 @@
 import { coreAuditEvent } from './core/audit'
-import { coreSession, coreSignupChallenge, coreUser, coreUserRoleGrant } from './core/auth'
+import {
+  coreAccountChallenge,
+  coreSession,
+  coreSignupChallenge,
+  coreUser,
+  coreUserRoleGrant,
+} from './core/auth'
 import {
   sebApplication,
   sebApplicationSubmission,
@@ -72,6 +78,7 @@ export const schema = {
   coreUserRoleGrant,
   coreSession,
   coreSignupChallenge,
+  coreAccountChallenge,
   coreAuditEvent,
   sebEnterprise,
   sebEnterpriseVersion,

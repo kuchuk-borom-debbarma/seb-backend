@@ -102,7 +102,27 @@ if (changedOnReapply.length > 0) {
  * applied newest-first, so this list reads in the opposite order to the
  * directory.
  */
-const rewind = []
+const rewind = [
+  {
+    migration: '0001-account-self-service.sql',
+    /*
+     * Undoes the two things `0001` adds: the whole `core_account_challenge`
+     * table with its indexes, and `core_user.display_name`.
+     *
+     * Text surgery on the baseline rather than SQL, because the point is to
+     * produce a database that predates the migration so the two routes to
+     * today's shape can be compared. Anchored on the exact generated text,
+     * including the leading tab drizzle-kit emits, so a regenerated baseline
+     * that no longer matches fails here loudly instead of silently ageing
+     * nothing — the check below rejects an ageing that changed nothing.
+     */
+    age: (sql) =>
+      sql
+        .replace(/CREATE TABLE IF NOT EXISTS `core_account_challenge` \([\s\S]*?\n\);\n\n/u, '')
+        .replace(/^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS `core_account_challenge_[^`]+`[^\n]*\n/gmu, '')
+        .replace('\t`display_name` text,\n', ''),
+  },
+]
 
 const unknown = rewind.filter((entry) => !migrations.includes(entry.migration))
 const unrewound = migrations.filter(

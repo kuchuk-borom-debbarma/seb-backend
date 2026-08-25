@@ -52,6 +52,22 @@ export const coreUser = sqliteTable(
     emailVerifiedAt: integer('email_verified_at', { mode: 'timestamp_ms' }),
     rowVersion: integer('row_version').notNull().default(1),
     ...softDeleteColumns((): AnySQLiteColumn => coreUser.id),
+    /*
+     * What this person is called, when they have said. Nullable because every
+     * account that existed before this column has no answer, and inventing one
+     * from the email address would be a guess presented as a fact.
+     *
+     * Deliberately not unique and not an identifier: the address remains how an
+     * account is addressed and how the office refers to each other. This is a
+     * label, so two people called the same thing is not a conflict.
+     *
+     * **Declared last, and that is load-bearing.** `ALTER TABLE ADD COLUMN`
+     * appends, so a database migrated past `0001` carries this as its final
+     * column. Declaring it anywhere else would build a fresh database with a
+     * different column order from a migrated one, and `check-migrations.mjs`
+     * compares the two.
+     */
+    displayName: text('display_name'),
   },
   (table) => [
     check('core_user_row_version_check', sql`${table.rowVersion} >= 1`),
@@ -174,5 +190,85 @@ export const coreSignupChallenge = sqliteTable(
     // range. Keeping the equality column first prevents retained challenge
     // history from making each cron run scan every old expired row.
     index('core_signup_challenge_status_expiry_idx').on(table.status, table.expiresAt),
+  ],
+)
+
+/**
+ * What an account challenge is proving.
+ *
+ * Both purposes share a lifecycle, a pair of digests and an attempt counter,
+ * so they share a table rather than duplicating one. The column is what makes
+ * a reset code useless against an email change and the reverse — the purpose
+ * is part of what is verified, not a label on the row.
+ */
+export const accountChallengePurposes = ['PASSWORD_RESET', 'EMAIL_CHANGE'] as const
+export type AccountChallengePurpose = (typeof accountChallengePurposes)[number]
+
+/**
+ * One request to prove control of a mailbox, for an account that already
+ * exists.
+ *
+ * Deliberately the same shape as `core_signup_challenge`: a digest of the token
+ * handed to the browser, a digest of the code sent to the mailbox, a bounded
+ * attempt counter and a status that closes rather than deletes. Neither raw
+ * value is ever stored, and the two are independent — the token alone proves
+ * only that this browser asked, the code alone only that somebody read the
+ * mailbox.
+ *
+ * Separate from the signup challenge because that one has no user yet and this
+ * one always does. Merging them would mean a nullable `user_id` that is
+ * required in one flow and forbidden in the other, which no constraint could
+ * then express.
+ */
+export const coreAccountChallenge = sqliteTable(
+  'core_account_challenge',
+  {
+    id: text('id').primaryKey(),
+    purpose: text('purpose', { enum: accountChallengePurposes }).notNull(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => coreUser.id, { onDelete: 'restrict' }),
+    /*
+     * Where the code went, which is not always the account's address: an email
+     * change sends it to the address being claimed. Recorded so the completing
+     * step knows which address was actually proved, rather than trusting an
+     * argument sent with it.
+     */
+    email: text('email').notNull(),
+    challengeDigest: text('challenge_digest').notNull().unique(),
+    otpDigest: text('otp_digest').notNull(),
+    attemptsRemaining: integer('attempts_remaining').notNull(),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    status: text('status', { enum: signupChallengeStatuses }).notNull().default('PENDING'),
+    consumedAt: integer('consumed_at', { mode: 'timestamp_ms' }),
+    invalidatedAt: integer('invalidated_at', { mode: 'timestamp_ms' }),
+    invalidationReason: text('invalidation_reason'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    check(
+      'core_account_challenge_attempts_check',
+      sql`${table.attemptsRemaining} BETWEEN 0 AND 20`,
+    ),
+    check(
+      'core_account_challenge_purpose_check',
+      sql`${table.purpose} IN ('PASSWORD_RESET', 'EMAIL_CHANGE')`,
+    ),
+    check(
+      'core_account_challenge_status_check',
+      sql`${table.status} IN ('PENDING', 'CONSUMED', 'EXHAUSTED', 'EXPIRED', 'CANCELLED', 'DELIVERY_FAILED')`,
+    ),
+    // Superseding an account's outstanding challenges for one purpose, which is
+    // what starting a new request does.
+    index('core_account_challenge_user_purpose_idx').on(
+      table.userId,
+      table.purpose,
+      table.status,
+      table.expiresAt,
+    ),
+    // The cron sweep, for the reason the signup challenge gives for its own:
+    // equality column first, so retained history is not rescanned every hour.
+    index('core_account_challenge_status_expiry_idx').on(table.status, table.expiresAt),
   ],
 )

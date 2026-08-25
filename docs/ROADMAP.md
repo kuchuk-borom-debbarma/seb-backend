@@ -101,11 +101,19 @@ These rules are already agreed and must remain true throughout the roadmap.
   sessions.
 - [x] Removing applicant access stops applicant operations on the next request,
   even if the person was already signed in.
-- [ ] Add “forgot password” using a short-lived email verification flow.
-- [ ] Allow a password reset to revoke all existing sessions as the default safe
-  choice, while clearly informing the applicant before completion.
-- [ ] Add a verified-email change flow that confirms both account ownership and
-  the new address before the login email changes.
+- [x] Add “forgot password” using a short-lived email verification flow. Ten
+  minutes, five attempts, and a challenge token independent of the emailed code
+  — the same pair signup uses. Answers identically for an address that has no
+  account, so it cannot be used to discover who has applied.
+- [x] Allow a password reset to revoke all existing sessions as the default safe
+  choice, while clearly informing the applicant before completion. The reset
+  screen says so before the password is set, and a notice is sent afterwards.
+- [x] Add a verified-email change flow that confirms both account ownership and
+  the new address before the login email changes. The password proves the
+  account, a code sent to the new address proves that; the old address is told a
+  change was asked for.
+- [x] Let somebody change a password they still know, and set what they are
+  called. Other devices are signed out; the one in use is not.
 - [ ] Add an applicant account closure flow that explains retained application
   history, blocks further sign-in, and revokes all active sessions.
 

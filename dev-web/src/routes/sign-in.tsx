@@ -118,6 +118,8 @@ function SignInPage() {
         </form>
 
         <p className={styles.footer}>
+          <Link to="/forgot-password">Forgotten your password?</Link>
+          <br />
           Applying for the first time? <Link to="/sign-up">Create an account</Link>
         </p>
       </div>

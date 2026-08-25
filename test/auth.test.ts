@@ -29,6 +29,7 @@ import {
   type AuditEventRecord,
   type SessionRecord,
 } from '../src/services/auth/queries/auth'
+import { markAccountChallengeDeliveryFailed } from '../src/services/auth/queries/account'
 import type { AuthOperationContext } from '../src/services/auth/types'
 
 type GraphQLResponse<T> = {
@@ -52,7 +53,8 @@ const testAuditEvent = (
     | 'CORE_USER'
     | 'CORE_USER_ROLE_GRANT'
     | 'CORE_SESSION'
-    | 'CORE_SIGNUP_CHALLENGE',
+    | 'CORE_SIGNUP_CHALLENGE'
+    | 'CORE_ACCOUNT_CHALLENGE',
   entityId: string,
   outcome: 'SUCCESS' | 'FAILURE',
 ): AuditEventRecord => ({
@@ -1849,6 +1851,7 @@ describe('authentication', () => {
         email: challenge.email,
         passwordHash: await passwordHash,
         emailVerifiedAt: createdAt,
+        displayName: null,
         rowVersion: 1,
         createdAt,
         updatedAt: createdAt,
@@ -2887,5 +2890,438 @@ describe('limits on request size and shape', () => {
     )
     expect(body.errors).toBeUndefined()
     expect(body.data?.health.status).toBeTruthy()
+  })
+})
+
+describe('recovering and changing an account', () => {
+  /** Signs somebody up for real and signs them in, returning both handles. */
+  const account = async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const email = `account-${crypto.randomUUID()}@example.test`
+    const signup = await startSignup(email, log)
+    await verifySignup(signup.challengeToken, signup.otp)
+    log.mockRestore()
+    const signedIn = await signInAs(email, DEFAULT_PASSWORD)
+    return { email, cookie: cookieHeaderFrom(signedIn.response) }
+  }
+
+  const startReset = async (email: string) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { body } = await graphql<{
+      auth: {
+        startPasswordReset: {
+          success: boolean
+          message: string | null
+          response: { challengeToken: string; expiresAt: string } | null
+        }
+      }
+    }>(/* GraphQL */ `
+      mutation {
+        auth {
+          startPasswordReset(input: { email: "${email}" }) {
+            success message response { challengeToken expiresAt }
+          }
+        }
+      }
+    `)
+    const otp = log.mock.calls.some((call) => String(call[0]).startsWith('DEV_EMAIL '))
+      ? extractOtp(log)
+      : null
+    log.mockRestore()
+    return { result: body.data?.auth.startPasswordReset, otp }
+  }
+
+  const completeReset = async (challengeToken: string, otp: string, newPassword: string) => {
+    const { body } = await graphql<{
+      auth: { completePasswordReset: { success: boolean; message: string | null } }
+    }>(/* GraphQL */ `
+      mutation {
+        auth {
+          completePasswordReset(input: {
+            challengeToken: "${challengeToken}"
+            otp: "${otp}"
+            newPassword: "${newPassword}"
+          }) { success message }
+        }
+      }
+    `)
+    return body.data?.auth.completePasswordReset
+  }
+
+  it('answers an unknown address exactly as it answers a real one', async () => {
+    const person = await account()
+    const real = await startReset(person.email)
+    const nobody = await startReset(`ghost-${crypto.randomUUID()}@example.test`)
+
+    /*
+     * The whole enumeration defence. Same success, same message, and a token of
+     * the same shape — the only difference is that one was stored and a code
+     * sent. A response that differed here would turn a grants portal into a
+     * membership oracle for its own applicant list.
+     */
+    expect(nobody.result?.success).toBe(real.result?.success)
+    expect(nobody.result?.message).toBe(real.result?.message)
+    expect(nobody.result?.response?.challengeToken).toMatch(/^[A-Za-z0-9_-]{43}$/u)
+    // The decoy is a real refusal underneath: no code was sent, and it works
+    // against nothing.
+    expect(nobody.otp).toBeNull()
+    expect(real.otp).toMatch(/^\d{6}$/u)
+  })
+
+  it('resets a forgotten password and signs every device out', async () => {
+    const person = await account()
+    // A second device, so "every session" can be shown to mean every one.
+    const second = await signInAs(person.email, DEFAULT_PASSWORD)
+    const secondCookie = cookieHeaderFrom(second.response)
+
+    const started = await startReset(person.email)
+    const NEW_PASSWORD = 'a different correct horse'
+    expect(await completeReset(started.result!.response!.challengeToken, started.otp!, NEW_PASSWORD))
+      .toMatchObject({ success: true })
+
+    // The old password is gone and the new one works.
+    expect((await signInAs(person.email, DEFAULT_PASSWORD)).body.data?.auth.signIn.success)
+      .toBe(false)
+    expect((await signInAs(person.email, NEW_PASSWORD)).body.data?.auth.signIn.success)
+      .toBe(true)
+
+    /*
+     * Both prior sessions are dead. A password that was forgotten cannot be
+     * told apart from one that was taken, so leaving any session alive would
+     * leave whoever took it signed in.
+     */
+    for (const cookie of [person.cookie, secondCookie]) {
+      const { body } = await graphql<CurrentSessionBody>(
+        /* GraphQL */ `query { auth { currentSession { success response { user { roles } } } } }`,
+        cookie,
+      )
+      expect(body.data?.auth.currentSession.response).toBeNull()
+    }
+  })
+
+  it('spends attempts on a wrong code and then refuses the right one', async () => {
+    const person = await account()
+    const started = await startReset(person.email)
+    const token = started.result!.response!.challengeToken
+
+    // Five attempts is the configured allowance; the sixth has nothing left.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(await completeReset(token, '000000', 'a different correct horse'))
+        .toMatchObject({ success: false })
+    }
+    // Exhausted, so even the genuine code no longer works — the challenge is
+    // spent rather than the code being wrong.
+    expect(await completeReset(token, started.otp!, 'a different correct horse'))
+      .toMatchObject({ success: false })
+    expect((await signInAs(person.email, DEFAULT_PASSWORD)).body.data?.auth.signIn.success)
+      .toBe(true)
+  })
+
+  it('refuses a reset password that is too short, without spending the code', async () => {
+    const person = await account()
+    const started = await startReset(person.email)
+    const token = started.result!.response!.challengeToken
+
+    expect(await completeReset(token, started.otp!, 'short')).toMatchObject({ success: false })
+    // Validation runs before the challenge is read, so the code a person is
+    // holding still works once they choose a longer password.
+    expect(await completeReset(token, started.otp!, 'a different correct horse'))
+      .toMatchObject({ success: true })
+  })
+
+  const changePassword = async (cookie: string, current: string, next: string) => {
+    const { body } = await graphql<{
+      auth: { changePassword: { success: boolean; message: string | null } }
+    }>(/* GraphQL */ `
+      mutation {
+        auth {
+          changePassword(input: {
+            currentPassword: "${current}"
+            newPassword: "${next}"
+          }) { success message }
+        }
+      }
+    `, cookie)
+    return body.data?.auth.changePassword
+  }
+
+  it('changes a known password, keeping this session and ending the others', async () => {
+    const person = await account()
+    const second = await signInAs(person.email, DEFAULT_PASSWORD)
+    const secondCookie = cookieHeaderFrom(second.response)
+
+    const NEW_PASSWORD = 'another correct horse entirely'
+    expect(await changePassword(person.cookie, DEFAULT_PASSWORD, NEW_PASSWORD))
+      .toMatchObject({ success: true })
+
+    // The person is holding this one, so it survives.
+    const here = await graphql<CurrentSessionBody>(
+      /* GraphQL */ `query { auth { currentSession { success response { user { roles } } } } }`,
+      person.cookie,
+    )
+    expect(here.body.data?.auth.currentSession.response).not.toBeNull()
+
+    // The other device does not.
+    const elsewhere = await graphql<CurrentSessionBody>(
+      /* GraphQL */ `query { auth { currentSession { success response { user { roles } } } } }`,
+      secondCookie,
+    )
+    expect(elsewhere.body.data?.auth.currentSession.response).toBeNull()
+
+    expect((await signInAs(person.email, NEW_PASSWORD)).body.data?.auth.signIn.success).toBe(true)
+  })
+
+  it('refuses a password change without the current password', async () => {
+    const person = await account()
+    expect(await changePassword(person.cookie, 'not the password', 'a long enough one'))
+      .toMatchObject({ success: false, message: 'Your password is incorrect.' })
+    // Nothing changed.
+    expect((await signInAs(person.email, DEFAULT_PASSWORD)).body.data?.auth.signIn.success)
+      .toBe(true)
+  })
+
+  it('refuses every account change to a caller with no session', async () => {
+    const person = await account()
+    expect(await changePassword(undefined as unknown as string, DEFAULT_PASSWORD, 'a long one'))
+      .toMatchObject({ success: false })
+
+    const { body } = await graphql<{
+      auth: { changeDisplayName: { success: boolean; message: string | null } }
+    }>(/* GraphQL */ `
+      mutation { auth { changeDisplayName(input: { displayName: "Nobody" }) { success message } } }
+    `)
+    expect(body.data?.auth.changeDisplayName.success).toBe(false)
+    expect(person.email).toBeTruthy()
+  })
+
+  const startEmailChange = async (cookie: string, newEmail: string, password: string) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { body } = await graphql<{
+      auth: {
+        startEmailChange: {
+          success: boolean
+          message: string | null
+          response: { challengeToken: string } | null
+        }
+      }
+    }>(/* GraphQL */ `
+      mutation {
+        auth {
+          startEmailChange(input: {
+            newEmail: "${newEmail}"
+            currentPassword: "${password}"
+          }) { success message response { challengeToken } }
+        }
+      }
+    `, cookie)
+    const sent = log.mock.calls.some((call) => String(call[0]).startsWith('DEV_EMAIL '))
+    const otp = sent ? extractOtp(log) : null
+    log.mockRestore()
+    return { result: body.data?.auth.startEmailChange, otp }
+  }
+
+  const completeEmailChange = async (cookie: string, challengeToken: string, otp: string) => {
+    const { body } = await graphql<{
+      auth: {
+        completeEmailChange: {
+          success: boolean
+          message: string | null
+          response: { email: string } | null
+        }
+      }
+    }>(/* GraphQL */ `
+      mutation {
+        auth {
+          completeEmailChange(input: {
+            challengeToken: "${challengeToken}"
+            otp: "${otp}"
+          }) { success message response { email } }
+        }
+      }
+    `, cookie)
+    if (body.errors) throw new Error(JSON.stringify(body.errors))
+    return body.data?.auth.completeEmailChange
+  }
+
+  it('moves an account to an address whose code was proved', async () => {
+    const person = await account()
+    const moved = `moved-${crypto.randomUUID()}@example.test`
+
+    const started = await startEmailChange(person.cookie, moved, DEFAULT_PASSWORD)
+    expect(started.result?.success).toBe(true)
+    const done = await completeEmailChange(
+      person.cookie, started.result!.response!.challengeToken, started.otp!,
+    )
+    expect(done?.response?.email).toBe(moved)
+
+    // The new address signs in; the old one no longer names anybody.
+    expect((await signInAs(moved, DEFAULT_PASSWORD)).body.data?.auth.signIn.success).toBe(true)
+    expect((await signInAs(person.email, DEFAULT_PASSWORD)).body.data?.auth.signIn.success)
+      .toBe(false)
+  })
+
+  it('refuses an address already in use, and does not say that is why', async () => {
+    const person = await account()
+    const other = await account()
+
+    const started = await startEmailChange(person.cookie, other.email, DEFAULT_PASSWORD)
+    /*
+     * Succeeds and says what a free address would say. Anything else lets a
+     * signed-in person test addresses one at a time to learn who has an
+     * account — the same oracle the reset flow refuses to be.
+     */
+    expect(started.result?.success).toBe(true)
+    // No code was sent, so the token it handed back works against nothing.
+    expect(started.otp).toBeNull()
+    expect(await completeEmailChange(person.cookie, started.result!.response!.challengeToken, '123456'))
+      .toMatchObject({ success: false })
+    expect((await signInAs(person.email, DEFAULT_PASSWORD)).body.data?.auth.signIn.success)
+      .toBe(true)
+  })
+
+  it('refuses a change of address without the current password', async () => {
+    const person = await account()
+    const started = await startEmailChange(
+      person.cookie, `nope-${crypto.randomUUID()}@example.test`, 'wrong password',
+    )
+    expect(started.result).toMatchObject({
+      success: false,
+      message: 'Your password is incorrect.',
+    })
+    expect(started.otp).toBeNull()
+  })
+
+  it('refuses moving to the address already held', async () => {
+    const person = await account()
+    const started = await startEmailChange(person.cookie, person.email, DEFAULT_PASSWORD)
+    expect(started.result).toMatchObject({ success: false })
+  })
+
+  it('will not let a reset code stand in for an email-change code', async () => {
+    const person = await account()
+    const reset = await startReset(person.email)
+    /*
+     * Purpose is part of the lookup, not a property of the row. Without that a
+     * code mailed for one purpose would authorise the other, and the reset code
+     * goes to the address somebody may have just lost control of.
+     */
+    expect(await completeEmailChange(
+      person.cookie, reset.result!.response!.challengeToken, reset.otp!,
+    )).toMatchObject({ success: false })
+  })
+
+  const setDisplayName = async (cookie: string, displayName: string) => {
+    const { body } = await graphql<{
+      auth: {
+        changeDisplayName: {
+          success: boolean
+          response: { displayName: string | null } | null
+        }
+      }
+    }>(/* GraphQL */ `
+      mutation {
+        auth {
+          changeDisplayName(input: { displayName: "${displayName}" }) {
+            success response { displayName }
+          }
+        }
+      }
+    `, cookie)
+    return body.data?.auth.changeDisplayName
+  }
+
+  it('records a name, and tells an empty one from never having said', async () => {
+    const person = await account()
+
+    // Nobody has said yet.
+    const before = await graphql<{
+      auth: { currentSession: { response: { user: { displayName: string | null } } | null } }
+    }>(/* GraphQL */ `
+      query { auth { currentSession { response { user { displayName } } } } }
+    `, person.cookie)
+    expect(before.body.data?.auth.currentSession.response?.user.displayName).toBeNull()
+
+    expect(await setDisplayName(person.cookie, 'Ada Lovelace'))
+      .toMatchObject({ success: true, response: { displayName: 'Ada Lovelace' } })
+
+    // Clearing it is a real choice and lands as null, not as an empty string.
+    expect(await setDisplayName(person.cookie, '   '))
+      .toMatchObject({ success: true, response: { displayName: null } })
+  })
+
+  it('works the same for staff, who never went through applicant signup screens', async () => {
+    /*
+     * Roles are grants, not a column, and the flows operate on `core_user` — so
+     * "for all kinds of users" has to be shown rather than assumed. A super
+     * administrator is the furthest thing from the applicant these were built
+     * against.
+     */
+    const person = await account()
+    const row = await env.DB.prepare('SELECT id FROM core_user WHERE email = ?')
+      .bind(person.email).first<{ id: string }>()
+    // A staff grant, alongside the APPLICANT one signup created. Capabilities
+    // are the union of both, which is the ordinary shape for this programme.
+    await env.DB.prepare(`INSERT INTO core_user_role_grant (
+      id, user_id, role, granted_by_user_id, grant_reason, granted_at
+    ) VALUES (?, ?, 'SUPER_ADMIN', NULL, 'TEST_STAFF', ?)`)
+      .bind(crypto.randomUUID(), row!.id, Date.now()).run()
+
+    const started = await startReset(person.email)
+    expect(started.result?.success).toBe(true)
+    expect(started.otp).toMatch(/^\d{6}$/u)
+
+    const NEW_PASSWORD = 'staff correct horse battery'
+    expect(await completeReset(
+      started.result!.response!.challengeToken, started.otp!, NEW_PASSWORD,
+    )).toMatchObject({ success: true })
+
+    const signedIn = await signInAs(person.email, NEW_PASSWORD)
+    expect(signedIn.body.data?.auth.signIn.success).toBe(true)
+
+    // And an identity edit works for them too.
+    expect(await setDisplayName(cookieHeaderFrom(signedIn.response), 'Programme Officer'))
+      .toMatchObject({ success: true, response: { displayName: 'Programme Officer' } })
+  })
+
+  it('closes a challenge whose code could not be delivered', async () => {
+    /*
+     * A code that never arrived must not stay usable. The row is closed rather
+     * than deleted, so the security history still shows that somebody asked and
+     * that the message failed — which is what distinguishes a provider outage
+     * from nobody having tried.
+     */
+    const person = await account()
+    const started = await startReset(person.email)
+    expect(started.result?.success).toBe(true)
+
+    const row = await env.DB.prepare(
+      `SELECT id FROM core_account_challenge WHERE purpose = 'PASSWORD_RESET'
+         AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1`,
+    ).first<{ id: string }>()
+
+    await markAccountChallengeDeliveryFailed(
+      createDatabase(env.DB),
+      row!.id,
+      new Date(),
+      testAuditEvent(
+        auditActions.passwordResetNotificationFailed,
+        'CORE_ACCOUNT_CHALLENGE',
+        row!.id,
+        'FAILURE',
+      ),
+    )
+
+    const after = await env.DB.prepare(
+      'SELECT status, invalidation_reason AS reason FROM core_account_challenge WHERE id = ?',
+    ).bind(row!.id).first<{ status: string; reason: string }>()
+    expect(after).toEqual({
+      status: 'DELIVERY_FAILED',
+      reason: 'NOTIFICATION_DELIVERY_FAILED',
+    })
+
+    // And the code it carried is spent, not merely unsent.
+    expect(await completeReset(
+      started.result!.response!.challengeToken, started.otp!, 'a different correct horse',
+    )).toMatchObject({ success: false })
   })
 })

@@ -1,4 +1,8 @@
 import {
+  changeDisplayName,
+  changePassword,
+  completeEmailChange,
+  completePasswordReset,
   currentSession,
   revokeAllSessions,
   revokeOtherSessions,
@@ -7,6 +11,8 @@ import {
   signIn,
   signOut,
   startApplicantSignup,
+  startEmailChange,
+  startPasswordReset,
   verifyApplicantSignup,
 } from '../../../services/auth'
 import type { GraphQLContext } from '../../types'
@@ -61,5 +67,35 @@ export const authResolvers = {
       _args: unknown,
       context: GraphQLContext,
     ) => revokeAllSessions(context),
+    startPasswordReset: (
+      _parent: unknown,
+      args: { input: { email: string } },
+      context: GraphQLContext,
+    ) => startPasswordReset(args.input, context),
+    completePasswordReset: (
+      _parent: unknown,
+      args: { input: { challengeToken: string; otp: string; newPassword: string } },
+      context: GraphQLContext,
+    ) => completePasswordReset(args.input, context),
+    changePassword: (
+      _parent: unknown,
+      args: { input: { currentPassword: string; newPassword: string } },
+      context: GraphQLContext,
+    ) => changePassword(args.input, context),
+    startEmailChange: (
+      _parent: unknown,
+      args: { input: { newEmail: string; currentPassword: string } },
+      context: GraphQLContext,
+    ) => startEmailChange(args.input, context),
+    completeEmailChange: (
+      _parent: unknown,
+      args: { input: { challengeToken: string; otp: string } },
+      context: GraphQLContext,
+    ) => completeEmailChange(args.input, context),
+    changeDisplayName: (
+      _parent: unknown,
+      args: { input: { displayName: string } },
+      context: GraphQLContext,
+    ) => changeDisplayName(args.input, context),
   },
 }

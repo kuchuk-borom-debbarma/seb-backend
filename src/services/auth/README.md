@@ -285,14 +285,41 @@ role hierarchy, retained grant lifecycle, and the role-administration rules.
 `auth.sessions` returns at most 100 sessions. It is a display list, not a
 security boundary — revocation is by ID.
 
+## Changing an account
+
+`controllers/account.ts` holds four self-service flows, and they work for every
+kind of user — roles are grants rather than a column, so all of this operates on
+the `core_user` row.
+
+| Flow | Proved by | Sessions afterwards |
+| --- | --- | --- |
+| `startPasswordReset` / `completePasswordReset` | a code sent to the account's address | **all ended**, including the caller's |
+| `changePassword` | the current password | others ended, this one kept |
+| `startEmailChange` / `completeEmailChange` | the current password, and a code sent to the **new** address | others ended, this one kept |
+| `changeDisplayName` | the session | unchanged |
+
+A reset ends every session because a password that was forgotten cannot be told
+apart from one that was taken. The other flows keep the caller signed in,
+because the person is holding that session.
+
+Challenges live in `core_account_challenge`, which is deliberately the same
+shape as `core_signup_challenge`: only digests are stored, the OTP's digest
+purpose carries the challenge id so it cannot be replayed against another, and
+the row closes rather than being deleted. `purpose` is part of every lookup, so
+a reset code cannot authorise a change of address.
+
+**Two consequences worth knowing.** A change of address makes any unaccepted
+role invitation unusable, because the sealed token carries the address it was
+issued to (`invite.ts`) — the screen says so before the change. And audit rows
+store `actor_user_id` only, with `AuditActor.email` resolved live, so past
+events re-label themselves with the new address.
+
 ## Known limitation
 
-Request, resend, and notification rate limiting are not implemented. CAPTCHA,
-password reset, account deletion APIs, administrator account recovery, and
-production email delivery are also out of scope; administrator provisioning is
-now available, but recovery is not. Do not publicly deploy applicant signup with
-the current console notification transport or without rate limiting. See the
-[bootstrap operator guide](../../../docs/first-super-admin-bootstrap.md) for the
-one-time curl procedure.
+CAPTCHA, account deletion APIs and administrator account recovery are out of
+scope; administrator provisioning is available, but recovery is not. Do not
+publicly deploy applicant signup with the console notification transport. See
+the [bootstrap operator guide](../../../docs/first-super-admin-bootstrap.md) for
+the one-time curl procedure.
 
 [rbac-roles]: ../../../docs/admin-rbac.md#role-administration

@@ -6,6 +6,7 @@
 import { and, desc, eq, exists, gt, isNotNull, isNull, lte, ne, not, notExists, sql, type AnyColumn, type SQL } from 'drizzle-orm'
 import type { Database } from '../../../db'
 import {
+  coreAccountChallenge,
   coreAuditEvent,
   coreSession,
   coreSignupChallenge,
@@ -23,7 +24,7 @@ export type SignupChallengeRecord = typeof coreSignupChallenge.$inferSelect
 export type AuditEventRecord = typeof coreAuditEvent.$inferInsert
 export type PublicUserRecord = Pick<
   UserRecord,
-  'id' | 'email' | 'emailVerifiedAt' | 'createdAt' | 'updatedAt'
+  'id' | 'email' | 'emailVerifiedAt' | 'displayName' | 'createdAt' | 'updatedAt'
 >
 export type PublicSessionRecord = Omit<SessionRecord, 'tokenDigest'>
 
@@ -74,7 +75,7 @@ export const findUserByEmail = async (
  * Accepts either a literal user ID or the `core_user.id` column so the same
  * rule can be correlated into an outer query or pinned to one known user.
  */
-const hasActiveRoleGrant = (db: Database, userId: AnyColumn | string): SQL => exists(
+export const hasActiveRoleGrant = (db: Database, userId: AnyColumn | string): SQL => exists(
   db
     .select({ id: coreUserRoleGrant.id })
     .from(coreUserRoleGrant)
@@ -461,6 +462,13 @@ export const createUserFromSignupChallenge = async (
     db.select({ id: coreUser.id }).from(coreUser).where(eq(coreUser.id, user.id)),
   )
 
+  /*
+   * Positional, so this value list must match the column order of `core_user`
+   * exactly. A column added anywhere but the end shifts every value after it,
+   * and SQLite reports only "N values for M columns" — it cannot tell you which
+   * one landed in the wrong place. `display_name` is last for that reason, and
+   * starts null: nobody says what they are called while signing up.
+   */
   const insertUser = db
     .insert(coreUser)
     .select(sql`
@@ -474,7 +482,8 @@ export const createUserFromSignupChallenge = async (
         ${user.updatedAt.getTime()},
         NULL,
         NULL,
-        NULL
+        NULL,
+        ${user.displayName}
       FROM ${coreSignupChallenge}
       WHERE ${coreSignupChallenge.id} = ${challenge.id}
         AND ${coreSignupChallenge.challengeDigest} = ${challenge.challengeDigest}
@@ -688,6 +697,7 @@ export const findUserSessionByDigest = async (
         id: coreUser.id,
         email: coreUser.email,
         emailVerifiedAt: coreUser.emailVerifiedAt,
+        displayName: coreUser.displayName,
         createdAt: coreUser.createdAt,
         updatedAt: coreUser.updatedAt,
       },
@@ -744,6 +754,20 @@ export const cleanupExpiredAuthenticationState = async (
         and(
           eq(coreSignupChallenge.status, 'PENDING'),
           lte(coreSignupChallenge.expiresAt, now),
+        ),
+      ),
+    db
+      .update(coreAccountChallenge)
+      .set({
+        status: 'EXPIRED',
+        invalidatedAt: now,
+        invalidationReason: 'CHALLENGE_EXPIRED',
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(coreAccountChallenge.status, 'PENDING'),
+          lte(coreAccountChallenge.expiresAt, now),
         ),
       ),
     db.delete(coreSession).where(lte(coreSession.expiresAt, now)),

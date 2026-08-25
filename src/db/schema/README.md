@@ -113,6 +113,12 @@ for optimistic concurrency.
   expiry.
 - `core_signup_challenge`: retained OTP challenge lifecycle without raw OTPs or
   tokens.
+- `core_account_challenge`: the same lifecycle for an account that already
+  exists — resetting a forgotten password, and confirming a new email address.
+  `purpose` is part of every lookup, so a code issued for one cannot authorise
+  the other. Separate from the signup challenge because that one has no user
+  yet and this one always does, which no constraint could express in a single
+  nullable column.
 - `core_audit_event`: append-only security and administrative audit trail. It
   must never contain credentials, OTPs, tokens, digests, or document contents.
   Two rules make that structural rather than a matter of care: `changes_json` is

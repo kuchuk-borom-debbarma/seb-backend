@@ -51,7 +51,10 @@ export const uniqueEmail = (prefix: string): string =>
  * reads immediately can be handed the previous one. No caller does — every
  * resend here is followed by a screen assertion first.
  */
-export const latestOtp = async (recipient: string): Promise<string> => {
+export const latestOtp = async (
+  recipient: string,
+  options: { differentFrom?: string } = {},
+): Promise<string> => {
   const wanted = recipient.trim().toLowerCase()
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const log = await readFile(WORKER_LOG, 'utf8').catch(() => '')
@@ -60,11 +63,22 @@ export const latestOtp = async (recipient: string): Promise<string> => {
       const message = readDevEmail(line[1])
       if (message?.to?.trim().toLowerCase() !== wanted) continue
       const code = message.text?.match(/\b(\d{6})\b/u)
-      if (code?.[1]) return code[1]
+      if (!code?.[1]) continue
+      /*
+       * Keep waiting when the newest code is one the caller already had.
+       *
+       * This is the ordering caveat above, made answerable. One address can be
+       * sent a second code — signing up and then resetting — and the log is a
+       * pipe, so for a moment the newest line is still the old code. Without
+       * this the caller is handed the stale one and fails much later with "the
+       * code is invalid", nowhere near the cause.
+       */
+      if (options.differentFrom !== undefined && code[1] === options.differentFrom) break
+      return code[1]
     }
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
-  throw new Error(`No signup code for ${recipient} appeared in the Worker log within 10 seconds.`)
+  throw new Error(`No new code for ${recipient} appeared in the Worker log within 10 seconds.`)
 }
 
 /**
@@ -113,7 +127,13 @@ export const signIn = async (
 }
 
 export const signOut = async (page: Page): Promise<void> => {
-  await page.getByRole('button', { name: 'Sign out' }).click()
+  /*
+   * Exact, because `/account/sessions` also offers "Sign out other devices"
+   * and "Sign out everywhere". Without it this helper is ambiguous on that one
+   * screen and fails there with a strict-mode violation rather than anywhere
+   * near what the test was actually checking.
+   */
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
   await page.waitForURL('**/sign-in')
 }
 

@@ -180,6 +180,7 @@ describe('core and Mission SEP schema', () => {
     ).all<{ name: string }>()
 
     expect(tables.results.map(({ name }) => name)).toEqual([
+      'core_account_challenge',
       'core_audit_event',
       'core_schema_migration',
       'core_session',

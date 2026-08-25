@@ -131,6 +131,8 @@ export function PortalNav({ portal, user }: { portal: Portal; user: SignedInUser
         )}
 
         <NavGroup title="Account">
+          <NavLink to="/account/profile">Profile</NavLink>
+          <NavLink to="/account/security">Password</NavLink>
           <NavLink to="/account/sessions">Signed-in devices</NavLink>
         </NavGroup>
       </div>

@@ -6,6 +6,14 @@ export {
   managedUserById,
   revokeRole,
 } from './controllers/access'
+export {
+  changeDisplayName,
+  changePassword,
+  completeEmailChange,
+  completePasswordReset,
+  startEmailChange,
+  startPasswordReset,
+} from './controllers/account'
 export type { ManageableRole } from './queries/access'
 export type { Capability } from './capabilities'
 export {

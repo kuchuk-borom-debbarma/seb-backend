@@ -35,6 +35,8 @@ export type AuthUser = {
   id: string
   email: string
   emailVerified: boolean
+  /** What they call themselves. Null until they have said. */
+  displayName: string | null
   roles: UserRole[]
   /** Derived from `roles`, never stored. What a screen may offer. */
   capabilities: Capability[]
@@ -62,6 +64,7 @@ export type AuthenticatedUserRequest = {
     id: string
     email: string
     emailVerifiedAt: Date | null
+    displayName: string | null
     createdAt: Date
     updatedAt: Date
   }
@@ -115,6 +118,18 @@ export type ManagedUser = {
 }
 
 export type StartApplicantSignupResponse = {
+  challengeToken: string
+  expiresAt: Date
+}
+
+/**
+ * Public response for starting a password reset or an email change.
+ *
+ * Identical whether or not a challenge was actually recorded — that is the
+ * whole point, and `expiresAt` is computed rather than read for the same
+ * reason.
+ */
+export type StartAccountChallengeResponse = {
   challengeToken: string
   expiresAt: Date
 }

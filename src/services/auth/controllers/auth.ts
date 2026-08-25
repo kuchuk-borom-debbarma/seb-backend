@@ -130,6 +130,7 @@ const toAuthUser = (value: PublicUserRecord, roles: UserRole[]): AuthUser => ({
   id: value.id,
   email: value.email,
   emailVerified: value.emailVerifiedAt !== null,
+  displayName: value.displayName,
   roles,
   // Derived here so a client never has to reimplement the policy to decide
   // which navigation to draw. It still cannot grant anything: every operation
@@ -151,7 +152,7 @@ const toAuthSession = (
   current: value.id === currentSessionId,
 })
 
-const getCurrentSession = async (
+export const getCurrentSession = async (
   context: AuthOperationContext,
 ): Promise<AuthenticatedUserRequest | null> => {
   const token = readSessionToken(context.requestHeaders)
@@ -395,6 +396,9 @@ export const verifyApplicantSignup = async (
     email: challenge.email,
     passwordHash: await hashPassword(input.password),
     emailVerifiedAt: createdAt,
+    // Nobody has said what they are called yet; signup asks for an address and
+    // a password and nothing else.
+    displayName: null,
     rowVersion: 1,
     createdAt,
     updatedAt: createdAt,

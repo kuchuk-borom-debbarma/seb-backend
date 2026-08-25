@@ -115,6 +115,14 @@ type User {
   """Whether that address has been verified."""
   emailVerified: Boolean!
 
+  """
+  What this person calls themselves. Null until they have said.
+
+  A label, not an identifier: it is not unique, and the address remains how an
+  account is addressed and how the office refers to each other.
+  """
+  displayName: String
+
   """Every role held now."""
   roles: [UserRole!]!
 
@@ -178,6 +186,37 @@ type SessionsResponse {
 type BooleanResponse {
   """What the operation concluded."""
   value: Boolean!
+}
+
+"""A challenge in progress for an account that already exists."""
+type StartAccountChallengeResponse {
+  """
+  Identifies this attempt. Send it back with the emailed code.
+
+  Independent of the code on purpose: the token identifies the browser that
+  asked and the code proves the mailbox was read.
+  """
+  challengeToken: String!
+
+  """When the attempt expires. Ten minutes after it started."""
+  expiresAt: DateTime!
+}
+
+"""A challenge, or the reason one could not be started."""
+type StartAccountChallengeResult implements BaseResponse {
+  """
+  Whether the attempt was started.
+
+  Succeeds identically whether or not the address could be used, so this
+  cannot be used to discover which addresses are registered.
+  """
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """The attempt. Null whenever `success` is false."""
+  response: StartAccountChallengeResponse
 }
 
 """A signup attempt, or the reason one could not be started."""

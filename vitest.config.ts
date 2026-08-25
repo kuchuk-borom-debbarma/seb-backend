@@ -53,6 +53,7 @@ export default defineWorkersConfig({
         // no disturbance can be timed into that window. The guarded SQL those
         // branches depend on is gated below, which is where the invariants live.
         'src/services/auth/queries/access.ts',
+        'src/services/auth/queries/account.ts',
         'src/services/auth/support.ts',
         'src/graphql/resolvers/access/**/*.ts',
         'src/graphql/resolvers/seb/**/*.ts',

@@ -36,6 +36,30 @@ CREATE INDEX IF NOT EXISTS `core_audit_event_actor_idx` ON `core_audit_event` (`
 CREATE INDEX IF NOT EXISTS `core_audit_event_action_idx` ON `core_audit_event` (`action`,`created_at`);
 CREATE INDEX IF NOT EXISTS `core_audit_event_request_idx` ON `core_audit_event` (`request_id`);
 CREATE INDEX IF NOT EXISTS `core_audit_event_created_idx` ON `core_audit_event` (`created_at`,`id`);
+CREATE TABLE IF NOT EXISTS `core_account_challenge` (
+	`id` text PRIMARY KEY NOT NULL,
+	`purpose` text NOT NULL,
+	`user_id` text NOT NULL,
+	`email` text NOT NULL,
+	`challenge_digest` text NOT NULL,
+	`otp_digest` text NOT NULL,
+	`attempts_remaining` integer NOT NULL,
+	`expires_at` integer NOT NULL,
+	`status` text DEFAULT 'PENDING' NOT NULL,
+	`consumed_at` integer,
+	`invalidated_at` integer,
+	`invalidation_reason` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "core_account_challenge_attempts_check" CHECK("core_account_challenge"."attempts_remaining" BETWEEN 0 AND 20),
+	CONSTRAINT "core_account_challenge_purpose_check" CHECK("core_account_challenge"."purpose" IN ('PASSWORD_RESET', 'EMAIL_CHANGE')),
+	CONSTRAINT "core_account_challenge_status_check" CHECK("core_account_challenge"."status" IN ('PENDING', 'CONSUMED', 'EXHAUSTED', 'EXPIRED', 'CANCELLED', 'DELIVERY_FAILED'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS `core_account_challenge_challenge_digest_unique` ON `core_account_challenge` (`challenge_digest`);
+CREATE INDEX IF NOT EXISTS `core_account_challenge_user_purpose_idx` ON `core_account_challenge` (`user_id`,`purpose`,`status`,`expires_at`);
+CREATE INDEX IF NOT EXISTS `core_account_challenge_status_expiry_idx` ON `core_account_challenge` (`status`,`expires_at`);
 CREATE TABLE IF NOT EXISTS `core_session` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
@@ -83,6 +107,7 @@ CREATE TABLE IF NOT EXISTS `core_user` (
 	`deleted_at` integer,
 	`deleted_by_user_id` text,
 	`delete_reason` text,
+	`display_name` text,
 	FOREIGN KEY (`deleted_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "core_user_row_version_check" CHECK("core_user"."row_version" >= 1)
 );
