@@ -110,11 +110,12 @@ test.describe('signed-in devices', () => {
     await page.goto('/account/sessions')
     await expect(page.getByText('This device')).toBeVisible()
 
-    // The suite shares one database, so earlier tests leave sessions behind and
-    // an absolute starting count would be meaningless. What is deterministic is
-    // the state afterwards: revoking the others leaves exactly this one.
-    const before = await page.getByRole('row').count()
-    expect(before).toBeGreaterThan(2) // header + this device + at least one other
+    // This account is created by this test's own `beforeEach`, so its session
+    // list is exactly what this test made: the two contexts above, and nothing
+    // another file left behind. That is worth asserting exactly — a loose
+    // `toBeGreaterThan` would still pass if the second sign-in had silently
+    // failed to register a device, which is the thing being set up here.
+    await expect(page.getByRole('row')).toHaveCount(3) // header + both devices
 
     await page.getByRole('button', { name: 'Sign out other devices' }).click()
     await expect(page.getByRole('row')).toHaveCount(2) // header + this device

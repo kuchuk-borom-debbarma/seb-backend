@@ -27,15 +27,12 @@ export const uniqueEmail = (prefix: string): string =>
   `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}@example.test`
 
 /**
- * Reads the six-digit signup code out of the Worker's console output.
+ * The six-digit code sent to one address, read from the Worker's console output.
  *
  * Locally the notification transport prints rather than delivers, so this is
  * the only place the code exists. It marks its line `DEV_EMAIL` precisely so
  * this can find it. Polling rather than reading once, because the Worker writes
  * the line asynchronously through `tee`.
- */
-/**
- * The one-time code sent to one address.
  *
  * **Keyed on the recipient, not on position.** This used to take a byte offset
  * and return the *last* `DEV_EMAIL` line after it, which is only correct while
@@ -45,7 +42,14 @@ export const uniqueEmail = (prefix: string): string =>
  *
  * The transport writes the recipient into the same line
  * (`services/external-notification/transports/console.ts`), so the address is
- * the key. Nothing here depends on ordering any more.
+ * the key, and concurrent signups no longer collide.
+ *
+ * One ordering assumption does remain, and it is this function's own: when an
+ * address has been sent more than one code, it takes the newest line. That is
+ * right for a resend, but it cannot tell "the new code has not been flushed
+ * yet" from "there is no new code", so a caller that resends to an address and
+ * reads immediately can be handed the previous one. No caller does — every
+ * resend here is followed by a screen assertion first.
  */
 export const latestOtp = async (recipient: string): Promise<string> => {
   const wanted = recipient.trim().toLowerCase()
@@ -198,7 +202,11 @@ export const openProgrammeCycle = async (
  */
 export const startApplication = async (
   page: Page,
-  { prefix = 'applicant', businessName = 'Test Works', cycleCode = '' } = {},
+  {
+    prefix = 'applicant',
+    businessName = 'Test Works',
+    cycleCode,
+  }: { prefix?: string; businessName?: string; cycleCode: string },
 ): Promise<string> => {
   const email = uniqueEmail(prefix)
   await signUpApplicant(page, email)
@@ -211,22 +219,19 @@ export const startApplication = async (
   await page.goto('/applications/new')
   await page.getByLabel('Enterprise').selectOption({ label: businessName })
   /*
-   * By code where the caller knows it, because position is a lie here.
+   * By code, never by position, and `cycleCode` is required so there is no way
+   * back to position.
    *
    * The options are ordered by `opensAt`, and every helper opens its cycle at
    * "an hour ago" — so index 1 is the oldest still-open cycle in the whole
-   * database, never the one the caller just made. It worked only because the
-   * files that need a document-requiring cycle happened to run before the ones
-   * that open cycles without documents. `submitApplication` already selects by
-   * code for exactly this reason.
+   * database, never the one the caller just made. Selecting it worked only
+   * because the files needing a document-requiring cycle happened to run before
+   * the ones that open cycles without documents, and under parallel files not
+   * even that. `submitApplication` selects by code for the same reason.
    */
   const cycle = page.getByLabel('Programme cycle')
-  if (cycleCode) {
-    const label = await cycle.locator('option').filter({ hasText: cycleCode }).innerText()
-    await cycle.selectOption({ label })
-  } else {
-    await cycle.selectOption({ index: 1 })
-  }
+  const label = await cycle.locator('option').filter({ hasText: cycleCode }).innerText()
+  await cycle.selectOption({ label })
   await page.getByRole('button', { name: 'Start an initial application' }).click()
   await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
   return page.url().split('/').pop() as string

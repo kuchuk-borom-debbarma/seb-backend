@@ -19,7 +19,7 @@
  * predates them is out of date.
  */
 import { execFileSync } from 'node:child_process'
-import { readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 
@@ -58,16 +58,37 @@ const modified = (path) => {
   }
 }
 
-// The server entry, not the directory: `.output` also holds `nitro.json`, which
-// is rewritten by a `build:cf` and would make a Cloudflare build look like a
-// current Node one.
-const built = modified(join(root, '.output/server/index.mjs'))
+/*
+ * Which build is sitting there, not just how old it is.
+ *
+ * `build:cf` writes the very same `.output/server/index.mjs`, so a timestamp
+ * cannot tell a Cloudflare bundle from a Node one — only the recorded preset
+ * can. The suite runs `node .output/server/index.mjs`, and node loads a
+ * Cloudflare module happily and then exits without ever listening, so reusing
+ * one costs a 180-second server-start timeout pointing nowhere near the cause.
+ * Deploy then test is the ordinary sequence that hits it.
+ */
+const preset = () => {
+  try {
+    return JSON.parse(readFileSync(join(root, '.output/nitro.json'), 'utf8')).preset
+  } catch {
+    return null
+  }
+}
+
+const built = preset() === 'node-server'
+  ? modified(join(root, '.output/server/index.mjs'))
+  : 0
 
 const newestInput = Math.max(
   newestUnder(join(root, 'src')),
   ...[
     'vite.config.ts',
     'package.json',
+    // The lockfile too: every dependency is a caret range, so `npm ci` after a
+    // teammate's bump changes what is bundled without touching anything else
+    // here, and the build would still look current.
+    'package-lock.json',
     'tsconfig.json',
     'tsr.config.json',
   ].map((name) => modified(join(root, name))),
@@ -78,5 +99,5 @@ if (built > 0 && built > newestInput) {
   process.exit(0)
 }
 
-console.log(built === 0 ? 'No client build yet; building.' : 'Client build is stale; rebuilding.')
+console.log(built === 0 ? 'No usable Node build; building.' : 'Client build is stale; rebuilding.')
 execFileSync('npm', ['run', 'build'], { cwd: root, stdio: 'inherit' })

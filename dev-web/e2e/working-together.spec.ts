@@ -180,11 +180,12 @@ test.describe('a reviewer reading casework', () => {
 
     const reviewer = uniqueEmail('reviewerread')
     await page.context().clearCookies()
+    // The account has to exist before the invitation can find it: this screen
+    // looks a person up by address and invites the account, it does not create
+    // one.
     await signUpApplicant(page, reviewer)
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin/invite')
-    // Named so a lookup that silently found nobody fails here rather than at
-    // the invitation, where the message would be about the wrong thing.
     await page.getByLabel('Their email address').fill(reviewer)
     await page.getByRole('button', { name: 'Look them up' }).click()
     await page.getByLabel('Invite them to be').selectOption('REVIEWER')
