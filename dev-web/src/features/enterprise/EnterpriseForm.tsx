@@ -8,13 +8,14 @@
  * inherit them.
  */
 import { useEffect, useState } from 'react'
-import { FormJourney, type JourneyStep } from '#/features/forms/FormJourney'
+import { Check, LockKeyhole } from 'lucide-react'
 import type {
   BusinessSector,
   EnterpriseProfileInput,
   RegistrationType,
 } from '#/graphql/generated/schema'
 import { humanize } from '#/lib/format'
+import styles from './EnterpriseWizard.module.css'
 
 const REGISTRATION_TYPES: RegistrationType[] = ['NONE', 'CIN', 'UDYAM']
 
@@ -30,9 +31,13 @@ const SECTORS: BusinessSector[] = [
 
 type EnterpriseStep = 'DETAILS' | 'REGISTRATION' | 'LOCATION' | 'CONTACT'
 
-const ENTERPRISE_STEPS: Array<
-  Pick<JourneyStep<EnterpriseStep>, 'id' | 'label' | 'description'>
-> = [
+type EnterpriseStepDef = {
+  id: EnterpriseStep
+  label: string
+  description: string
+}
+
+const ENTERPRISE_STEPS: EnterpriseStepDef[] = [
   {
     id: 'DETAILS',
     label: 'Enterprise details',
@@ -95,6 +100,7 @@ export function EnterpriseForm({
   const [values, setValues] = useState<EnterpriseFormValues>(initial)
   const [activeStep, setActiveStep] = useState<EnterpriseStep>('DETAILS')
   const activeIndex = ENTERPRISE_STEPS.findIndex((step) => step.id === activeStep)
+  const activeDef = ENTERPRISE_STEPS[activeIndex] ?? ENTERPRISE_STEPS[0]!
   const dirty = JSON.stringify(values) !== JSON.stringify(initial)
 
   useEffect(() => {
@@ -108,14 +114,6 @@ export function EnterpriseForm({
     key: TKey,
     value: EnterpriseFormValues[TKey],
   ) => setValues((current) => ({ ...current, [key]: value }))
-
-  const steps: Array<JourneyStep<EnterpriseStep>> = ENTERPRISE_STEPS.map(
-    (step, index) => ({
-      ...step,
-      status:
-        index < activeIndex ? 'complete' : index > activeIndex ? 'blocked' : 'available',
-    }),
-  )
 
   const next = (form: HTMLFormElement) => {
     if (!form.reportValidity()) return
@@ -135,86 +133,90 @@ export function EnterpriseForm({
 
   return (
     <form
+      className={styles.pageContainer}
       onSubmit={(event) => {
         event.preventDefault()
         if (!event.currentTarget.reportValidity()) return
         onSubmit(values)
       }}
     >
-      <FormJourney
-        steps={steps}
-        activeStepId={activeStep}
-        onStepSelect={(step) => {
-          const target = ENTERPRISE_STEPS.findIndex((candidate) => candidate.id === step)
-          if (target <= activeIndex) setActiveStep(step)
-        }}
-        footerStatus={
-          <span className="muted">Your answers are saved when you finish this form.</span>
-        }
-        footer={
-          <>
-            {activeIndex > 0 ? (
-              <button
-                type="button"
-                className="button"
-                disabled={busy}
-                onClick={() =>
-                  setActiveStep(ENTERPRISE_STEPS[activeIndex - 1]?.id ?? 'DETAILS')
-                }
-              >
-                Back
-              </button>
-            ) : onCancel ? (
-              <button type="button" className="button" disabled={busy} onClick={cancel}>
-                Cancel
-              </button>
-            ) : null}
+      {/* Top Stepper Card */}
+      <section className={styles.stepperCard} aria-label="Registration categories">
+        <div className={styles.stepperTrack}>
+          {ENTERPRISE_STEPS.map((step, index) => {
+            const isCurrent = index === activeIndex
+            const isDone = index < activeIndex
+            const isAhead = index > activeIndex
+            const canNavigate = index <= activeIndex
 
-            {activeIndex < ENTERPRISE_STEPS.length - 1 ? (
-              <button
-                type="button"
-                className="button"
-                data-variant="primary"
-                disabled={busy}
-                onClick={(event) => {
-                  /*
-                   * Moving onto the final category replaces this button with
-                   * the submit button. React may reuse the same DOM node, so
-                   * the browser can otherwise observe `type=submit` as the
-                   * click finishes and submit before the applicant has seen
-                   * Contact details.
-                   */
-                  event.preventDefault()
-                  next(event.currentTarget.form!)
-                }}
-              >
-                Next
-              </button>
-            ) : (
-              <button
-                type="submit"
-                className="button"
-                data-variant="primary"
-                disabled={busy}
-              >
-                {busy ? 'Saving…' : submitLabel}
-              </button>
-            )}
+            return (
+              <div key={step.id} style={{ display: 'contents' }}>
+                <button
+                  type="button"
+                  className={`${styles.stepItem} ${
+                    canNavigate ? styles.stepItemInteractive : ''
+                  }`}
+                  disabled={!canNavigate}
+                  onClick={() => {
+                    if (canNavigate) setActiveStep(step.id)
+                  }}
+                  aria-current={isCurrent ? 'step' : undefined}
+                >
+                  <div
+                    className={`${styles.stepCircle} ${
+                      isCurrent
+                        ? styles.stepCircleCurrent
+                        : isDone
+                          ? styles.stepCircleDone
+                          : styles.stepCircleAhead
+                    }`}
+                  >
+                    {isDone ? <Check size={14} strokeWidth={2.5} /> : index + 1}
+                  </div>
+                  <div className={styles.stepTextGroup}>
+                    <span
+                      className={`${styles.stepLabel} ${
+                        isAhead ? styles.stepLabelAhead : ''
+                      }`}
+                    >
+                      {step.label}
+                    </span>
+                    <span
+                      className={`${styles.stepSubtitle} ${
+                        isCurrent
+                          ? styles.stepSubtitleCurrent
+                          : isDone
+                            ? styles.stepSubtitleDone
+                            : styles.stepSubtitleAhead
+                      }`}
+                    >
+                      {isCurrent
+                        ? 'Current category'
+                        : isDone
+                          ? 'Complete'
+                          : 'Complete earlier categories first'}
+                    </span>
+                  </div>
+                </button>
 
-            {activeIndex > 0 && onCancel ? (
-              <button
-                type="button"
-                className="button"
-                data-variant="ghost"
-                disabled={busy}
-                onClick={cancel}
-              >
-                Cancel
-              </button>
-            ) : null}
-          </>
-        }
-      >
+                {index < ENTERPRISE_STEPS.length - 1 && (
+                  <div className={styles.stepperDashedLine} aria-hidden="true" />
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        <div className={styles.stepperFooter}>
+          Category {activeIndex + 1} of {ENTERPRISE_STEPS.length}
+        </div>
+      </section>
+
+      {/* Main Form Content Card */}
+      <section className={styles.formCard}>
+        <h2 className={styles.categoryHeading}>{activeDef.label}</h2>
+        <p className={styles.categoryDesc}>{activeDef.description}</p>
+
         {activeStep === 'DETAILS' ? (
           <EnterpriseDetails values={values} set={set} />
         ) : activeStep === 'REGISTRATION' ? (
@@ -224,7 +226,58 @@ export function EnterpriseForm({
         ) : (
           <ContactDetails values={values} set={set} />
         )}
-      </FormJourney>
+
+        <div className={styles.securityHint}>
+          <LockKeyhole size={14} aria-hidden="true" />
+          <span>Your answers are saved when you finish this form.</span>
+        </div>
+
+        <div className={styles.formActions}>
+          <div>
+            {activeIndex > 0 ? (
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                disabled={busy}
+                onClick={() =>
+                  setActiveStep(ENTERPRISE_STEPS[activeIndex - 1]?.id ?? 'DETAILS')
+                }
+              >
+                Back
+              </button>
+            ) : onCancel ? (
+              <button
+                type="button"
+                className={styles.btnSecondary}
+                disabled={busy}
+                onClick={cancel}
+              >
+                Cancel
+              </button>
+            ) : null}
+          </div>
+
+          <div>
+            {activeIndex < ENTERPRISE_STEPS.length - 1 ? (
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                disabled={busy}
+                onClick={(event) => {
+                  event.preventDefault()
+                  next(event.currentTarget.form!)
+                }}
+              >
+                Next
+              </button>
+            ) : (
+              <button type="submit" className={styles.btnPrimary} disabled={busy}>
+                {busy ? 'Saving…' : submitLabel}
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
     </form>
   )
 }
@@ -242,14 +295,14 @@ function EnterpriseDetails({
   set: Setter
 }) {
   return (
-    <div className="detail-grid">
-      <div>
-        <label className="field-label" htmlFor="name">
+    <div className={styles.fieldGrid}>
+      <div className={styles.fieldGroup}>
+        <label className={styles.fieldLabel} htmlFor="name">
           Registered or trading name
         </label>
         <input
           id="name"
-          className="input"
+          className={styles.textInput}
           required
           minLength={2}
           maxLength={200}
@@ -258,34 +311,38 @@ function EnterpriseDetails({
         />
       </div>
 
-      <div>
-        <label className="field-label" htmlFor="establishmentDate">
+      <div className={styles.fieldGroup}>
+        <label className={styles.fieldLabel} htmlFor="establishmentDate">
           Date established
         </label>
-        <input
-          id="establishmentDate"
-          className="input"
-          type="date"
-          value={values.establishmentDate ?? ''}
-          onChange={(event) => set('establishmentDate', orNull(event.target.value))}
-        />
-        <span className="field-hint">
-          Leave empty if the enterprise is still proposed.
-        </span>
+        <div className={styles.dateRow}>
+          <div className={styles.dateInputWrap}>
+            <input
+              id="establishmentDate"
+              className={styles.dateInput}
+              type="date"
+              value={values.establishmentDate ?? ''}
+              onChange={(event) => set('establishmentDate', orNull(event.target.value))}
+            />
+          </div>
+          <span className={styles.fieldHint}>
+            Leave empty if the enterprise is still proposed.
+          </span>
+        </div>
       </div>
 
-      <div>
-        <label className="field-label" htmlFor="businessSector">
+      <div className={styles.fieldGroup}>
+        <label className={styles.fieldLabel} htmlFor="businessSector">
           Sector
         </label>
         <select
           id="businessSector"
-          className="select"
+          className={styles.selectInput}
           value={values.businessSector ?? ''}
           onChange={(event) => {
-            const next = orNull(event.target.value) as BusinessSector | null
-            set('businessSector', next)
-            if (next !== 'OTHER') set('otherBusinessSector', null)
+            const nextVal = orNull(event.target.value) as BusinessSector | null
+            set('businessSector', nextVal)
+            if (nextVal !== 'OTHER') set('otherBusinessSector', null)
           }}
         >
           <option value="">Not stated</option>
@@ -298,13 +355,13 @@ function EnterpriseDetails({
       </div>
 
       {values.businessSector === 'OTHER' ? (
-        <div>
-          <label className="field-label" htmlFor="otherBusinessSector">
+        <div className={styles.fieldGroup}>
+          <label className={styles.fieldLabel} htmlFor="otherBusinessSector">
             Describe the sector
           </label>
           <input
             id="otherBusinessSector"
-            className="input"
+            className={styles.textInput}
             required
             maxLength={200}
             value={values.otherBusinessSector ?? ''}
@@ -325,19 +382,19 @@ function RegistrationDetails({
 }) {
   const registered = values.registrationType !== 'NONE'
   return (
-    <div className="detail-grid">
-      <div>
-        <label className="field-label" htmlFor="registrationType">
+    <div className={styles.fieldGrid}>
+      <div className={styles.fieldGroup}>
+        <label className={styles.fieldLabel} htmlFor="registrationType">
           Registration
         </label>
         <select
           id="registrationType"
-          className="select"
+          className={styles.selectInput}
           value={values.registrationType}
           onChange={(event) => {
-            const next = event.target.value as RegistrationType
-            set('registrationType', next)
-            if (next === 'NONE') set('registrationNumber', null)
+            const nextVal = event.target.value as RegistrationType
+            set('registrationType', nextVal)
+            if (nextVal === 'NONE') set('registrationNumber', null)
           }}
         >
           {REGISTRATION_TYPES.map((type) => (
@@ -349,13 +406,13 @@ function RegistrationDetails({
       </div>
 
       {registered ? (
-        <div>
-          <label className="field-label" htmlFor="registrationNumber">
+        <div className={styles.fieldGroup}>
+          <label className={styles.fieldLabel} htmlFor="registrationNumber">
             {values.registrationType} number
           </label>
           <input
             id="registrationNumber"
-            className="input"
+            className={styles.textInput}
             required
             maxLength={200}
             value={values.registrationNumber ?? ''}
@@ -364,20 +421,22 @@ function RegistrationDetails({
         </div>
       ) : null}
 
-      <div>
-        <label className="field-label" htmlFor="gstin">
+      <div className={styles.fieldGroup}>
+        <label className={styles.fieldLabel} htmlFor="gstin">
           GSTIN
         </label>
         <input
           id="gstin"
-          className="input tabular"
+          className={styles.textInput}
           maxLength={15}
           pattern="[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][A-Za-z0-9]Z[A-Za-z0-9]"
           title="Enter a valid 15-character GSTIN."
           value={values.gstin ?? ''}
           onChange={(event) => set('gstin', orNull(event.target.value))}
         />
-        <span className="field-hint">Only if the enterprise is registered for GST.</span>
+        <span className={styles.fieldHint}>
+          Only if the enterprise is registered for GST.
+        </span>
       </div>
     </div>
   )
@@ -385,38 +444,38 @@ function RegistrationDetails({
 
 function LocationDetails({ values, set }: { values: EnterpriseFormValues; set: Setter }) {
   return (
-    <div className="detail-grid">
-      <div>
-        <label className="field-label" htmlFor="businessBlockOrVillage">
+    <div className={styles.fieldGrid}>
+      <div className={styles.fieldGroup}>
+        <label className={styles.fieldLabel} htmlFor="businessBlockOrVillage">
           Block or village
         </label>
         <input
           id="businessBlockOrVillage"
-          className="input"
+          className={styles.textInput}
           maxLength={500}
           value={values.businessBlockOrVillage ?? ''}
           onChange={(event) => set('businessBlockOrVillage', orNull(event.target.value))}
         />
       </div>
-      <div>
-        <label className="field-label" htmlFor="businessDistrict">
+      <div className={styles.fieldGroup}>
+        <label className={styles.fieldLabel} htmlFor="businessDistrict">
           District
         </label>
         <input
           id="businessDistrict"
-          className="input"
+          className={styles.textInput}
           maxLength={200}
           value={values.businessDistrict ?? ''}
           onChange={(event) => set('businessDistrict', orNull(event.target.value))}
         />
       </div>
-      <div>
-        <label className="field-label" htmlFor="businessPinCode">
+      <div className={styles.fieldGroup}>
+        <label className={styles.fieldLabel} htmlFor="businessPinCode">
           PIN code
         </label>
         <input
           id="businessPinCode"
-          className="input tabular"
+          className={styles.textInput}
           inputMode="numeric"
           pattern="[0-9]{6}"
           title="Enter a six-digit PIN code."
@@ -431,14 +490,14 @@ function LocationDetails({ values, set }: { values: EnterpriseFormValues; set: S
 
 function ContactDetails({ values, set }: { values: EnterpriseFormValues; set: Setter }) {
   return (
-    <div className="detail-grid">
-      <div>
-        <label className="field-label" htmlFor="contactNumber">
+    <div className={styles.fieldGrid}>
+      <div className={styles.fieldGroup}>
+        <label className={styles.fieldLabel} htmlFor="contactNumber">
           Contact number
         </label>
         <input
           id="contactNumber"
-          className="input"
+          className={styles.textInput}
           type="tel"
           pattern="[+]?[1-9][0-9]{7,14}"
           title="Enter a valid phone number with 8 to 15 digits."
@@ -447,13 +506,13 @@ function ContactDetails({ values, set }: { values: EnterpriseFormValues; set: Se
           onChange={(event) => set('contactNumber', orNull(event.target.value))}
         />
       </div>
-      <div>
-        <label className="field-label" htmlFor="contactEmail">
+      <div className={styles.fieldGroup}>
+        <label className={styles.fieldLabel} htmlFor="contactEmail">
           Contact email
         </label>
         <input
           id="contactEmail"
-          className="input"
+          className={styles.textInput}
           type="email"
           maxLength={254}
           value={values.contactEmail ?? ''}
