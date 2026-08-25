@@ -79,11 +79,14 @@
   // It means any site can call this API as a signed-in user, and it is here
   // because the frontend host is not yet known. Name the origin before launch.
   //
-  // These are the *deployed* values. Local work and the end-to-end suite
-  // override what they need on the command line — `npm run test:worker` passes
-  // `ENVIRONMENT:local`, because inheriting "production" here would make the
-  // rate limiter refuse the unlimited transport a test run depends on and
-  // point storage at the real provider.
+  // These are the *deployed* values, and nothing else reads them: local work and
+  // the end-to-end suite run on `wrangler.dev.jsonc`, which declares no `vars`
+  // at all, so `ENVIRONMENT` reads as local there.
+  //
+  // That is load-bearing. Give the dev config a `vars` block naming
+  // `ENVIRONMENT: production` and the suite refuses to start — the rate limiter
+  // will not accept the unlimited transport in production — and storage would
+  // point at the real provider.
   "vars": {
     "ENVIRONMENT": "production",
     "FRONTEND_ORIGINS": "*",

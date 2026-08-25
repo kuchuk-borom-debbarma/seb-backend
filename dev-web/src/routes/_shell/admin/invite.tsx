@@ -147,6 +147,18 @@ function InvitePage({ user }: { user: SignedInUser }) {
         </form>
 
         {found.isError ? <p className="field-error">{messageFor(found.error)}</p> : null}
+
+        {/*
+          An address nobody holds is an ordinary refusal, not a thrown error.
+          The shared query keeps the envelope, so a miss arrives as
+          `success: false` with a message and leaves `isError` false — say so,
+          or looking somebody up who has never signed up shows nothing at all.
+        */}
+        {found.data && !found.data.success ? (
+          <p className="field-error" role="alert">
+            {found.data.message ?? 'No account was found for that address.'}
+          </p>
+        ) : null}
       </div>
 
       {subject ? (

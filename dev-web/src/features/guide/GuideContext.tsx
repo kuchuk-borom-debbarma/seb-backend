@@ -97,7 +97,6 @@ const readSaved = (walker: Walker): Position | null => {
   }
 }
 
-/** Only the roles matter here; the shell already holds the whole account. */
 /*
  * Roles and capabilities both: a tour is offered on the capability the office
  * itself is gated on, so a reviewer and an approver are offered the office

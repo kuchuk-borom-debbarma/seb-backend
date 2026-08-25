@@ -286,9 +286,16 @@ app.options('/graphql', (c) => {
 })
 
 /*
- * Uploads on a developer's machine, where there is no bucket to sign a URL for.
- * The handler refuses unless the local storage backend is the selected one, so
- * this is not a second way into a deployed environment.
+ * The preflight for an upload this Worker receives itself.
+ *
+ * Open wherever storage **relays** rather than sending the browser to a
+ * provider — locally, and deployed on Cloudinary. Deliberately so: the PUT it
+ * precedes is open in exactly those cases, and a preflight that refused where
+ * the handler accepts would kill the upload in the browser before the Worker
+ * ever saw it. It is not a second way in; it is the same way, answered.
+ *
+ * On R2 neither is open, because there the browser is sent to the bucket and
+ * this Worker never handles a byte.
  */
 app.options('/internal/storage/*', (c) => {
   /*
