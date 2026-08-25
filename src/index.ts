@@ -407,28 +407,30 @@ export default {
   /**
    * Consumer for queued work.
    *
-   * One kind of message exists: a request to scan a stored document. What
-   * happens next depends entirely on the environment — locally and on develop
-   * the file is accepted without being examined, and the scan history records
-   * that in as many words; in production the scanner refuses to exist at all
-   * until a real one is configured. `services/document-scanner` holds that
-   * decision, and this holds none of it.
+   * One kind of message exists: a request to scan a stored document. Which
+   * scanner examines it is `SCANNER_TRANSPORT`'s decision, and
+   * `services/document-scanner` holds it; this holds none of it.
    *
    * A message that could not be settled is left unacknowledged so the platform
    * redelivers it. The document stays unopenable until it succeeds, which is
    * the safe direction to fail in.
+   *
+   * **A permanent condition is acknowledged rather than retried.** A document
+   * version that no longer exists cannot be scanned by trying again, and the
+   * retry budget it would consume is shared with failures that a retry really
+   * can fix — a provider timeout, a rate-limited request.
    */
   async queue(batch: MessageBatch<QueueMessage>, env: CloudflareBindings) {
     const db = createDatabase(env.DB)
     for (const message of batch.messages) {
       try {
-        const recorded = await scanDocumentVersion(
+        const disposition = await scanDocumentVersion(
           db,
           env as AppBindings,
           message.body.documentVersionId,
         )
-        if (recorded) message.ack()
-        else message.retry()
+        if (disposition === 'NOT_RECORDED') message.retry()
+        else message.ack()
       } catch {
         // Never the error and never the body: a scan failure can carry the
         // request it was making, and that request names a stored object.

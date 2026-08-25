@@ -140,7 +140,28 @@
       {
         "queue": "seb-backend-queue",
         "max_batch_size": 10,
-        "max_batch_timeout": 5
+        "max_batch_timeout": 5,
+        /*
+         * One invocation at a time, because the scanner behind this is.
+         * Cloudflare autoscales consumers by backlog, and Cloudmersive's free
+         * tier allows a single concurrent request — so scaling up would have
+         * the consumers rate-limit each other, and every 429 costs a retry
+         * from the same small monthly allowance that the scan itself does.
+         */
+        "max_concurrency": 1,
+        /*
+         * Retries exist for a provider that was briefly unavailable, not for a
+         * misconfiguration. Three attempts distinguish the two: a transient
+         * failure clears, and a missing key does not — it lands in the
+         * dead-letter queue, where the document is recoverable and countable.
+         *
+         * Without the dead letter queue an exhausted message is dropped, and
+         * that is the quiet failure worth spending a queue on: the document
+         * stays PENDING and unopenable for good, with nothing but a log line
+         * to say it ever happened.
+         */
+        "max_retries": 3,
+        "dead_letter_queue": "seb-backend-queue-dlq"
       }
     ]
   }

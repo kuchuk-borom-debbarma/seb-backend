@@ -337,7 +337,7 @@ submitted in an older cycle.
 
 ### 6.2 Upload, replacement, and access
 
-- [x] Accept PDF, JPEG, and PNG files up to 5 MB each, with the file name's
+- [x] Accept PDF, JPEG, and PNG files up to 2 MB each, with the file name's
   extension required to match the file's declared type.
 - [x] Reject a file whose actual type does not match its declared type.
 - [x] Reject incomplete, altered, oversized, or expired upload attempts.
@@ -360,7 +360,8 @@ submitted in an older cycle.
   `SCANNER_TRANSPORT` alongside the permissive `none`. With `none`, `local` and
   `develop` accept documents without examining them and record
   `NO_SCANNER_CONFIGURED` against each one, so an unexamined file can never be
-  mistaken for a checked one. `production` refuses `none` at construction.
+  mistaken for a checked one. `production` refuses `none`, and
+  `npm run check:scanner` refuses that configuration before it is deployed.
 - [ ] Provision `CLOUDMERSIVE_API_KEY` and turn the transport on in the deployed
   configuration. The code is delivered and tested; what remains is an account.
   Its free tier is ~600-800 scans a month, one at a time, and refuses a file

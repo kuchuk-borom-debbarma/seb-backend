@@ -128,7 +128,7 @@ This service is the single owner of the upload rules.
 | | |
 | --- | --- |
 | Types | PDF, JPEG, PNG |
-| Maximum | 5 MB |
+| Maximum | 2 MB — set by what the malware scanner accepts, not by storage; see [`uploads.ts`](uploads.ts) |
 | Upload URL | valid 10 minutes |
 | Download URL | valid 5 minutes, always forced to attachment |
 

@@ -380,9 +380,12 @@ byte-exact schema check would reject.
   newest-first read — the likeliest query against the largest table — scanned
   and sorted. That pair is exactly the keyset cursor, so the seek and the
   ordering share one index.
-- `seb_document_upload_intent.size_bytes` is capped at 5 MB by a `CHECK`, the
-  same limit the service and the browser apply. Left wider, the database would
-  permit what the programme forbids.
+- `seb_document_upload_intent.size_bytes` is capped at 5 MB by a `CHECK`. That
+  is a **backstop, deliberately wider than the rule**: the service and the
+  browser both refuse at 2 MB, which is what the malware scanner accepts. The
+  `CHECK` is not narrowed to match because SQLite cannot alter one without
+  rebuilding the table, and a bound wider than the rule costs nothing — what
+  would be wrong is a bound *narrower* than it.
 
 ## Base-schema workflow
 

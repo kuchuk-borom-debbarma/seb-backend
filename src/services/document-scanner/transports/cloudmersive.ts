@@ -35,6 +35,9 @@ import type { DocumentScanner, ScanOutcome } from '../types'
 
 const SCAN_ENDPOINT = 'https://api.cloudmersive.com/virus/scan/file'
 
+/** How long to wait for a verdict before treating the attempt as no answer. */
+const SCAN_TIMEOUT_MS = 30_000
+
 /**
  * Recorded as the scan reference for every result.
  *
@@ -84,10 +87,19 @@ export const cloudmersiveScanner = (
     const body = new FormData()
     body.append('inputFile', await stored.blob(), UPLOAD_FILENAME)
 
+    /*
+     * Bounded, because an unbounded one is not just this document's problem.
+     * The consumer takes a batch, and a provider that accepts the connection
+     * and then never answers would hold the whole batch until the platform
+     * kills the invocation — spending a retry for every message in it, not only
+     * the stuck one. Thirty seconds is far longer than the "subsecond typical"
+     * the provider advertises, so this fires on a hang rather than on load.
+     */
     const response = await fetch(SCAN_ENDPOINT, {
       method: 'POST',
       headers: { Apikey: apiKey },
       body,
+      signal: AbortSignal.timeout(SCAN_TIMEOUT_MS),
     })
     if (!response.ok) {
       throw new Error(`The malware scanner refused the request (${response.status}).`)

@@ -110,6 +110,16 @@ describe('work whose loss is safe', () => {
 })
 
 describe('scanning a document that was queued', () => {
+  /*
+   * Pinned, not inherited. `bindings()` spreads the worker env, which vitest
+   * fills from `.env.local` — and `.env.local` is exactly where a developer is
+   * told to put a real key when turning the transport on. Left to the
+   * environment, these three would start failing the day that happens, and
+   * would read as a regression in the factory rather than as configuration
+   * leaking into the suite.
+   */
+  const unscanned = { SCANNER_TRANSPORT: 'none' } as Partial<AppBindings>
+
   it('accepts without examining, and says so where anybody can read it', async () => {
     /*
      * The honesty is the point. Staff download fails closed until an ACCEPTED
@@ -118,7 +128,7 @@ describe('scanning a document that was queued', () => {
      * clean-looking result would be worse than no scanner, because it would
      * read as evidence that something checked.
      */
-    const scanner = documentScanner(bindings())
+    const scanner = documentScanner(bindings(unscanned))
     expect(scanner.name).toBe('permissive')
 
     const outcome = await scanner.scan('applications/a/documents/DPR/object')
@@ -128,16 +138,18 @@ describe('scanning a document that was queued', () => {
   })
 
   it('is permissive on develop, because a demonstration has no real evidence', () => {
-    expect(documentScanner(bindings({ ENVIRONMENT: 'develop' })).name).toBe('permissive')
+    expect(documentScanner(bindings({ ...unscanned, ENVIRONMENT: 'develop' })).name).toBe('permissive')
   })
 
   it('refuses to exist in production until a real one is configured', () => {
     /*
-     * At construction, not at scan time. A scanner that failed only when asked
-     * would let a deployment look healthy until the first document was
-     * uploaded; refusing to be built is loud and immediate.
+     * When the scanner is built, so the error names the configuration rather
+     * than arriving later as something else. Worth being exact about what that
+     * buys: the queue consumer is the only thing that builds one, so this does
+     * not stop a bad deployment starting — `npm run check:scanner` is what
+     * refuses the configuration beforehand.
      */
-    expect(() => documentScanner(bindings({ ENVIRONMENT: 'production' })))
+    expect(() => documentScanner(bindings({ ...unscanned, ENVIRONMENT: 'production' })))
       .toThrowError(/No malware scanner is configured for the production environment/u)
   })
 
@@ -161,7 +173,7 @@ describe('scanning a document that was queued', () => {
       .toThrowError('SCANNER_TRANSPORT must be either "none" or "cloudmersive".')
   })
 
-  it('refuses cloudmersive without its key, at construction', () => {
+  it('refuses cloudmersive without its key, when it is built', () => {
     expect(() => documentScanner(bindings({ SCANNER_TRANSPORT: 'cloudmersive' })))
       .toThrowError(/CLOUDMERSIVE_API_KEY is required/u)
     // Whitespace is not a key either.

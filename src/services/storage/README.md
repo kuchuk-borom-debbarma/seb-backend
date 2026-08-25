@@ -38,7 +38,7 @@ multipart `POST` — signed *form fields*, not a signed URL with headers. A
 direct-to-provider grant would therefore change `UploadGrant` and every client
 that follows it, so the bytes come here instead and this forwards them. The cost
 is bounded: a document is held in memory once, and the programme caps one at
-5 MB.
+2 MB.
 
 **Why its objects are `authenticated`.** A default Cloudinary upload is served
 to anyone who knows the URL. This evidence includes identity and bank documents,

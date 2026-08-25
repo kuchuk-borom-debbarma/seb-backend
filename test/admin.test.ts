@@ -475,7 +475,7 @@ describe('Mission SEP administration', () => {
     })
 
     // What the queue consumer does when it reads a scan request.
-    expect(await scanDocumentVersion(createDatabase(env.DB), env, versionId)).toBe(true)
+    expect(await scanDocumentVersion(createDatabase(env.DB), env, versionId)).toBe('RECORDED')
 
     // Open. And the history is honest about what actually happened.
     expect((await download()).data?.admin.intake.documentDownloadUrl.success).toBe(true)
@@ -489,10 +489,51 @@ describe('Mission SEP administration', () => {
   })
 
   it('records nothing for a document that no longer exists', async () => {
-    // Deleted between the request being queued and read. Nothing to scan and
-    // nothing to write down, rather than an invented result.
+    /*
+     * Deleted between the request being queued and read: nothing to scan and
+     * nothing to write down, rather than an invented result.
+     *
+     * `GONE` rather than a plain failure because the distinction is what the
+     * consumer settles on. No later attempt can find a row that was deleted, so
+     * retrying spends a budget shared with failures a retry really can fix, and
+     * ends by dropping the message anyway.
+     */
     expect(await scanDocumentVersion(createDatabase(env.DB), env, crypto.randomUUID()))
-      .toBe(false)
+      .toBe('GONE')
+  })
+
+  it('defers when the verdict could not be appended', async () => {
+    /*
+     * A version that exists with no scan history at all — which finalization
+     * never produces, since it writes the PENDING row itself. `append` refuses
+     * rather than inventing sequence 1, because a scan history that did not
+     * begin at finalization is not one this can reason about.
+     *
+     * Distinct from `GONE` on purpose: the row is there, so this is deferred
+     * rather than settled, and the consumer retries it.
+     */
+    const administrator = await adminSession(['APPLICANT', 'ADMIN'])
+    const cycle = await createOpenedCycle(administrator.cookie)
+    const { applicationId } = await createSubmittedApplication(
+      administrator.cookie, administrator.userId, cycle.id,
+    )
+    const documentId = crypto.randomUUID()
+    const versionId = crypto.randomUUID()
+    const now = Date.now()
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO seb_application_document (
+        id, application_id, document_type, current_version, created_at, updated_at
+      ) VALUES (?, ?, 'DPR', 1, ?, ?)`).bind(documentId, applicationId, now, now),
+      env.DB.prepare(`INSERT INTO seb_application_document_version (
+        id, document_id, version, operation, r2_object_key, original_filename,
+        content_type, size_bytes, checksum, uploaded_by_user_id, created_at
+      ) VALUES (?, ?, 1, 'UPLOAD', ?, 'dpr.pdf', 'application/pdf', 10, ?, ?, ?)`)
+        .bind(versionId, documentId, `scan/${versionId}`, 'A'.repeat(43) + '=',
+          administrator.userId, now),
+    ])
+
+    expect(await scanDocumentVersion(createDatabase(env.DB), env, versionId))
+      .toBe('NOT_RECORDED')
   })
 
 

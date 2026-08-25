@@ -20,9 +20,16 @@
  *   an `ACCEPTED` result exists — so the review workflow would be untestable.
  *
  * In `production`, `none` **refuses to be constructed**. Nothing in that
- * environment may accept an unexamined file, and failing at construction is
- * what stops the permissive one shipping unnoticed: the failure is loud and
- * immediate rather than a document quietly becoming readable.
+ * environment may accept an unexamined file.
+ *
+ * ## Where that refusal actually lands
+ *
+ * Not at startup, however much it deserves to. A scanner is only ever built by
+ * the queue consumer, so a misconfigured production Worker deploys green,
+ * serves requests and accepts uploads — and throws on the first queued scan,
+ * where `src/index.ts` turns it into a retry. `npm run check:scanner` is what
+ * catches the declared configuration before it is deployed; the dead-letter
+ * queue is what keeps the runtime half from being silent.
  */
 import type { AppBindings } from '../../bindings'
 import { objectReader } from '../storage'
@@ -46,9 +53,11 @@ const SCANNING_REQUIRED_ENVIRONMENTS = new Set(['production'])
 /**
  * The key the configured scanner needs, or a refusal naming what is missing.
  *
- * At construction rather than at scan time, matching the environment check
- * below: a deployment whose credential is absent should fail immediately, not
- * on the first document somebody uploads.
+ * Checked when the scanner is built rather than when it is used, so the failure
+ * names the configuration instead of arriving as a provider error. That is
+ * earlier, not early: nothing builds a scanner until the queue consumer runs.
+ * A missing secret cannot be caught before deployment — secrets are write-only
+ * — so it surfaces on the first scan and lands in the dead-letter queue.
  */
 const requireCloudmersiveKey = (env: AppBindings): string => {
   const apiKey = (env.CLOUDMERSIVE_API_KEY ?? '').trim()

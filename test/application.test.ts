@@ -33,6 +33,7 @@ import {
 } from '../src/services/application/queries/document'
 import { setEnterpriseDeleted } from '../src/services/application/queries/enterprise'
 import { auditRecord } from '../src/services/application/support'
+import { MAX_DOCUMENT_BYTES } from '../src/services/application/uploads'
 import { requiredDocumentTypesForSnapshot } from '../src/services/application/validation'
 import type {
   ApplicationDraftInput,
@@ -1871,7 +1872,7 @@ describe('applicant application business service', () => {
     for (const input of [
       { ...baseInput, expectedDocumentVersion: -1 },
       { ...baseInput, sizeBytes: 0 },
-      { ...baseInput, sizeBytes: 5 * 1024 * 1024 + 1 },
+      { ...baseInput, sizeBytes: MAX_DOCUMENT_BYTES + 1 },
       { ...baseInput, contentType: 'text/html' },
       { ...baseInput, checksumSha256: 'not-a-checksum' },
       { ...baseInput, originalFilename: ' ' },

@@ -37,9 +37,17 @@ scanner exists.
 | `cloudmersive` | Really examines the file. Needs `CLOUDMERSIVE_API_KEY` |
 | `none`, or unset | Accepts without examining, recording `NO_SCANNER_CONFIGURED` and a message saying plainly that the file was not examined |
 
-`production` **refuses `none` at construction**. Anything else refuses too,
-rather than falling back — a typo in configuration must not quietly stop
-documents being examined.
+`production` **refuses `none`**. Anything else is refused too, rather than
+falling back — a typo in configuration must not quietly stop documents being
+examined.
+
+**That refusal is not a startup failure**, though the shape of it invites the
+assumption. A scanner is built only by the queue consumer, so a misconfigured
+production Worker deploys, serves requests and accepts uploads, then throws on
+the first queued scan. `npm run check:scanner` reads the deployed configuration
+and refuses it before that happens, and the dead-letter queue catches what the
+check cannot see — a transport named without its key, since secrets are
+write-only.
 
 ## The size limit is the scanner's
 
@@ -61,9 +69,10 @@ document's scan history can tell an unexamined file from a checked one. A
 permissive scanner that recorded a clean-looking result would be far more
 dangerous than none, because it would read as evidence that something checked.
 
-**Refusing at construction, not at scan time.** A scanner that only failed when
-asked would let a production deployment look healthy until the first document
-arrived. Failing when it is built is loud and immediate.
+**Refusing when built, not when used.** The failure then names the
+configuration rather than arriving as a provider error. It is still the queue
+consumer that builds one, so "loud and immediate" describes `check:scanner`, not
+the Worker.
 
 `develop` is deliberately permissive: it is a demonstration environment holding
 nobody's real evidence, and being unable to open a document there costs more
@@ -76,7 +85,7 @@ than it protects.
 | | |
 | --- | --- |
 | **Entry** | `documentScanner(env).scan(objectKey)` |
-| **Refuses** | at construction: `none` in `production`, an unknown transport anywhere, or `cloudmersive` without its key |
+| **Refuses** | when built: `none` in `production`, an unknown transport anywhere, or `cloudmersive` without its key |
 | **Writes** | nothing; the caller records the outcome |
 | **Fails** | `No malware scanner is configured for the production environment.` |
 
