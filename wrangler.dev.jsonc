@@ -12,11 +12,11 @@
  * `wrangler deploy` verifies the bucket exists. A dry run does not, so that
  * failure only appears at the real deploy.
  *
- * **`vars`.** The deployed values say `ENVIRONMENT: production` and
- * `STORAGE_TRANSPORT: cloudinary`. Inherited here, a test run would refuse the
- * unlimited rate-limit transport — the factory rejects it in production — and
- * would send test documents to the real provider. Absent, `ENVIRONMENT` reads
- * as local, which is what a machine with nothing configured should be.
+ * **`vars`.** The deployed values name a deployed environment and
+ * `STORAGE_TRANSPORT: cloudinary`. Inherited here, a test run would send test
+ * documents to the real provider, and would count rate limits on bindings this
+ * configuration does not declare. Absent, `ENVIRONMENT` reads as local, which
+ * is what a machine with nothing configured should be.
  *
  * ## What must not drift
  *
