@@ -17,15 +17,19 @@ import {
   startApplication,
 } from './support'
 
+/** The cycle this file opened, so its applications start in that one. */
+let cycleCode = ''
+
 test.describe('funding', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await openProgrammeCycle(page, { prefix: 'SEP-F' })
+    cycleCode = await openProgrammeCycle(page, { prefix: 'SEP-F' })
     await page.context().clearCookies()
   })
 
   test('says plainly that nothing has been sanctioned yet', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'funding',
       businessName: 'Funding Works',
     })
@@ -41,6 +45,7 @@ test.describe('funding', () => {
     page,
   }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'funding',
       businessName: 'Funding Works',
     })
@@ -54,6 +59,7 @@ test.describe('funding', () => {
 
   test('leads back to the application', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'funding',
       businessName: 'Funding Works',
     })

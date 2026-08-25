@@ -28,15 +28,19 @@ const choose = async (
   await page.locator('input[type="file"]').first().setInputFiles(file)
 }
 
+/** The cycle this file opened, so its applications start in that one. */
+let cycleCode = ''
+
 test.describe('evidence', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await openProgrammeCycle(page, { prefix: 'SEP-E' })
+    cycleCode = await openProgrammeCycle(page, { prefix: 'SEP-E' })
     await page.context().clearCookies()
   })
 
   test('lists every document the application can carry', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -58,6 +62,7 @@ test.describe('evidence', () => {
 
   test('separates what is required from what is optional', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -78,6 +83,7 @@ test.describe('evidence', () => {
     page,
   }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -93,6 +99,7 @@ test.describe('evidence', () => {
 
   test('refuses an empty file', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -108,6 +115,7 @@ test.describe('evidence', () => {
 
   test('refuses a file over the limit, and one whose name lies', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -143,6 +151,7 @@ test.describe('evidence', () => {
     page,
   }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -176,6 +185,7 @@ test.describe('evidence', () => {
 
   test('each issue in the report links to the screen that fixes it', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -215,6 +225,7 @@ test.describe('evidence', () => {
      * was told to fix something where it does not exist.
      */
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -235,6 +246,7 @@ test.describe('evidence', () => {
 
   test('is reachable from the application and from the form', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })

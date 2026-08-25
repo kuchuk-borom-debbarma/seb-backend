@@ -51,6 +51,9 @@ const collectSources = async (directory: string): Promise<string[]> => {
   return found.flat()
 }
 
+/** The cycle this file opened, so its applications start in that one. */
+let cycleCode = ''
+
 test.describe('the guide keeps its own promises', () => {
   /*
    * A step that marks an element nobody registered brackets nothing: the rail
@@ -355,7 +358,7 @@ test.describe('the first visit', () => {
 test.describe('a question that explains itself', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await openProgrammeCycle(page, { prefix: 'SEP-G' })
+    cycleCode = await openProgrammeCycle(page, { prefix: 'SEP-G' })
     await page.context().clearCookies()
   })
 
@@ -363,6 +366,7 @@ test.describe('a question that explains itself', () => {
     page,
   }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'guide',
       businessName: 'Guide Works',
     })
@@ -390,6 +394,7 @@ test.describe('a question that explains itself', () => {
 
   test('is offered only where a question genuinely surprises', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'guide',
       businessName: 'Guide Works',
     })

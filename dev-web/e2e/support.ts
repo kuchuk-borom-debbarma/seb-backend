@@ -34,38 +34,60 @@ export const uniqueEmail = (prefix: string): string =>
  * this can find it. Polling rather than reading once, because the Worker writes
  * the line asynchronously through `tee`.
  */
-export const latestOtp = async (afterByteOffset = 0): Promise<string> => {
+/**
+ * The one-time code sent to one address.
+ *
+ * **Keyed on the recipient, not on position.** This used to take a byte offset
+ * and return the *last* `DEV_EMAIL` line after it, which is only correct while
+ * one signup happens at a time: run two at once and both readers take whichever
+ * the Worker flushed second, so one of them silently fills somebody else's code
+ * and fails later as an unexplained navigation timeout.
+ *
+ * The transport writes the recipient into the same line
+ * (`services/external-notification/transports/console.ts`), so the address is
+ * the key. Nothing here depends on ordering any more.
+ */
+export const latestOtp = async (recipient: string): Promise<string> => {
+  const wanted = recipient.trim().toLowerCase()
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const log = await readFile(WORKER_LOG, 'utf8').catch(() => '')
-    /*
-     * Anchored on the transport's own marker, not on "six digits somewhere".
-     * The previous version took the last six-digit run anywhere in the log,
-     * which silently returns the wrong code as soon as anything else logs six
-     * consecutive digits — a request id, a timestamp fragment, a provider
-     * reference. Reading the marked line means the code is found by where it
-     * is rather than by what it looks like.
-     */
-    const lines = [...log.slice(afterByteOffset).matchAll(/^DEV_EMAIL (.*)$/gmu)]
-    const code = lines.at(-1)?.[1]?.match(/\b(\d{6})\b/u)
-    if (code?.[1]) return code[1]
+    // Newest first: an address that signs up twice wants the later code.
+    for (const line of [...log.matchAll(/^DEV_EMAIL (.*)$/gmu)].reverse()) {
+      const message = readDevEmail(line[1])
+      if (message?.to?.trim().toLowerCase() !== wanted) continue
+      const code = message.text?.match(/\b(\d{6})\b/u)
+      if (code?.[1]) return code[1]
+    }
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
-  throw new Error('No signup code appeared in the Worker log within 10 seconds.')
+  throw new Error(`No signup code for ${recipient} appeared in the Worker log within 10 seconds.`)
 }
 
-/** Where the Worker log currently ends, so a later read ignores earlier codes. */
-export const workerLogLength = async (): Promise<number> =>
-  (await readFile(WORKER_LOG, 'utf8').catch(() => '')).length
+/**
+ * One `DEV_EMAIL` line, parsed, or `null` when it is not one this cares about.
+ *
+ * Tolerant on purpose: the log is a pipe, and a line can be read while it is
+ * still being written. A half-flushed line is not an error, it is a line to try
+ * again on.
+ */
+const readDevEmail = (
+  payload: string | undefined,
+): { to?: string; subject?: string; text?: string } | null => {
+  if (!payload) return null
+  try {
+    return JSON.parse(payload) as { to?: string; subject?: string; text?: string }
+  } catch {
+    return null
+  }
+}
 
 /** Registers a real applicant through the signup screens and returns the email. */
 export const signUpApplicant = async (page: Page, email: string): Promise<void> => {
-  const offset = await workerLogLength()
-
   await page.goto('/sign-up')
   await page.getByLabel('Email address').fill(email)
   await page.getByRole('button', { name: 'Send verification code' }).click()
 
-  const code = await latestOtp(offset)
+  const code = await latestOtp(email)
   await page.getByLabel(/Six-digit code/u).fill(code)
   await page.getByLabel('Choose a password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Create account' }).click()
@@ -142,7 +164,9 @@ export const openProgrammeCycle = async (
   page: Page,
   { prefix = 'SEP', name }: { prefix?: string; name?: string } = {},
 ): Promise<string> => {
-  const code = `${prefix}-${Date.now().toString(36).toUpperCase()}`
+  // Random suffix as well as the clock: two workers opening a cycle in the
+  // same millisecond with the same prefix would otherwise collide.
+  const code = `${prefix}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`
   await page.goto('/admin/cycles/new')
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(name ?? code)
@@ -174,7 +198,7 @@ export const openProgrammeCycle = async (
  */
 export const startApplication = async (
   page: Page,
-  { prefix = 'applicant', businessName = 'Test Works' } = {},
+  { prefix = 'applicant', businessName = 'Test Works', cycleCode = '' } = {},
 ): Promise<string> => {
   const email = uniqueEmail(prefix)
   await signUpApplicant(page, email)
@@ -186,7 +210,23 @@ export const startApplication = async (
 
   await page.goto('/applications/new')
   await page.getByLabel('Enterprise').selectOption({ label: businessName })
-  await page.getByLabel('Programme cycle').selectOption({ index: 1 })
+  /*
+   * By code where the caller knows it, because position is a lie here.
+   *
+   * The options are ordered by `opensAt`, and every helper opens its cycle at
+   * "an hour ago" — so index 1 is the oldest still-open cycle in the whole
+   * database, never the one the caller just made. It worked only because the
+   * files that need a document-requiring cycle happened to run before the ones
+   * that open cycles without documents. `submitApplication` already selects by
+   * code for exactly this reason.
+   */
+  const cycle = page.getByLabel('Programme cycle')
+  if (cycleCode) {
+    const label = await cycle.locator('option').filter({ hasText: cycleCode }).innerText()
+    await cycle.selectOption({ label })
+  } else {
+    await cycle.selectOption({ index: 1 })
+  }
   await page.getByRole('button', { name: 'Start an initial application' }).click()
   await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
   return page.url().split('/').pop() as string
@@ -271,7 +311,9 @@ const openCycleWithoutDocuments = async (
   prefix: string,
   configureIdentifiers?: (page: Page) => Promise<void>,
 ): Promise<string> => {
-  const code = `${prefix}-${Date.now().toString(36).toUpperCase()}`
+  // Random suffix as well as the clock: two workers opening a cycle in the
+  // same millisecond with the same prefix would otherwise collide.
+  const code = `${prefix}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`
   await page.goto('/admin/cycles/new')
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(code)
@@ -369,15 +411,20 @@ export const fillEveryAnswer = async (
  * "a URL somewhere", so another notification in the log cannot be mistaken for
  * this one.
  */
-export const latestInviteLink = async (afterByteOffset = 0): Promise<string> => {
+export const latestInviteLink = async (recipient: string): Promise<string> => {
+  const wanted = recipient.trim().toLowerCase()
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const log = await readFile(WORKER_LOG, 'utf8').catch(() => '')
-    const lines = [...log.slice(afterByteOffset).matchAll(/^DEV_EMAIL (.*)$/gmu)]
-    for (const line of lines.reverse()) {
-      const found = line[1]?.match(/\/invite#([A-Za-z0-9_-]+)/u)
+    // Keyed on the invitee, for the reason `latestOtp` is: two invitations in
+    // flight at once would otherwise cross, and accepting somebody else's token
+    // grants the wrong role to the wrong account rather than failing loudly.
+    for (const line of [...log.matchAll(/^DEV_EMAIL (.*)$/gmu)].reverse()) {
+      const message = readDevEmail(line[1])
+      if (message?.to?.trim().toLowerCase() !== wanted) continue
+      const found = message.text?.match(/\/invite#([A-Za-z0-9_-]+)/u)
       if (found?.[1]) return `/invite#${found[1]}`
     }
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
-  throw new Error('No invitation link appeared in the Worker log within 10 seconds.')
+  throw new Error(`No invitation link for ${recipient} appeared in the Worker log within 10 seconds.`)
 }

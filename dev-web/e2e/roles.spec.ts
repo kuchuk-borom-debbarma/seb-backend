@@ -16,7 +16,6 @@ import {
   signOut,
   signUpApplicant,
   uniqueEmail,
-  workerLogLength,
 } from './support'
 
 /**
@@ -35,7 +34,6 @@ const inviteSomebodyTo = async (
 
   await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
   await page.goto('/admin/invite')
-  const offset = await workerLogLength()
   await page.getByLabel('Their email address').fill(email)
   await page.getByRole('button', { name: 'Look them up' }).click()
   await expect(page.getByRole('heading', { name: email })).toBeVisible()
@@ -48,7 +46,7 @@ const inviteSomebodyTo = async (
 
   // The link is never shown to the issuer; it only exists in what was sent.
   await expect(page.getByText('/invite#')).toHaveCount(0)
-  const link = await latestInviteLink(offset)
+  const link = await latestInviteLink(email)
   await signOut(page)
 
   await signIn(page, email, PASSWORD)

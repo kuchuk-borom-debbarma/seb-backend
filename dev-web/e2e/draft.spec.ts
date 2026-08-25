@@ -7,15 +7,19 @@ import {
   startApplication,
 } from './support'
 
+/** The cycle this file opened, so its applications start in that one. */
+let cycleCode = ''
+
 test.describe('the application form', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await openProgrammeCycle(page, { prefix: 'SEP-D' })
+    cycleCode = await openProgrammeCycle(page, { prefix: 'SEP-D' })
     await page.context().clearCookies()
   })
 
   test('saves answers as they are typed and says so', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'draft',
       businessName: 'Draft Works',
     })
@@ -32,6 +36,7 @@ test.describe('the application form', () => {
 
   test('shows every section of the form', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'draft',
       businessName: 'Draft Works',
     })
@@ -51,6 +56,7 @@ test.describe('the application form', () => {
 
   test('reveals conditional questions only when they apply', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'draft',
       businessName: 'Draft Works',
     })
@@ -82,6 +88,7 @@ test.describe('the application form', () => {
     page,
   }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'draft',
       businessName: 'Draft Works',
     })
@@ -98,6 +105,7 @@ test.describe('the application form', () => {
 
   test('money is entered in rupees and survives a reload', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'draft',
       businessName: 'Draft Works',
     })
@@ -116,12 +124,13 @@ test.describe('the application form', () => {
 test.describe('the closing date', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await openProgrammeCycle(page, { prefix: 'SEP-D' })
+    cycleCode = await openProgrammeCycle(page, { prefix: 'SEP-D' })
     await page.context().clearCookies()
   })
 
   test('is repeated where the work happens, with the time left', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'draft',
       businessName: 'Draft Works',
     })
@@ -141,12 +150,13 @@ test.describe('the closing date', () => {
 test.describe('the validation report', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await openProgrammeCycle(page, { prefix: 'SEP-V' })
+    cycleCode = await openProgrammeCycle(page, { prefix: 'SEP-V' })
     await page.context().clearCookies()
   })
 
   test('takes the applicant to the field, not just the page', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'draft',
       businessName: 'Draft Works',
     })

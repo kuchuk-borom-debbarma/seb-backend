@@ -83,14 +83,29 @@ test.describe('the signed-in shell', () => {
 })
 
 test.describe('signed-in devices', () => {
+  /*
+   * An account of this file's own, never the shared founder.
+   *
+   * Both tests below end sessions — one "other devices", one "everywhere" — and
+   * revocation is account-wide. Run against `founder@example.com`, which every
+   * other spec signs in as, they would sign other tests out mid-flight. The
+   * session *counts* are wrong for the same reason: another spec's sign-in is
+   * another row.
+   */
+  let owner = ''
+  test.beforeEach(async ({ page }) => {
+    owner = uniqueEmail('devices')
+    await signUpApplicant(page, owner)
+  })
+
   test('lists this browser and can end other sessions', async ({ page, browser }) => {
-    await signIn(page, SUPER_ADMIN_EMAIL)
+    await signIn(page, owner)
 
     // A second browser context is a genuinely separate device holding its own
     // session, which is what makes "sign out other devices" meaningful.
     const second = await browser.newContext()
     const secondPage = await second.newPage()
-    await signIn(secondPage, SUPER_ADMIN_EMAIL)
+    await signIn(secondPage, owner)
 
     await page.goto('/account/sessions')
     await expect(page.getByText('This device')).toBeVisible()
@@ -111,7 +126,7 @@ test.describe('signed-in devices', () => {
   })
 
   test('signing out everywhere ends this session too', async ({ page }) => {
-    await signIn(page, SUPER_ADMIN_EMAIL)
+    await signIn(page, owner)
     await page.goto('/account/sessions')
 
     await page.getByRole('button', { name: 'Sign out everywhere' }).click()
