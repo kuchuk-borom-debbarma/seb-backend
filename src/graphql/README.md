@@ -58,11 +58,21 @@ selects **114 fields at depth 7**, and its largest request is **under 16 KB**.
 | Request body | 64 KB | Hono, before parsing |
 | Fields per document | 500 | validation, before any resolver |
 | Selection depth | 12 | validation |
+| Introspection | exempt from both | validation |
 | Attempts at one operation | per the policy | execution, by the rate-limit plugin |
 | `first` on any connection | 1–100, default 20 | the service |
 | Un-paginated child collections | 500 rows | the query |
 
-The first and the fifth are the same mechanism at two depths, and they have to
+**Introspection is exempt, and only introspection.** The two document limits
+exist because one request can make the server do unbounded work; an
+introspection query does none — it is answered from the schema already in
+memory. It is also unavoidably deep, around fifteen levels, so a limit tuned to
+this programme's own operations refuses every schema fetch, which is the first
+thing a client developer meets. The exemption applies to a document whose root
+selections are all `__`-prefixed; mix in one real field and the whole document
+is measured again.
+
+The first and the sixth are the same mechanism at two depths, and they have to
 be: `/graphql` is a single POST, so the HTTP layer cannot tell one operation
 from another. How much each operation is allowed, and why some are counted
 against the account rather than the address, is owned by

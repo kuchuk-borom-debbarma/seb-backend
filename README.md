@@ -211,8 +211,9 @@ and must not accept documents it cannot durably keep.
 The database starts with no administrator, by design. Create one the way a real
 deployment does — see the
 [bootstrap guide](docs/first-super-admin-bootstrap.md). Once that one-time
-route has been used it is closed permanently; for a local database whose
-bootstrap is already spent, `npm run seed:super-admin` is the way back in.
+route has been used it is closed permanently, so a database whose bootstrap is
+already spent needs a `SUPER_ADMIN` row written directly — the guide says how,
+and why nothing in this repository does it for you.
 
 ### Scripts
 
@@ -227,7 +228,6 @@ bootstrap is already spent, `npm run seed:super-admin` is the way back in.
 | `db:setup:local` | Applies the canonical schema to the local database |
 | `db:schema:generate` | Rewrites `database/schema.sql` from the Drizzle schema |
 | `db:schema:check` | Fails if the two have diverged, or if the schema will not re-apply |
-| `seed:super-admin` | Creates an administrator when bootstrap is spent |
 | `cf-typegen` | Regenerates `worker-configuration.d.ts` |
 | `deploy` | `wrangler deploy --minify` |
 

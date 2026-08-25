@@ -88,7 +88,7 @@ The one entry point the rest of the programme calls.
 | | Delivers | Needs | Reference |
 | --- | --- | --- | --- |
 | `console` | nothing; prints one marked line | nothing | always `null` |
-| `pingram` | `POST https://api.pingram.io/email` | an API key and a notification type | the provider's tracking id, when readable |
+| `pingram` | `POST <base>/email` | an API key and a notification type | the provider's tracking id, when readable |
 
 ### The console transport and its sentinel
 
@@ -128,9 +128,17 @@ that as a delivery failure would invalidate a live code.
 | `ENVIRONMENT` | always | a var |
 | `PINGRAM_API_KEY` | `develop`, `production` | a secret |
 | `PINGRAM_NOTIFICATION_TYPE` | `develop`, `production` | a secret |
+| `PINGRAM_BASE_URL` | `develop`, `production` | a var |
+| `PINGRAM_FROM_NAME`, `PINGRAM_FROM_ADDRESS` | `develop`, `production` | vars |
 
 `PINGRAM_NOTIFICATION_TYPE` identifies the provider's own template. It is
 required by the provider, not by the programme.
+
+`PINGRAM_BASE_URL` names the region the account lives in. Unset means the
+provider's default, and a key issued against another region is refused there
+rather than delivering somewhere unexpected. The from-name and from-address are
+optional and left to the account when absent; both are provider concepts, which
+is why they are configuration here rather than anything a caller passes.
 
 Keep credentials in Cloudflare secrets, never in an env file that is checked in
 or in source.

@@ -16,7 +16,6 @@
     "db:setup:local": "wrangler d1 execute DB --local --file=database/schema.sql && node scripts/migrate.mjs --stamp",
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:remote": "node scripts/migrate.mjs --remote",
-    "seed:super-admin": "node scripts/seed-super-admin.mjs",
     "check:sdl": "node scripts/check-sdl-descriptions.mjs",
     "check:audit": "node scripts/check-audit-actions.mjs",
     "check:rate-limits": "node scripts/check-rate-limits.mjs"

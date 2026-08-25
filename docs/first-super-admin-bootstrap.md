@@ -142,12 +142,13 @@ cannot revoke their own. Promote a second super administrator through
 `access.grantRole` as soon as bootstrap completes, and this section becomes
 unnecessary.
 
-**Locally, use `npm run seed:super-admin`.** It creates an administrator
-directly against the local database and is the intended way back in when
-bootstrap has already been spent. The rest of this section is for a deployed
-Worker, where that script is not an option.
+There is deliberately no script for this. One existed, and it wrote a verified
+account with grants naming no granting actor — which is the right shape for a
+local database and the wrong thing to keep within reach of a deployed one. What
+follows is the manual route, and its length is the point: this is not a step
+anybody should take casually.
 
-It still applies if the sole account is lost some other way — a forgotten
+It applies if the sole account is lost some other way — a forgotten
 password, or a soft deletion applied directly to D1. Sign-in requires at least
 one active role, and bootstrap stays permanently closed once any historical
 `SUPER_ADMIN` grant exists — including a revoked one — so this route cannot
