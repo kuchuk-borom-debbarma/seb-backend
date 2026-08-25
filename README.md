@@ -226,7 +226,7 @@ bootstrap is already spent, `npm run seed:super-admin` is the way back in.
 | `test:worker` | The isolated Worker the end-to-end suite drives |
 | `db:setup:local` | Applies the canonical schema to the local database |
 | `db:schema:generate` | Rewrites `database/schema.sql` from the Drizzle schema |
-| `db:schema:check` | Fails if the two have diverged |
+| `db:schema:check` | Fails if the two have diverged, or if the schema will not re-apply |
 | `seed:super-admin` | Creates an administrator when bootstrap is spent |
 | `cf-typegen` | Regenerates `worker-configuration.d.ts` |
 | `deploy` | `wrangler deploy --minify` |

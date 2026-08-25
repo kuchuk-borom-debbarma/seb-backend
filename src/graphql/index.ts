@@ -15,6 +15,7 @@ import { authResolvers } from './resolvers/auth/auth'
 import { adminResolvers } from './resolvers/admin/admin'
 import { auditResolvers } from './resolvers/audit/audit'
 import { sebResolvers } from './resolvers/seb/seb'
+import { rateLimitPlugin } from './rate-limit'
 import baseTypeDefs from './schema.graphql'
 import type { GraphQLContext } from './types'
 import {
@@ -141,6 +142,13 @@ const graphqlServer = createYoga<GraphQLContext>({
   graphqlEndpoint: '/graphql',
   cors: false,
   plugins: [
+    /*
+     * Before the per-operation rule, because a document that asks for too much
+     * is refused by validation without ever reaching execution — and the
+     * limiter should not spend an allowance on a request that was never going
+     * to run.
+     */
+    rateLimitPlugin(),
     {
       // Rejecting multi-action auth mutations during validation guarantees that
       // no resolver has performed a partial side effect before the error is raised.

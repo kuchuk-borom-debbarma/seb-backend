@@ -166,7 +166,9 @@ for optimistic concurrency.
   written as a side effect of the work rather than as a step before it.
 - `seb_application_internal_note`: staff-only append-only notes and corrections.
 - `seb_desk_review` / `seb_desk_review_check`: frozen submission outcome and
-  fixed initial scrutiny checklist.
+  fixed initial scrutiny checklist. `conflict_acknowledged` records whether the
+  reviewer declared the application was their own — permitted with disclosure,
+  and the disclosure is kept beside the judgement it qualifies.
 - `seb_desk_review_identifier`: append-only record of the numbers a reviewer
   read off the documents a check passed. Stores a normalized value for public
   instruments and a keyed digest for identity and bank numbers, never the whole
@@ -177,7 +179,9 @@ for optimistic concurrency.
 - `seb_partner_bank_referral` / version / outcome: offline bank identity,
   referral lifecycle, feedback, and superseding corrections.
 - `seb_ttm_meeting` / version / agenda / decision: formal meetings, pinned
-  evidence, agenda changes, and append-only programme decisions.
+  evidence, agenda changes, and append-only programme decisions. A decision
+  carries its own `conflict_acknowledged`, and so does each superseding
+  correction, because each is a separate act by a possibly different officer.
 
 ### `seb`: awards and derived expansion eligibility
 
@@ -362,8 +366,10 @@ byte-exact schema check would reject.
   assessment, recovery, and role-management services exist. Account recovery, a
   production scanner, notification delivery, and payment integration remain
   public-launch blockers.
-- `database/schema.sql` is the canonical baseline for a new database and is
-  safe to re-apply. Changes to existing tables live in `database/migrations/`.
+- `database/schema.sql` is the whole schema and is safe to re-apply. Nothing is
+  deployed, so a change to an existing table is made in the Drizzle files and
+  regenerated; `database/migrations/` is empty until a database exists that
+  cannot be recreated.
 - `core_user_role_grant.role` accepts five values: `APPLICANT`, `REVIEWER`,
   `APPROVER`, `ADMIN`, `SUPER_ADMIN`. The vocabulary is fixed in TypeScript and
   enforced by a `CHECK`, so adding a role is a schema change rather than a
@@ -398,49 +404,47 @@ npm run db:setup:local
 Re-running it is safe: every statement in `database/schema.sql` is guarded with
 `IF NOT EXISTS`, so a second apply is a no-op and a half-created database
 recovers rather than erroring partway through. `db:setup:local` also records
-every migration as applied, because the baseline already contains their effect.
+every migration as applied, because the baseline already contains their effect —
+with none to record it finds nothing, and it stays so that the first one added
+is stamped rather than applied a second time.
 
 Keep this README's inventory, lifecycle, assumptions, and current state
 synchronized whenever tables or application rules change.
 
 ### Changing a table that already exists
 
-The guard on the baseline is not a migration, and the difference matters.
-`IF NOT EXISTS` only ever helps an object that does not exist yet: against a
-database whose table is already there in an older shape, the statement is
-skipped and **reported as success**, leaving the schema on the old definition
-while the code assumes the new one.
+Today, in the Drizzle schema alone. `database/schema.sql` is the whole schema:
+no database exists that anybody has to keep, so regenerating the baseline is the
+entire change and [`database/migrations/`](../../../database/migrations/README.md)
+is empty. Nothing there is deferred work.
 
-SQLite sharpens this, because it cannot `ALTER` a `CHECK` constraint at all.
-Changing one means creating a new table, copying every row, dropping the old and
-renaming — four statements no generator can infer, because only a person knows
-whether the existing rows satisfy the new rule.
+**This reverses the day a database exists that cannot be thrown away**, and the
+reason is worth carrying until then. The guard on the baseline is not a
+migration: `IF NOT EXISTS` only ever helps an object that does not exist yet, so
+against a database whose table is already there in an older shape the statement
+is skipped and **reported as success**, leaving the schema on the old definition
+while the code assumes the new one. SQLite sharpens it further, because it
+cannot `ALTER` a `CHECK` constraint at all — changing one means creating a new
+table, copying every row, dropping the old and renaming, four statements no
+generator can infer.
 
-So changes to existing tables are ordered files in
-[`database/migrations/`](../../../database/migrations/README.md), applied by
-`npm run db:migrate` and recorded in `core_schema_migration` — the ledger row
-written in the same batch as the migration it records, so a crash cannot leave a
-database migrated but unaware of it.
+From then on changes to existing tables are ordered files in that directory,
+applied by `npm run db:migrate` and recorded in `core_schema_migration` — the
+ledger row written in the same batch as the migration it records, so a crash
+cannot leave a database migrated but unaware of it.
 
-Nothing makes the baseline and the migration chain agree by construction, so
-`npm run db:schema:check` builds a database each way and compares them. That
-check is the only thing standing between the two quietly diverging.
+One database already survives a change today: the local one behind
+`npm run local`, which persists in `.wrangler` and is skipped silently by the
+same `IF NOT EXISTS`. A positional insert then supplies the wrong number of
+values. Recreate it rather than repairing it:
 
-## Current state
+```sh
+rm -rf .wrangler
+npm run db:setup:local
+```
 
-The schema foundation, applicant authentication/application flow, private R2
-uploads, programme-cycle governance, administrative intake/review, offline bank
-evidence, TTM decisions, awards, releases, assessments, and recovery exist.
-Administrator role management exists; account recovery, a production malware
-scanner, notification delivery, and public-launch protections remain future
-work. See the
-[combined application guide](../../../docs/application-guide.md)
-for the end-to-end business and API behavior, and the
-[applicant service README](../../services/application/README.md) for the
-write-time race guards and failure-recovery rules built on this schema.
-Administrative authorization is documented separately in the
-[fixed-role RBAC guide](../../../docs/admin-rbac.md).
-The [administrator workflow guide](../../../docs/admin-workflow-guide.md)
-explains staff use, and the
-[policy crosswalk](../../../docs/policy-alignment.md) records
-authoritative-source differences.
+`npm run db:schema:check` proves what it can. It always proves the baseline
+parses and re-applies to no effect — nothing else in the repo applies it twice.
+It compares the baseline against the migration chain only when a chain exists,
+because with none the two sides are built from the same file and the comparison
+would pass whatever it contained.

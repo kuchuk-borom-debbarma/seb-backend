@@ -1078,12 +1078,6 @@ type AdminAssignmentEvent {
   """The reason given, where the action required one."""
   reason: String
 
-  """
-  Whether the officer disclosed that they were acting on their own
-  application. Permitted with disclosure; the disclosure is what is kept.
-  """
-  conflictAcknowledged: Boolean!
-
   """Who did it."""
   actorUserId: ID!
 
@@ -1130,6 +1124,15 @@ type AdminReview {
 
   """When."""
   reviewedAt: DateTime!
+
+  """
+  Whether the reviewer said they were the applicant on this file.
+
+  True marks a review somebody carried out on their own application, which is
+  allowed once declared. Show it beside the outcome wherever a reviewer's
+  judgement is presented as independent.
+  """
+  conflictAcknowledged: Boolean!
 }
 
 """One of the nine checks in a desk review."""
@@ -1232,6 +1235,15 @@ type AdminDecisionRecord {
 
   """When the office recorded it."""
   createdAt: DateTime!
+
+  """
+  Whether the officer said they were the applicant on this file.
+
+  True marks a decision, or a correction of one, taken by the person it
+  concerns — allowed once declared. A correction carries its own answer, so a
+  superseding record may differ from the one it replaces.
+  """
+  conflictAcknowledged: Boolean!
 }
 
 """One committee meeting."""

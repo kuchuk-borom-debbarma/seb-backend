@@ -632,7 +632,12 @@ with no recovery path.
   control is disabled by what it says.
 - [x] Warn when the reviewer is also the applicant or enterprise owner; allow
   the action under the selected policy and retain the acknowledgement on the
-  transition that decides something.
+  transition that decides something. The acknowledgement is stored on the desk
+  review and on the decision it was given for, a superseding correction carries
+  its own, and each writes a `SEB.SELF_REVIEW_DISCLOSED` audit row so the cases
+  are findable by action rather than by joining actor to applicant.
+- [x] Show the acknowledgement wherever the review or decision it belongs to is
+  shown, so a reader of the record sees that the officer was the applicant.
 - [x] Prevent two administrators from unknowingly completing the same review
   transition from the same old status.
 - [x] Widen who may act on money. Awards, releases and recovery no longer
@@ -947,11 +952,24 @@ complete.
 
 - [ ] Provision the approved provider's key. The console transport cannot be
   reached from a delivering environment, but nothing is sent without a key.
-- [x] Build a forward path for the schema. The baseline re-applies safely,
-  ordered migrations in `database/migrations/` carry changes to existing
-  tables, `core_schema_migration` records what has run, and `db:schema:check`
-  proves the two paths still produce the same database.
-- [ ] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits.
+- [x] Build a forward path for the schema. `database/schema.sql` is the whole
+  schema while nothing is deployed, and `db:schema:check` proves it parses and
+  re-applies to no effect. The path for afterwards is built and unused:
+  `database/migrations/` is empty, `scripts/migrate.mjs` applies ordered files
+  and records them in `core_schema_migration`, and the same check compares the
+  two routes from the first file added. Adding that file is what will exercise
+  it — until then the comparison is skipped rather than run against nothing.
+- [x] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits. One
+  policy names which operations are limited and by how much, counted against
+  the caller's address, their session, and the account being acted on; a
+  refusal arrives as an ordinary result envelope, and a limiter that cannot
+  answer refuses rather than permitting.
+- [ ] Count abuse limits over windows longer than a minute. The platform's
+  rate-limiting binding accepts a period of ten seconds or sixty and nothing
+  else, so "three signups an hour for one address" is expressible only as "two
+  a minute" — bulk abuse is stopped, a patient attacker trickling requests is
+  not. A Durable Object counts any window; swapping to one changes a single
+  transport file and the numbers in the policy.
 - [ ] Configure a real malware scanner. This is a **production** blocker rather
   than a blanket one: the seam exists, and `local` and `develop` are usable
   without it because they record plainly that nothing examined the file.
@@ -1020,8 +1038,9 @@ their prerequisites.
 3. Complete administrator recovery before enabling the already implemented
    business workflow publicly. Administrator-only sign-in and role management
    are delivered; account recovery is not.
-4. Complete production applicant-account protections, email delivery, malware
-   scanning, and abuse limits.
+4. Complete production applicant-account protections, email delivery, and
+   malware scanning. Abuse limits are delivered; what remains is counting them
+   over windows longer than the minute the platform's binding allows.
 5. Complete notifications, reports, privacy/access rules, and operational
    procedures.
 6. Resolve every launch-blocking policy decision and finish the public-launch

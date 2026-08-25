@@ -126,12 +126,11 @@ query IntakeWorkspace($applicationId: ID!) {
             fromUserId
             toUserId
             reason
-            conflictAcknowledged
             actorUserId
             createdAt
           }
           notes { id correctionOfNoteId note authoredByUserId createdAt }
-          reviews { id submissionId outcome reviewedByUserId reviewedAt }
+          reviews { id submissionId outcome reviewedByUserId reviewedAt conflictAcknowledged }
           reviewChecks { id deskReviewId checkType result internalNote createdAt }
           identifierRules { kind requirement duplicatePolicy checkType }
           referrals {
@@ -160,6 +159,7 @@ query IntakeWorkspace($applicationId: ID!) {
             approvedAmountPaise
             applicantMessage
             createdAt
+            conflictAcknowledged
           }
           awards {
             id

@@ -154,6 +154,7 @@ function WorkspacePage() {
             agenda={workspace.agenda}
             decisions={workspace.decisions}
             reasons={reasons}
+            decidingOwnApplication={application.applicantUserId === viewer?.id}
             onChanged={refresh}
           />
         ) : null}
@@ -241,7 +242,17 @@ function WorkspacePage() {
                 <tbody>
                   {workspace.reviews.map((review) => (
                     <tr key={review.id}>
-                      <td>{humanize(review.outcome)}</td>
+                      <td>
+                        {humanize(review.outcome)}
+                        {/* A review an officer carried out on their own
+                            application is allowed, and is exactly what a reader
+                            of this record needs to see beside the outcome. */}
+                        {review.conflictAcknowledged ? (
+                          <span className="field-hint">
+                            Reviewed by the applicant, declared
+                          </span>
+                        ) : null}
+                      </td>
                       <td>{formatDateTime(review.reviewedAt)}</td>
                       <td>
                         {workspace.reviewChecks
@@ -287,14 +298,7 @@ function WorkspacePage() {
                   {workspace.assignments.map((event) => (
                     <tr key={event.id}>
                       <td>{formatDateTime(event.createdAt)}</td>
-                      <td>
-                        {humanize(event.eventType)}
-                        {event.conflictAcknowledged ? (
-                          <span className="field-hint">
-                            Taken from somebody else, acknowledged
-                          </span>
-                        ) : null}
-                      </td>
+                      <td>{humanize(event.eventType)}</td>
                       <td className="muted">{event.reason ?? '—'}</td>
                     </tr>
                   ))}

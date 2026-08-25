@@ -1972,11 +1972,11 @@ describe('applicant application business service', () => {
      * The whole claimed batch is deleted in one call, and a failure leaves
      * every row retryable.
      *
-     * That is the trade the bulk delete makes: one unavailable object now
-     * holds up its companions until the next run, where before it only held
-     * up itself. It is acceptable because CLEANUP_PENDING is precisely the
-     * state the lifecycle was built to be resumed from — which the second run
-     * below proves.
+     * A failure falls back to deleting them one at a time, and the reason is
+     * that the alternative is permanent rather than temporary. The claim query
+     * has no ordering, so every run picks up the same rows: one object the
+     * bucket will never remove would hold up its companions for ever, and
+     * every intent queued behind them with it.
      */
     const retryOne = await issueOne()
     const retryTwo = await issueOne()
@@ -1994,25 +1994,17 @@ describe('applicant application business service', () => {
     }
     await cleanupExpiredDocumentUploads(failing, new Date())
 
-    // One call for the batch, carrying both keys, rather than one per object.
-    expect(deleteObject).toHaveBeenCalledTimes(1)
+    // One call for the batch, then one per object once that call failed.
+    expect(deleteObject).toHaveBeenCalledTimes(3)
     expect((deleteObject.mock.calls[0]![0] as string[]).sort())
+      .toEqual([retryOne.objectKey, retryTwo.objectKey].sort())
+    expect(deleteObject.mock.calls.slice(1).map((call) => call[0] as string).sort())
       .toEqual([retryOne.objectKey, retryTwo.objectKey].sort())
     // Nothing was logged that names an object: a storage key is sensitive.
     expect(String(errorLog.mock.calls[0]?.[0])).not.toContain(retryOne.objectKey)
-
-    const held = await env.DB.prepare(
-      `SELECT status, cleanup_target_status AS cleanupTargetStatus
-       FROM seb_document_upload_intent WHERE id IN (?, ?)`,
-    ).bind(retryOne.uploadId, retryTwo.uploadId).all()
-    expect(held.results).toEqual([
-      { status: 'CLEANUP_PENDING', cleanupTargetStatus: 'EXPIRED' },
-      { status: 'CLEANUP_PENDING', cleanupTargetStatus: 'EXPIRED' },
-    ])
-
-    // The next run finds them again and finishes the job.
-    await cleanupExpiredDocumentUploads(failing, new Date())
     errorLog.mockRestore()
+
+    // Both objects went in the end, so both claims are closed in that same run.
     const settled = await env.DB.prepare(
       `SELECT status, cleanup_target_status AS cleanupTargetStatus
        FROM seb_document_upload_intent WHERE id IN (?, ?)`,
@@ -2021,6 +2013,55 @@ describe('applicant application business service', () => {
       { status: 'EXPIRED', cleanupTargetStatus: null },
       { status: 'EXPIRED', cleanupTargetStatus: null },
     ])
+
+    /*
+     * The companion to the case above: an object that fails both the batch and
+     * its own retry keeps its row claimable, so the work is not silently
+     * marked done. Its companions are still finished — which is the whole
+     * point of isolating it.
+     */
+    const poison = await issueOne()
+    const healthy = await issueOne()
+    await env.DB.prepare(
+      'UPDATE seb_document_upload_intent SET expires_at = ? WHERE id IN (?, ?)',
+    ).bind(Date.now() - 1, poison.uploadId, healthy.uploadId).run()
+
+    const poisonDelete = vi.fn().mockImplementation(async (key: string | string[]) => {
+      if (Array.isArray(key) || key === poison.objectKey) {
+        throw new Error('this object can never be removed')
+      }
+    })
+    const poisonLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await cleanupExpiredDocumentUploads({
+      db: createDatabase(env.DB),
+      env: { STORAGE: { delete: poisonDelete } as unknown as R2Bucket } as typeof env,
+    } as typeof failing, new Date())
+    poisonLog.mockRestore()
+
+    const after = await env.DB.prepare(
+      `SELECT id, status FROM seb_document_upload_intent WHERE id IN (?, ?)`,
+    ).bind(poison.uploadId, healthy.uploadId).all<{ id: string; status: string }>()
+    const byId = new Map(after.results.map((row) => [row.id, row.status]))
+    expect(byId.get(healthy.uploadId), 'the healthy one finishes').toBe('EXPIRED')
+    expect(byId.get(poison.uploadId), 'the poison one stays claimable')
+      .toBe('CLEANUP_PENDING')
+
+    /*
+     * And a run where nothing at all can be removed closes nothing. Only the
+     * poison row is still claimable now, so this is the every-object-fails
+     * case — it must leave the row exactly as it found it rather than marking
+     * work done that was never done.
+     */
+    const secondLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await cleanupExpiredDocumentUploads({
+      db: createDatabase(env.DB),
+      env: { STORAGE: { delete: poisonDelete } as unknown as R2Bucket } as typeof env,
+    } as typeof failing, new Date())
+    secondLog.mockRestore()
+    const [stillOpen] = (await env.DB.prepare(
+      'SELECT status FROM seb_document_upload_intent WHERE id = ?',
+    ).bind(poison.uploadId).all<{ status: string }>()).results
+    expect(stillOpen?.status).toBe('CLEANUP_PENDING')
   })
 
   it('restricts revision edits and permits a late resubmission that resolves every request', async () => {

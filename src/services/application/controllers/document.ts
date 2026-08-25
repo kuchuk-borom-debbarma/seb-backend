@@ -330,25 +330,38 @@ export const cleanupExpiredDocumentUploads = async (
    * One delete for the whole batch. The bucket takes an array, and fifty
    * objects previously meant fifty calls.
    *
-   * If it fails, every row stays CLEANUP_PENDING and the next run picks them
-   * all up again — which is exactly the state this lifecycle was designed
-   * around, and why claiming and closing are two steps rather than one. The
-   * cost of the bulk call is that one unavailable object now holds up its
-   * fifty companions for an hour instead of only itself; the benefit is that
-   * the ordinary run costs one call instead of fifty.
+   * **A failure falls back to deleting them one at a time**, and that is not a
+   * refinement. The claim query has no ordering, so each run picks up the same
+   * rows: a single object the bucket will never delete would hold up its fifty
+   * companions not for an hour but for ever, and every intent queued behind
+   * them with it. Isolating the failure costs fifty calls on the rare run that
+   * needs it and keeps the ordinary run at one.
    *
    * Object keys are never logged: a storage identifier is sensitive.
    */
+  let removed = claimed
   try {
     await context.env.STORAGE.delete(claimed.map((intent) => intent.objectKey))
   } catch {
-    console.error('Document upload cleanup could not remove its objects')
-    return
+    console.error('Document upload cleanup could not remove its objects in one call')
+    const survivors = await Promise.all(
+      claimed.map(async (intent) => {
+        try {
+          await context.env.STORAGE.delete(intent.objectKey)
+          return intent
+        } catch {
+          return null
+        }
+      }),
+    )
+    removed = survivors.filter((intent) => intent !== null)
+    if (removed.length === 0) return
   }
 
-  // The objects are gone, so every claim can be closed in one statement.
+  // The objects are gone, so every claim can be closed in one statement. Only
+  // the ones actually removed: a row whose object survives must stay claimable.
   await context.db.batch(
-    claimed.map((intent) =>
+    removed.map((intent) =>
       closeUploadIntentStatement(
         context.db,
         intent.id,

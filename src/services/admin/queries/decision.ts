@@ -28,7 +28,7 @@ import {
   sebTtmMeeting,
   sebTtmMeetingVersion,
 } from '../../../db/schema'
-import { changedExactlyOne } from '../support'
+import { changedExactlyOne, disclosedSelfReview } from '../support'
 import type { AdminOperationContext, BankOutcome, TtmDecisionOutcome } from '../types'
 
 const auditSelect = (
@@ -543,7 +543,7 @@ const rejectedAssignmentEvent = (
 ) => releasesAssignment
   ? [context.db.insert(sebApplicationAssignmentEvent).select(sql`
       SELECT ${crypto.randomUUID()}, application.id, 'RELEASED', application.assignment_version,
-        ${input.actorId}, NULL, ${input.reasonCategoryId}, ${input.applicantMessage}, 0,
+        ${input.actorId}, NULL, ${input.reasonCategoryId}, ${input.applicantMessage},
         ${input.actorId}, ${input.now.getTime()}
       FROM ${sebApplication} AS application
       WHERE application.id = ${input.applicationId}
@@ -802,10 +802,17 @@ export const recordTtmDecisionWrite = async (
     nextAction: string | null
     revisions: Array<{ section: string; reasonCategoryId: string; note: string }>
     requestedAmountPaise: number
+    /** True only where the officer is the applicant and said so. */
+    conflictAcknowledged?: boolean | null
     now: Date
   },
 ): Promise<boolean> => {
   const id = crypto.randomUUID()
+  // Read from the application rather than from the caller — see
+  // `disclosedSelfReview`.
+  const disclosed = disclosedSelfReview(
+    input.applicationId, input.actorId, input.conflictAcknowledged,
+  )
   const { status: nextStatus, releasesAssignment } = ttmOutcomeState(input.outcome)
   const assignment = ttmAssignmentValues(releasesAssignment, input.actorId, input.now)
   const nextStatusVersion = input.expectedStatusVersion + 1
@@ -858,7 +865,7 @@ export const recordTtmDecisionWrite = async (
         ${input.outcome}, ${input.reference}, ${input.date}, ${input.approvedAmountPaise},
         ${input.conditions}, ${input.reasonCategoryId}, ${input.applicantMessage},
         ${input.nextAction}, NULL, NULL, NULL,
-        ${input.actorId}, ${input.now.getTime()}
+        ${input.actorId}, ${input.now.getTime()}, ${disclosed}
       WHERE EXISTS (
         SELECT 1 FROM ${sebTtmAgendaItem}
         WHERE ${sebTtmAgendaItem.id} = ${input.agendaItemId}
@@ -891,6 +898,12 @@ export const recordTtmDecisionWrite = async (
       type: 'SEB_TTM_DECISION', id, now: input.now,
       guard: sql`EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE ${sebTtmDecision.id} = ${id})`,
     }),
+    auditSelect(context, {
+      actorId: input.actorId, action: 'SEB.SELF_REVIEW_DISCLOSED',
+      type: 'SEB_TTM_DECISION', id, now: input.now,
+      guard: sql`${disclosed} = 1
+        AND EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE ${sebTtmDecision.id} = ${id})`,
+    }),
   ])
   return changedExactlyOne(changed)
 }
@@ -920,10 +933,17 @@ export const correctTtmDecisionWrite = async (
     nextAction: string | null
     revisions: Array<{ section: string; reasonCategoryId: string; note: string }>
     requestedAmountPaise: number
+    /** True only where the officer is the applicant and said so. */
+    conflictAcknowledged?: boolean | null
     now: Date
   },
 ): Promise<boolean> => {
   const id = crypto.randomUUID()
+  // Read from the application rather than from the caller — see
+  // `disclosedSelfReview`.
+  const disclosed = disclosedSelfReview(
+    input.applicationId, input.actorId, input.conflictAcknowledged,
+  )
   const { status: nextStatus, releasesAssignment } = ttmOutcomeState(input.outcome)
   const assignment = ttmAssignmentValues(releasesAssignment, input.actorId, input.now)
   const nextVersion = input.expectedStatusVersion + 1
@@ -986,7 +1006,7 @@ export const correctTtmDecisionWrite = async (
         ${input.date}, ${input.approvedAmountPaise}, ${input.conditions},
         ${input.reasonCategoryId}, ${input.applicantMessage}, ${input.nextAction},
         previous.id, ${input.correctionReasonCategoryId}, ${input.correctionReason},
-        ${input.actorId}, ${input.now.getTime()}
+        ${input.actorId}, ${input.now.getTime()}, ${disclosed}
       FROM ${sebTtmDecision} AS previous
       WHERE previous.id = ${input.supersedesDecisionId}
         AND EXISTS (
@@ -1014,6 +1034,17 @@ export const correctTtmDecisionWrite = async (
       actorId: input.actorId, action: 'SEB.TTM_DECISION_CORRECTED',
       type: 'SEB_TTM_DECISION', id, now: input.now,
       guard: sql`EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE id = ${id})`,
+    }),
+    /*
+     * A correction is its own act, so it carries its own disclosure. A
+     * disclosure made when the original decision was recorded says nothing
+     * about who is superseding it, possibly months later.
+     */
+    auditSelect(context, {
+      actorId: input.actorId, action: 'SEB.SELF_REVIEW_DISCLOSED',
+      type: 'SEB_TTM_DECISION', id, now: input.now,
+      guard: sql`${disclosed} = 1
+        AND EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE id = ${id})`,
     }),
   ])
   return changedExactlyOne(changed)

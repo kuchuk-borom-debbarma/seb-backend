@@ -1071,6 +1071,15 @@ input CorrectTtmDecisionInput {
 
   """Sections to correct, where the corrected outcome asks for them."""
   revisions: [AdminRevisionInput!]!
+
+  """
+  Required only of somebody correcting a decision on their own application.
+
+  Superseding is its own act, so it is disclosed for itself: an acknowledgement
+  given when the original decision was recorded says nothing about who is
+  replacing it, possibly months later.
+  """
+  conflictAcknowledged: Boolean
 }
 
 """
@@ -1231,6 +1240,15 @@ type AdminDecisionMutation {
   Supersedes a committee decision already recorded.
 
   Never an edit: the earlier decision is kept.
+
+  **Use case:** the correction panel on the committee stage of a workspace,
+  reached once a decision exists and the record of it turns out to be wrong.
+
+  **Refuses:** a decision that is not the latest on its agenda item; an
+  application whose award has already been made, because money moved on the
+  strength of it and the correction belongs in the award record instead;
+  correcting your own application without `conflictAcknowledged`; and a stale
+  `expectedStatusVersion`.
   """
   correctDecision(
     """Which decision to replace, what it should say, and why."""

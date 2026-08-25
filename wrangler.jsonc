@@ -49,6 +49,27 @@
   "triggers": {
     "crons": ["0 * * * *"]
   },
+  // Rate limiting. One binding per allowance, because the platform's limiter
+  // takes its limit and period from configuration rather than from the call.
+  //
+  // **The period may only be 10 or 60 seconds.** That is the platform's
+  // constraint, not a choice, and it is why the allowances here are per minute
+  // — see src/services/rate-limit/README.md for what that costs and what the
+  // policy does about it.
+  //
+  // A named environment would have to redeclare every one of these, for the
+  // reason at the top of this file. Missing here, the limiter fails closed and
+  // refuses whatever the policy names.
+  "ratelimits": [
+    { "name": "RL_REQUEST_IP", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } },
+    { "name": "RL_SIGN_IN_SUBJECT", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } },
+    { "name": "RL_SIGN_IN_IP", "namespace_id": "1003", "simple": { "limit": 20, "period": 60 } },
+    { "name": "RL_SIGNUP_SUBJECT", "namespace_id": "1004", "simple": { "limit": 2, "period": 60 } },
+    { "name": "RL_SIGNUP_IP", "namespace_id": "1005", "simple": { "limit": 5, "period": 60 } },
+    { "name": "RL_VERIFY_IP", "namespace_id": "1006", "simple": { "limit": 10, "period": 60 } },
+    { "name": "RL_INVITE_IP", "namespace_id": "1007", "simple": { "limit": 10, "period": 60 } },
+    { "name": "RL_UPLOAD_SESSION", "namespace_id": "1008", "simple": { "limit": 20, "period": 60 } }
+  ],
   "d1_databases": [
     {
       "binding": "DB"

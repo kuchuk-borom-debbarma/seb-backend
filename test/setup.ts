@@ -8,6 +8,7 @@ declare module 'cloudflare:test' {
     FRONTEND_ORIGINS: string
     AUTH_COOKIE_SAME_SITE: string
     APPLICANT_SIGNUP_TOKEN_ATTEMPT_COUNT: string
+    RATE_LIMIT_DISABLED?: string
     FIRST_SUPER_ADMIN_EMAIL: string
     FIRST_SUPER_ADMIN_SECRET: string
     R2_ACCOUNT_ID: string

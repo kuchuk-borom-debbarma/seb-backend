@@ -71,6 +71,7 @@ fragment MeetingWorkspaceRecord on AdminMeetingWorkspace {
     approvedAmountPaise
     applicantMessage
     createdAt
+    conflictAcknowledged
   }
 }
 

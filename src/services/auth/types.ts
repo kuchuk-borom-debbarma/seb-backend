@@ -1,5 +1,11 @@
 import type { AppBindings } from '../../bindings'
 import type { Envelope } from '../envelope'
+
+/*
+ * Re-exported so a caller naming one of the aliases below can name its shape
+ * too. Without this the alias would resolve to a type nothing else can reach.
+ */
+export type { Envelope } from '../envelope'
 import type { Loaders } from '../../loaders'
 
 // Re-exported because the operation contexts below name it.

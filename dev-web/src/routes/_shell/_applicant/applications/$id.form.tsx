@@ -48,6 +48,8 @@ function DraftFormPage() {
 
   const [draft, setDraft] = useState<ApplicationDraftInput | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
+  /** Whether a save is in flight, readable from inside a stale closure. */
+  const inFlight = useRef(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
 
@@ -83,10 +85,19 @@ function DraftFormPage() {
       return unwrap(data.seb.application.saveDraft)
     },
     onMutate: () => {
-      // Already 'saving' from the keystroke; this clears a previous failure so
-      // the retry is not shown as still broken.
+      /*
+       * `saving` already, from the keystroke; this clears a previous failure so
+       * a retry is not shown as still broken.
+       *
+       * `inFlight` is a ref rather than `save.isPending` because the scheduler
+       * below reads it from inside a timer it created — see the note there.
+       */
+      inFlight.current = true
       setSaveState('saving')
       setSaveError(null)
+    },
+    onSettled: () => {
+      inFlight.current = false
     },
     onSuccess: async (saved, next) => {
       persisted.current = next
@@ -118,15 +129,27 @@ function DraftFormPage() {
           setSaveState('idle')
           return
         }
-        if (save.isPending) {
-          // Try again after the in-flight save settles rather than stacking.
+        if (inFlight.current) {
+          /*
+           * Try again once the in-flight save settles, rather than stacking.
+           *
+           * Read from a ref, and it has to be. This runs inside a timer created
+           * during some earlier render, and the recursion below re-enters *that*
+           * render's `scheduleSave` — so `save.isPending` would be the boolean
+           * as it stood when the timer was made, frozen. A closure created
+           * while a save was in flight would see `true` for ever, reschedule
+           * itself every debounce interval, and never save: the applicant's
+           * last edit lost, the indicator stuck on "Saving", and the
+           * leave-the-page warning armed with nothing behind it.
+           */
           scheduleSave(next)
           return
         }
         save.mutate(next)
       }, AUTOSAVE_DELAY_MS)
     },
-    [save],
+    // `mutate` is stable; nothing else here is read from the render.
+    [save.mutate],
   )
 
   useEffect(

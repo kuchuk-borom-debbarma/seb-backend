@@ -48,10 +48,12 @@ export default defineWorkersConfig({
         'src/services/audit/support.ts',
         'src/services/storage/**/*.ts',
         'src/services/queue/**/*.ts',
+        'src/services/rate-limit/**/*.ts',
         'src/services/document-scanner/**/*.ts',
         'src/loaders/**/*.ts',
         'src/graphql/resolvers/admin/**/*.ts',
         'src/graphql/validation.ts',
+        'src/graphql/rate-limit.ts',
       ],
       reporter: ['text', 'json'],
       thresholds: {
@@ -71,6 +73,17 @@ export default defineWorkersConfig({
         },
         miniflare: {
           bindings: {
+            /*
+             * Counting is off for the suite, and `test/rate-limit.test.ts`
+             * turns it back on for itself.
+             *
+             * Every allowance is spent by every attempt — there is no way to
+             * look at one without spending it — and this suite signs in as the
+             * same fixed address dozens of times. Widening the limits until a
+             * test suite fits would leave numbers too loose to be worth having,
+             * so the suite stops counting instead.
+             */
+            RATE_LIMIT_DISABLED: 'true',
             AUTH_SECRET: 'test-secret-that-is-at-least-thirty-two-bytes',
             ROLE_INVITE_SECRET: 'test-invite-secret-that-is-at-least-32-bytes',
             PORTAL_BASE_URL: 'https://portal.example.test',

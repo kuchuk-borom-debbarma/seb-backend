@@ -10,7 +10,9 @@
  * runs scrypt outside D1 and takes real time, so a grant read before that work
  * can be stale by the time the statement lands.
  */
-import { and, eq, exists, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm'
+import {
+  and, eq, exists, inArray, isNotNull, isNull, ne, or, sql, type SQL,
+} from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import type { Database } from '../../../db'
 import { coreUser, coreUserRoleGrant, type UserRole } from '../../../db/schema'
@@ -286,14 +288,20 @@ export const revokeRoleWrite = async (
       and(
         eq(coreUserRoleGrant.id, input.grantId),
         isNull(coreUserRoleGrant.revokedAt),
-        // Revoking APPLICANT is not an administrative operation; see
-        // `manageableRoles`. The enum stops it at the GraphQL boundary for
-        // grants, but a revocation names a grant ID, so the role of the row it
-        // resolves to has to be checked here.
-        or(
-          eq(coreUserRoleGrant.role, 'ADMIN'),
-          eq(coreUserRoleGrant.role, 'SUPER_ADMIN'),
-        ),
+        /*
+         * Revoking APPLICANT is not an administrative operation; see
+         * `manageableRoles`. The enum stops it at the GraphQL boundary for
+         * grants, but a revocation names a grant ID, so the role of the row it
+         * resolves to has to be checked here.
+         *
+         * Built from `manageableRoles` rather than listed again. Written out,
+         * this said ADMIN and SUPER_ADMIN and stayed that way when the office
+         * grew two more roles — so revoking a reviewer matched no rows and
+         * reported that the record had changed, on every attempt, for ever.
+         * Invitations are how reviewers and approvers are created, which made
+         * staff access one-way.
+         */
+        inArray(coreUserRoleGrant.role, [...manageableRoles]),
         or(
           ne(coreUserRoleGrant.role, 'SUPER_ADMIN'),
           anotherUsableSuperAdminExists(db, input.grantId),

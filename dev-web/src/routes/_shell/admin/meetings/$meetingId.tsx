@@ -245,7 +245,17 @@ function MeetingPage() {
                 <tbody>
                   {decisions.map((decision) => (
                     <tr key={decision.id}>
-                      <td>{humanize(decision.outcome)}</td>
+                      <td>
+                        {humanize(decision.outcome)}
+                        {/* These are the committee's minutes, so this is where
+                            somebody reads the decision back. A decision taken
+                            by its own applicant has to be visible here too. */}
+                        {decision.conflictAcknowledged ? (
+                          <span className="field-hint">
+                            Decided by the applicant, declared
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="tabular">{decision.decisionReference}</td>
                       <td>{formatDate(decision.decisionDate)}</td>
                       <td className="tabular">

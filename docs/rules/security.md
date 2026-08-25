@@ -93,6 +93,23 @@ Encryption *as well as* signing, where the payload should not be readable: a
 signed-but-plain token would put the invitee's address and the issuer's id into
 a URL that ends up in mail archives.
 
+## A counting key is never a credential
+
+A rate limiter stores what it counts against, so the key must be safe to hold.
+The session token is not: it is the credential itself, and keying on it would
+put live credentials somewhere whose only job is arithmetic. The session is
+named by the same digest the session table holds — stable per session, useless
+to whoever reads it.
+
+The address being signed into is keyed after `normalizeEmail`, the same function
+authentication uses. Not for tidiness: `A@B.com` and `a@b.com` are different
+strings, so keying the raw input would let changing case reset the allowance,
+and the limit would be one keystroke from being no limit.
+
+Only `CF-Connecting-IP` is trusted for the caller's address. `X-Forwarded-For`
+arrives from the caller and can say anything, so keying on it would let one
+attacker occupy as many buckets as they cared to invent.
+
 ## One refusal for every kind of failure
 
 Where distinguishing failures would help an attacker more than a user, they get
@@ -103,6 +120,10 @@ returns "this invitation is not usable".
 
 The staff refusal names no role, for the same reason: telling somebody which
 role would have worked tells them which account to go looking for.
+
+A rate-limited caller is told the same thing whether the allowance is spent or
+the limiter itself is broken. Distinguishing them would say whether the
+protection is currently working.
 
 ## Authority has a ceiling
 

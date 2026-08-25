@@ -561,12 +561,14 @@ CREATE TABLE IF NOT EXISTS `seb_ttm_decision` (
 	`correction_reason` text,
 	`recorded_by_user_id` text NOT NULL,
 	`created_at` integer NOT NULL,
+	`conflict_acknowledged` integer DEFAULT false NOT NULL,
 	FOREIGN KEY (`reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`correction_reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`recorded_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`application_id`,`agenda_item_id`) REFERENCES `seb_ttm_agenda_item`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`agenda_item_id`,`supersedes_decision_id`) REFERENCES `seb_ttm_decision`(`agenda_item_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "seb_ttm_decision_number_check" CHECK("seb_ttm_decision"."decision_number" >= 1),
+	CONSTRAINT "seb_ttm_decision_conflict_check" CHECK("seb_ttm_decision"."conflict_acknowledged" IN (0, 1)),
 	CONSTRAINT "seb_ttm_decision_outcome_check" CHECK("seb_ttm_decision"."outcome" IN ('APPROVED', 'REJECTED', 'DEFERRED', 'REVISION_REQUIRED')),
 	CONSTRAINT "seb_ttm_decision_amount_check" CHECK(("seb_ttm_decision"."outcome" = 'APPROVED' AND "seb_ttm_decision"."approved_amount_paise" > 0)
         OR ("seb_ttm_decision"."outcome" <> 'APPROVED' AND "seb_ttm_decision"."approved_amount_paise" IS NULL)),
@@ -1153,7 +1155,6 @@ CREATE TABLE IF NOT EXISTS `seb_application_assignment_event` (
 	`to_user_id` text,
 	`reason_category_id` text,
 	`reason` text,
-	`conflict_acknowledged` integer DEFAULT false NOT NULL,
 	`actor_user_id` text NOT NULL,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`application_id`) REFERENCES `seb_application`(`id`) ON UPDATE no action ON DELETE restrict,
@@ -1163,7 +1164,6 @@ CREATE TABLE IF NOT EXISTS `seb_application_assignment_event` (
 	FOREIGN KEY (`actor_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "seb_application_assignment_event_type_check" CHECK("seb_application_assignment_event"."event_type" IN ('CLAIMED', 'RELEASED', 'REASSIGNED')),
 	CONSTRAINT "seb_application_assignment_event_version_check" CHECK("seb_application_assignment_event"."assignment_version" >= 1),
-	CONSTRAINT "seb_application_assignment_event_conflict_check" CHECK("seb_application_assignment_event"."conflict_acknowledged" IN (0, 1)),
 	CONSTRAINT "seb_application_assignment_event_state_check" CHECK(("seb_application_assignment_event"."event_type" = 'CLAIMED' AND "seb_application_assignment_event"."from_user_id" IS NULL AND "seb_application_assignment_event"."to_user_id" IS NOT NULL)
         OR ("seb_application_assignment_event"."event_type" = 'RELEASED' AND "seb_application_assignment_event"."from_user_id" IS NOT NULL AND "seb_application_assignment_event"."to_user_id" IS NULL)
         OR ("seb_application_assignment_event"."event_type" = 'REASSIGNED' AND "seb_application_assignment_event"."from_user_id" IS NOT NULL AND "seb_application_assignment_event"."to_user_id" IS NOT NULL AND "seb_application_assignment_event"."from_user_id" <> "seb_application_assignment_event"."to_user_id"))
@@ -1195,10 +1195,12 @@ CREATE TABLE IF NOT EXISTS `seb_desk_review` (
 	`applicant_message` text,
 	`reviewed_by_user_id` text NOT NULL,
 	`reviewed_at` integer NOT NULL,
+	`conflict_acknowledged` integer DEFAULT false NOT NULL,
 	FOREIGN KEY (`reason_category_id`) REFERENCES `seb_programme_cycle_reason`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`reviewed_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`application_id`,`submission_id`) REFERENCES `seb_application_submission`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "seb_desk_review_outcome_check" CHECK("seb_desk_review"."outcome" IN ('ADVANCE_TO_BANK', 'REQUEST_REVISION', 'REJECT')),
+	CONSTRAINT "seb_desk_review_conflict_check" CHECK("seb_desk_review"."conflict_acknowledged" IN (0, 1)),
 	CONSTRAINT "seb_desk_review_reason_check" CHECK(("seb_desk_review"."outcome" = 'ADVANCE_TO_BANK'
           AND "seb_desk_review"."reason_category_id" IS NULL
           AND "seb_desk_review"."applicant_message" IS NULL)
