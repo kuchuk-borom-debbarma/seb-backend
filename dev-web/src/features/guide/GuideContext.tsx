@@ -19,7 +19,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { UserRole } from '#/graphql/generated/schema'
+import type { Capability, UserRole } from '#/graphql/generated/schema'
 import { NOTHING_HELD, heldFrom, resolve, type Held } from './heldFile'
 import { canWalk, tourById, type Tour, type TourStep } from './tours'
 
@@ -98,7 +98,13 @@ const readSaved = (walker: Walker): Position | null => {
 }
 
 /** Only the roles matter here; the shell already holds the whole account. */
-type Walker = { roles: readonly UserRole[] } | undefined
+/*
+ * Roles and capabilities both: a tour is offered on the capability the office
+ * itself is gated on, so a reviewer and an approver are offered the office
+ * tours rather than only an administrator.
+ */
+type Walker =
+  { roles: readonly UserRole[]; capabilities: readonly Capability[] } | undefined
 
 export function GuideProvider({ children, user }: { children: ReactNode; user: Walker }) {
   const navigate = useNavigate()

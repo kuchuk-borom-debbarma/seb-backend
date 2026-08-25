@@ -20,6 +20,24 @@
 export const workerOrigin = (): string =>
   process.env.SEB_API_URL ?? 'http://localhost:8787'
 
+/**
+ * The API Worker, bound directly rather than addressed over the network.
+ *
+ * Deployed, both Workers live on the same account, and **one `workers.dev`
+ * Worker may not make a subrequest to another** — Cloudflare answers `error
+ * code: 1042` and the client's first render fails with a JSON parse error,
+ * because an error page is not JSON. A service binding is the way across: the
+ * request is routed to the other Worker directly, with no hop out to the edge
+ * and no DNS.
+ *
+ * Absent locally, where the two really are separate origins, so the plain
+ * `fetch` below stays the development path. The binding hangs off
+ * `globalThis.__env__`, which is where the Cloudflare preset puts a Worker's
+ * bindings — Nitro has no typed accessor for them.
+ */
+const apiBinding = (): { fetch: typeof fetch } | undefined =>
+  (globalThis as { __env__?: { API?: { fetch: typeof fetch } } }).__env__?.API
+
 export type GraphQLRequest = {
   query: string
   variables?: Record<string, unknown>
@@ -49,14 +67,22 @@ export const forwardToWorker = async <TData>(
   request: GraphQLRequest,
   cookie: string | undefined,
 ): Promise<{ body: GraphQLResponse<TData>; setCookie: string[] }> => {
-  const response = await fetch(`${workerOrigin()}/graphql`, {
+  const target = `${workerOrigin()}/graphql`
+  const init = {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       ...(cookie ? { cookie } : {}),
     },
     body: JSON.stringify(request),
-  })
+  }
+  /*
+   * Called on the binding, never detached from it. `const call = binding.fetch`
+   * loses the receiver, and the call then goes nowhere near the bound Worker —
+   * which looks identical to the binding being absent.
+   */
+  const binding = apiBinding()
+  const response = binding ? await binding.fetch(target, init) : await fetch(target, init)
 
   // `getSetCookie` preserves multiple headers; joining them would corrupt the
   // expiry attributes that sign-out relies on.

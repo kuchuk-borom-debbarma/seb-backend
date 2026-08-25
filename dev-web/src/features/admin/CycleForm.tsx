@@ -42,7 +42,7 @@ type IdentifierRuleValue = {
 }
 import { CHECKS } from './DeskReviewForm'
 import { useMarker } from '#/features/guide/GuideContext'
-import { humanize } from '#/lib/format'
+import { humanize, toLocalDateTimeInput } from '#/lib/format'
 
 const ASSESSMENT_TYPES: AssessmentType[] = [
   'UTILIZATION',
@@ -206,8 +206,7 @@ const toInstant = (value: string): string | null =>
   value ? new Date(value).toISOString() : null
 
 /** And back again, since `datetime-local` cannot read an ISO string with a zone. */
-const toLocalInput = (value: string | null | undefined): string =>
-  value ? new Date(value).toISOString().slice(0, 16) : ''
+const toLocalInput = toLocalDateTimeInput
 
 export function CycleForm({
   initial,
@@ -790,9 +789,7 @@ export function CycleForm({
                   onClick={() =>
                     setPolicy(
                       'identifierRules',
-                      identifierRules.filter(
-                        (_, position) => position !== index,
-                      ),
+                      identifierRules.filter((_, position) => position !== index),
                     )
                   }
                 >
@@ -820,10 +817,7 @@ export function CycleForm({
                     // cannot produce the duplicate the API refuses.
                     kind:
                       IDENTIFIER_KINDS.find(
-                        (kind) =>
-                          !identifierRules.some(
-                            (rule) => rule.kind === kind,
-                          ),
+                        (kind) => !identifierRules.some((rule) => rule.kind === kind),
                       ) ?? IDENTIFIER_KINDS[0]!,
                     requirement: 'OPTIONAL',
                     duplicatePolicy: 'NOT_CHECKED',

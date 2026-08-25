@@ -29,7 +29,13 @@ import {
   UpdateMeetingDocument,
 } from '#/graphql/generated/operations'
 import { AGENDA_TITLES, MEETING_STATES, MEETING_TITLES } from '#/features/admin/states'
-import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
+import {
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  humanize,
+  toLocalDateTimeInput,
+} from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { Explain } from '#/features/guide/Explain'
@@ -425,8 +431,8 @@ function MeetingSettings({
   const [open, setOpen] = useState(false)
   const [meetingReference, setReference] = useState(meeting.meetingReference)
   const [scheduledAt, setScheduledAt] = useState(
-    // datetime-local wants "YYYY-MM-DDTHH:mm" in local time.
-    new Date(meeting.scheduledAt).toISOString().slice(0, 16),
+    // Local, because that is what the input reads back. See the helper.
+    toLocalDateTimeInput(meeting.scheduledAt),
   )
   const [venue, setVenue] = useState(meeting.venue)
   const [description, setDescription] = useState(meeting.description ?? '')

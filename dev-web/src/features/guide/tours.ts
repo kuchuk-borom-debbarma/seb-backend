@@ -11,8 +11,12 @@
  * because "whose turn is it" is the question the whole product answers.
  */
 
-import { isAdministrator, isApplicant, isSuperAdministrator } from '#/lib/session'
-import type { AdminIntakeQueueKey, UserRole } from '#/graphql/generated/schema'
+import { can, isApplicant, isSuperAdministrator } from '#/lib/session'
+import type {
+  AdminIntakeQueueKey,
+  Capability,
+  UserRole,
+} from '#/graphql/generated/schema'
 
 /** The four desks a file passes between. */
 export const DESKS = {
@@ -373,9 +377,19 @@ export const tourById = (id: string): Tour | undefined =>
  */
 export const canWalk = (
   tour: Tour,
-  user: { roles: readonly UserRole[] } | undefined,
+  user: { roles: readonly UserRole[]; capabilities: readonly Capability[] } | undefined,
 ): boolean => {
   if (tour.for === 'super') return isSuperAdministrator(user)
-  if (tour.for === 'admin') return isAdministrator(user)
+  /*
+   * The capability the office itself is gated on, not the ADMIN role.
+   *
+   * `admin/route.tsx` admits anybody holding `STAFF_READ`, which is a reviewer
+   * and an approver as well as an administrator. Gating the tours on the role
+   * offered none of them to the two people whose whole job is on these screens
+   * — an approver was shown no tour of deciding. This file's own sibling warns
+   * about exactly that: "a screen that checked for ADMIN would hide itself from
+   * an approver who is perfectly entitled to use it".
+   */
+  if (tour.for === 'admin') return can(user, 'STAFF_READ')
   return isApplicant(user)
 }

@@ -13,9 +13,9 @@
  * `overrides` is only `main` and `assets`. Everything else in the file it finds
  * survives into the generated config. Without this file the walk reaches the
  * repository root and finds the **API Worker's** config — so the client would
- * be built as `seb-backend`, carrying the API's D1 binding, its R2 bucket, its
- * queue producer and consumer, and its hourly cron. Deploying that would
- * replace the API Worker with the server-rendered client.
+ * be built as `seb-backend`, carrying the API's D1 binding, its queue producer
+ * and consumer, and its hourly cron. Deploying that would replace the API
+ * Worker with the server-rendered client.
  *
  * So this file exists to be found first. Keep it here even if it looks empty.
  *
@@ -43,10 +43,35 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
-  }
+  },
 
-  // No `vars` yet. The client reads SEB_API_URL to reach the Worker, and the
-  // API Worker is not deployed, so there is no honest value to put here. It
-  // must be set before the client is deployed, or every request it makes
-  // server-side will go nowhere.
+  // Where the API Worker is. Read only on this Worker's own server — the
+  // browser never learns it, because every operation goes through the server
+  // function that forwards the session cookie.
+  //
+  // A plain var rather than anything Nitro-specific: `src/lib/api.ts` reads
+  // `process.env.SEB_API_URL`, the preset turns Node compatibility on, and
+  // workerd populates `process.env` from a Worker's vars. Unset, the fallback
+  // is `http://localhost:8787` and every server-side call goes nowhere — which
+  // looks exactly like the API being down.
+  "vars": {
+    "SEB_API_URL": "https://seb-backend.kuchukboromd-15a.workers.dev"
+  },
+
+  // The API Worker, reached directly rather than over the network.
+  //
+  // Not an optimisation. Two Workers on one account cannot fetch each other by
+  // `workers.dev` URL — Cloudflare refuses with `error code: 1042`, and the
+  // client's first server render fails trying to parse that error page as
+  // JSON. The binding routes the request straight to the other Worker.
+  //
+  // The URL above is still used: a service binding is addressed by URL like
+  // any other fetch, and it is what the development path uses when this
+  // binding is absent.
+  "services": [
+    {
+      "binding": "API",
+      "service": "seb-backend"
+    }
+  ]
 }

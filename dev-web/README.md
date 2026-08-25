@@ -76,9 +76,9 @@ overrides `main` and `assets`. Everything else in the file it finds survives.
 
 Without [`wrangler.jsonc`](wrangler.jsonc) the walk reaches the repository root
 and finds the **API Worker's** config, so the client builds as `seb-backend`
-carrying the API's D1 binding, its R2 bucket, its queue producer and consumer,
-and its hourly cron. Deploying that would replace the API Worker with the
-server-rendered client.
+carrying the API's D1 binding, its queue producer and consumer, and its hourly
+cron. Deploying that would replace the API Worker with the server-rendered
+client.
 
 That is not a theory about the code; it is what the build does with the file
 removed. The file exists to be found first.
@@ -104,8 +104,11 @@ CORS to keep in step, and `AUTH_COOKIE_SAME_SITE` can stay `lax`. During server
 rendering the same forwarding runs in-process, so it costs one local call rather
 than a round trip through our own HTTP server.
 
-`FRONTEND_ORIGINS` is therefore not needed by this client at all. It stays
-configured for anyone calling the Worker directly from a browser.
+`FRONTEND_ORIGINS` is needed for exactly one thing. Uploading a document is the
+single request the browser makes to the Worker itself — a grant is addressed to
+whoever stores the file, by definition — so that origin has to be trusted or the
+preflight is refused and the file never leaves the page. Everything else goes
+through the server layer and needs no CORS at all.
 
 ## Types come from the Worker's own schema
 

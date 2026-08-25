@@ -19,7 +19,7 @@ import {
   REQUEST_BUDGET,
 } from './services/rate-limit'
 import { callerAddress } from './services/rate-limit/identity'
-import { usesLocalStorage } from './services/storage'
+import { relaysThroughWorker } from './services/storage'
 import { closeExpiredProgrammeCycles } from './services/admin'
 
 const app = new Hono<{ Bindings: AppBindings }>()
@@ -301,7 +301,10 @@ app.options('/internal/storage/*', (c) => {
    * browser never sends the PUT, which looks like a broken upload rather than a
    * missing header.
    */
-  if (!usesLocalStorage(c.env)) return c.notFound()
+  // The same predicate the handler this preflights uses. They have to agree:
+  // a relaying backend that answered the PUT but not the preflight would fail
+  // before the browser ever sent it.
+  if (!relaysThroughWorker(c.env)) return c.notFound()
 
   const headers = new Headers()
   if (!applyCorsHeaders(headers, c.req.header('Origin') ?? null, c.env, c.req.url)) {

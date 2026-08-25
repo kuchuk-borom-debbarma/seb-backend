@@ -87,7 +87,12 @@ export const Route = createFileRoute('/_shell/admin/queue')({
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
     await Promise.all([
-      context.queryClient.ensureQueryData(queueQuery(inputFor(deps, null))),
+      // The signed-in account, so "only mine" prefetches the key the component
+      // then reads. Passing null here filled a different cache entry and the
+      // screen fetched again on arrival, with the loading flash that implies.
+      context.queryClient.ensureQueryData(
+        queueQuery(inputFor(deps, context.user?.id ?? null)),
+      ),
       context.queryClient.ensureQueryData(queueSummaryQuery()),
     ])
   },
@@ -97,9 +102,10 @@ export const Route = createFileRoute('/_shell/admin/queue')({
 /**
  * Turns the URL into the API's input.
  *
- * `assigneeUserId` is filled from the signed-in account when "only mine" is on,
- * which is why it is passed rather than read here — a query key built from a
- * value the loader does not have would miss the cache the component fills.
+ * `assigneeUserId` is filled from the signed-in account when "only mine" is on.
+ * It is passed rather than read here so both callers name it explicitly: the
+ * loader takes it from route context and the component from its own, and a
+ * mismatch between the two is what made the prefetch miss.
  */
 const inputFor = (search: Search, assigneeUserId: string | null) => ({
   first: QUEUE_PAGE_SIZE,

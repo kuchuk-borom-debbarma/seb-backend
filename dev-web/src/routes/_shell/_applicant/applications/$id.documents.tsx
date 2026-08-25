@@ -273,7 +273,18 @@ function DocumentRow({
             </button>
           ) : null}
 
-          {editable ? (
+          {/*
+            Not while a removed document is sitting there.
+
+            The button relabelled itself to "Attach a file" and stayed enabled,
+            but the soft-deleted row still exists, so the API refuses every
+            possible `expectedDocumentVersion` — 0 because a row is present,
+            anything else because it is deleted. There was no value the client
+            could have sent. The refusal even read "The document changed.
+            Refresh it and try again", which refreshing never fixed. "Put back"
+            above is the way through.
+          */}
+          {editable && !removed ? (
             <>
               <input
                 ref={picker}

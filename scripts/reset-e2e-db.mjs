@@ -21,6 +21,10 @@ execFileSync(
   'npx',
   [
     'wrangler', 'd1', 'execute', 'DB',
+    // The development configuration, which is what the suite's Worker runs on.
+    // `--persist-to` keys the database by the binding's identity, so a
+    // different config here would prepare a database the Worker never opens.
+    '--config', 'wrangler.dev.jsonc',
     '--local',
     '--persist-to', stateDirectory,
     '--file=database/schema.sql',

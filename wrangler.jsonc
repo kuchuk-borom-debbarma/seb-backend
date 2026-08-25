@@ -9,11 +9,12 @@
  * `services`. Any environment added here must redeclare each of those in full,
  * or it deploys with the binding silently missing.
  *
- * **The bindings below are deliberately incomplete.** `DB` has no
- * `database_id` and `STORAGE` has no `bucket_name`, because neither resource
- * exists yet — R2 is not enabled on the account. The development runtime
- * supplies both locally regardless. This cannot be deployed until they are
- * filled in, and it fails loudly rather than quietly deploying without storage.
+ * **This file is the deployed configuration, and only that.** A developer's
+ * machine and the end-to-end suite run on `wrangler.dev.jsonc` instead, because
+ * two things here cannot be shared with them: the `vars` below say this is
+ * production, and there is no `STORAGE` binding to give them. That file explains
+ * both. Anything added here that local work also needs has to be added there
+ * too — nothing makes the two agree by construction.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -77,9 +78,19 @@
   // sending a literal `*` (a browser refuses that on a credentialed request).
   // It means any site can call this API as a signed-in user, and it is here
   // because the frontend host is not yet known. Name the origin before launch.
+  //
+  // These are the *deployed* values. Local work and the end-to-end suite
+  // override what they need on the command line — `npm run test:worker` passes
+  // `ENVIRONMENT:local`, because inheriting "production" here would make the
+  // rate limiter refuse the unlimited transport a test run depends on and
+  // point storage at the real provider.
   "vars": {
     "ENVIRONMENT": "production",
     "FRONTEND_ORIGINS": "*",
+    // Where the client is. An invitation link travels to a person, so it has to
+    // land on the portal — unset, this falls back to this Worker's own origin,
+    // which has no page to receive the token in its fragment.
+    "PORTAL_BASE_URL": "https://seb-web.kuchukboromd-15a.workers.dev",
     "STORAGE_TRANSPORT": "cloudinary",
     "PINGRAM_NOTIFICATION_TYPE": "seb",
     "PINGRAM_BASE_URL": "https://api.eu.pingram.io",
@@ -94,10 +105,11 @@
       "database_id": "3be23488-48c3-43a7-b561-5037a521daf2"
     }
   ],
-  // No `r2_buckets` binding: R2 is not enabled on this account, and a binding
-  // without a bucket name refuses to deploy. Storage therefore runs on
-  // STORAGE_TRANSPORT=cloudinary, which never touches this binding. Restore
-  // this block, with a `bucket_name`, the moment R2 is turned on.
+  // No `r2_buckets` here. R2 is not enabled on this account, and `wrangler
+  // deploy` checks the bucket exists — a dry run does not, so this fails only
+  // at the real deploy. Deployed storage is Cloudinary and never touches the
+  // binding. Local work and the end-to-end suite do need it, and get it from
+  // `wrangler.dev.jsonc`.
 
   "queues": {
     "producers": [

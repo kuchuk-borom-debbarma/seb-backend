@@ -46,7 +46,18 @@ function FundingPage() {
   const { data: reasons } = useQuery(cycleReasonsQuery(workspace?.cycleCode))
 
   const apply = (updated: NonNullable<typeof funding>['response']) => {
-    if (updated) putFunding(queryClient, id, updated)
+    if (!updated) return
+    putFunding(queryClient, id, updated)
+    /*
+     * The workspace too, not just the funding record.
+     *
+     * Creating an award moves the application's `statusVersion`, and that
+     * version is read from the workspace and sent as the concurrency token by
+     * the very next funding write. Leaving it cached meant awarding and then
+     * amending in one visit sent a version the server had already moved past,
+     * and the amendment was refused as stale — recoverable only by reloading.
+     */
+    void queryClient.invalidateQueries({ queryKey: ['workspace', id] })
   }
 
   if (!workspace?.application) return null

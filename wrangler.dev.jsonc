@@ -1,0 +1,71 @@
+/**
+ * The API Worker as it runs on a developer's machine, and under the
+ * end-to-end suite.
+ *
+ * ## Why this is not `wrangler.jsonc`
+ *
+ * Two bindings cannot be shared with the deployed configuration.
+ *
+ * **`STORAGE`.** Local uploads go to the `STORAGE` binding, which the
+ * development runtime supplies with no account feature and no keys. The
+ * deployed Worker cannot declare it: R2 is not enabled on this account, and
+ * `wrangler deploy` verifies the bucket exists. A dry run does not, so that
+ * failure only appears at the real deploy.
+ *
+ * **`vars`.** The deployed values say `ENVIRONMENT: production` and
+ * `STORAGE_TRANSPORT: cloudinary`. Inherited here, a test run would refuse the
+ * unlimited rate-limit transport — the factory rejects it in production — and
+ * would send test documents to the real provider. Absent, `ENVIRONMENT` reads
+ * as local, which is what a machine with nothing configured should be.
+ *
+ * ## What must not drift
+ *
+ * `d1_databases` names the same database and id as the deployed configuration.
+ * `--persist-to` keys the local database by that identity, so changing it here
+ * would give `npm run local` and the suite a different, empty database from the
+ * one `scripts/reset-e2e-db.mjs` prepares.
+ *
+ * Rate-limit bindings are deliberately absent: local runs count in process, and
+ * the suite turns counting off entirely. `npm run check:rate-limits` reads the
+ * deployed configuration, which is the one that has to match the policy.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "seb-backend",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-21",
+
+  "account_id": "15a26eaa33db8561da8f42e036dfe627",
+
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.graphql"],
+      "fallthrough": true
+    }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "seb-backend",
+      "database_id": "3be23488-48c3-43a7-b561-5037a521daf2"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "STORAGE",
+      "bucket_name": "seb-backend-documents"
+    }
+  ],
+
+  "queues": {
+    "producers": [
+      {
+        "binding": "QUEUE",
+        "queue": "seb-backend-queue"
+      }
+    ]
+  }
+}

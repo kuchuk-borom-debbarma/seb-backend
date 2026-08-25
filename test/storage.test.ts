@@ -11,7 +11,12 @@ import { SELF, env } from 'cloudflare:test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AppBindings } from '../src/bindings'
 import { createDatabase } from '../src/db'
-import { objectStore, storage, usesLocalStorage } from '../src/services/storage'
+import {
+  objectStore,
+  relaysThroughWorker,
+  storage,
+  usesLocalStorage,
+} from '../src/services/storage'
 import { handleLocalStorageRequest } from '../src/services/storage/route'
 import { base64FromBytes } from '../src/services/storage/policy'
 
@@ -141,6 +146,27 @@ describe('storage on a machine with no bucket', () => {
 
     it('refuses an origin nobody trusts', async () => {
       expect((await preflight('https://attacker.example')).status).toBe(403)
+    })
+
+    it('is guarded by the same predicate as the handler it precedes', () => {
+      /*
+       * Not reachable through SELF: the worker behind it reads its own
+       * configuration, so a cloudinary environment cannot be simulated over
+       * HTTP. What can be asserted is the thing the bug actually was — the
+       * preflight was guarded on "is this local" while the PUT it precedes was
+       * guarded on "does this relay". Cloudinary relays without being local, so
+       * the PUT handler was open and the preflight 404'd, and the upload died
+       * in the browser before the API ever saw it.
+       */
+      const cloudinary = bindings({
+        ENVIRONMENT: 'production',
+        STORAGE_TRANSPORT: 'cloudinary',
+        CLOUDINARY_CLOUD_NAME: 'c',
+        CLOUDINARY_API_KEY: 'k',
+        CLOUDINARY_API_SECRET: 's',
+      })
+      expect(relaysThroughWorker(cloudinary)).toBe(true)
+      expect(usesLocalStorage(cloudinary)).toBe(false)
     })
 
     it('answers the request itself with the headers too', async () => {
