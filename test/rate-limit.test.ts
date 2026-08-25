@@ -51,6 +51,9 @@ describe('choosing a limiter', () => {
     expect(rateLimiter(bindings({
       ENVIRONMENT: 'local', RATE_LIMIT_DISABLED: undefined,
     })).name).toBe('memory')
+    expect(rateLimiter(bindings({
+      ENVIRONMENT: undefined, RATE_LIMIT_DISABLED: undefined,
+    })).name).toBe('memory')
   })
 
   it('refuses to switch counting off in production', () => {

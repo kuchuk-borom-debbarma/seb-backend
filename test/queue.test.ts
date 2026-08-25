@@ -113,7 +113,7 @@ describe('scanning a document that was queued', () => {
      * clean-looking result would be worse than no scanner, because it would
      * read as evidence that something checked.
      */
-    const scanner = documentScanner(bindings())
+    const scanner = documentScanner(bindings({ ENVIRONMENT: undefined }))
     expect(scanner.name).toBe('permissive')
 
     const outcome = await scanner.scan('applications/a/documents/DPR/object')
