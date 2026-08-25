@@ -241,18 +241,20 @@ function LoginPage() {
           <div className="flex items-center gap-4 sm:gap-6">
             <Link
               to="/faq"
-              className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white transition-colors"
+              style={{ color: '#ffffff', textDecoration: 'none' }}
+              className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium !text-white/90 hover:!text-white transition-colors"
             >
-              <HelpCircle className="size-3.5" />
-              <span>Helpdesk &amp; FAQs</span>
+              <HelpCircle className="size-3.5 !text-white/80" />
+              <span style={{ color: 'rgba(255, 255, 255, 0.9)' }}>Helpdesk &amp; FAQs</span>
             </Link>
 
             <Link
               to="/"
-              className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-white/10 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-white/20 active:bg-white/25 transition-colors cursor-pointer border border-white/10"
+              style={{ color: '#ffffff', textDecoration: 'none' }}
+              className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-white/10 px-3.5 py-1.5 text-xs font-semibold !text-white hover:bg-white/20 active:bg-white/25 transition-colors cursor-pointer border border-white/15"
             >
-              <ArrowLeft className="size-3.5" />
-              <span>Return to Main Site</span>
+              <ArrowLeft className="size-3.5 !text-white" />
+              <span style={{ color: '#ffffff' }}>Return to Main Site</span>
             </Link>
           </div>
         </div>
@@ -434,7 +436,7 @@ function LoginPage() {
                       autoComplete="username"
                       value={adminEmail}
                       onChange={(e) => setAdminEmail(e.target.value)}
-                      placeholder="admin@ttaadc.gov.in"
+                      placeholder="admin@sep.com"
                       className="w-full h-11 px-3.5 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
                     />
                   </div>
@@ -710,7 +712,7 @@ function LoginPage() {
                       autoComplete="username"
                       value={applicantEmail}
                       onChange={(event) => setApplicantEmail(event.target.value)}
-                      placeholder="applicant@example.com"
+                      placeholder="applicant@sep.com"
                       className="w-full h-11 px-3.5 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
                     />
                   </div>

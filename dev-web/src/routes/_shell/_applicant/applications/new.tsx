@@ -80,8 +80,9 @@ function StartApplicationPage() {
   const mark = useMarker()
   const [kind, setKind] = useState<ApplicationKind | null>(null)
 
-  const { data: enterprises } = useQuery(liveEnterprisesQuery)
-  const { data: cycles } = useQuery(cyclesQuery)
+  const { data: enterprises, isFetching: refreshingEnterprises } =
+    useQuery(liveEnterprisesQuery)
+  const { data: cycles, isFetching: refreshingCycles } = useQuery(cyclesQuery)
 
   const open = cycles?.available ?? []
   const chosen = Boolean(
@@ -92,13 +93,18 @@ function StartApplicationPage() {
 
   // A typed but unreachable step must not remain in history claiming the
   // applicant is on Application type while the setup questions are on screen.
+  // Wait for invalidated setup queries: immediately after contextual
+  // registration, the cached enterprise list does not contain the new record
+  // yet and an early rewrite would discard the intended resume step.
   useEffect(() => {
-    if (search.step !== 'TYPE' || chosen) return
+    if (search.step !== 'TYPE' || chosen || refreshingEnterprises || refreshingCycles) {
+      return
+    }
     void navigate({
       search: (previous) => ({ ...previous, step: 'SETUP' }),
       replace: true,
     })
-  }, [chosen, navigate, search.step])
+  }, [chosen, navigate, refreshingCycles, refreshingEnterprises, search.step])
 
   const { data: eligibility, isFetching: checkingEligibility } = useQuery({
     ...eligibilityQuery(search.enterpriseId ?? '', search.cycleId ?? ''),
