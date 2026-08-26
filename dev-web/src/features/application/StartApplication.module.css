@@ -359,6 +359,7 @@
   border-radius: 50%;
   border: 1.5px solid #6b7280;
   flex-shrink: 0;
+  pointer-events: none;
   transition: all 0.15s ease;
 }
 
@@ -371,6 +372,7 @@
   height: 8px;
   border-radius: 50%;
   background: #2563eb;
+  pointer-events: none;
 }
 
 .choiceIconBadge {
@@ -381,6 +383,7 @@
   height: 48px;
   border-radius: 12px;
   flex-shrink: 0;
+  pointer-events: none;
 }
 
 .choiceIconBadge[data-tone='blue'] {
@@ -402,6 +405,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  pointer-events: none;
 }
 
 .choiceTitle {

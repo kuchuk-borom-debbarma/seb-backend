@@ -13,9 +13,12 @@ const stabilizeDynamicText = async (page: import('@playwright/test').Page) => {
     content: `
       [class*="metricValue"],
       [class*="queueCard"] strong,
+      [class*="waitingQueueCount"],
+      [class*="queueCountCell"],
       [class*="accountText"] strong,
       [class*="cycleCallout"] h2,
       [class*="cycleCallout"] p,
+      [class*="cycleHeroDates"],
       [class*="details"] dd,
       .tabular { color: transparent !important; }
     `,

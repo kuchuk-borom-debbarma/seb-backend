@@ -17,7 +17,7 @@ import { byReferenceQuery } from '#/features/admin/intakeQueries'
 import { statusTone } from '#/features/admin/queues'
 import { formatDateTime, humanize } from '#/lib/format'
 
-export function ReferenceLookup() {
+export function ReferenceLookup({ variant = 'card' }: { variant?: 'card' | 'embedded' }) {
   const navigate = useNavigate()
   const [typed, setTyped] = useState('')
   const [looking, setLooking] = useState('')
@@ -25,91 +25,100 @@ export function ReferenceLookup() {
 
   const found = data?.response
 
+  const content = (
+    <>
+      <form
+        className="row"
+        onSubmit={(event) => {
+          event.preventDefault()
+          setLooking(typed.trim().toUpperCase())
+        }}
+      >
+        <div style={{ flex: '1 1 14rem' }}>
+          <label className="field-label" htmlFor="reference">
+            Reference number
+          </label>
+          <input
+            id="reference"
+            className="input tabular"
+            value={typed}
+            placeholder="Enter reference number"
+            onChange={(event) => setTyped(event.target.value)}
+          />
+        </div>
+        <button
+          type="submit"
+          className="button"
+          data-variant="primary"
+          disabled={typed.trim().length === 0 || isFetching}
+          style={{ alignSelf: 'end' }}
+        >
+          {isFetching ? 'Looking…' : 'Find it'}
+        </button>
+      </form>
+
+      {looking && !isFetching ? (
+        found ? (
+          <div className="detail-grid" style={{ marginTop: '1rem' }}>
+            <div>
+              <span className="field-label">Reference</span>
+              <button
+                type="button"
+                className="button"
+                data-variant="ghost"
+                onClick={() =>
+                  navigate({
+                    to: '/admin/applications/$id',
+                    params: { id: found.id },
+                  })
+                }
+              >
+                Open {found.referenceNumber}
+              </button>
+            </div>
+            <div>
+              <span className="field-label">Status</span>
+              <span className="badge" data-tone={statusTone(found.status)}>
+                {humanize(found.status)}
+              </span>
+            </div>
+            <div>
+              <span className="field-label">Assigned</span>
+              <span>
+                {/* Who, not just when. Somebody looking a reference up is
+                    usually about to go and ask whoever has it. */}
+                {found.assignedTo
+                  ? `${found.assignedTo.email} · ${formatDateTime(found.assignedAt)}`
+                  : found.assignedToUserId
+                    ? `Last worked ${formatDateTime(found.assignedAt)}`
+                    : 'Nobody'}
+              </span>
+            </div>
+          </div>
+        ) : (
+          // The API's own message, which distinguishes a number that does not
+          // exist from one this account may not see.
+          <p
+            className="notice"
+            data-tone="error"
+            role="alert"
+            style={{ marginTop: '1rem' }}
+          >
+            {data?.message ?? 'No application has that reference number.'}
+          </p>
+        )
+      ) : null}
+    </>
+  )
+
+  if (variant === 'embedded') {
+    return content
+  }
+
   return (
     <div className="card">
-      <div className="card-body">
-        <form
-          className="row"
-          onSubmit={(event) => {
-            event.preventDefault()
-            setLooking(typed.trim().toUpperCase())
-          }}
-        >
-          <div style={{ flex: '1 1 18rem' }}>
-            <label className="field-label" htmlFor="reference">
-              Reference number
-            </label>
-            <input
-              id="reference"
-              className="input tabular"
-              value={typed}
-              placeholder="SEP-2026-000123"
-              onChange={(event) => setTyped(event.target.value)}
-            />
-          </div>
-          <button
-            type="submit"
-            className="button"
-            data-variant="primary"
-            disabled={typed.trim().length === 0 || isFetching}
-            style={{ alignSelf: 'end' }}
-          >
-            {isFetching ? 'Looking…' : 'Find it'}
-          </button>
-        </form>
-
-        {looking && !isFetching ? (
-          found ? (
-            <div className="detail-grid" style={{ marginTop: '1rem' }}>
-              <div>
-                <span className="field-label">Reference</span>
-                <button
-                  type="button"
-                  className="button"
-                  data-variant="ghost"
-                  onClick={() =>
-                    navigate({
-                      to: '/admin/applications/$id',
-                      params: { id: found.id },
-                    })
-                  }
-                >
-                  Open {found.referenceNumber}
-                </button>
-              </div>
-              <div>
-                <span className="field-label">Status</span>
-                <span className="badge" data-tone={statusTone(found.status)}>
-                  {humanize(found.status)}
-                </span>
-              </div>
-              <div>
-                <span className="field-label">Assigned</span>
-                <span>
-                  {/* Who, not just when. Somebody looking a reference up is
-                      usually about to go and ask whoever has it. */}
-                  {found.assignedTo
-                    ? `${found.assignedTo.email} · ${formatDateTime(found.assignedAt)}`
-                    : found.assignedToUserId
-                      ? `Last worked ${formatDateTime(found.assignedAt)}`
-                      : 'Nobody'}
-                </span>
-              </div>
-            </div>
-          ) : (
-            // The API's own message, which distinguishes a number that does not
-            // exist from one this account may not see.
-            <p
-              className="notice"
-              data-tone="error"
-              role="alert"
-              style={{ marginTop: '1rem' }}
-            >
-              {data?.message ?? 'No application has that reference number.'}
-            </p>
-          )
-        ) : null}
-      </div>
+      <div className="card-body">{content}</div>
     </div>
   )
 }
+

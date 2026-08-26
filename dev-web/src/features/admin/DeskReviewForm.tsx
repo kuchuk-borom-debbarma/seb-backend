@@ -25,6 +25,7 @@ import { humanize } from '#/lib/format'
 import { useMarker } from '../guide/GuideContext'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from './officeGuidance'
+import styles from './DeskReviewForm.module.css'
 
 /** The checks the API defines, in the order a reviewer works through them. */
 export const CHECKS: { type: DeskReviewCheckType; title: string; asks: string }[] = [
@@ -137,28 +138,7 @@ export type DeskReviewDraft = {
   conflictAcknowledged?: boolean | null
 }
 
-/**
- * What the reviewer transcribes, and which check it is the evidence for.
- *
- * Passing a check means having read a document. The number on it is what turns
- * "I saw a valid certificate" into something the programme can later ask
- * questions about — chiefly whether the same one has been used before.
- *
- * What is demanded is the cycle's decision, not this file's. A cycle that
- * demands nothing is a real configuration and shows no fields at all.
- */
-/**
- * How each identifier is presented. Copy, not policy.
- *
- * Which identifiers a cycle demands, and which it compares for duplicates, is
- * configured per programme cycle and arrives with the workspace. What stays
- * here is only how to word the field — a label and a hint are editorial, and
- * putting them in the database would mean a form change needed a data change.
- *
- * `branch` marks the one identifier that is two fields: an account number is
- * only unique with its branch, and the same digits at two banks are two
- * accounts.
- */
+/** How each identifier is presented. Copy, not policy. */
 const IDENTIFIER_PRESENTATION: Record<
   DeskReviewIdentifierKind,
   { label: string; hint: string; branch?: string }
@@ -201,19 +181,19 @@ export function DeskReviewForm({
   reasons: ReasonCategory[] | undefined
   /** The cycle's identifier rules, frozen with the submission under review. */
   rules: IdentifierRule[]
-  /** Whether the signed-in reviewer is also the applicant. */
   reviewingOwnApplication: boolean
   pending: boolean
   error: string | null
   onSubmit: (draft: DeskReviewDraft) => void
 }) {
+  const mark = useMarker()
   const [results, setResults] = useState<
     Partial<Record<DeskReviewCheckType, DeskReviewCheckResult>>
   >({})
   const [notes, setNotes] = useState<Partial<Record<DeskReviewCheckType, string>>>({})
   const [outcome, setOutcome] = useState<DeskReviewOutcome | ''>('')
-  const [applicantMessage, setApplicantMessage] = useState('')
   const [rejectionReasonId, setRejectionReasonId] = useState('')
+  const [applicantMessage, setApplicantMessage] = useState('')
   const [revisions, setRevisions] = useState<
     Partial<Record<ApplicationSection, { reasonCategoryId: string; note: string }>>
   >({})
@@ -222,42 +202,16 @@ export function DeskReviewForm({
   >({})
   const [notSameClaim, setNotSameClaim] = useState('')
   const [conflictAcknowledged, setConflictAcknowledged] = useState(false)
-  const mark = useMarker()
 
-  /*
-   * Only what this review is actually attesting to. A check that is failed or
-   * does not apply asks for nothing, so the field disappears rather than sitting
-   * there greyed out.
-   */
   const transcribing = rules
     .filter((rule) => rule.requirement !== 'OFF')
     .filter((rule) => rule.checkType === null || results[rule.checkType] === 'PASS')
     .map((rule) => ({ ...rule, ...IDENTIFIER_PRESENTATION[rule.kind] }))
-  /*
-   * Demanded only where the cycle says so *and* the check it stands behind
-   * passed. A failed check is attesting to nothing, so asking for the number
-   * behind it would be asking somebody to write down a document they have just
-   * rejected.
-   */
+
   const required = transcribing.filter(
     (entry) => entry.requirement === 'REQUIRED_ON_PASS' && entry.checkType !== null,
   )
 
-  /*
-   * The server has already refused once because one of these numbers exists on
-   * another file. It is a question rather than a verdict — the same promoter
-   * legitimately returns for a later phase — so the answer appears only after
-   * it has been asked.
-   *
-   * Shown but never demanded. A reviewer who realises they mistyped the number
-   * should be able to correct it and carry on; requiring the reason as well
-   * would offer only one way out of two honest ones. The API decides, and it
-   * refuses again with the same sentence if the value really is a repeat.
-   *
-   * The phrase is matched rather than flagged structurally because the result
-   * envelope carries only a message. `e2e/duplicates.spec.ts` walks the whole
-   * refusal through the interface, so the two sides cannot drift apart quietly.
-   */
   const flagged = Boolean(error?.includes('already recorded against'))
 
   const revisionReasons = useMemo(() => reasonsFor(reasons, 'REVISION'), [reasons])
@@ -268,18 +222,14 @@ export function DeskReviewForm({
     { reasonCategoryId: string; note: string },
   ][]
 
-  /*
-   * What the API will accept. Stated here so the button is disabled rather than
-   * the write refused — the reviewer should not have to read a rule back from
-   * an error message they could have been shown first.
-   */
-  const everyCheckAnswered = CHECKS.every((check) => results[check.type])
+  const everyCheckAnswered = CHECKS.every((check) => Boolean(results[check.type]))
+
   const ready =
     Boolean(outcome) &&
     everyCheckAnswered &&
     (outcome !== 'REQUEST_REVISION' ||
       (chosen.length > 0 &&
-        chosen.every(([, value]) => value.reasonCategoryId && value.note.trim()))) &&
+        chosen.every(([, value]) => Boolean(value.reasonCategoryId) && Boolean(value.note.trim())))) &&
     (outcome !== 'REJECT' || Boolean(rejectionReasonId)) &&
     (outcome === 'ADVANCE_TO_BANK' || applicantMessage.trim().length > 0) &&
     required.every((entry) => {
@@ -289,13 +239,12 @@ export function DeskReviewForm({
         (!entry.branch || (entered?.branchCode.trim().length ?? 0) >= 4)
       )
     }) &&
-    // Permitted, but never silently: the server refuses the same way, so a
-    // disabled button here is the honest preview of that refusal.
     (!reviewingOwnApplication || conflictAcknowledged)
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
     if (!ready || outcome === '') return
+
     onSubmit({
       outcome,
       checks: CHECKS.map((check) => ({
@@ -303,12 +252,6 @@ export function DeskReviewForm({
         result: results[check.type] as DeskReviewCheckResult,
         internalNote: notes[check.type]?.trim() || null,
       })),
-      /*
-       * The API records one approved reason on the review outcome as well as
-       * one on every requested category. The first category's approved reason
-       * is the honest summary reason; sending null here made an otherwise
-       * complete revision request fail after the reviewer had filled it all in.
-       */
       reasonCategoryId:
         outcome === 'REJECT'
           ? rejectionReasonId
@@ -337,179 +280,184 @@ export function DeskReviewForm({
   }
 
   return (
-    <form onSubmit={submit}>
-      <fieldset className="fieldset" disabled={pending}>
-        <legend className="eyebrow">Checks</legend>
-        <div className="table-wrap">
-          <table className="table">
-            <caption className="visually-hidden">Desk review checks</caption>
-            <thead>
-              <tr>
-                <th scope="col">Check</th>
-                <th scope="col">Result</th>
-                <th scope="col">Internal note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {CHECKS.map((check) => (
-                <tr key={check.type}>
-                  <td>
-                    <span style={{ fontWeight: 500 }}>{check.title}</span>
-                    <span className="field-hint">{check.asks}</span>
-                  </td>
-                  <td>
-                    <div className="choice-row" data-compact>
-                      {RESULTS.map((result) => (
-                        <label className="choice" key={result.value}>
-                          <input
-                            type="radio"
-                            name={check.type}
-                            checked={results[check.type] === result.value}
-                            onChange={() =>
-                              setResults((previous) => ({
-                                ...previous,
-                                [check.type]: result.value,
-                              }))
-                            }
-                          />
-                          {result.label}
-                        </label>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      aria-label={`Internal note for ${check.title}`}
-                      value={notes[check.type] ?? ''}
-                      onChange={(event) =>
-                        setNotes((previous) => ({
-                          ...previous,
-                          [check.type]: event.target.value,
-                        }))
-                      }
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <form className={styles.formWrap} onSubmit={submit}>
+      <fieldset className={styles.fieldset} disabled={pending}>
+        <div className={styles.sectionHeader}>
+          <legend className={styles.sectionEyebrow}>Checks</legend>
         </div>
-        {/* Said once, under the table, rather than nine times beside it. */}
-        <p className="field-hint" style={{ marginTop: '0.75rem' }}>
+        <div className={styles.checksCard}>
+          {CHECKS.map((check) => (
+            <div key={check.type} className={styles.checkRow}>
+              <div className={styles.checkInfo}>
+                <span className={styles.checkTitle}>{check.title}</span>
+                <span className={styles.checkAsks}>{check.asks}</span>
+              </div>
+              <div className={styles.checkControls}>
+                <div className={styles.resultGroup}>
+                  {RESULTS.map((result) => {
+                    const isSelected = results[check.type] === result.value
+                    const tone =
+                      result.value === 'PASS'
+                        ? 'pass'
+                        : result.value === 'FAIL'
+                          ? 'fail'
+                          : 'na'
+                    return (
+                      <label
+                        className={styles.resultPill}
+                        key={result.value}
+                        data-selected={isSelected ? 'true' : undefined}
+                        data-tone={tone}
+                      >
+                        <input
+                          type="radio"
+                          name={check.type}
+                          checked={isSelected}
+                          onChange={() =>
+                            setResults((previous) => ({
+                              ...previous,
+                              [check.type]: result.value,
+                            }))
+                          }
+                        />
+                        {result.label}
+                      </label>
+                    )
+                  })}
+                </div>
+                <input
+                  className={styles.noteInput}
+                  placeholder="Note (optional)"
+                  aria-label={`Internal note for ${check.title}`}
+                  value={notes[check.type] ?? ''}
+                  onChange={(event) =>
+                    setNotes((previous) => ({
+                      ...previous,
+                      [check.type]: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className={styles.hintBox}>
           Internal notes stay inside the programme office. The applicant never sees them.
         </p>
       </fieldset>
 
-      {/*
-        Appears as checks are passed, because that is what it is evidence for.
-        Sitting above the outcome puts it where the reviewer still has the
-        documents open, rather than after they have decided.
-      */}
       {transcribing.length > 0 ? (
         <fieldset
-          className="fieldset"
+          className={styles.fieldset}
           disabled={pending}
-          style={{ marginTop: '1rem' }}
           {...mark('desk-review-identifiers')}
         >
-          <div className="label-row">
-            <legend className="eyebrow">What the documents say</legend>
+          <div className={styles.sectionHeader}>
+            <legend className={styles.sectionEyebrow}>What the documents say</legend>
             <Explain label="these numbers" opener="Why a passed check asks for a number">
               {OFFICE_HELP.transcribing}
             </Explain>
           </div>
-          <p className="field-hint" style={{ marginBottom: '0.75rem' }}>
-            Passing a check means you have read the document. Entering its number is what
-            lets the programme notice if the same one is used twice.
-          </p>
+          <div className={styles.identifiersBox}>
+            <p className={styles.hintBox} style={{ margin: 0 }}>
+              Passing a check means you have read the document. Entering its number is what
+              lets the programme notice if the same one is used twice.
+            </p>
 
-          <div className="stack">
-            {transcribing.map((entry) => (
-              <div key={entry.kind} className={entry.branch ? 'detail-grid' : undefined}>
-                <div>
-                  <label className="field-label" htmlFor={`id-${entry.kind}`}>
-                    {entry.label}
-                    {entry.requirement === 'OPTIONAL' ? ' (if there is one)' : ''}
-                  </label>
-                  <input
-                    id={`id-${entry.kind}`}
-                    className="input"
-                    value={typed[entry.kind]?.value ?? ''}
-                    onChange={(event) =>
-                      setTyped((was) => ({
-                        ...was,
-                        [entry.kind]: {
-                          branchCode: was[entry.kind]?.branchCode ?? '',
-                          value: event.target.value,
-                        },
-                      }))
-                    }
-                  />
-                  <p className="field-hint">{entry.hint}</p>
-                </div>
-                {entry.branch ? (
+            <div className="stack">
+              {transcribing.map((entry) => (
+                <div key={entry.kind} className={entry.branch ? 'detail-grid' : undefined}>
                   <div>
-                    <label className="field-label" htmlFor={`branch-${entry.kind}`}>
-                      {entry.branch}
+                    <label className="field-label" htmlFor={`id-${entry.kind}`}>
+                      {entry.label}
+                      {entry.requirement === 'OPTIONAL' ? ' (if there is one)' : ''}
                     </label>
                     <input
-                      id={`branch-${entry.kind}`}
+                      id={`id-${entry.kind}`}
                       className="input"
-                      value={typed[entry.kind]?.branchCode ?? ''}
+                      value={typed[entry.kind]?.value ?? ''}
                       onChange={(event) =>
                         setTyped((was) => ({
                           ...was,
                           [entry.kind]: {
-                            value: was[entry.kind]?.value ?? '',
-                            branchCode: event.target.value,
+                            branchCode: was[entry.kind]?.branchCode ?? '',
+                            value: event.target.value,
                           },
                         }))
                       }
                     />
+                    <p className="field-hint">{entry.hint}</p>
                   </div>
-                ) : null}
-              </div>
-            ))}
+                  {entry.branch ? (
+                    <div>
+                      <label className="field-label" htmlFor={`branch-${entry.kind}`}>
+                        {entry.branch}
+                      </label>
+                      <input
+                        id={`branch-${entry.kind}`}
+                        className="input"
+                        value={typed[entry.kind]?.branchCode ?? ''}
+                        onChange={(event) =>
+                          setTyped((was) => ({
+                            ...was,
+                            [entry.kind]: {
+                              value: was[entry.kind]?.value ?? '',
+                              branchCode: event.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ))}
 
-            {flagged ? (
-              <div>
-                <label className="field-label" htmlFor="not-same-claim">
-                  Why this is not the same claim
-                </label>
-                <textarea
-                  id="not-same-claim"
-                  className="input"
-                  rows={2}
-                  value={notSameClaim}
-                  onChange={(event) => setNotSameClaim(event.target.value)}
-                />
-                <p className="field-hint">
-                  A number appearing twice is not proof of anything — the same promoter
-                  returns for a later phase. Say what this is, and it is kept beside the
-                  number that raised it.
-                </p>
-              </div>
-            ) : null}
+              {flagged ? (
+                <div>
+                  <label className="field-label" htmlFor="not-same-claim">
+                    Why this is not the same claim
+                  </label>
+                  <textarea
+                    id="not-same-claim"
+                    className="input"
+                    rows={2}
+                    value={notSameClaim}
+                    onChange={(event) => setNotSameClaim(event.target.value)}
+                  />
+                  <p className="field-hint">
+                    A number appearing twice is not proof of anything — the same promoter
+                    returns for a later phase. Say what this is, and it is kept beside the
+                    number that raised it.
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </div>
         </fieldset>
       ) : null}
 
-      <fieldset className="fieldset" disabled={pending} style={{ marginTop: '1rem' }}>
-        <legend className="eyebrow">Outcome</legend>
-        <div className="stack">
+      <fieldset className={styles.fieldset} disabled={pending}>
+        <div className={styles.sectionHeader}>
+          <legend className={styles.sectionEyebrow}>Outcome</legend>
+        </div>
+        <div className={styles.outcomesList}>
           {OUTCOMES.map((option) => (
-            <label className="choice-block" key={option.value}>
+            <label
+              className={styles.outcomeChoice}
+              key={option.value}
+              data-selected={outcome === option.value ? 'true' : undefined}
+            >
               <input
                 type="radio"
                 name="outcome"
+                style={{ marginTop: '3px' }}
                 checked={outcome === option.value}
                 onChange={() => setOutcome(option.value)}
               />
-              <span>
-                <span style={{ fontWeight: 500 }}>{option.label}</span>
-                <span className="field-hint">{option.means}</span>
-              </span>
+              <div className={styles.outcomeChoiceText}>
+                <span className={styles.outcomeTitle}>{option.label}</span>
+                <span className={styles.outcomeMeans}>{option.means}</span>
+              </div>
             </label>
           ))}
         </div>
@@ -651,13 +599,6 @@ export function DeskReviewForm({
       </fieldset>
 
       {reviewingOwnApplication ? (
-        /*
-         * `docs/policy-alignment.md` permits acting on your own application
-         * with disclosure. This is the disclosure, and it is deliberately not
-         * a warning: a small office will have officers who are also applicants
-         * and that is expected rather than suspect. Saying so is what has to
-         * happen, and the acknowledgement lands in the audit trail.
-         */
         <p className="notice" style={{ marginTop: '1rem' }}>
           <span className="notice-title">This is your own application</span>
           <label className="checkbox-row">
@@ -682,11 +623,10 @@ export function DeskReviewForm({
         </p>
       ) : null}
 
-      <div className="row" style={{ marginTop: '1rem' }}>
+      <div className={styles.submitRow}>
         <button
           type="submit"
-          className="button"
-          data-variant="primary"
+          className={styles.completeButton}
           disabled={!ready || pending}
         >
           {pending ? 'Recording…' : 'Complete the review'}

@@ -21,10 +21,12 @@
  * which costs some wasted effort and no correctness. Telling them beforehand is
  * the cheap way to avoid it; forbidding it was the expensive way.
  */
+import { User } from 'lucide-react'
 import { formatDateTime } from '#/lib/format'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from './officeGuidance'
 import { useMarker } from '../guide/GuideContext'
+import styles from './Workspace.module.css'
 
 export function WhoIsOnThis({
   assignedTo,
@@ -44,37 +46,35 @@ export function WhoIsOnThis({
   const somebodyElse = Boolean(assignedTo) && !mine
 
   return (
-    <section className="card" {...mark('assignment')}>
-      <div className="card-header">
-        <div>
-          <div className="label-row">
-            <p className="eyebrow">Who is on this</p>
-            <Explain label="assignment" opener="Working the same file as somebody else">
-              {OFFICE_HELP.workingTogether}
-            </Explain>
-          </div>
-          <h3>
-            {mine
-              ? 'You worked this last'
-              : somebodyElse
-                ? `${assignedTo?.email} worked this last`
-                : 'Nobody has worked this yet'}
-          </h3>
-          {assignedAt || lastActivityAt ? (
-            <p className="field-hint">
-              Last activity {formatDateTime(lastActivityAt ?? assignedAt!)}
-            </p>
-          ) : null}
-        </div>
+    <section className={styles.card} {...mark('assignment')}>
+      <div className={styles.cardHeader}>
+        <h2 className={styles.cardTitle}>Who is on this</h2>
+        <Explain label="assignment" opener="Working the same file as somebody else">
+          {OFFICE_HELP.workingTogether}
+        </Explain>
       </div>
 
+      <div className={styles.whoIsOnBody}>
+        <div className={styles.avatarCircle}>
+          <User size={24} aria-hidden="true" />
+        </div>
+        <h3 className={styles.whoIsOnText}>
+          {mine
+            ? 'You worked this last'
+            : somebodyElse
+              ? `${assignedTo?.email} worked this last`
+              : 'Nobody has worked this yet'}
+        </h3>
+      </div>
+
+      {assignedAt || lastActivityAt ? (
+        <div className={styles.whoIsOnFooter}>
+          Last activity {formatDateTime(lastActivityAt ?? assignedAt!)}
+        </div>
+      ) : null}
+
       {somebodyElse ? (
-        <div className="card-body">
-          {/*
-            A notice rather than a warning, and nothing below it is disabled.
-            Two people working one file is allowed; it is only worth knowing
-            about so that the second one can decide whether to bother.
-          */}
+        <div style={{ marginTop: '12px' }}>
           <p className="notice">
             <span className="notice-title">Somebody else has been here</span>
             You can still act on this. If you both act at once, whoever is second is told
@@ -86,3 +86,4 @@ export function WhoIsOnThis({
     </section>
   )
 }
+

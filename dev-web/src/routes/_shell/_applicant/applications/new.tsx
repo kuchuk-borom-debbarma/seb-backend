@@ -405,11 +405,13 @@ function StartApplicationPage() {
                   <div className={styles.choiceGrid}>
                     {/* Initial Application Choice Card */}
                     <label
+                      htmlFor="kind-initial"
                       className={`${styles.choiceCard} ${
                         kind === 'INITIAL' ? styles.choiceCardSelected : ''
                       }`}
                     >
                       <input
+                        id="kind-initial"
                         type="radio"
                         name="applicationKind"
                         aria-label="Initial application"
@@ -418,8 +420,12 @@ function StartApplicationPage() {
                         onChange={() => setKind('INITIAL')}
                         style={{
                           position: 'absolute',
+                          inset: 0,
+                          width: '100%',
+                          height: '100%',
                           opacity: 0,
-                          pointerEvents: 'none',
+                          cursor: 'pointer',
+                          zIndex: 1,
                         }}
                       />
                       <div
@@ -446,12 +452,14 @@ function StartApplicationPage() {
 
                     {/* Expansion Application Choice Card */}
                     <label
+                      htmlFor="kind-expansion"
                       className={`${styles.choiceCard} ${
                         kind === 'EXPANSION' ? styles.choiceCardSelected : ''
                       } ${!eligibility?.eligible ? styles.choiceCardDisabled : ''}`}
                       aria-disabled={!eligibility?.eligible}
                     >
                       <input
+                        id="kind-expansion"
                         type="radio"
                         name="applicationKind"
                         aria-label="Expansion application"
@@ -461,8 +469,12 @@ function StartApplicationPage() {
                         onChange={() => setKind('EXPANSION')}
                         style={{
                           position: 'absolute',
+                          inset: 0,
+                          width: '100%',
+                          height: '100%',
                           opacity: 0,
-                          pointerEvents: 'none',
+                          cursor: eligibility?.eligible ? 'pointer' : 'not-allowed',
+                          zIndex: 1,
                         }}
                       />
                       <div

@@ -1,17 +1,22 @@
-/**
- * One work queue.
- *
- * Every filter here is one the API accepts, and the whole filter set lives in
- * the URL — so a queue view can be bookmarked, sent to a colleague, or reached
- * again by the back button with the same rows in it.
- *
- * Queue and status are mutually exclusive: two of the queues are subsets of a
- * single status, and the API refuses both rather than silently intersecting
- * them. The interface enforces that by offering one control, not two.
- */
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { Pager, SearchBox } from '#/components/ListControls'
+import {
+  ArrowLeft,
+  Building2,
+  CheckCircle2,
+  ChevronDown,
+  FileCheck,
+  FileText,
+  Landmark,
+  List,
+  type LucideIcon,
+  RefreshCw,
+  Search as SearchIcon,
+  Users,
+  XCircle,
+} from 'lucide-react'
+import { Pager } from '#/components/ListControls'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
 import {
@@ -26,6 +31,7 @@ import {
   statusTone,
   waitingFor,
 } from '#/features/admin/queues'
+import styles from '#/features/admin/Queue.module.css'
 import type {
   AdminIntakeOrder,
   AdminIntakeQueueKey,
@@ -51,6 +57,33 @@ const SECTORS: BusinessSector[] = [
   'MANUFACTURING_AND_SERVICES',
   'OTHER',
 ]
+
+const PRIMARY_QUEUES: AdminIntakeQueueKey[] = [
+  'NEW_SUBMISSIONS',
+  'REVISION_RESPONSES',
+  'DESK_REVIEW',
+]
+
+const MORE_QUEUES: AdminIntakeQueueKey[] = [
+  'PARTNER_BANK_EVALUATION',
+  'TTM_REVIEW',
+  'APPROVED',
+  'REJECTED',
+  'SANCTIONED',
+  'DISBURSED',
+]
+
+const QUEUE_ICONS: Record<AdminIntakeQueueKey, LucideIcon> = {
+  NEW_SUBMISSIONS: FileText,
+  REVISION_RESPONSES: RefreshCw,
+  DESK_REVIEW: SearchIcon,
+  PARTNER_BANK_EVALUATION: Building2,
+  TTM_REVIEW: Users,
+  APPROVED: CheckCircle2,
+  REJECTED: XCircle,
+  SANCTIONED: FileCheck,
+  DISBURSED: Landmark,
+}
 
 type Search = {
   queue?: AdminIntakeQueueKey
@@ -122,10 +155,32 @@ function QueuePage() {
   )
   const { data: summary } = useQuery(queueSummaryQuery())
   const mark = useMarker()
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
+        setMoreOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
 
   const rows = data?.nodes ?? []
   const countOf = (queue: AdminIntakeQueueKey) =>
     summary?.find((entry) => entry.queue === queue)?.count ?? 0
+
+  const totalAllCount =
+    summary?.reduce((total, entry) => total + entry.count, 0) ?? 0
 
   /** Resets paging: a filter change makes the old cursor meaningless. */
   const filter = (change: Partial<Search>) =>
@@ -148,8 +203,10 @@ function QueuePage() {
     search.mine,
   )
 
+  const isMoreQueueActive = Boolean(search.queue && MORE_QUEUES.includes(search.queue))
+
   return (
-    <main className="page">
+    <main className={styles.pageWrap}>
       <PageHeader
         title={search.queue ? QUEUE_TITLES[search.queue] : 'All applications'}
         description={
@@ -158,16 +215,15 @@ function QueuePage() {
             : 'Every submitted application, in any queue.'
         }
         actions={
-          <Link to="/admin" className="button">
+          <Link to="/admin" className={styles.backButton}>
+            <ArrowLeft size={15} aria-hidden="true" />
             Back to dashboard
           </Link>
         }
       />
 
-      {/* The queues, as tabs. Counts come from the summary rather than from
-          this page, so switching queues does not have to load one to know how
-          big the other is. */}
-      <div className="tabs" role="tablist" aria-label="Queues">
+      {/* Top Queue Filter / Tab Strip */}
+      <div className={styles.tabStripCard} role="tablist" aria-label="Queues">
         <Link
           to="/admin/queue"
           search={(previous) => ({
@@ -177,173 +233,288 @@ function QueuePage() {
           })}
           role="tab"
           aria-selected={!search.queue}
-          className="tab"
+          className={`${styles.queueTab} ${!search.queue ? styles.queueTabActive : ''}`}
         >
-          All
+          <List className={styles.queueTabIcon} aria-hidden="true" />
+          <span>All</span>
+          <span
+            className={`${styles.countBadge} ${
+              !search.queue ? styles.countBadgeActive : ''
+            }`}
+          >
+            {totalAllCount}
+          </span>
         </Link>
-        {QUEUE_KEYS.map((queue) => (
-          <Link
-            key={queue}
-            to="/admin/queue"
-            search={(previous) => ({ ...previous, queue, after: undefined })}
-            role="tab"
-            aria-selected={search.queue === queue}
-            className="tab"
+
+        {PRIMARY_QUEUES.map((queueKey) => {
+          const Icon = QUEUE_ICONS[queueKey]
+          const isActive = search.queue === queueKey
+          const tone =
+            queueKey === 'NEW_SUBMISSIONS'
+              ? 'blue'
+              : queueKey === 'REVISION_RESPONSES'
+                ? 'green'
+                : 'amber'
+          return (
+            <Link
+              key={queueKey}
+              to="/admin/queue"
+              search={(previous) => ({ ...previous, queue: queueKey, after: undefined })}
+              role="tab"
+              aria-selected={isActive}
+              className={`${styles.queueTab} ${isActive ? styles.queueTabActive : ''}`}
+            >
+              <Icon
+                className={styles.queueTabIcon}
+                data-color={tone}
+                aria-hidden="true"
+              />
+              <span>{QUEUE_TITLES[queueKey]}</span>
+              <span
+                className={`${styles.countBadge} ${
+                  isActive ? styles.countBadgeActive : ''
+                }`}
+              >
+                {countOf(queueKey)}
+              </span>
+            </Link>
+          )
+        })}
+
+        {/* More Queues Dropdown */}
+        <div className={styles.moreDropdownWrap} ref={moreRef}>
+          <button
+            type="button"
+            className={`${styles.queueTab} ${
+              isMoreQueueActive ? styles.queueTabActive : ''
+            }`}
+            onClick={() => setMoreOpen((previous) => !previous)}
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
           >
-            {QUEUE_TITLES[queue]}
-            <span className="tab-count tabular">{countOf(queue)}</span>
-          </Link>
-        ))}
+            <span>
+              {isMoreQueueActive && search.queue
+                ? QUEUE_TITLES[search.queue]
+                : 'More'}
+            </span>
+            <ChevronDown size={14} aria-hidden="true" />
+          </button>
+
+          {moreOpen && (
+            <div className={styles.moreDropdownMenu} role="menu">
+              {MORE_QUEUES.map((queueKey) => {
+                const Icon = QUEUE_ICONS[queueKey]
+                const isActive = search.queue === queueKey
+                return (
+                  <Link
+                    key={queueKey}
+                    to="/admin/queue"
+                    search={(previous) => ({
+                      ...previous,
+                      queue: queueKey,
+                      after: undefined,
+                    })}
+                    role="menuitem"
+                    className={`${styles.moreMenuItem} ${
+                      isActive ? styles.moreMenuItemActive : ''
+                    }`}
+                    onClick={() => setMoreOpen(false)}
+                  >
+                    <div className={styles.moreMenuLeft}>
+                      <Icon size={15} aria-hidden="true" />
+                      <span>{QUEUE_TITLES[queueKey]}</span>
+                    </div>
+                    <span
+                      className={`${styles.countBadge} ${
+                        isActive ? styles.countBadgeActive : ''
+                      }`}
+                    >
+                      {countOf(queueKey)}
+                    </span>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="filters" {...mark('queue-filters')}>
-        <SearchBox
-          id="queue-search"
-          label="Reference or enterprise starts with"
-          placeholder="SEP-2026 or Khumulwng"
-          value={search.search}
-          onChange={(value) => filter({ search: value })}
-        />
+      {/* Filters Card */}
+      <div className={styles.filtersCard} {...mark('queue-filters')}>
+        <div className={styles.filtersGrid}>
+          {/* Reference or Enterprise Input */}
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="queue-search">
+              Reference or enterprise starts with
+            </label>
+            <div className={styles.searchFieldWrap}>
+              <input
+                id="queue-search"
+                type="search"
+                className={styles.searchInput}
+                placeholder="Enter reference or enterprise"
+                value={search.search ?? ''}
+                onChange={(event) =>
+                  filter({ search: event.target.value || undefined })
+                }
+              />
+              <SearchIcon className={styles.searchIcon} aria-hidden="true" />
+            </div>
+          </div>
 
-        <div>
-          <label className="field-label" htmlFor="order">
-            Order
-          </label>
-          <select
-            id="order"
-            className="select"
-            value={search.order ?? 'OLDEST_WAITING'}
-            onChange={(event) =>
-              filter({ order: event.target.value as AdminIntakeOrder })
-            }
-          >
-            {ORDERS.map((order) => (
-              <option key={order.value} value={order.value}>
-                {order.label}
-              </option>
-            ))}
-          </select>
-        </div>
+          {/* Order Dropdown */}
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="order">
+              Order
+            </label>
+            <div className={styles.selectWrap}>
+              <select
+                id="order"
+                className={styles.selectControl}
+                value={search.order ?? 'OLDEST_WAITING'}
+                onChange={(event) =>
+                  filter({ order: event.target.value as AdminIntakeOrder })
+                }
+              >
+                {ORDERS.map((order) => (
+                  <option key={order.value} value={order.value}>
+                    {order.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className={styles.selectChevron} aria-hidden="true" />
+            </div>
+          </div>
 
-        <div>
-          <label className="field-label" htmlFor="type">
-            Type
-          </label>
-          <select
-            id="type"
-            className="select"
-            value={search.applicationType ?? ''}
-            onChange={(event) =>
-              filter({
-                applicationType: (event.target.value || undefined) as
-                  ApplicationType | undefined,
-              })
-            }
-          >
-            <option value="">Any type</option>
-            <option value="INITIAL">Initial</option>
-            <option value="EXPANSION">Expansion</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="field-label" htmlFor="category">
-            Category
-          </label>
-          <select
-            id="category"
-            className="select"
-            value={search.category ?? ''}
-            onChange={(event) =>
-              filter({
-                category: (event.target.value || undefined) as
-                  ApplicationCategory | undefined,
-              })
-            }
-          >
-            <option value="">Any category</option>
-            <option value="CATEGORY_A">Category A</option>
-            <option value="CATEGORY_B">Category B</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="field-label" htmlFor="sector">
-            Sector
-          </label>
-          <select
-            id="sector"
-            className="select"
-            value={search.sector ?? ''}
-            onChange={(event) =>
-              filter({
-                sector: (event.target.value || undefined) as BusinessSector | undefined,
-              })
-            }
-          >
-            <option value="">Any sector</option>
-            {SECTORS.map((sector) => (
-              <option key={sector} value={sector}>
-                {humanize(sector)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={search.mine ?? false}
-            onChange={(event) =>
-              filter({ mine: event.target.checked ? true : undefined })
-            }
-          />
-          Only what I have claimed
-        </label>
-      </div>
-
-      {rows.length === 0 ? (
-        <div className="card">
-          <div className="empty">
-            {/* Three different facts, and the heading has to say which one. */}
-            <h3>
-              {filtered
-                ? 'Nothing matches'
-                : search.queue
-                  ? 'Nothing in this queue'
-                  : 'No applications yet'}
-            </h3>
-            <p>
-              {filtered
-                ? 'No application matches these filters. Clearing one may bring some back.'
-                : search.queue
-                  ? 'Everything here has been dealt with.'
-                  : 'Nothing has been submitted to the programme office yet.'}
-            </p>
-            {filtered ? (
-              <button
-                type="button"
-                className="button"
-                style={{ marginTop: '1rem' }}
-                onClick={() =>
+          {/* Type Dropdown */}
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="type">
+              Type
+            </label>
+            <div className={styles.selectWrap}>
+              <select
+                id="type"
+                className={styles.selectControl}
+                value={search.applicationType ?? ''}
+                onChange={(event) =>
                   filter({
-                    search: undefined,
-                    applicationType: undefined,
-                    category: undefined,
-                    sector: undefined,
-                    mine: undefined,
+                    applicationType: (event.target.value || undefined) as
+                      | ApplicationType
+                      | undefined,
                   })
                 }
               >
-                Clear the filters
-              </button>
-            ) : null}
+                <option value="">Any type</option>
+                <option value="INITIAL">Initial</option>
+                <option value="EXPANSION">Expansion</option>
+              </select>
+              <ChevronDown className={styles.selectChevron} aria-hidden="true" />
+            </div>
+          </div>
+
+          {/* Category Dropdown */}
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="category">
+              Category
+            </label>
+            <div className={styles.selectWrap}>
+              <select
+                id="category"
+                className={styles.selectControl}
+                value={search.category ?? ''}
+                onChange={(event) =>
+                  filter({
+                    category: (event.target.value || undefined) as
+                      | ApplicationCategory
+                      | undefined,
+                  })
+                }
+              >
+                <option value="">Any category</option>
+                <option value="CATEGORY_A">Category A</option>
+                <option value="CATEGORY_B">Category B</option>
+              </select>
+              <ChevronDown className={styles.selectChevron} aria-hidden="true" />
+            </div>
           </div>
         </div>
+
+        {/* Sector Filter Row */}
+        <div className={styles.sectorGrid}>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="sector">
+              Sector
+            </label>
+            <div className={styles.selectWrap}>
+              <select
+                id="sector"
+                className={styles.selectControl}
+                value={search.sector ?? ''}
+                onChange={(event) =>
+                  filter({
+                    sector: (event.target.value || undefined) as
+                      | BusinessSector
+                      | undefined,
+                  })
+                }
+              >
+                <option value="">Any sector</option>
+                {SECTORS.map((sector) => (
+                  <option key={sector} value={sector}>
+                    {humanize(sector)}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className={styles.selectChevron} aria-hidden="true" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Applications Table Card */}
+      {rows.length === 0 ? (
+        <div className={styles.emptyCard}>
+          <h3 className={styles.emptyTitle}>
+            {filtered
+              ? 'Nothing matches'
+              : search.queue
+                ? 'Nothing in this queue'
+                : 'No applications yet'}
+          </h3>
+          <p className={styles.emptyText}>
+            {filtered
+              ? 'No application matches these filters. Clearing one may bring some back.'
+              : search.queue
+                ? 'Everything here has been dealt with.'
+                : 'Nothing has been submitted to the programme office yet.'}
+          </p>
+          {filtered ? (
+            <button
+              type="button"
+              className={styles.clearFilterBtn}
+              onClick={() =>
+                filter({
+                  search: undefined,
+                  applicationType: undefined,
+                  category: undefined,
+                  sector: undefined,
+                  mine: undefined,
+                })
+              }
+            >
+              Clear the filters
+            </button>
+          ) : null}
+        </div>
       ) : (
-        <div className="card" aria-busy={isPlaceholderData} {...mark('queue-rows')}>
-          <div className="table-wrap">
-            <table className="table">
+        <div
+          className={styles.tableCard}
+          aria-busy={isPlaceholderData}
+          {...mark('queue-rows')}
+        >
+          <h2 className={styles.tableTitle}>Applications in this queue</h2>
+          <div className={styles.tableWrap}>
+            <table className={styles.appsTable}>
               <caption className="visually-hidden">Applications in this queue</caption>
               <thead>
                 <tr>
@@ -358,24 +529,26 @@ function QueuePage() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id}>
+                  <tr key={row.id} className={styles.appsTableRow}>
                     <td>
                       <Link
                         to="/admin/applications/$id"
                         params={{ id: row.id }}
-                        className="tabular"
+                        className={styles.refLink}
                       >
                         {row.referenceNumber ?? '—'}
                       </Link>
                     </td>
-                    <td>{row.enterpriseName}</td>
+                    <td>
+                      <span className={styles.enterpriseText}>
+                        {row.enterpriseName}
+                      </span>
+                    </td>
                     <td className="tabular">{row.cycleCode}</td>
                     <td>
                       {row.applicationType === 'EXPANSION'
                         ? `Expansion · phase ${row.phaseNumber}`
                         : 'Initial'}
-                      {/* A resubmission is a different job from a first look,
-                          and the number says which this is. */}
                       {row.submissionNumber > 1 ? (
                         <span className="muted">
                           {' '}
@@ -384,22 +557,26 @@ function QueuePage() {
                       ) : null}
                     </td>
                     <td>
-                      <span className="badge" data-tone={statusTone(row.status)}>
+                      <span
+                        className={styles.statusBadge}
+                        data-tone={statusTone(row.status)}
+                      >
                         {humanize(row.status)}
                       </span>
                     </td>
                     <td>
-                      {waitingFor(row.statusChangedAt)}
-                      <span className="field-hint">
-                        submitted {formatDate(row.submittedAt)}
-                      </span>
+                      <div className={styles.waitingCell}>
+                        <span className={styles.waitingPrimary}>
+                          {waitingFor(row.statusChangedAt)}
+                        </span>
+                        <span className={styles.waitingSub}>
+                          submitted {formatDate(row.submittedAt)}
+                        </span>
+                      </div>
                     </td>
                     <td>
                       {row.assignedToUserId ? (
-                        // Who claimed it is an internal user id; the workspace
-                        // is where a name can be resolved, so this says only
-                        // that somebody has it.
-                        <span className="badge">Claimed</span>
+                        <span className={styles.statusBadge}>Claimed</span>
                       ) : (
                         <span className="muted">Nobody</span>
                       )}
@@ -410,26 +587,32 @@ function QueuePage() {
             </table>
           </div>
 
-          <Pager
-            shown={rows.length}
-            totalCount={data?.pageInfo.totalCount ?? 0}
-            hasNextPage={data?.pageInfo.hasNextPage ?? false}
-            atStart={!search.after}
-            pageSize={QUEUE_PAGE_SIZE}
-            onFirst={() =>
-              navigate({ search: (previous) => ({ ...previous, after: undefined }) })
-            }
-            onNext={() =>
-              navigate({
-                search: (previous) => ({
-                  ...previous,
-                  after: data?.pageInfo.endCursor ?? undefined,
-                }),
-              })
-            }
-          />
+          <div className={styles.resultsFooter}>
+            <span>{data?.pageInfo.totalCount ?? rows.length} results</span>
+            <Pager
+              shown={rows.length}
+              totalCount={data?.pageInfo.totalCount ?? 0}
+              hasNextPage={data?.pageInfo.hasNextPage ?? false}
+              atStart={!search.after}
+              pageSize={QUEUE_PAGE_SIZE}
+              onFirst={() =>
+                navigate({
+                  search: (previous) => ({ ...previous, after: undefined }),
+                })
+              }
+              onNext={() =>
+                navigate({
+                  search: (previous) => ({
+                    ...previous,
+                    after: data?.pageInfo.endCursor ?? undefined,
+                  }),
+                })
+              }
+            />
+          </div>
         </div>
       )}
     </main>
   )
 }
+
