@@ -17,6 +17,7 @@ import { scanDocumentVersion } from './services/document-scanner/consume'
 import {
   rateLimiter,
   RATE_LIMITED_MESSAGE,
+  CONFIRMATION_PDF,
   REQUEST_BUDGET,
 } from './services/rate-limit'
 import { callerAddress } from './services/rate-limit/identity'
@@ -357,14 +358,31 @@ app.on(['GET', 'PUT'], '/internal/storage/*', async (c) => {
  * an expiry — and the module serves the same refusal for every way a link
  * can be wrong. No session, deliberately: it is opened from an inbox.
  */
-app.get('/confirmation-pdf', async (c) =>
-  withDatabase(connectionString(c.env), (db) =>
+app.use('/confirmation-pdf', requestBudget)
+app.get('/confirmation-pdf', async (c) => {
+  /*
+   * Its own allowance on top of the shared budget: the valid path rebuilds
+   * a PDF, and the link is a bearer credential that outlives the email. The
+   * limiter fails closed, like every enforcement point in this service.
+   */
+  const address = callerAddress(c.req.raw.headers)
+  if (address) {
+    let allowed: boolean
+    try {
+      allowed = (await rateLimiter(c.env).consume(CONFIRMATION_PDF, address)).allowed
+    } catch {
+      allowed = false
+    }
+    if (!allowed) return c.text('Too many requests. Try again in a minute.', 429)
+  }
+  return withDatabase(connectionString(c.env), (db) =>
     confirmationPdfResponse(db, c.env, {
       application: c.req.query('application'),
       expires: c.req.query('expires'),
       signature: c.req.query('signature'),
     }),
-  ))
+  )
+})
 
 /**
  * Delivers whatever the in-process queue collected during this request.
