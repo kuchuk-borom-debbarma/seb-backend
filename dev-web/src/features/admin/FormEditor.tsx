@@ -365,6 +365,30 @@ export function FormEditor({
     </div>
   )
 
+  /*
+   * The two bindings a cycle cannot open without, checked live while the
+   * form is authored. Discovering them through a refusal at save or open
+   * time told the officer which internal key was missing and nothing else;
+   * this says it while they are still deciding what to ask. Members carry
+   * roles too — an owner's date of birth usually holds the second one.
+   */
+  const requiredBindings = [
+    {
+      role: 'SEED_FUND_REQUESTED_PAISE',
+      asks: 'how much seed funding is requested',
+      reads: 'the queue, the decision bound and analytics',
+    },
+    {
+      role: 'APPLICANT_DATE_OF_BIRTH',
+      asks: 'an applicant or owner date of birth',
+      reads: 'the age eligibility rule',
+    },
+  ].map((binding) => ({
+    ...binding,
+    holder: template.fields.find((field) => field.role === binding.role) ?? null,
+  }))
+  const unbound = requiredBindings.filter((binding) => binding.holder === null)
+
   return (
     <div className="stack" {...mark('cycle-authoring')}>
       <p className="notice" data-tone="action">
@@ -372,6 +396,27 @@ export function FormEditor({
         Its questions can be changed freely here. The moment it opens they freeze — every
         application is judged against the version it was filled under — so to ask
         something different after that, open a new cycle.
+      </p>
+
+      <p
+        className="notice"
+        data-tone={unbound.length > 0 ? 'error' : 'ok'}
+        {...mark('required-bindings')}
+      >
+        <span className="notice-title">
+          {unbound.length > 0
+            ? 'This form is missing a question the programme requires'
+            : 'Every question the programme requires is present'}
+        </span>
+        {requiredBindings.map((binding) => (
+          <span key={binding.role} style={{ display: 'block' }}>
+            {binding.holder
+              ? `✓ ${binding.holder.label} (${binding.holder.key}) asks ${binding.asks}, `
+                + `read by ${binding.reads}.`
+              : `✗ No question asks ${binding.asks} — ${binding.reads} cannot read this `
+                + `cycle. Add one and set its programme role to ${binding.role}.`}
+          </span>
+        ))}
       </p>
 
       <div className="card">
