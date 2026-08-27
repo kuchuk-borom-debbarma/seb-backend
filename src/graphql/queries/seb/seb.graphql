@@ -485,6 +485,12 @@ type EnterpriseConnection {
 
   """Where this page sits in the whole list."""
   pageInfo: PageInfo!
+
+  """
+  How many enterprises one applicant may hold at once — a programme rule the
+  screen repeats. At the cap, registering another is not offered.
+  """
+  maximumPerApplicant: Int!
 }
 
 """

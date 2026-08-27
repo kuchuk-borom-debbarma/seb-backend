@@ -42,13 +42,17 @@ const STATUSES: ApplicationStatus[] = [
   'CANCELLED',
 ]
 
-/** The statuses the "Under review" metric card counts as in flight. */
+/*
+ * "Submitted" and "Under review" are different facts: one says the applicant
+ * has sent it, the other that the office has picked it up. Counting a merely
+ * submitted application as reviewed told the applicant work had started when
+ * it had not.
+ */
+const SUBMITTED_STATUSES: ApplicationStatus[] = ['SUBMITTED', 'REVISION_REQUIRED']
 const UNDER_REVIEW_STATUSES: ApplicationStatus[] = [
-  'SUBMITTED',
   'DESK_REVIEW',
   'PARTNER_BANK_EVALUATION',
   'AWAITING_DECISION',
-  'REVISION_REQUIRED',
 ]
 
 /** The statuses the "Approved" metric card counts as won. */
@@ -180,6 +184,9 @@ function ApplicationsPage() {
   // Summary counts for the metric cards.
   const totalCount = allApps.length
   const draftsCount = allApps.filter((a) => a.status === 'DRAFT').length
+  const submittedCount = allApps.filter((a) =>
+    SUBMITTED_STATUSES.includes(a.status),
+  ).length
   const underReviewCount = allApps.filter((a) =>
     UNDER_REVIEW_STATUSES.includes(a.status),
   ).length
@@ -201,16 +208,29 @@ function ApplicationsPage() {
     )
   })
 
+  /*
+   * Whether starting is possible at all: an open cycle without one of this
+   * account's applications, and an enterprise to apply on behalf of. All read
+   * from data this screen already loads — offering the door otherwise sends
+   * somebody to a screen that can only refuse.
+   */
+  const canStart =
+    (cycles?.available ?? []).some(
+      (cycle) => !allApps.some((each) => each.programmeCycleId === cycle.id),
+    ) && (enterprises?.length ?? 0) > 0
+
   return (
     <main className="page">
       <PageHeader
         title="Applications"
         description="View and manage all your applications across programme cycles."
         actions={
-          <Link to="/applications/new" className="button" data-variant="primary">
-            <CirclePlus size={15} aria-hidden="true" />
-            Start an application
-          </Link>
+          canStart ? (
+            <Link to="/applications/new" className="button" data-variant="primary">
+              <CirclePlus size={15} aria-hidden="true" />
+              Start an application
+            </Link>
+          ) : null
         }
       />
 
@@ -241,6 +261,24 @@ function ApplicationsPage() {
             <div className={styles.metricInfo}>
               <span className={styles.metricLabel}>Drafts</span>
               <strong className={styles.metricValue}>{draftsCount}</strong>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            className={`${styles.metricCard} ${
+              search.status && SUBMITTED_STATUSES.includes(search.status)
+                ? styles.metricCardActive
+                : ''
+            }`}
+            onClick={() => filter({ status: 'SUBMITTED' })}
+          >
+            <div className={styles.metricIconBadge} data-color="blue">
+              <FileText aria-hidden="true" />
+            </div>
+            <div className={styles.metricInfo}>
+              <span className={styles.metricLabel}>Submitted</span>
+              <strong className={styles.metricValue}>{submittedCount}</strong>
             </div>
           </button>
 
@@ -448,9 +486,11 @@ function ApplicationsPage() {
                     Start an application in an open programme cycle to apply for seed
                     funding.
                   </p>
-                  <Link to="/applications/new" className="button" data-variant="primary">
-                    Start an application
-                  </Link>
+                  {canStart ? (
+                    <Link to="/applications/new" className="button" data-variant="primary">
+                      Start an application
+                    </Link>
+                  ) : null}
                 </>
               )}
             </div>

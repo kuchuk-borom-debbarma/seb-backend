@@ -11,10 +11,13 @@ query ApplicantDashboard {
       }
     }
     application {
-      allApplications: mine(first: 1, includeDeleted: false) {
+      allApplications: mine(first: 50, includeDeleted: false) {
         success
         message
-        response { pageInfo { totalCount } }
+        response {
+          nodes { id programmeCycleId status }
+          pageInfo { totalCount }
+        }
       }
       revisions: mine(first: 5, status: REVISION_REQUIRED, includeDeleted: false) {
         success

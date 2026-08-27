@@ -42,6 +42,7 @@ query MyEnterprises(
         response {
           nodes { ...EnterpriseFields }
           pageInfo { endCursor hasNextPage totalCount }
+          maximumPerApplicant
         }
       }
     }

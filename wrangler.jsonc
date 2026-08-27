@@ -120,6 +120,9 @@
     // which has no page to receive the token in its fragment.
     "PORTAL_BASE_URL": "https://seb-web.kuchukboromd-15a.workers.dev",
     "STORAGE_TRANSPORT": "cloudinary",
+    // One enterprise per applicant is the programme's decision for this
+    // deployment; the code's default of five stays for other environments.
+    "SEB_MAX_ENTERPRISE_PER_USER": "1",
     "PINGRAM_NOTIFICATION_TYPE": "seb",
     "PINGRAM_BASE_URL": "https://api.eu.pingram.io",
     "PINGRAM_FROM_NAME": "Mission SEP",
