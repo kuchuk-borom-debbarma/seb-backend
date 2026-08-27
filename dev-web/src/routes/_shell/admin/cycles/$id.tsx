@@ -178,6 +178,9 @@ function AdminCyclePage() {
       return unwrap(result.admin.programmeCycle.archive)
     },
     onSuccess: refresh,
+    // A refusal usually means the version moved — an edit on the form screen
+    // is a revision too. Refetch so the next attempt quotes the fresh one.
+    onError: refresh,
   })
 
   const changeClosing = useMutation({
@@ -719,7 +722,9 @@ function AdminCyclePage() {
                     </div>
                     <span className={styles.policyKeyText}>Applications close</span>
                   </td>
-                  <td className={styles.policyValueCell}>{formatDate(head.closesAt)}</td>
+                  <td className={styles.policyValueCell}>
+                    {head.closesAt ? formatDate(head.closesAt) : 'Open until closed by the office'}
+                  </td>
                 </tr>
 
                 {/* Policy reference */}

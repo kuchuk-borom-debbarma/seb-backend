@@ -183,7 +183,8 @@ const openingProblem = (cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>): 
     !version.policyReference?.trim() ? 'the policy reference' : null,
     !version.applicantGuidance?.trim() ? 'the guidance for applicants' : null,
     !version.opensAt ? 'the opening date' : null,
-    !version.closesAt ? 'the closing date' : null,
+    // No closing date is a legitimate opening: the cycle takes applications
+    // until somebody closes it. "Change closing time" can still set one.
     version.minimumApplicantAge === null ? 'the minimum applicant age' : null,
     version.maximumApplicantAge === null ? 'the maximum applicant age' : null,
     version.categoryAMaximumMonths === null ? 'the category threshold' : null,
