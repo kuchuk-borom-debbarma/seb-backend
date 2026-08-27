@@ -135,6 +135,7 @@ function AdminCyclePage() {
   // the same shape — a version guard and a retained reason.
   const [showClosingModal, setShowClosingModal] = useState(false)
   const [showGuidanceModal, setShowGuidanceModal] = useState(false)
+  const [draftReasonMissing, setDraftReasonMissing] = useState(false)
   const [transitionAction, setTransitionAction] = useState<
     'open' | 'close' | 'archive' | 'remove' | null
   >(null)
@@ -1013,8 +1014,26 @@ function AdminCyclePage() {
                 className="input"
                 placeholder="Retained in the cycle's history"
                 value={reason}
-                onChange={(event) => setReason(event.target.value)}
+                onChange={(event) => {
+                  setReason(event.target.value)
+                  if (event.target.value.trim()) setDraftReasonMissing(false)
+                }}
               />
+              {/*
+                Said here, where the person is looking — the page-top banner
+                sits folds away when this form is deep in the details. The
+                obvious case never travels to the server.
+              */}
+              {draftReasonMissing ? (
+                <p className="notice" data-tone="error" role="alert" style={{ marginTop: '0.5rem' }}>
+                  Write a reason for this change first — it is kept in the
+                  cycle&rsquo;s history with the edit.
+                </p>
+              ) : changeDraft.error ? (
+                <p className="notice" data-tone="error" role="alert" style={{ marginTop: '0.5rem' }}>
+                  {messageFor(changeDraft.error)}
+                </p>
+              ) : null}
             </div>
             <CycleForm
               // Remounted per version so a save shows back what the server
@@ -1023,7 +1042,14 @@ function AdminCyclePage() {
               initial={draftRules}
               submitLabel="Save the draft’s rules"
               busy={changeDraft.isPending}
-              onSubmit={(values) => changeDraft.mutate(values)}
+              onSubmit={(values) => {
+                if (!reason.trim()) {
+                  setDraftReasonMissing(true)
+                  document.getElementById('draftReason')?.focus()
+                  return
+                }
+                changeDraft.mutate(values)
+              }}
             />
           </details>
         </div>
