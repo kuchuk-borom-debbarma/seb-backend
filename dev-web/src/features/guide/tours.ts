@@ -23,7 +23,6 @@ export const DESKS = {
   applicant: 'Applicant',
   office: 'Programme office',
   bank: 'Partner bank',
-  committee: 'Committee',
 } as const
 
 export type Desk = (typeof DESKS)[keyof typeof DESKS]
@@ -104,8 +103,10 @@ export const TOURS: Tour[] = [
         mark: 'start-application',
       },
       {
-        title: 'Answer the six sections',
-        body: 'Answers are saved as they are typed. The indicator says "Saving" the moment something changes and "Saved" only once the server has it — it never claims work is safe that is not.',
+        // Stage-agnostic on purpose: the stages are the cycle's own, so their
+        // number and names are whatever that programme year decided to ask.
+        title: 'Answer the form, stage by stage',
+        body: 'The stages and their questions are declared by the cycle itself, so each programme year asks exactly what its policy needs. Answers are saved as they are typed: the indicator says "Saving" the moment something changes and "Saved" only once the server has it — it never claims work is safe that is not.',
         desk: DESKS.applicant,
         to: '/applications',
         mark: 'application-list',
@@ -209,10 +210,9 @@ export const TOURS: Tour[] = [
   {
     id: 'deciding',
     for: 'admin',
-    title: 'The bank and the committee',
+    title: 'The bank and the decision',
     audience: 'A programme officer carrying a file through approval',
-    promise:
-      'How an application reaches a partner bank, comes back, and is put to the committee.',
+    promise: 'How an application reaches a partner bank, comes back, and is decided.',
     steps: [
       {
         title: 'Refer it to a partner bank',
@@ -228,24 +228,17 @@ export const TOURS: Tour[] = [
         desk: DESKS.bank,
       },
       {
-        title: 'Schedule a meeting and build its agenda',
-        body: 'An application joins an agenda while the meeting is still being planned. Position is the order the committee will take it in, so moving one is recorded with a reason.',
-        desk: DESKS.committee,
-        to: '/admin/meetings',
-        mark: 'meetings-list',
+        title: 'Decide it',
+        body: 'An application that has cleared the bank stage waits to be decided, and is decided on its own screen. The record names the submission and the bank outcome that were read, so the file still shows what was in front of whoever decided it.',
+        desk: DESKS.office,
+        to: '/admin/applications/$id',
+        mark: 'decision-stage',
+        needs: 'An application waiting to be decided.',
       },
       {
-        title: 'Position is the agenda’s whole meaning',
-        body: 'Position is the order the committee will take the applications in. Moving one, or taking it off, asks for a reason and the programme keeps it — an agenda that quietly reorders itself is not a record of anything.',
-        desk: DESKS.committee,
-        to: '/admin/meetings/$meetingId',
-        mark: 'agenda',
-        needs: 'Open a meeting from the list.',
-      },
-      {
-        title: 'The committee sits',
-        body: 'A decision is only accepted while the meeting is in session and only from the person holding the application — the same rules the room itself works by.',
-        desk: DESKS.committee,
+        title: 'A decision is never edited',
+        body: 'A correction supersedes the decision it replaces and carries its own reason, and only the most recent decision can be superseded. Once an award exists the correction belongs in the award record instead, because money has already moved on the strength of it.',
+        desk: DESKS.office,
       },
     ],
   },
@@ -259,17 +252,17 @@ export const TOURS: Tour[] = [
     steps: [
       {
         title: 'Start from what has been approved',
-        body: 'An award is issued against the committee’s decision and takes its amount from it, so the work starts here: files that have a decision and no sanction order yet.',
+        body: 'An award is issued against the programme’s decision and takes its amount from it, so the work starts here: files that have a decision and no sanction order yet.',
         desk: DESKS.office,
         to: '/admin/queue',
         search: { queue: 'APPROVED' },
         mark: 'queue-rows',
         needs:
-          'An approved application. If this queue is empty, nothing has reached a committee decision yet.',
+          'An approved application. If this queue is empty, nothing has been approved yet.',
       },
       {
         title: 'Issue the sanction order',
-        body: 'The number and the date are the sanction letter’s own. The amount is not asked for — it comes from the committee’s decision, and a second figure typed on this screen could only ever disagree with the letter.',
+        body: 'The number and the date are the sanction letter’s own. The amount is not asked for — it comes from the programme’s decision, and a second figure typed on this screen could only ever disagree with the letter.',
         desk: DESKS.office,
         to: '/admin/applications/$id/funding',
         needs: 'Open an approved application from the queue first.',
@@ -284,7 +277,7 @@ export const TOURS: Tour[] = [
       },
       {
         title: 'Release an instalment',
-        body: 'The most consequential write in the product, and the API guards it: the committee approval it is paid under, evidence the bank account was verified, the executed performance agreement, and where the programme requires it, the physical verification.',
+        body: 'The most consequential write in the product, and the API guards it: the approval it is paid under, evidence the bank account was verified, the executed performance agreement, and where the programme requires it, the physical verification.',
         desk: DESKS.office,
       },
       {
@@ -309,10 +302,30 @@ export const TOURS: Tour[] = [
     steps: [
       {
         title: 'Write the policy',
-        body: 'Age bands, category thresholds, required documents, the assessments an award will need, and the reasons staff may choose from. All of it is decided before anyone applies.',
+        body: 'Age bands, category thresholds, the assessments an award will need, and the reasons staff may choose from. All of it is decided before anyone applies.',
         desk: DESKS.office,
         to: '/admin/cycles/new',
         mark: 'cycle-policy',
+      },
+      {
+        // The documents stopped being a separate rule set: each one is a FILE
+        // question of the cycle's own form, shown and required by the same
+        // conditions as any other question.
+        title: 'The questions are the cycle’s too',
+        body: 'Everything an applicant answers — including which documents to attach — is declared by the cycle itself, stage by stage. What this card lists is exactly what an application under this cycle is asked.',
+        desk: DESKS.office,
+        to: '/admin/cycles/$id',
+        mark: 'cycle-questions',
+        needs: 'Open a cycle from the list.',
+      },
+      {
+        title: 'Change what a draft cycle asks',
+        body: 'Stages, questions, the choices they offer and the rules between them are edited here. Every change is a cycle revision with its reason kept in the history — and it is only possible while the cycle is a draft.',
+        desk: DESKS.office,
+        to: '/admin/cycles/$id/form',
+        mark: 'cycle-authoring',
+        needs:
+          'Open a draft cycle from the list. Only a super administrator may change a cycle’s questions.',
       },
       {
         title: 'Open it for applications',
@@ -323,7 +336,7 @@ export const TOURS: Tour[] = [
       },
       {
         title: 'The policy once it is frozen',
-        body: 'This is what an application started under the cycle carries: the document rules, the assessments an award will need, and the version they were frozen at. A later cycle changing its mind does not reach back.',
+        body: 'This is what an application started under the cycle carries: the eligibility rules, the questions it asks, the assessments an award will need, and the version they were frozen at. A later cycle changing its mind does not reach back.',
         desk: DESKS.office,
         to: '/admin/cycles/$id',
         mark: 'cycle-frozen',
@@ -331,7 +344,7 @@ export const TOURS: Tour[] = [
       },
       {
         title: 'Reasons are part of the policy',
-        body: 'Asking for a correction, deferring a decision, writing off a recovery — each names a reason from this cycle’s catalogue, so the programme can report on why things happened.',
+        body: 'Asking for a correction, rejecting an application, writing off a recovery — each names a reason from this cycle’s catalogue, so the programme can report on why things happened.',
         desk: DESKS.office,
       },
     ],

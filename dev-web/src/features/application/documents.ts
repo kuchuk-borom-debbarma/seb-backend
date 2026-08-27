@@ -16,54 +16,12 @@
  * The checksum is what makes step 3 meaningful: the Worker verifies the stored
  * object rather than trusting the browser's account of it.
  */
-import type { DocumentType } from '#/graphql/generated/schema'
 import {
   FinalizeDocumentUploadDocument,
   IssueDocumentUploadDocument,
 } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
-
-/**
- * The evidence an application can carry.
- *
- * Which of these are *required* depends on the cycle's document rules and on
- * the answers given, and only the server knows that — the validation report
- * names them. This list is what may be attached at all, in the order the
- * evidence screen presents it.
- */
-export const DOCUMENT_TYPES: readonly DocumentType[] = [
-  'IDENTITY_AGE_PROOF',
-  'ST_CERTIFICATE',
-  'ADDRESS_PROOF',
-  'BUSINESS_REGISTRATION',
-  'GST_REGISTRATION',
-  'DPR',
-  'BANK_DETAILS',
-  'NOC',
-]
-
-/**
- * Whether a validation issue is about a file rather than a form answer.
- *
- * The evidence section carries both. A missing file is fixed on the evidence
- * screen; the question asking whether a no-objection certificate applies is a
- * form question, and telling somebody to fix it under Evidence sent them to a
- * screen with no such control on it.
- */
-export const isDocumentIssue = (field: string): field is DocumentType =>
-  field in DOCUMENT_TITLES
-
-export const DOCUMENT_TITLES: Record<DocumentType, string> = {
-  IDENTITY_AGE_PROOF: 'Identity and age proof',
-  ST_CERTIFICATE: 'Scheduled Tribe certificate',
-  ADDRESS_PROOF: 'Address proof',
-  BUSINESS_REGISTRATION: 'Business registration',
-  GST_REGISTRATION: 'GST registration',
-  DPR: 'Detailed project report',
-  BANK_DETAILS: 'Bank account details',
-  NOC: 'No-objection certificate',
-}
 
 /*
  * Mirrored from `services/application/uploads.ts`. The server is the authority
@@ -162,19 +120,19 @@ const checksumOf = async (file: File): Promise<string> => {
  */
 export const uploadDocument = async ({
   applicationId,
-  documentType,
+  fieldKey,
   expectedVersion,
   file,
 }: {
   applicationId: string
-  documentType: DocumentType
+  fieldKey: string
   expectedVersion: number
   file: File
 }): Promise<void> => {
   const issued = await gql(IssueDocumentUploadDocument, {
     input: {
       applicationId,
-      documentType,
+      fieldKey,
       expectedDocumentVersion: expectedVersion,
       originalFilename: file.name,
       contentType: file.type,

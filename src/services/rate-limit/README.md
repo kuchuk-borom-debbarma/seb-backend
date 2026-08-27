@@ -121,7 +121,7 @@ it reaching a real environment: the factory refuses to build it when
 `ENVIRONMENT` is production, and `check:rate-limits` refuses it in the deployed
 configuration.
 
-`test/rate-limit.test.ts` turns counting back on for itself, and drives the
+`test/service/rate-limit.test.ts` turns counting back on for itself, and drives the
 plugin through `handleGraphQLRequest` rather than `SELF.fetch` — the worker
 behind `SELF` reads its configuration once, and mutating the imported `env` does
 not reach it.

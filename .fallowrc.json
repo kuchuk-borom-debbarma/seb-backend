@@ -16,7 +16,8 @@
   "health": {
     "coverage": "coverage/coverage-final.json",
     "ignore": [
-      "test/**"
+      "test/**",
+      "scripts/**"
     ],
     "thresholdOverrides": [
       {
@@ -27,7 +28,7 @@
         "maxCognitive": 50,
         "maxCrap": 55,
         "maxUnitSize": 250,
-        "reason": "Bounded D1 transition functions compose guarded SQL statements whose null-safe value bindings and dependent predicates inflate AST metrics."
+        "reason": "Bounded transition functions compose guarded SQL statements whose null-safe value bindings and dependent predicates inflate AST metrics."
       },
       {
         "files": [
@@ -37,7 +38,7 @@
         "maxCognitive": 30,
         "maxCrap": 35,
         "maxUnitSize": 70,
-        "reason": "Policy validation is intentionally explicit and split by form section so every client-facing rule remains auditable."
+        "reason": "The enterprise profile is one table of refusals, each naming its own field, so every client-facing sentence stays visible in one place."
       },
       {
         "files": [
@@ -53,11 +54,11 @@
         "files": [
           "src/services/application/controllers/document.ts"
         ],
-        "maxCyclomatic": 20,
-        "maxCognitive": 20,
-        "maxCrap": 30,
-        "maxUnitSize": 100,
-        "reason": "Upload authorization and finalization deliberately keep every security check visible in execution order."
+        "maxCyclomatic": 26,
+        "maxCognitive": 25,
+        "maxCrap": 35,
+        "maxUnitSize": 150,
+        "reason": "Upload authorization and finalization deliberately keep every security check visible in execution order: ownership, editability, the slot the cycle declares, that slot\u2019s own size limit, and the programme\u2019s. Splitting them hides the order, which is the thing being audited."
       },
       {
         "files": [
@@ -77,8 +78,42 @@
         "maxCognitive": 30,
         "maxCrap": 35,
         "maxUnitSize": 130,
-        "reason": "Administrative query functions assemble bounded D1 batches and stable queue predicates whose explicit SQL conditions are intentionally visible and fully covered."
+        "reason": "Administrative query functions assemble bounded transactions and stable queue predicates whose explicit SQL conditions are intentionally visible and fully covered."
+      },
+      {
+        "files": [
+          "src/services/application/form/**"
+        ],
+        "maxCyclomatic": 32,
+        "maxCognitive": 46,
+        "maxCrap": 35,
+        "maxUnitSize": 150,
+        "reason": "The form engine is dispatch tables and total functions over a closed set of field types. `coerceAnswer` is one small case per type and `coerce.ts` says in as many words that a case growing branches is the signal the design has drifted; `resolveFormTemplate` is the single door a template comes through, total-or-null, and splitting it would mean a template half-resolved. The branch count is the size of the vocabulary, not tangled logic, and every one of these is covered."
+      },
+      {
+        "files": [
+          "src/services/admin/form-template-input.ts"
+        ],
+        "maxCyclomatic": 30,
+        "maxCognitive": 55,
+        "maxCrap": 35,
+        "maxUnitSize": 110,
+        "reason": "Each pass here is a straight chain of refusals that returns the first fault, and the chain is the feature: the order decides which sentence an officer is shown, and every branch is one specific thing a cycle may not say about its questions. `test/service/form-authoring-refusals.test.ts` asserts the exact wording of each."
+      },
+      {
+        "files": [
+          "src/services/admin/group-definitions.ts"
+        ],
+        "maxCyclomatic": 25,
+        "maxCognitive": 40,
+        "maxCrap": 35,
+        "maxUnitSize": 90,
+        "reason": "Structure expansion is a straight chain of refusals that returns the first fault, and the chain is the feature: the order decides which sentence an officer is shown, and every branch is one specific thing a cycle may not say about its structures. test/service/group-definitions.test.ts asserts the exact wording of each."
       }
     ]
+  },
+  "rules": {
+    "_reason": "private-type-leaks is opt-in and off by default; --type-aware turns it on. It reports four places where an exported signature names a type nothing imports directly \u2014 the alphabet `AnswerMap` is written in, and the engine types two application controllers return. Both were looked at: declaring either locally would put a second copy of the form vocabulary in a second file, which is worse than the finding. Kept as a warning rather than turned off, so a genuinely leaked type is still reported.",
+    "private-type-leaks": "warn"
   }
 }

@@ -1,0 +1,665 @@
+/* ==========================================================================
+   Application Details Soft Modern Design System
+   ========================================================================== */
+
+.pageContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Top Navigation and Header
+   ========================================================================== */
+
+.topNav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #2563eb;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.backLink:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+.cycleBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #edf7ee;
+  color: #16a34a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.titleGroup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.appTitle {
+  color: #111827;
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.typeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: #edf7ee;
+  color: #16a34a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.primaryCta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.15);
+  transition: all 0.2s ease;
+}
+
+.primaryCta:hover {
+  background: #1e293b;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+}
+
+/* ==========================================================================
+   Horizontal 8-Stage Pipeline Stepper
+   ========================================================================== */
+
+.stepperCard {
+  padding: 20px 24px;
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  overflow-x: auto;
+}
+
+.stepperTrack {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 680px;
+  position: relative;
+}
+
+.stepNodeWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.stepCircle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.stepCircleDone {
+  background: #bbf7d0;
+  color: #15803d;
+}
+
+.stepCircleCurrent {
+  background: #0f172a;
+  color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.12);
+}
+
+.stepCircleAhead {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  color: #9ca3af;
+}
+
+.stepLabel {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.stepLabelCurrent {
+  color: #111827;
+  font-weight: 600;
+}
+
+.stepLabelDone {
+  color: #374151;
+}
+
+.stepConnector {
+  flex: 1;
+  height: 2px;
+  background: #e5e7eb;
+  margin: 0 8px 24px;
+  border-radius: 1px;
+}
+
+.stepConnectorDone {
+  background: #86efac;
+}
+
+/* ==========================================================================
+   Atmospheric Hero Status Banner
+   ========================================================================== */
+
+.heroBanner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 24px;
+  padding: 26px 30px;
+  border: 1px solid #d8e6f8;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #f0f7ff 0%, #e6f1fd 60%, #dbeafe 100%);
+  align-items: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.heroLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.heroBadges {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.actorBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.heroTitle {
+  color: #111827;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 520px;
+}
+
+.heroArtwork {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  min-height: 120px;
+}
+
+.heroSvg {
+  width: 100%;
+  max-height: 130px;
+  object-fit: contain;
+}
+
+/* ==========================================================================
+   Main 2-Column Grid
+   ========================================================================== */
+
+.mainGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.leftColumn,
+.rightColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ==========================================================================
+   Application Metadata Card
+   ========================================================================== */
+
+.card {
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  overflow: hidden;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px 16px;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.cardTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cardIcon {
+  color: #0f172a;
+  width: 19px;
+  height: 19px;
+}
+
+.cardTitle {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.onTrackPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: #edf7ee;
+  color: #16a34a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.detailList {
+  display: flex;
+  flex-direction: column;
+}
+
+.detailRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid #f0f2f5;
+  gap: 16px;
+}
+
+.detailRow:last-child {
+  border-bottom: 0;
+}
+
+.detailRowLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.detailIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #f3f4f6;
+  color: #4b5563;
+  flex-shrink: 0;
+}
+
+.detailIconBadge svg {
+  width: 15px;
+  height: 15px;
+}
+
+.detailLabel {
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.detailValue {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.docsPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.docsPill:hover {
+  background: #dbeafe;
+}
+
+/* ==========================================================================
+   Reassurance Notice Card
+   ========================================================================== */
+
+.statusNotice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 1px solid #d1fae5;
+  border-radius: 12px;
+  background: #edf7ee;
+}
+
+.noticeIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #dcfce7;
+  color: #16a34a;
+  flex-shrink: 0;
+}
+
+.noticeText {
+  color: #15803d;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* ==========================================================================
+   "What happens next?" Timeline Card
+   ========================================================================== */
+
+.timelineCard {
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.timelineHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.timelineHeaderIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #fef8ee;
+  color: #d97706;
+  flex-shrink: 0;
+}
+
+.timelineHeaderTitle {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.timelineSub {
+  color: #6b7280;
+  font-size: 13px;
+  margin: 0 0 20px;
+}
+
+.timelineTrack {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.timelineTrack::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  bottom: 24px;
+  left: 9px;
+  width: 2px;
+  background: #e5e7eb;
+}
+
+.timelineItem {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 8px 0;
+  border-radius: 12px;
+  transition: background 0.15s ease;
+}
+
+.timelineItemActive {
+  background: #f0f7ff;
+  border: 1px solid #bfdbfe;
+  padding: 12px 14px;
+  margin: 4px 0;
+}
+
+.timelineItemActive .timelineNodeDone {
+  margin-top: 2px;
+}
+
+.timelineNode {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f3f4f6;
+  border: 2px solid #d1d5db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.timelineNodeDone {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+
+.timelineIconContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #4b5563;
+  flex-shrink: 0;
+}
+
+.timelineIconContainerActive {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.timelineContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.timelineItemTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.timelineStageName {
+  color: #111827;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.currentBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.timelineStageDesc {
+  color: #6b7280;
+  font-size: 12.5px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+/* ==========================================================================
+   History Table
+   ========================================================================== */
+
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.th {
+  padding: 12px 24px;
+  border-bottom: 1px solid #f0f2f5;
+  background: #fafbfc;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tr {
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.tr:last-child {
+  border-bottom: 0;
+}
+
+.td {
+  padding: 14px 24px;
+  color: #374151;
+  font-size: 13px;
+}
+
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
+
+@media (max-width: 56rem) {
+  .mainGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .heroBanner {
+    grid-template-columns: 1fr;
+  }
+}

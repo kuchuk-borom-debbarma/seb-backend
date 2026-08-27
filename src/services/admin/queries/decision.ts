@@ -1,20 +1,21 @@
 /**
- * Guarded persistence for partner-bank evidence and formal TTM decisions.
+ * Guarded persistence for partner-bank evidence and programme decisions.
  *
  * Every transition begins with an optimistic update and makes all append-only
- * evidence depend on the resulting version/state. D1 executes the bounded
- * batch atomically, so a concurrent winner leaves no partial referral,
- * meeting, agenda, decision, timeline, or audit record behind.
+ * evidence depend on the resulting version/state. The statements run in one
+ * transaction, so a concurrent winner leaves no partial referral, decision,
+ * timeline, or audit record behind.
  */
-import { and, asc, count, desc, eq, getTableColumns, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, getTableColumns, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
 import { COUNT_MISSING, requireInvariant } from '../../application/support'
-import type { Database } from '../../../db'
+import { batch, type Database } from '../../../db'
 import { encodeAdminCursor } from '../pagination'
 import type { PageInfo } from '../types'
 import {
   coreAuditEvent,
   sebApplication,
   sebApplicationAssignmentEvent,
+  sebApplicationSubmission,
   sebApplicationEvent,
   sebDeskReview,
   sebFundingAward,
@@ -22,21 +23,17 @@ import {
   sebPartnerBankReferral,
   sebPartnerBankReferralVersion,
   sebRevisionRequest,
-  sebTtmAgendaItem,
-  sebTtmAgendaItemVersion,
-  sebTtmDecision,
-  sebTtmMeeting,
-  sebTtmMeetingVersion,
+  sebProgrammeDecision,
 } from '../../../db/schema'
-import { changedExactlyOne, disclosedSelfReview } from '../support'
-import type { AdminOperationContext, BankOutcome, TtmDecisionOutcome } from '../types'
+import { changedExactlyOne, disclosedSelfReview, headJustMovedTo } from '../support'
+import type { AdminOperationContext, BankOutcome, DecisionOutcome } from '../types'
 
 const auditSelect = (
   context: AdminOperationContext,
   input: { actorId: string; action: string; type: string; id: string; now: Date; guard: ReturnType<typeof sql> },
 ) => context.db.insert(coreAuditEvent).select(sql`
   SELECT ${crypto.randomUUID()}, ${input.actorId}, ${input.action}, ${input.type},
-    ${input.id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL, ${input.now.getTime()}
+    ${input.id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL, ${input.now}
   WHERE ${input.guard}
 `)
 
@@ -76,30 +73,26 @@ export const createBankReferralWrite = async (
         AND ${sebDeskReview.outcome} = 'ADVANCE_TO_BANK'
     )`,
   )).returning({ id: sebApplication.id })
-  const guard = sql`EXISTS (
-    SELECT 1 FROM ${sebApplication}
-    WHERE ${sebApplication.id} = ${input.applicationId}
-      AND ${sebApplication.statusVersion} = ${nextStatusVersion}
-  )`
-  const [changed] = await context.db.batch([
+  const guard = sql`${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}`
+  const [changed] = await batch(context.db, (tx) => [
     update,
-    context.db.insert(sebPartnerBankReferral).select(sql`
+    tx.insert(sebPartnerBankReferral).select(sql`
       SELECT ${id}, ${input.applicationId}, ${input.submissionId}, ${input.deskReviewId},
         ${input.bankName}, ${input.bankBranch}, ${input.referralReference},
         ${input.referralDate}, 'OPEN', ${input.internalNote}, ${input.actorId},
-        1, ${input.now.getTime()}, ${input.now.getTime()}, NULL, NULL, NULL
+        1, ${input.now}, ${input.now}, NULL, NULL, NULL
       WHERE ${guard}
     `),
-    context.db.insert(sebPartnerBankReferralVersion).select(sql`
+    tx.insert(sebPartnerBankReferralVersion).select(sql`
       SELECT ${crypto.randomUUID()}, ${id}, 1, 'OPEN', 'REFERRED', NULL,
-        ${input.actorId}, ${input.now.getTime()}
+        ${input.actorId}, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebPartnerBankReferral} WHERE ${sebPartnerBankReferral.id} = ${id})
     `),
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'BANK_REFERRAL_CREATED',
         ${input.actorId}, NULL, ${input.submissionId}, NULL,
         'PARTNER_BANK_EVALUATION', 'PARTNER_BANK_EVALUATION', NULL,
-        ${input.applicantMessage}, NULL, ${input.now.getTime()}
+        ${input.applicantMessage}, NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebPartnerBankReferral} WHERE ${sebPartnerBankReferral.id} = ${id})
     `),
     auditSelect(context, {
@@ -128,13 +121,13 @@ export const recordBankOutcomeWrite = async (
     availableLoanAmountPaise: number | null
     applicantSummary: string
     internalNote: string | null
-    revisions: Array<{ section: string; reasonCategoryId: string; note: string }>
+    revisions: Array<{ stageKey: string; reasonCategoryId: string; note: string }>
     now: Date
   },
 ): Promise<boolean> => {
   const outcomeId = crypto.randomUUID()
   const nextStatus = input.outcome === 'MORE_INFORMATION_REQUIRED'
-    ? 'REVISION_REQUIRED' : 'TTM_REVIEW'
+    ? 'REVISION_REQUIRED' : 'AWAITING_DECISION'
   const nextStatusVersion = input.expectedStatusVersion + 1
   const nextReferralVersion = input.expectedReferralVersion + 1
   const updateApplication = context.db.update(sebApplication).set({
@@ -148,8 +141,8 @@ export const recordBankOutcomeWrite = async (
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
     isNull(sebApplication.deletedAt),
     sql`NOT EXISTS (
-      SELECT 1 FROM ${sebTtmDecision}
-      WHERE ${sebTtmDecision.applicationId} = ${input.applicationId}
+      SELECT 1 FROM ${sebProgrammeDecision}
+      WHERE ${sebProgrammeDecision.applicationId} = ${input.applicationId}
     )`,
     sql`EXISTS (
       SELECT 1 FROM ${sebPartnerBankReferral}
@@ -168,11 +161,7 @@ export const recordBankOutcomeWrite = async (
     eq(sebPartnerBankReferral.applicationId, input.applicationId),
     eq(sebPartnerBankReferral.status, 'OPEN'),
     eq(sebPartnerBankReferral.currentVersion, input.expectedReferralVersion),
-    sql`EXISTS (
-      SELECT 1 FROM ${sebApplication}
-      WHERE ${sebApplication.id} = ${input.applicationId}
-        AND ${sebApplication.statusVersion} = ${nextStatusVersion}
-    )`,
+    sql`${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}`,
   )).returning({ id: sebPartnerBankReferral.id })
   const referralGuard = sql`EXISTS (
     SELECT 1 FROM ${sebPartnerBankReferral}
@@ -180,33 +169,33 @@ export const recordBankOutcomeWrite = async (
       AND ${sebPartnerBankReferral.currentVersion} = ${nextReferralVersion}
       AND ${sebPartnerBankReferral.status} = 'RESPONDED'
   )`
-  const [changed] = await context.db.batch([
+  const [changed] = await batch(context.db, (tx) => [
     updateApplication,
     updateReferral,
-    context.db.insert(sebPartnerBankReferralVersion).select(sql`
+    tx.insert(sebPartnerBankReferralVersion).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.referralId}, ${nextReferralVersion},
-        'RESPONDED', 'RESPONDED', NULL, ${input.actorId}, ${input.now.getTime()}
+        'RESPONDED', 'RESPONDED', NULL, ${input.actorId}, ${input.now}
       WHERE ${referralGuard}
     `),
-    context.db.insert(sebPartnerBankOutcome).select(sql`
+    tx.insert(sebPartnerBankOutcome).select(sql`
       SELECT ${outcomeId}, ${input.applicationId}, ${input.referralId}, 1,
         ${input.outcome}, ${input.decisionReference}, ${input.decisionDate},
         ${input.availableLoanAmountPaise}, ${input.applicantSummary},
-        ${input.internalNote}, NULL, NULL, NULL, ${input.actorId}, ${input.now.getTime()}
+        ${input.internalNote}, NULL, NULL, NULL, ${input.actorId}, ${input.now}
       WHERE ${referralGuard}
     `),
-    ...input.revisions.map((revision) => context.db.insert(sebRevisionRequest).select(sql`
+    ...input.revisions.map((revision) => tx.insert(sebRevisionRequest).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, referral.submission_id,
-        ${revision.section}, ${revision.reasonCategoryId}, ${revision.note},
-        ${input.actorId}, ${input.now.getTime()}, NULL, NULL, NULL, NULL, NULL
+        ${revision.stageKey}, ${revision.reasonCategoryId}, ${revision.note},
+        ${input.actorId}, ${input.now}, NULL, NULL, NULL, NULL, NULL
       FROM ${sebPartnerBankReferral} AS referral
       WHERE referral.id = ${input.referralId}
         AND EXISTS (SELECT 1 FROM ${sebPartnerBankOutcome} WHERE id = ${outcomeId})
     `)),
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'BANK_OUTCOME_RECORDED',
         ${input.actorId}, NULL, NULL, NULL, 'PARTNER_BANK_EVALUATION',
-        ${nextStatus}, NULL, ${input.applicantSummary}, NULL, ${input.now.getTime()}
+        ${nextStatus}, NULL, ${input.applicantSummary}, NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebPartnerBankOutcome} WHERE ${sebPartnerBankOutcome.id} = ${outcomeId})
     `),
     auditSelect(context, {
@@ -250,22 +239,22 @@ export const cancelBankReferralWrite = async (
         AND ${sebApplication.status} = 'PARTNER_BANK_EVALUATION'
     )`,
   )).returning({ id: sebPartnerBankReferral.id })
-  const [changed] = await context.db.batch([
+  const [changed] = await batch(context.db, (tx) => [
     updated,
-    context.db.insert(sebPartnerBankReferralVersion).select(sql`
+    tx.insert(sebPartnerBankReferralVersion).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.referralId}, ${next}, 'CANCELLED',
-        'CANCELLED', ${input.reason}, ${input.actorId}, ${input.now.getTime()}
+        'CANCELLED', ${input.reason}, ${input.actorId}, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebPartnerBankReferral}
         WHERE ${sebPartnerBankReferral.id} = ${input.referralId}
           AND ${sebPartnerBankReferral.currentVersion} = ${next}
       )
     `),
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'BANK_REFERRAL_CANCELLED',
         ${input.actorId}, NULL, NULL, NULL, 'PARTNER_BANK_EVALUATION',
         'PARTNER_BANK_EVALUATION', NULL, ${input.applicantMessage}, NULL,
-        ${input.now.getTime()}
+        ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebPartnerBankReferral}
         WHERE ${sebPartnerBankReferral.id} = ${input.referralId}
@@ -285,7 +274,7 @@ export const cancelBankReferralWrite = async (
   return changedExactlyOne(changed)
 }
 
-/** Appends a superseding bank outcome while TTM evidence is still unlocked. */
+/** Appends a superseding bank outcome, while no decision has been taken on it. */
 export const correctBankOutcomeWrite = async (
   context: AdminOperationContext,
   input: {
@@ -302,13 +291,13 @@ export const correctBankOutcomeWrite = async (
     internalNote: string | null
     correctionReasonCategoryId: string
     correctionReason: string
-    revisions: Array<{ section: string; reasonCategoryId: string; note: string }>
+    revisions: Array<{ stageKey: string; reasonCategoryId: string; note: string }>
     now: Date
   },
 ): Promise<boolean> => {
   const id = crypto.randomUUID()
   const nextStatus = input.outcome === 'MORE_INFORMATION_REQUIRED'
-    ? 'REVISION_REQUIRED' : 'TTM_REVIEW'
+    ? 'REVISION_REQUIRED' : 'AWAITING_DECISION'
   const nextVersion = input.expectedStatusVersion + 1
   const updated = context.db.update(sebApplication).set({
     status: nextStatus, statusVersion: nextVersion,
@@ -316,7 +305,7 @@ export const correctBankOutcomeWrite = async (
   }).where(and(
     eq(sebApplication.id, input.applicationId),
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    sql`${sebApplication.status} IN ('TTM_REVIEW', 'REVISION_REQUIRED')`,
+    sql`${sebApplication.status} IN ('AWAITING_DECISION', 'REVISION_REQUIRED')`,
     isNull(sebApplication.deletedAt),
     sql`EXISTS (
       SELECT 1 FROM ${sebPartnerBankOutcome} AS previous
@@ -330,13 +319,13 @@ export const correctBankOutcomeWrite = async (
         )
     )`,
     sql`NOT EXISTS (
-      SELECT 1 FROM ${sebTtmDecision}
-      WHERE ${sebTtmDecision.applicationId} = ${input.applicationId}
+      SELECT 1 FROM ${sebProgrammeDecision}
+      WHERE ${sebProgrammeDecision.applicationId} = ${input.applicationId}
     )`,
   )).returning({ id: sebApplication.id })
-  const [changed] = await context.db.batch([
+  const [changed] = await batch(context.db, (tx) => [
     updated,
-    context.db.update(sebRevisionRequest).set({
+    tx.update(sebRevisionRequest).set({
       cancelledAt: input.now,
       cancelledByUserId: input.actorId,
       cancellationReason: input.correctionReason,
@@ -344,39 +333,31 @@ export const correctBankOutcomeWrite = async (
       eq(sebRevisionRequest.applicationId, input.applicationId),
       isNull(sebRevisionRequest.resolvedAt),
       isNull(sebRevisionRequest.cancelledAt),
-      sql`EXISTS (
-        SELECT 1 FROM ${sebApplication}
-        WHERE ${sebApplication.id} = ${input.applicationId}
-          AND ${sebApplication.statusVersion} = ${nextVersion}
-      )`,
+      sql`${headJustMovedTo(input.applicationId, nextVersion, input.now)}`,
     )),
-    context.db.insert(sebPartnerBankOutcome).select(sql`
+    tx.insert(sebPartnerBankOutcome).select(sql`
       SELECT ${id}, previous.application_id, previous.referral_id,
         previous.outcome_number + 1, ${input.outcome}, ${input.decisionReference},
         ${input.decisionDate}, ${input.availableLoanAmountPaise},
         ${input.applicantSummary}, ${input.internalNote}, previous.id,
         ${input.correctionReasonCategoryId}, ${input.correctionReason},
-        ${input.actorId}, ${input.now.getTime()}
+        ${input.actorId}, ${input.now}
       FROM ${sebPartnerBankOutcome} AS previous
       WHERE previous.id = ${input.supersedesOutcomeId}
-        AND EXISTS (
-          SELECT 1 FROM ${sebApplication}
-          WHERE ${sebApplication.id} = ${input.applicationId}
-            AND ${sebApplication.statusVersion} = ${nextVersion}
-        )
+        AND ${headJustMovedTo(input.applicationId, nextVersion, input.now)}
     `),
-    ...input.revisions.map((revision) => context.db.insert(sebRevisionRequest).select(sql`
+    ...input.revisions.map((revision) => tx.insert(sebRevisionRequest).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, referral.submission_id,
-        ${revision.section}, ${revision.reasonCategoryId}, ${revision.note},
-        ${input.actorId}, ${input.now.getTime()}, NULL, NULL, NULL, NULL, NULL
+        ${revision.stageKey}, ${revision.reasonCategoryId}, ${revision.note},
+        ${input.actorId}, ${input.now}, NULL, NULL, NULL, NULL, NULL
       FROM ${sebPartnerBankReferral} AS referral
       WHERE referral.id = ${input.referralId}
         AND EXISTS (SELECT 1 FROM ${sebPartnerBankOutcome} WHERE id = ${id})
     `)),
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'BANK_OUTCOME_CORRECTED',
         ${input.actorId}, NULL, NULL, NULL, NULL, ${nextStatus}, NULL,
-        ${input.applicantSummary}, NULL, ${input.now.getTime()}
+        ${input.applicantSummary}, NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebPartnerBankOutcome} WHERE id = ${id})
     `),
     auditSelect(context, {
@@ -388,124 +369,19 @@ export const correctBankOutcomeWrite = async (
   return changedExactlyOne(changed)
 }
 
-/**
- * One page of committee meetings, newest first.
- *
- * Previously this returned the whole table with no limit and no filter, which
- * is fine for a demonstration and wrong for a programme that runs for years.
- * It seeks like every other list, ordered by the sitting date.
- */
-export const listMeetings = async (
-  db: Database,
-  input: {
-    first: number
-    after: { timestamp: Date; id: string } | null
-    status?: MeetingStatus | null
-  },
-): Promise<{ nodes: MeetingRecord[]; pageInfo: PageInfo }> => {
-  const filters = input.status ? eq(sebTtmMeeting.status, input.status) : undefined
-  const cursor = input.after
-    ? or(
-        lt(sebTtmMeeting.scheduledAt, input.after.timestamp),
-        and(
-          eq(sebTtmMeeting.scheduledAt, input.after.timestamp),
-          lt(sebTtmMeeting.id, input.after.id),
-        ),
-      )
-    : undefined
-  const rows = await db
-    .select()
-    .from(sebTtmMeeting)
-    .where(and(filters, cursor))
-    .orderBy(desc(sebTtmMeeting.scheduledAt), desc(sebTtmMeeting.id))
-    .limit(input.first + 1)
-  const selected = rows.slice(0, input.first)
-  const last = selected.at(-1)
-  const [total] = await db
-    .select({ value: count() })
-    .from(sebTtmMeeting)
-    .where(filters)
-  return {
-    nodes: selected,
-    pageInfo: {
-      hasNextPage: rows.length > input.first,
-      endCursor: last ? encodeAdminCursor('scheduledAt', last.scheduledAt, last.id) : null,
-      totalCount: requireInvariant(total, COUNT_MISSING).value,
-    },
-  }
-}
-
-type MeetingRecord = typeof sebTtmMeeting.$inferSelect
-type MeetingStatus = MeetingRecord['status']
-
-export const meetingWorkspace = async (db: Database, meetingId: string) => {
-  const [meeting] = await db.select().from(sebTtmMeeting)
-    .where(eq(sebTtmMeeting.id, meetingId)).limit(1)
-  if (!meeting) return null
-  const [versions, agenda, decisions] = await Promise.all([
-    db.select().from(sebTtmMeetingVersion)
-      .where(eq(sebTtmMeetingVersion.meetingId, meetingId))
-      .orderBy(asc(sebTtmMeetingVersion.version)),
-    db.select().from(sebTtmAgendaItem)
-      .where(eq(sebTtmAgendaItem.meetingId, meetingId))
-      .orderBy(asc(sebTtmAgendaItem.position)),
-    db.select(getTableColumns(sebTtmDecision)).from(sebTtmDecision)
-      .innerJoin(sebTtmAgendaItem, eq(sebTtmAgendaItem.id, sebTtmDecision.agendaItemId))
-      .where(eq(sebTtmAgendaItem.meetingId, meetingId))
-      .orderBy(asc(sebTtmDecision.createdAt)),
-  ])
-  return { meeting, versions, agenda, decisions }
-}
-
-export const createMeetingWrite = async (
-  context: AdminOperationContext,
-  input: { actorId: string; reference: string; scheduledAt: Date; venue: string; description: string | null; now: Date },
-) => {
-  const id = crypto.randomUUID()
-  const versionId = crypto.randomUUID()
-  const [inserted] = await context.db.batch([
-    context.db.insert(sebTtmMeeting).values({
-      id,
-      meetingReference: input.reference,
-      scheduledAt: input.scheduledAt,
-      venue: input.venue,
-      description: input.description,
-      status: 'DRAFT',
-      currentVersion: 1,
-      createdAt: input.now,
-      updatedAt: input.now,
-    }).returning({ id: sebTtmMeeting.id }),
-    context.db.insert(sebTtmMeetingVersion).select(sql`
-      SELECT ${versionId}, ${id}, 1, ${input.reference}, ${input.scheduledAt.getTime()},
-        ${input.venue}, ${input.description}, 'DRAFT', 'CREATED', NULL,
-        ${input.actorId}, ${input.now.getTime()}
-      WHERE EXISTS (SELECT 1 FROM ${sebTtmMeeting} WHERE ${sebTtmMeeting.id} = ${id})
-    `),
-    auditSelect(context, {
-      actorId: input.actorId,
-      action: 'SEB.TTM_MEETING_CHANGED',
-      type: 'SEB_TTM_MEETING', id, now: input.now,
-      guard: sql`EXISTS (SELECT 1 FROM ${sebTtmMeetingVersion} WHERE ${sebTtmMeetingVersion.id} = ${versionId})`,
-    }),
-  ])
-  // The head insert is unconditional. It either returns this ID or raises a
-  // uniqueness error, which the controller converts to a safe conflict.
-  return id
-}
-
-/** One source of truth for the application state produced by any TTM outcome. */
-const ttmOutcomeState = (outcome: TtmDecisionOutcome) => ({
+/** One source of truth for the application state produced by any outcome. */
+const decisionOutcomeState = (outcome: DecisionOutcome) => ({
   status: outcome === 'APPROVED'
     ? 'APPROVED' as const
     : outcome === 'REJECTED'
       ? 'REJECTED' as const
       : outcome === 'REVISION_REQUIRED'
         ? 'REVISION_REQUIRED' as const
-        : 'TTM_REVIEW' as const,
+        : 'AWAITING_DECISION' as const,
   releasesAssignment: outcome === 'REJECTED',
 })
 
-const ttmAssignmentValues = (
+const decisionAssignmentValues = (
   releasesAssignment: boolean,
   actorId: string,
   now: Date,
@@ -521,12 +397,39 @@ const ttmAssignmentValues = (
       assignmentVersion: sebApplication.assignmentVersion,
     }
 
-const ttmApprovalGuard = (
-  outcome: TtmDecisionOutcome,
+/**
+ * An approval is positive and no larger than what the applicant asked for.
+ *
+ * **Every side is cast.** Written as `${approved} > 0 AND ${approved} <=
+ * ${requested}` it read correctly and was wrong: the value appears twice, so
+ * the driver binds two separate parameters, and the second comparison then has
+ * an untyped parameter on *both* sides. Postgres resolves that pair as `text`,
+ * so the bound was applied to the decimal digits as a string.
+ *
+ * The result was inverted for ordinary amounts, in both directions. What was
+ * *observed* is the refusing half: approving ₹9,000 against a ₹100,000 request
+ * was rejected, because `'900000' <= '10000000'` is false as text — and since
+ * a guarded write reports only "did a row change", the officer was told "The
+ * record changed. Reload and try again." about a record nothing had touched.
+ *
+ * The permitting half — `'5000000' <= '900000'` being *true* — did not reach
+ * money, because `approvalProblem` in the controller applies the same bound in
+ * JavaScript first and refuses there. That is exactly the redundancy this
+ * layer exists to provide, which is the point: it had silently stopped
+ * providing it, and nothing would have said so until the day the controller
+ * check was the one that was wrong.
+ *
+ * Both halves are demonstrated against a real Postgres in
+ * `test/service/decision-bound.test.ts`, the permitting half by calling this
+ * layer directly, since the controller refuses before it.
+ */
+const approvalGuard = (
+  outcome: DecisionOutcome,
   approvedAmountPaise: number | null,
   requestedAmountPaise: number,
 ) => outcome === 'APPROVED'
-  ? sql`${approvedAmountPaise} > 0 AND ${approvedAmountPaise} <= ${requestedAmountPaise}`
+  ? sql`${approvedAmountPaise}::bigint > 0
+      AND ${approvedAmountPaise}::bigint <= ${requestedAmountPaise}::bigint`
   : undefined
 
 const rejectedAssignmentEvent = (
@@ -544,7 +447,7 @@ const rejectedAssignmentEvent = (
   ? [context.db.insert(sebApplicationAssignmentEvent).select(sql`
       SELECT ${crypto.randomUUID()}, application.id, 'RELEASED', application.assignment_version,
         ${input.actorId}, NULL, ${input.reasonCategoryId}, ${input.applicantMessage},
-        ${input.actorId}, ${input.now.getTime()}
+        ${input.actorId}, ${input.now}
       FROM ${sebApplication} AS application
       WHERE application.id = ${input.applicationId}
         AND application.status_version = ${statusVersion}
@@ -552,289 +455,79 @@ const rejectedAssignmentEvent = (
     `)]
   : []
 
-export const updateDraftMeetingWrite = async (
-  context: AdminOperationContext,
-  input: { meetingId: string; expectedVersion: number; actorId: string; reference: string; scheduledAt: Date; venue: string; description: string | null; reason: string; now: Date },
-): Promise<boolean> => {
-  const next = input.expectedVersion + 1
-  const updated = context.db.update(sebTtmMeeting).set({
-    meetingReference: input.reference, scheduledAt: input.scheduledAt,
-    venue: input.venue, description: input.description,
-    currentVersion: next, updatedAt: input.now,
-  }).where(and(
-    eq(sebTtmMeeting.id, input.meetingId),
-    eq(sebTtmMeeting.status, 'DRAFT'),
-    eq(sebTtmMeeting.currentVersion, input.expectedVersion),
-    isNull(sebTtmMeeting.deletedAt),
-  )).returning({ id: sebTtmMeeting.id })
-  /*
-   * The audit row is written in the same batch as the change it records, and
-   * gated on the change having landed — so a losing writer records nothing
-   * rather than claiming an action it did not perform.
-   */
-  const auditGuard = sql`EXISTS (
-    SELECT 1 FROM ${sebTtmMeeting}
-    WHERE ${sebTtmMeeting.id} = ${input.meetingId}
-      AND ${sebTtmMeeting.currentVersion} = ${next}
-  )`
-  const [changed] = await context.db.batch([
-    updated,
-    context.db.insert(sebTtmMeetingVersion).select(sql`
-      SELECT ${crypto.randomUUID()}, meeting.id, ${next}, meeting.meeting_reference,
-        meeting.scheduled_at, meeting.venue, meeting.description, meeting.status,
-        'UPDATED', ${input.reason}, ${input.actorId}, ${input.now.getTime()}
-      FROM ${sebTtmMeeting} AS meeting
-      WHERE meeting.id = ${input.meetingId} AND meeting.current_version = ${next}
-    `),
-    context.db.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.TTM_MEETING_CHANGED',
-        'SEB_TTM_MEETING', ${input.meetingId}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        ${JSON.stringify({ change: 'UPDATED' })}, ${input.now.getTime()}
-      WHERE ${auditGuard}
-    `),
-  ])
-  return changedExactlyOne(changed)
-}
-
-export const cancelMeetingWrite = async (
-  context: AdminOperationContext,
-  input: { meetingId: string; expectedVersion: number; actorId: string; reason: string; now: Date },
-): Promise<boolean> => {
-  const next = input.expectedVersion + 1
-  const updated = context.db.update(sebTtmMeeting).set({
-    status: 'CANCELLED', currentVersion: next, updatedAt: input.now,
-  }).where(and(
-    eq(sebTtmMeeting.id, input.meetingId),
-    eq(sebTtmMeeting.currentVersion, input.expectedVersion),
-    sql`${sebTtmMeeting.status} IN ('DRAFT', 'IN_SESSION')`,
-    isNull(sebTtmMeeting.deletedAt),
-  )).returning({ id: sebTtmMeeting.id })
-  const auditGuard = sql`EXISTS (
-    SELECT 1 FROM ${sebTtmMeeting}
-    WHERE ${sebTtmMeeting.id} = ${input.meetingId}
-      AND ${sebTtmMeeting.currentVersion} = ${next}
-  )`
-  const [changed] = await context.db.batch([
-    updated,
-    context.db.update(sebTtmAgendaItem).set({
-      status: 'REMOVED', currentVersion: sql`${sebTtmAgendaItem.currentVersion} + 1`,
-      updatedAt: input.now,
-    }).where(and(
-      eq(sebTtmAgendaItem.meetingId, input.meetingId),
-      eq(sebTtmAgendaItem.status, 'ACTIVE'),
-      sql`EXISTS (
-        SELECT 1 FROM ${sebTtmMeeting}
-        WHERE ${sebTtmMeeting.id} = ${input.meetingId}
-          AND ${sebTtmMeeting.currentVersion} = ${next}
-          AND ${sebTtmMeeting.status} = 'CANCELLED'
-      )`,
-    )),
-    context.db.insert(sebTtmAgendaItemVersion).select(sql`
-      SELECT ${crypto.randomUUID()} || '-' || item.id, item.id, item.current_version,
-        item.position, 'REMOVED', 'REMOVED', ${input.reason}, ${input.actorId},
-        ${input.now.getTime()}
-      FROM ${sebTtmAgendaItem} AS item
-      WHERE item.meeting_id = ${input.meetingId} AND item.status = 'REMOVED'
-        AND item.updated_at = ${input.now.getTime()}
-    `),
-    context.db.insert(sebTtmMeetingVersion).select(sql`
-      SELECT ${crypto.randomUUID()}, meeting.id, ${next}, meeting.meeting_reference,
-        meeting.scheduled_at, meeting.venue, meeting.description, 'CANCELLED',
-        'CANCELLED', ${input.reason}, ${input.actorId}, ${input.now.getTime()}
-      FROM ${sebTtmMeeting} AS meeting
-      WHERE meeting.id = ${input.meetingId} AND meeting.current_version = ${next}
-    `),
-    context.db.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.TTM_MEETING_CHANGED',
-        'SEB_TTM_MEETING', ${input.meetingId}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        ${JSON.stringify({ change: 'CANCELLED' })}, ${input.now.getTime()}
-      WHERE ${auditGuard}
-    `),
-  ])
-  return changedExactlyOne(changed)
-}
-
-export const addAgendaItemWrite = async (
-  context: AdminOperationContext,
-  input: { meetingId: string; applicationId: string; submissionId: string; bankOutcomeId: string; position: number; actorId: string; now: Date },
-) => {
-  const id = crypto.randomUUID()
-  const auditGuard = sql`EXISTS (
-    SELECT 1 FROM ${sebTtmAgendaItem} WHERE ${sebTtmAgendaItem.id} = ${id}
-  )`
-  const [inserted] = await context.db.batch([
-    context.db.insert(sebTtmAgendaItem).select(sql`
-      SELECT ${id}, ${input.meetingId}, ${input.applicationId}, ${input.submissionId},
-        ${input.bankOutcomeId}, ${input.position}, 'ACTIVE', 1,
-        ${input.actorId}, ${input.now.getTime()}, ${input.now.getTime()}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebTtmMeeting}
-        WHERE ${sebTtmMeeting.id} = ${input.meetingId} AND ${sebTtmMeeting.status} = 'DRAFT'
-          AND (SELECT COUNT(*) FROM ${sebTtmAgendaItem}
-            WHERE meeting_id = ${input.meetingId} AND status = 'ACTIVE') < 20
-      ) AND EXISTS (
-        SELECT 1 FROM ${sebApplication}
-        WHERE ${sebApplication.id} = ${input.applicationId}
-          AND ${sebApplication.status} = 'TTM_REVIEW'
-      )
-    `),
-    context.db.insert(sebTtmAgendaItemVersion).select(sql`
-      SELECT ${crypto.randomUUID()}, ${id}, 1, ${input.position}, 'ACTIVE',
-        'ADDED', NULL, ${input.actorId}, ${input.now.getTime()}
-      WHERE EXISTS (SELECT 1 FROM ${sebTtmAgendaItem} WHERE ${sebTtmAgendaItem.id} = ${id})
-    `),
-    context.db.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.TTM_AGENDA_CHANGED',
-        'SEB_TTM_MEETING', ${input.meetingId}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        ${JSON.stringify({ change: 'ITEM_ADDED' })}, ${input.now.getTime()}
-      WHERE ${auditGuard}
-    `),
-  ])
-  return changedExactlyOne(inserted) ? id : null
-}
-
-export const changeAgendaItemWrite = async (
-  context: AdminOperationContext,
-  input: { meetingId: string; agendaItemId: string; expectedVersion: number; position: number; remove: boolean; actorId: string; reason: string; now: Date },
-): Promise<boolean> => {
-  const next = input.expectedVersion + 1
-  const updated = context.db.update(sebTtmAgendaItem).set({
-    position: input.remove ? sebTtmAgendaItem.position : input.position,
-    status: input.remove ? 'REMOVED' : 'ACTIVE',
-    currentVersion: next,
-    updatedAt: input.now,
-  }).where(and(
-    eq(sebTtmAgendaItem.id, input.agendaItemId),
-    eq(sebTtmAgendaItem.meetingId, input.meetingId),
-    eq(sebTtmAgendaItem.status, 'ACTIVE'),
-    eq(sebTtmAgendaItem.currentVersion, input.expectedVersion),
-    sql`EXISTS (
-      SELECT 1 FROM ${sebTtmMeeting}
-      WHERE ${sebTtmMeeting.id} = ${input.meetingId} AND ${sebTtmMeeting.status} = 'DRAFT'
-    )`,
-  )).returning({ id: sebTtmAgendaItem.id })
-  const auditGuard = sql`EXISTS (
-    SELECT 1 FROM ${sebTtmAgendaItem}
-    WHERE ${sebTtmAgendaItem.id} = ${input.agendaItemId}
-      AND ${sebTtmAgendaItem.currentVersion} = ${next}
-  )`
-  const [changed] = await context.db.batch([
-    updated,
-    context.db.insert(sebTtmAgendaItemVersion).select(sql`
-      SELECT ${crypto.randomUUID()}, item.id, ${next}, item.position, item.status,
-        ${input.remove ? 'REMOVED' : 'REORDERED'}, ${input.reason},
-        ${input.actorId}, ${input.now.getTime()}
-      FROM ${sebTtmAgendaItem} AS item
-      WHERE item.id = ${input.agendaItemId} AND item.current_version = ${next}
-    `),
-    context.db.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.TTM_AGENDA_CHANGED',
-        'SEB_TTM_MEETING', ${input.meetingId}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        ${JSON.stringify({ change: 'ITEM_CHANGED' })}, ${input.now.getTime()}
-      WHERE ${auditGuard}
-    `),
-  ])
-  return changedExactlyOne(changed)
-}
-
-export const transitionMeetingWrite = async (
-  context: AdminOperationContext,
-  input: { meetingId: string; expectedVersion: number; from: 'DRAFT' | 'IN_SESSION'; to: 'IN_SESSION' | 'FINALIZED'; actorId: string; now: Date },
-): Promise<boolean> => {
-  const next = input.expectedVersion + 1
-  const changeType = input.to === 'IN_SESSION' ? 'STARTED' : 'FINALIZED'
-  const updated = context.db.update(sebTtmMeeting).set({
-    status: input.to,
-    currentVersion: next,
-    updatedAt: input.now,
-  }).where(and(
-    eq(sebTtmMeeting.id, input.meetingId),
-    eq(sebTtmMeeting.currentVersion, input.expectedVersion),
-    eq(sebTtmMeeting.status, input.from),
-    isNull(sebTtmMeeting.deletedAt),
-    input.to === 'FINALIZED'
-      ? sql`NOT EXISTS (
-          SELECT 1 FROM ${sebTtmAgendaItem}
-          WHERE ${sebTtmAgendaItem.meetingId} = ${input.meetingId}
-            AND ${sebTtmAgendaItem.status} = 'ACTIVE'
-        )`
-      : undefined,
-  )).returning({ id: sebTtmMeeting.id })
-  const auditGuard = sql`EXISTS (
-    SELECT 1 FROM ${sebTtmMeeting}
-    WHERE ${sebTtmMeeting.id} = ${input.meetingId}
-      AND ${sebTtmMeeting.currentVersion} = ${next}
-  )`
-  const [changed] = await context.db.batch([
-    updated,
-    context.db.insert(sebTtmMeetingVersion).select(sql`
-      SELECT ${crypto.randomUUID()}, meeting.id, ${next}, meeting.meeting_reference,
-        meeting.scheduled_at, meeting.venue, meeting.description, ${input.to},
-        ${changeType}, NULL, ${input.actorId}, ${input.now.getTime()}
-      FROM ${sebTtmMeeting} AS meeting
-      WHERE meeting.id = ${input.meetingId}
-        AND meeting.current_version = ${next} AND meeting.status = ${input.to}
-    `),
-    context.db.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.TTM_MEETING_CHANGED',
-        'SEB_TTM_MEETING', ${input.meetingId}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        ${JSON.stringify({ change: 'TRANSITIONED' })}, ${input.now.getTime()}
-      WHERE ${auditGuard}
-    `),
-  ])
-  return changedExactlyOne(changed)
-}
-
 /**
- * Whether this agenda item's meeting is actually sitting.
+ * Records the programme's decision on an application.
  *
- * Read so the controller can say so. The write repeats the condition in its own
- * predicate — that is what makes it safe — but a failed predicate is
- * indistinguishable from a lost race, so without this an officer deciding
- * before the meeting starts was told "The record changed. Reload and try
- * again.", which is untrue and which reloading never fixes.
+ * The gate is the application's own state — `AWAITING_DECISION` at the version
+ * the officer read — and holding `DECIDE`. There is no second, time-bounded
+ * permission of the kind a sitting committee would give; that reduction in
+ * control is deliberate and is recorded in `docs/policy-alignment.md`.
+ *
+ * The decision stores which submission and which bank appraisal were read,
+ * because nothing else on the file records what was in front of the decider,
+ * and every revision request it raises is scoped to that submission.
  */
-export const agendaItemMeetingSitting = async (
-  db: Database,
-  input: { applicationId: string; agendaItemId: string },
-): Promise<boolean> => {
-  const [row] = await db
-    .select({ id: sebTtmAgendaItem.id })
-    .from(sebTtmAgendaItem)
-    .innerJoin(sebTtmMeeting, eq(sebTtmMeeting.id, sebTtmAgendaItem.meetingId))
-    .where(and(
-      eq(sebTtmAgendaItem.id, input.agendaItemId),
-      eq(sebTtmAgendaItem.applicationId, input.applicationId),
-      /*
-       * The meeting's state only, deliberately — not the item's.
-       *
-       * The write also requires the item to still be ACTIVE, and that term must
-       * stay there rather than here: an item already decided is a lost race,
-       * and reporting it as "the meeting is not sitting" would replace one
-       * misleading message with another.
-       */
-      eq(sebTtmMeeting.status, 'IN_SESSION'),
-    ))
-    .limit(1)
-  return Boolean(row)
-}
+/*
+ * Which submission was decided, proved again in the write.
+ *
+ * The composite foreign key on the decision only says the submission belongs to
+ * this application; it cannot say it is the one the officer was reading. Without
+ * this term a decision recorded while the applicant is mid-resubmission would
+ * name the wrong evidence, and nothing downstream could notice.
+ */
+const latestSubmissionIs = (applicationId: string, submissionId: string): SQL => sql`EXISTS (
+  SELECT 1 FROM ${sebApplicationSubmission} AS decided
+  WHERE decided.id = ${submissionId}
+    AND decided.application_id = ${applicationId}
+    AND NOT EXISTS (
+      SELECT 1 FROM ${sebApplicationSubmission} AS later
+      WHERE later.application_id = ${applicationId}
+        AND later.submission_number > decided.submission_number
+    )
+)`
 
-export const recordTtmDecisionWrite = async (
+/*
+ * The bank appraisal the decision considered.
+ *
+ * Derived rather than supplied: the officer never chooses one, and a caller
+ * that could name it could attach a superseded appraisal to a live decision.
+ * Empty — so NULL — for a cycle that refers to no bank.
+ */
+const consideredBankOutcome = (applicationId: string): SQL => sql`(
+  SELECT outcome.id FROM ${sebPartnerBankOutcome} AS outcome
+  WHERE outcome.application_id = ${applicationId}
+  ORDER BY outcome.created_at DESC, outcome.outcome_number DESC
+  LIMIT 1
+)`
+
+/*
+ * Decisions are numbered per application, and the number never restarts.
+ *
+ * An application sent back for revisions and decided again must not collide with
+ * its own first decision. Computed inside the insert rather than read
+ * beforehand, or two officers deciding at once both read the same maximum.
+ */
+const nextDecisionNumber = (applicationId: string): SQL => sql`(
+  SELECT COALESCE(MAX(existing.decision_number), 0) + 1
+  FROM ${sebProgrammeDecision} AS existing
+  WHERE existing.application_id = ${applicationId}
+)`
+
+export const recordDecisionWrite = async (
   context: AdminOperationContext,
   input: {
     applicationId: string
-    agendaItemId: string
+    submissionId: string
     expectedStatusVersion: number
     actorId: string
-    outcome: TtmDecisionOutcome
+    outcome: DecisionOutcome
     reference: string
     date: string
     approvedAmountPaise: number | null
     conditions: string | null
     reasonCategoryId: string | null
     applicantMessage: string
-    nextAction: string | null
-    revisions: Array<{ section: string; reasonCategoryId: string; note: string }>
+    revisions: Array<{ stageKey: string; reasonCategoryId: string; note: string }>
     requestedAmountPaise: number
     /** True only where the officer is the applicant and said so. */
     conflictAcknowledged?: boolean | null
@@ -847,8 +540,8 @@ export const recordTtmDecisionWrite = async (
   const disclosed = disclosedSelfReview(
     input.applicationId, input.actorId, input.conflictAcknowledged,
   )
-  const { status: nextStatus, releasesAssignment } = ttmOutcomeState(input.outcome)
-  const assignment = ttmAssignmentValues(releasesAssignment, input.actorId, input.now)
+  const { status: nextStatus, releasesAssignment } = decisionOutcomeState(input.outcome)
+  const assignment = decisionAssignmentValues(releasesAssignment, input.actorId, input.now)
   const nextStatusVersion = input.expectedStatusVersion + 1
   const updateApplication = context.db.update(sebApplication).set({
     status: nextStatus,
@@ -858,104 +551,68 @@ export const recordTtmDecisionWrite = async (
     updatedAt: input.now,
   }).where(and(
     eq(sebApplication.id, input.applicationId),
-    eq(sebApplication.status, 'TTM_REVIEW'),
+    eq(sebApplication.status, 'AWAITING_DECISION'),
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
     isNull(sebApplication.deletedAt),
-    ttmApprovalGuard(input.outcome, input.approvedAmountPaise, input.requestedAmountPaise),
-    sql`EXISTS (
-      SELECT 1 FROM ${sebTtmAgendaItem}
-      INNER JOIN ${sebTtmMeeting}
-        ON ${sebTtmMeeting.id} = ${sebTtmAgendaItem.meetingId}
-      WHERE ${sebTtmAgendaItem.id} = ${input.agendaItemId}
-        AND ${sebTtmAgendaItem.applicationId} = ${input.applicationId}
-        AND ${sebTtmAgendaItem.status} = 'ACTIVE'
-        AND ${sebTtmMeeting.status} = 'IN_SESSION'
-    )`,
+    approvalGuard(input.outcome, input.approvedAmountPaise, input.requestedAmountPaise),
+    latestSubmissionIs(input.applicationId, input.submissionId),
   )).returning({ id: sebApplication.id })
-  const decideAgenda = context.db.update(sebTtmAgendaItem).set({
-    status: 'DECIDED',
-    currentVersion: sql`${sebTtmAgendaItem.currentVersion} + 1`,
-    updatedAt: input.now,
-  }).where(and(
-    eq(sebTtmAgendaItem.id, input.agendaItemId),
-    eq(sebTtmAgendaItem.applicationId, input.applicationId),
-    eq(sebTtmAgendaItem.status, 'ACTIVE'),
-    sql`EXISTS (
-      SELECT 1 FROM ${sebTtmMeeting}
-      WHERE ${sebTtmMeeting.id} = ${sebTtmAgendaItem.meetingId}
-        AND ${sebTtmMeeting.status} = 'IN_SESSION'
-    )`,
-    sql`EXISTS (
-      SELECT 1 FROM ${sebApplication}
-      WHERE ${sebApplication.id} = ${input.applicationId}
-        AND ${sebApplication.statusVersion} = ${nextStatusVersion}
-    )`,
-  )).returning({ id: sebTtmAgendaItem.id })
-  const [changed] = await context.db.batch([
+  const decided = sql`EXISTS (
+    SELECT 1 FROM ${sebProgrammeDecision} WHERE ${sebProgrammeDecision.id} = ${id}
+  )`
+  const [changed] = await batch(context.db, (tx) => [
     updateApplication,
-    decideAgenda,
-    context.db.insert(sebTtmDecision).select(sql`
-      SELECT ${id}, ${input.applicationId}, ${input.agendaItemId}, 1,
+    tx.insert(sebProgrammeDecision).select(sql`
+      SELECT ${id}, ${input.applicationId}, ${input.submissionId},
+        ${consideredBankOutcome(input.applicationId)},
+        ${nextDecisionNumber(input.applicationId)},
         ${input.outcome}, ${input.reference}, ${input.date}, ${input.approvedAmountPaise},
         ${input.conditions}, ${input.reasonCategoryId}, ${input.applicantMessage},
-        ${input.nextAction}, NULL, NULL, NULL,
-        ${input.actorId}, ${input.now.getTime()}, ${disclosed}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebTtmAgendaItem}
-        WHERE ${sebTtmAgendaItem.id} = ${input.agendaItemId}
-          AND ${sebTtmAgendaItem.status} = 'DECIDED'
-      )
+        NULL, NULL, NULL,
+        ${input.actorId}, ${input.now}, ${disclosed}
+      WHERE ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}
     `),
-    ...input.revisions.map((revision) => context.db.insert(sebRevisionRequest).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.applicationId}, item.submission_id,
-        ${revision.section}, ${revision.reasonCategoryId}, ${revision.note},
-        ${input.actorId}, ${input.now.getTime()}, NULL, NULL, NULL, NULL, NULL
-      FROM ${sebTtmAgendaItem} AS item
-      WHERE item.id = ${input.agendaItemId}
-        AND EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE id = ${id})
+    ...input.revisions.map((revision) => tx.insert(sebRevisionRequest).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.applicationId}, ${input.submissionId},
+        ${revision.stageKey}, ${revision.reasonCategoryId}, ${revision.note},
+        ${input.actorId}, ${input.now}, NULL, NULL, NULL, NULL, NULL
+      WHERE ${decided}
     `)),
     ...rejectedAssignmentEvent(context, input, nextStatusVersion, releasesAssignment),
-    context.db.insert(sebTtmAgendaItemVersion).select(sql`
-      SELECT ${crypto.randomUUID()}, item.id, item.current_version, item.position,
-        'DECIDED', 'DECIDED', NULL, ${input.actorId}, ${input.now.getTime()}
-      FROM ${sebTtmAgendaItem} AS item
-      WHERE item.id = ${input.agendaItemId} AND item.status = 'DECIDED'
-    `),
-    context.db.insert(sebApplicationEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'TTM_DECISION_RECORDED',
-        ${input.actorId}, NULL, NULL, NULL, 'TTM_REVIEW', ${nextStatus}, NULL,
-        ${input.applicantMessage}, NULL, ${input.now.getTime()}
-      WHERE EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE ${sebTtmDecision.id} = ${id})
+    tx.insert(sebApplicationEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'DECISION_RECORDED',
+        ${input.actorId}, NULL, ${input.submissionId}, NULL,
+        'AWAITING_DECISION', ${nextStatus}, NULL,
+        ${input.applicantMessage}, NULL, ${input.now}
+      WHERE ${decided}
     `),
     auditSelect(context, {
-      actorId: input.actorId, action: 'SEB.TTM_DECISION_RECORDED',
-      type: 'SEB_TTM_DECISION', id, now: input.now,
-      guard: sql`EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE ${sebTtmDecision.id} = ${id})`,
+      actorId: input.actorId, action: 'SEB.DECISION_RECORDED',
+      type: 'SEB_PROGRAMME_DECISION', id, now: input.now,
+      guard: decided,
     }),
     auditSelect(context, {
       actorId: input.actorId, action: 'SEB.SELF_REVIEW_DISCLOSED',
-      type: 'SEB_TTM_DECISION', id, now: input.now,
-      guard: sql`${disclosed} = 1
-        AND EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE ${sebTtmDecision.id} = ${id})`,
+      type: 'SEB_PROGRAMME_DECISION', id, now: input.now,
+      guard: sql`${disclosed} AND ${decided}`,
     }),
   ])
   return changedExactlyOne(changed)
 }
 
 /**
- * Corrects a TTM record by appending a superseding decision. The write is
- * blocked once an award or later phase retry exists because those downstream
- * facts must be corrected through award/recovery records instead.
+ * Corrects a decision by appending a superseding one. The write is blocked once
+ * an award or later phase retry exists because those downstream facts must be
+ * corrected through award/recovery records instead.
  */
-export const correctTtmDecisionWrite = async (
+export const correctDecisionWrite = async (
   context: AdminOperationContext,
   input: {
     applicationId: string
-    agendaItemId: string
     supersedesDecisionId: string
     expectedStatusVersion: number
     actorId: string
-    outcome: TtmDecisionOutcome
+    outcome: DecisionOutcome
     reference: string
     date: string
     approvedAmountPaise: number | null
@@ -964,8 +621,7 @@ export const correctTtmDecisionWrite = async (
     correctionReasonCategoryId: string
     correctionReason: string
     applicantMessage: string
-    nextAction: string | null
-    revisions: Array<{ section: string; reasonCategoryId: string; note: string }>
+    revisions: Array<{ stageKey: string; reasonCategoryId: string; note: string }>
     requestedAmountPaise: number
     /** True only where the officer is the applicant and said so. */
     conflictAcknowledged?: boolean | null
@@ -978,8 +634,8 @@ export const correctTtmDecisionWrite = async (
   const disclosed = disclosedSelfReview(
     input.applicationId, input.actorId, input.conflictAcknowledged,
   )
-  const { status: nextStatus, releasesAssignment } = ttmOutcomeState(input.outcome)
-  const assignment = ttmAssignmentValues(releasesAssignment, input.actorId, input.now)
+  const { status: nextStatus, releasesAssignment } = decisionOutcomeState(input.outcome)
+  const assignment = decisionAssignmentValues(releasesAssignment, input.actorId, input.now)
   const nextVersion = input.expectedStatusVersion + 1
   const updated = context.db.update(sebApplication).set({
     status: nextStatus,
@@ -990,17 +646,17 @@ export const correctTtmDecisionWrite = async (
   }).where(and(
     eq(sebApplication.id, input.applicationId),
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    sql`${sebApplication.status} IN ('APPROVED', 'REJECTED', 'TTM_REVIEW', 'REVISION_REQUIRED')`,
+    sql`${sebApplication.status} IN ('APPROVED', 'REJECTED', 'AWAITING_DECISION', 'REVISION_REQUIRED')`,
     isNull(sebApplication.deletedAt),
-    ttmApprovalGuard(input.outcome, input.approvedAmountPaise, input.requestedAmountPaise),
+    approvalGuard(input.outcome, input.approvedAmountPaise, input.requestedAmountPaise),
+    /* Only the application's most recent decision may be superseded. */
     sql`EXISTS (
-      SELECT 1 FROM ${sebTtmDecision} AS previous
+      SELECT 1 FROM ${sebProgrammeDecision} AS previous
       WHERE previous.id = ${input.supersedesDecisionId}
         AND previous.application_id = ${input.applicationId}
-        AND previous.agenda_item_id = ${input.agendaItemId}
         AND NOT EXISTS (
-          SELECT 1 FROM ${sebTtmDecision} AS newer
-          WHERE newer.agenda_item_id = previous.agenda_item_id
+          SELECT 1 FROM ${sebProgrammeDecision} AS newer
+          WHERE newer.application_id = previous.application_id
             AND newer.decision_number > previous.decision_number
         )
     )`,
@@ -1010,7 +666,7 @@ export const correctTtmDecisionWrite = async (
     )`,
     sql`NOT EXISTS (
       SELECT 1 FROM ${sebApplication} AS retry
-      INNER JOIN ${sebTtmDecision} AS previous
+      INNER JOIN ${sebProgrammeDecision} AS previous
         ON previous.id = ${input.supersedesDecisionId}
       WHERE retry.funding_case_id = ${sebApplication.fundingCaseId}
         AND retry.phase_number = ${sebApplication.phaseNumber}
@@ -1018,9 +674,12 @@ export const correctTtmDecisionWrite = async (
         AND retry.created_at > previous.created_at
     )`,
   )).returning({ id: sebApplication.id })
-  const [changed] = await context.db.batch([
+  const corrected = sql`EXISTS (
+    SELECT 1 FROM ${sebProgrammeDecision} WHERE ${sebProgrammeDecision.id} = ${id}
+  )`
+  const [changed] = await batch(context.db, (tx) => [
     updated,
-    context.db.update(sebRevisionRequest).set({
+    tx.update(sebRevisionRequest).set({
       cancelledAt: input.now,
       cancelledByUserId: input.actorId,
       cancellationReason: input.correctionReason,
@@ -1028,46 +687,48 @@ export const correctTtmDecisionWrite = async (
       eq(sebRevisionRequest.applicationId, input.applicationId),
       isNull(sebRevisionRequest.resolvedAt),
       isNull(sebRevisionRequest.cancelledAt),
-      sql`EXISTS (
-        SELECT 1 FROM ${sebApplication}
-        WHERE ${sebApplication.id} = ${input.applicationId}
-          AND ${sebApplication.statusVersion} = ${nextVersion}
-      )`,
+      sql`${headJustMovedTo(input.applicationId, nextVersion, input.now)}`,
     )),
-    context.db.insert(sebTtmDecision).select(sql`
-      SELECT ${id}, previous.application_id, previous.agenda_item_id,
-        previous.decision_number + 1, ${input.outcome}, ${input.reference},
+    /*
+     * The evidence pins are copied from the decision being superseded rather
+     * than taken from the caller. A correction restates what was considered; it
+     * does not get to change it.
+     */
+    tx.insert(sebProgrammeDecision).select(sql`
+      SELECT ${id}, previous.application_id, previous.submission_id,
+        previous.bank_outcome_id, previous.decision_number + 1,
+        ${input.outcome}, ${input.reference},
         ${input.date}, ${input.approvedAmountPaise}, ${input.conditions},
-        ${input.reasonCategoryId}, ${input.applicantMessage}, ${input.nextAction},
+        ${input.reasonCategoryId}, ${input.applicantMessage},
         previous.id, ${input.correctionReasonCategoryId}, ${input.correctionReason},
-        ${input.actorId}, ${input.now.getTime()}, ${disclosed}
-      FROM ${sebTtmDecision} AS previous
+        ${input.actorId}, ${input.now}, ${disclosed}
+      FROM ${sebProgrammeDecision} AS previous
       WHERE previous.id = ${input.supersedesDecisionId}
-        AND EXISTS (
-          SELECT 1 FROM ${sebApplication}
-          WHERE ${sebApplication.id} = ${input.applicationId}
-            AND ${sebApplication.statusVersion} = ${nextVersion}
-        )
+        AND ${headJustMovedTo(input.applicationId, nextVersion, input.now)}
     `),
-    ...input.revisions.map((revision) => context.db.insert(sebRevisionRequest).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.applicationId}, item.submission_id,
-        ${revision.section}, ${revision.reasonCategoryId}, ${revision.note},
-        ${input.actorId}, ${input.now.getTime()}, NULL, NULL, NULL, NULL, NULL
-      FROM ${sebTtmAgendaItem} AS item
-      WHERE item.id = ${input.agendaItemId}
-        AND EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE id = ${id})
+    ...input.revisions.map((revision) => tx.insert(sebRevisionRequest).select(sql`
+      SELECT ${crypto.randomUUID()}, corrected.application_id, corrected.submission_id,
+        ${revision.stageKey}, ${revision.reasonCategoryId}, ${revision.note},
+        ${input.actorId}, ${input.now}, NULL, NULL, NULL, NULL, NULL
+      FROM ${sebProgrammeDecision} AS corrected
+      WHERE corrected.id = ${id}
     `)),
     ...rejectedAssignmentEvent(context, input, nextVersion, releasesAssignment),
-    context.db.insert(sebApplicationEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'TTM_DECISION_CORRECTED',
-        ${input.actorId}, NULL, NULL, NULL, NULL, ${nextStatus}, NULL,
-        ${input.applicantMessage}, NULL, ${input.now.getTime()}
-      WHERE EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE id = ${id})
+    /*
+     * The submission is read off the correction rather than taken from the
+     * caller, so the timeline and the decision cannot name different ones.
+     */
+    tx.insert(sebApplicationEvent).select(sql`
+      SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'DECISION_CORRECTED',
+        ${input.actorId}, NULL, corrected.submission_id, NULL, NULL, ${nextStatus},
+        NULL, ${input.applicantMessage}, NULL, ${input.now}
+      FROM ${sebProgrammeDecision} AS corrected
+      WHERE corrected.id = ${id}
     `),
     auditSelect(context, {
-      actorId: input.actorId, action: 'SEB.TTM_DECISION_CORRECTED',
-      type: 'SEB_TTM_DECISION', id, now: input.now,
-      guard: sql`EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE id = ${id})`,
+      actorId: input.actorId, action: 'SEB.DECISION_CORRECTED',
+      type: 'SEB_PROGRAMME_DECISION', id, now: input.now,
+      guard: corrected,
     }),
     /*
      * A correction is its own act, so it carries its own disclosure. A
@@ -1076,9 +737,8 @@ export const correctTtmDecisionWrite = async (
      */
     auditSelect(context, {
       actorId: input.actorId, action: 'SEB.SELF_REVIEW_DISCLOSED',
-      type: 'SEB_TTM_DECISION', id, now: input.now,
-      guard: sql`${disclosed} = 1
-        AND EXISTS (SELECT 1 FROM ${sebTtmDecision} WHERE id = ${id})`,
+      type: 'SEB_PROGRAMME_DECISION', id, now: input.now,
+      guard: sql`${disclosed} AND ${corrected}`,
     }),
   ])
   return changedExactlyOne(changed)

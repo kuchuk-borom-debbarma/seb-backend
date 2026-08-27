@@ -1,15 +1,12 @@
 /**
  * The intake console.
  *
- * These tests drive the programme office the way a reviewer does. An
- * application can only be submitted once every required document is attached,
- * and uploading needs a bucket development does not have — so the submitted
- * states these tests would need cannot be reached here. What is covered is
- * everything reachable: the queues and their counts, the filters, reference
- * lookup, and the console's own rules about what is offered when.
- *
- * The desk review path is exercised through the form's own guards rather than
- * through a completed review.
+ * These tests drive the programme office the way a reviewer does: the queues
+ * and their counts, the filters, reference lookup, the console's own rules
+ * about what is offered when, role administration, and a revision request the
+ * applicant then sees. Submitted applications are reached through the
+ * product's own paths — locally the Worker stores documents itself, so no
+ * bucket is needed.
  */
 import { expect, test } from '@playwright/test'
 import {
@@ -30,46 +27,53 @@ test.describe('the intake console', () => {
   test('leads with the queues waiting on the programme office', async ({ page }) => {
     await page.goto('/admin')
 
-    // The three that need somebody here, as cards.
+    /*
+     * Each actionable queue appears twice on the dashboard — a "Waiting on
+     * us" row and an "All queues" table row — so first() is deliberate: the
+     * point is that it is offered, prominently, not how many times.
+     */
     for (const queue of ['New submissions', 'Revision responses', 'Desk review']) {
-      await expect(page.getByRole('link', { name: new RegExp(queue, 'u') })).toBeVisible()
+      await expect(
+        page.getByRole('link', { name: new RegExp(queue, 'u') }).first(),
+      ).toBeVisible()
     }
 
     // The rest are listed with counts but not given the same weight.
     await expect(page.getByRole('row').filter({ hasText: 'With the bank' })).toBeVisible()
     await expect(
-      page.getByRole('row').filter({ hasText: 'For the committee' }),
+      page.getByRole('row').filter({ hasText: 'To decide' }),
     ).toBeVisible()
   })
 
   test('shows every queue even when it is empty', async ({ page }) => {
     await page.goto('/admin')
 
-    // A chip that vanished at zero would move everything beside it, and staff
+    // A row that vanished at zero would move everything beside it, and staff
     // learn where their queue sits.
-    const newSubmissions = page.getByRole('link', { name: /New submissions/u })
+    const newSubmissions = page.getByRole('link', { name: /New submissions/u }).first()
     await expect(newSubmissions).toBeVisible()
     await expect(newSubmissions).toContainText(/\d/u)
   })
 
   test('opens a queue and keeps the filters in the address', async ({ page }) => {
     await page.goto('/admin')
-    await page.getByRole('link', { name: /New submissions/u }).click()
+    await page.getByRole('link', { name: /New submissions/u }).first().click()
     await expect(page).toHaveURL(/\/admin\/queue\?queue=NEW_SUBMISSIONS/u)
 
     await page.getByLabel('Type').selectOption('EXPANSION')
     await expect(page).toHaveURL(/applicationType=EXPANSION/u)
     await expect(page).toHaveURL(/queue=NEW_SUBMISSIONS/u)
 
-    // A second filter must not drop the first.
-    await page.getByLabel('Category', { exact: true }).selectOption('CATEGORY_A')
+    // A second filter must not drop the first. Category is a multi-select
+    // now; one chosen value appends its count to the label.
+    await page.getByLabel('Categories').selectOption('CATEGORY_A')
     await expect(page).toHaveURL(/applicationType=EXPANSION/u)
-    await expect(page).toHaveURL(/category=CATEGORY_A/u)
+    await expect(page).toHaveURL(/categories=CATEGORY_A/u)
 
     // And the page survives a reload with the same view.
     await page.reload()
     await expect(page.getByLabel('Type')).toHaveValue('EXPANSION')
-    await expect(page.getByLabel('Category', { exact: true })).toHaveValue('CATEGORY_A')
+    await expect(page.getByLabel(/^Categories/u)).toHaveValues(['CATEGORY_A'])
   })
 
   test('switching queues does not lose the ordering you chose', async ({ page }) => {
@@ -87,7 +91,7 @@ test.describe('the intake console', () => {
     await expect(page.getByText('Everything here has been dealt with.')).toBeVisible()
 
     // With a filter on, the emptiness has a different cause and says so.
-    await page.getByLabel('Category', { exact: true }).selectOption('CATEGORY_B')
+    await page.getByLabel('Categories').selectOption('CATEGORY_B')
     await expect(page.getByText(/No application matches these filters/u)).toBeVisible()
   })
 
@@ -240,79 +244,6 @@ test.describe('the application workspace', () => {
     // The refusal stays inside the shell rather than blanking the page.
     await expect(page.getByRole('navigation', { name: 'Portal sections' })).toBeVisible()
     await expect(page.getByRole('alert')).toBeVisible()
-  })
-})
-
-test.describe('committee meetings', () => {
-  test.beforeEach(async ({ page }) => {
-    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-  })
-
-  test('schedules a meeting and opens it', async ({ page }) => {
-    await page.goto('/admin/meetings')
-    await page.getByRole('button', { name: 'Schedule a meeting' }).click()
-
-    const reference = `TTM-${Date.now().toString(36).toUpperCase()}`
-    await page.getByLabel('Meeting reference').fill(reference)
-    await page
-      .getByLabel('When')
-      .fill(new Date(Date.now() + 604_800_000).toISOString().slice(0, 16))
-    await page.getByLabel('Where').fill('TTAADC headquarters, Khumulwng')
-    await page.getByRole('button', { name: 'Schedule it' }).click()
-
-    // Scheduling lands on the meeting, because building the agenda is the next
-    // thing anyone does.
-    await expect(page).toHaveURL(/\/admin\/meetings\/[0-9a-f-]{36}$/u)
-    await expect(page.getByRole('heading', { name: reference })).toBeVisible()
-  })
-
-  test('will not start a meeting with an empty agenda, and says why', async ({
-    page,
-  }) => {
-    await page.goto('/admin/meetings')
-    await page.getByRole('button', { name: 'Schedule a meeting' }).click()
-    await page.getByLabel('Meeting reference').fill(`TTM-E${Date.now().toString(36)}`)
-    await page
-      .getByLabel('When')
-      .fill(new Date(Date.now() + 604_800_000).toISOString().slice(0, 16))
-    await page.getByLabel('Where').fill('Khumulwng')
-    await page.getByRole('button', { name: 'Schedule it' }).click()
-    await expect(page).toHaveURL(/\/admin\/meetings\/[0-9a-f-]{36}$/u)
-
-    /*
-     * The emptiness is stated once, in the card where the agenda would be, and
-     * it names the one way an item gets there — a notice ten lines above saying
-     * the same thing was two answers to one question.
-     */
-    await expect(
-      page.getByRole('heading', { name: 'Nothing on the agenda yet' }),
-    ).toBeVisible()
-    await expect(page.getByText(/added from its own workspace/u)).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Start the meeting' })).toBeDisabled()
-  })
-
-  test('changing the time of a scheduled meeting is recorded', async ({ page }) => {
-    await page.goto('/admin/meetings')
-    await page.getByRole('button', { name: 'Schedule a meeting' }).click()
-    const reference = `TTM-C${Date.now().toString(36).toUpperCase()}`
-    await page.getByLabel('Meeting reference').fill(reference)
-    await page
-      .getByLabel('When')
-      .fill(new Date(Date.now() + 604_800_000).toISOString().slice(0, 16))
-    await page.getByLabel('Where').fill('Khumulwng')
-    await page.getByRole('button', { name: 'Schedule it' }).click()
-    await expect(page).toHaveURL(/\/admin\/meetings\/[0-9a-f-]{36}$/u)
-
-    await page.getByRole('button', { name: 'Change the details' }).click()
-    await page.getByLabel('Where').fill('Agartala circuit house')
-
-    // People have been told where the meeting is, so a change needs a reason
-    // and the button refuses without one.
-    await expect(page.getByRole('button', { name: 'Save the change' })).toBeDisabled()
-    await page.getByLabel('Why it is changing').fill('The venue was double-booked.')
-    await page.getByRole('button', { name: 'Save the change' }).click()
-
-    await expect(page.getByText('Agartala circuit house')).toBeVisible()
   })
 })
 

@@ -6,7 +6,7 @@
  * nobody what they are looking at.
  *
  * `meta` is the identifying line that finishes the title — the cycle code, the
- * enterprise, when and where a meeting sits. It exists because three office
+ * enterprise, which cycle a decision sits under. It exists because three office
  * screens were spending the lede slot on it and so had no lede at all; folding
  * the two together would have buried the identity in a muted paragraph.
  */

@@ -9,8 +9,23 @@
  * single status, and the API refuses both rather than silently intersecting
  * them. The interface enforces that by offering one control, not two.
  */
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  FileCheck,
+  FileText,
+  Landmark,
+  List,
+  type LucideIcon,
+  RefreshCw,
+  Scale,
+  Search as SearchIcon,
+  XCircle,
+} from 'lucide-react'
 import { Pager, SearchBox } from '#/components/ListControls'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
@@ -26,14 +41,20 @@ import {
   statusTone,
   waitingFor,
 } from '#/features/admin/queues'
+import styles from '#/features/admin/Queue.module.css'
+import { rupeesToPaise } from '#/features/application/money'
+import { AdminCyclesDocument } from '#/graphql/generated/operations'
 import type {
   AdminIntakeOrder,
   AdminIntakeQueueKey,
   ApplicationCategory,
   ApplicationType,
   BusinessSector,
+  TripuraDistrict,
 } from '#/graphql/generated/schema'
 import { formatDate, humanize } from '#/lib/format'
+import { gql } from '#/lib/graphql'
+import { unwrap } from '#/lib/result'
 
 /** The sorts the API offers, named for what a person is trying to do. */
 const ORDERS: { value: AdminIntakeOrder; label: string }[] = [
@@ -52,12 +73,85 @@ const SECTORS: BusinessSector[] = [
   'OTHER',
 ]
 
+const CATEGORIES: ApplicationCategory[] = ['CATEGORY_A', 'CATEGORY_B']
+
+const DISTRICTS: TripuraDistrict[] = [
+  'DHALAI',
+  'GOMATI',
+  'KHOWAI',
+  'NORTH_TRIPURA',
+  'SEPAHIJALA',
+  'SOUTH_TRIPURA',
+  'UNAKOTI',
+  'WEST_TRIPURA',
+]
+
+/**
+ * The cycles the cycle filter offers.
+ *
+ * The first hundred covers years of a programme that opens a handful of
+ * cycles annually; a cycle beyond it is still filterable by URL.
+ */
+const cycleOptionsQuery = queryOptions({
+  queryKey: ['queue-cycle-options'],
+  queryFn: async () => {
+    const data = await gql(AdminCyclesDocument, {
+      first: 100,
+      after: null,
+      includeDeleted: false,
+      status: null,
+      cycleYear: null,
+      search: null,
+    })
+    return unwrap(data.admin.programmeCycle.list).nodes
+  },
+  staleTime: 60_000,
+})
+
+/** The queues waiting on the office get a tab each; the rest fold into More. */
+const PRIMARY_QUEUES: AdminIntakeQueueKey[] = [
+  'NEW_SUBMISSIONS',
+  'REVISION_RESPONSES',
+  'DESK_REVIEW',
+]
+
+const MORE_QUEUES: AdminIntakeQueueKey[] = [
+  'PARTNER_BANK_EVALUATION',
+  'AWAITING_DECISION',
+  'APPROVED',
+  'REJECTED',
+  'SANCTIONED',
+  'DISBURSED',
+]
+
+const QUEUE_ICONS: Record<AdminIntakeQueueKey, LucideIcon> = {
+  NEW_SUBMISSIONS: FileText,
+  REVISION_RESPONSES: RefreshCw,
+  DESK_REVIEW: SearchIcon,
+  PARTNER_BANK_EVALUATION: Landmark,
+  AWAITING_DECISION: Scale,
+  APPROVED: CheckCircle2,
+  REJECTED: XCircle,
+  SANCTIONED: FileCheck,
+  DISBURSED: Landmark,
+}
+
 type Search = {
   queue?: AdminIntakeQueueKey
   after?: string
   applicationType?: ApplicationType
-  category?: ApplicationCategory
-  sector?: BusinessSector
+  categories?: ApplicationCategory[]
+  sectors?: BusinessSector[]
+  districts?: TripuraDistrict[]
+  cycleId?: string
+  /** Rupees as typed; converted to paise at the API boundary. */
+  requestedMin?: string
+  requestedMax?: string
+  /** Calendar days; widened to whole-day instants at the API boundary. */
+  submittedFrom?: string
+  submittedTo?: string
+  decidedFrom?: string
+  decidedTo?: string
   order?: AdminIntakeOrder
   mine?: boolean
   search?: string
@@ -69,13 +163,47 @@ const oneOf = <TValue extends string>(
 ): TValue | undefined =>
   allowed.includes(value as TValue) ? (value as TValue) : undefined
 
+/**
+ * A multi-value key, kept only where it names real values.
+ *
+ * A single string is accepted too, so a bookmark from the single-select era
+ * (`?sector=OTHER`) still applies the filter it always did.
+ */
+const manyOf = <TValue extends string>(
+  allowed: readonly TValue[],
+  value: unknown,
+): TValue[] | undefined => {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+  const kept = raw.filter((entry): entry is TValue => allowed.includes(entry as TValue))
+  return kept.length > 0 ? kept : undefined
+}
+
+/** A calendar day, or nothing — never a partial date the API would refuse. */
+const dayOf = (value: unknown): string | undefined =>
+  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/u.test(value) ? value : undefined
+
+/** A rupee amount as typed, kept only while it still parses to paise. */
+const rupeesOf = (value: unknown): string | undefined =>
+  typeof value === 'string' && typeof rupeesToPaise(value) === 'number'
+    ? value
+    : undefined
+
 export const Route = createFileRoute('/_shell/admin/queue')({
   validateSearch: (search: Record<string, unknown>): Search => ({
     queue: oneOf(QUEUE_KEYS, search.queue),
     after: typeof search.after === 'string' ? search.after : undefined,
     applicationType: oneOf(['INITIAL', 'EXPANSION'] as const, search.applicationType),
-    category: oneOf(['CATEGORY_A', 'CATEGORY_B'] as const, search.category),
-    sector: oneOf(SECTORS, search.sector),
+    // The old single-value keys are folded in so bookmarks keep filtering.
+    categories: manyOf(CATEGORIES, search.categories) ?? manyOf(CATEGORIES, search.category),
+    sectors: manyOf(SECTORS, search.sectors) ?? manyOf(SECTORS, search.sector),
+    districts: manyOf(DISTRICTS, search.districts),
+    cycleId: typeof search.cycleId === 'string' && search.cycleId ? search.cycleId : undefined,
+    requestedMin: rupeesOf(search.requestedMin),
+    requestedMax: rupeesOf(search.requestedMax),
+    submittedFrom: dayOf(search.submittedFrom),
+    submittedTo: dayOf(search.submittedTo),
+    decidedFrom: dayOf(search.decidedFrom),
+    decidedTo: dayOf(search.decidedTo),
     order: oneOf(
       ORDERS.map((order) => order.value),
       search.order,
@@ -107,13 +235,37 @@ export const Route = createFileRoute('/_shell/admin/queue')({
  * loader takes it from route context and the component from its own, and a
  * mismatch between the two is what made the prefetch miss.
  */
+/** Rupees as typed, converted to the paise string the Money scalar takes. */
+const paiseOf = (rupees: string | undefined): string | null => {
+  if (!rupees) return null
+  const paise = rupeesToPaise(rupees)
+  return typeof paise === 'number' ? String(paise) : null
+}
+
+/*
+ * A day from the picker widens to the whole day in UTC, both bounds
+ * inclusive — asking for "to the 12th" must include the 12th's afternoon.
+ */
+const dayStart = (day: string | undefined): string | null =>
+  day ? `${day}T00:00:00.000Z` : null
+const dayEnd = (day: string | undefined): string | null =>
+  day ? `${day}T23:59:59.999Z` : null
+
 const inputFor = (search: Search, assigneeUserId: string | null) => ({
   first: QUEUE_PAGE_SIZE,
   after: search.after ?? null,
   queue: search.queue ?? null,
   applicationType: search.applicationType ?? null,
-  category: search.category ?? null,
-  sector: search.sector ?? null,
+  categories: search.categories ?? null,
+  sectors: search.sectors ?? null,
+  districts: search.districts ?? null,
+  cycleId: search.cycleId ?? null,
+  requestedMinPaise: paiseOf(search.requestedMin),
+  requestedMaxPaise: paiseOf(search.requestedMax),
+  submittedFrom: dayStart(search.submittedFrom),
+  submittedTo: dayEnd(search.submittedTo),
+  decidedFrom: dayStart(search.decidedFrom),
+  decidedTo: dayEnd(search.decidedTo),
   order: search.order ?? 'OLDEST_WAITING',
   assigneeUserId: search.mine ? assigneeUserId : null,
   search: search.search ?? null,
@@ -127,11 +279,33 @@ function QueuePage() {
     queueQuery(inputFor(search, user?.id ?? null)),
   )
   const { data: summary } = useQuery(queueSummaryQuery())
+  const { data: cycles } = useQuery(cycleOptionsQuery)
   const mark = useMarker()
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
+        setMoreOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
 
   const rows = data?.nodes ?? []
   const countOf = (queue: AdminIntakeQueueKey) =>
     summary?.find((entry) => entry.queue === queue)?.count ?? 0
+
+  const totalAllCount = summary?.reduce((total, entry) => total + entry.count, 0) ?? 0
 
   /** Resets paging: a filter change makes the old cursor meaningless. */
   const filter = (change: Partial<Search>) =>
@@ -149,13 +323,23 @@ function QueuePage() {
   const filtered = Boolean(
     search.search ||
     search.applicationType ||
-    search.category ||
-    search.sector ||
+    search.categories ||
+    search.sectors ||
+    search.districts ||
+    search.cycleId ||
+    search.requestedMin ||
+    search.requestedMax ||
+    search.submittedFrom ||
+    search.submittedTo ||
+    search.decidedFrom ||
+    search.decidedTo ||
     search.mine,
   )
 
+  const isMoreQueueActive = Boolean(search.queue && MORE_QUEUES.includes(search.queue))
+
   return (
-    <main className="page">
+    <main className={styles.pageWrap}>
       <PageHeader
         title={search.queue ? QUEUE_TITLES[search.queue] : 'All applications'}
         description={
@@ -164,8 +348,9 @@ function QueuePage() {
             : 'Every submitted application, in any queue.'
         }
         actions={
-          <Link to="/admin" className="button">
-            Back to intake
+          <Link to="/admin" className={styles.backButton}>
+            <ArrowLeft size={15} aria-hidden="true" />
+            Back to dashboard
           </Link>
         }
       />
@@ -173,7 +358,7 @@ function QueuePage() {
       {/* The queues, as tabs. Counts come from the summary rather than from
           this page, so switching queues does not have to load one to know how
           big the other is. */}
-      <div className="tabs" role="tablist" aria-label="Queues">
+      <div className={styles.tabStripCard} role="tablist" aria-label="Queues">
         <Link
           to="/admin/queue"
           search={(previous) => ({
@@ -183,173 +368,385 @@ function QueuePage() {
           })}
           role="tab"
           aria-selected={!search.queue}
-          className="tab"
+          className={`${styles.queueTab} ${!search.queue ? styles.queueTabActive : ''}`}
         >
-          All
+          <List className={styles.queueTabIcon} aria-hidden="true" />
+          <span>All</span>
+          <span
+            className={`${styles.countBadge} ${
+              !search.queue ? styles.countBadgeActive : ''
+            }`}
+          >
+            {totalAllCount}
+          </span>
         </Link>
-        {QUEUE_KEYS.map((queue) => (
-          <Link
-            key={queue}
-            to="/admin/queue"
-            search={(previous) => ({ ...previous, queue, after: undefined })}
-            role="tab"
-            aria-selected={search.queue === queue}
-            className="tab"
+
+        {PRIMARY_QUEUES.map((queueKey) => {
+          const Icon = QUEUE_ICONS[queueKey]
+          const isActive = search.queue === queueKey
+          const tone =
+            queueKey === 'NEW_SUBMISSIONS'
+              ? 'blue'
+              : queueKey === 'REVISION_RESPONSES'
+                ? 'green'
+                : 'amber'
+          return (
+            <Link
+              key={queueKey}
+              to="/admin/queue"
+              search={(previous) => ({ ...previous, queue: queueKey, after: undefined })}
+              role="tab"
+              aria-selected={isActive}
+              className={`${styles.queueTab} ${isActive ? styles.queueTabActive : ''}`}
+            >
+              <Icon
+                className={styles.queueTabIcon}
+                data-color={tone}
+                aria-hidden="true"
+              />
+              <span>{QUEUE_TITLES[queueKey]}</span>
+              <span
+                className={`${styles.countBadge} ${
+                  isActive ? styles.countBadgeActive : ''
+                }`}
+              >
+                {countOf(queueKey)}
+              </span>
+            </Link>
+          )
+        })}
+
+        {/* More Queues Dropdown */}
+        <div className={styles.moreDropdownWrap} ref={moreRef}>
+          <button
+            type="button"
+            className={`${styles.queueTab} ${
+              isMoreQueueActive ? styles.queueTabActive : ''
+            }`}
+            onClick={() => setMoreOpen((previous) => !previous)}
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
           >
-            {QUEUE_TITLES[queue]}
-            <span className="tab-count tabular">{countOf(queue)}</span>
-          </Link>
-        ))}
+            <span>
+              {isMoreQueueActive && search.queue ? QUEUE_TITLES[search.queue] : 'More'}
+            </span>
+            <ChevronDown size={14} aria-hidden="true" />
+          </button>
+
+          {moreOpen && (
+            <div className={styles.moreDropdownMenu} role="menu">
+              {MORE_QUEUES.map((queueKey) => {
+                const Icon = QUEUE_ICONS[queueKey]
+                const isActive = search.queue === queueKey
+                return (
+                  <Link
+                    key={queueKey}
+                    to="/admin/queue"
+                    search={(previous) => ({
+                      ...previous,
+                      queue: queueKey,
+                      after: undefined,
+                    })}
+                    role="menuitem"
+                    className={`${styles.moreMenuItem} ${
+                      isActive ? styles.moreMenuItemActive : ''
+                    }`}
+                    onClick={() => setMoreOpen(false)}
+                  >
+                    <div className={styles.moreMenuLeft}>
+                      <Icon size={15} aria-hidden="true" />
+                      <span>{QUEUE_TITLES[queueKey]}</span>
+                    </div>
+                    <span
+                      className={`${styles.countBadge} ${
+                        isActive ? styles.countBadgeActive : ''
+                      }`}
+                    >
+                      {countOf(queueKey)}
+                    </span>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="filters" {...mark('queue-filters')}>
-        <SearchBox
-          id="queue-search"
-          label="Reference or enterprise starts with"
-          placeholder="SEP-2026 or Khumulwng"
-          value={search.search}
-          onChange={(value) => filter({ search: value })}
-        />
+      {/* Filters Card */}
+      <div className={styles.filtersCard} {...mark('queue-filters')}>
+        <div className={styles.filtersGrid}>
+          {/* SearchBox debounces and mirrors the URL; only its shell is styled. */}
+          <div className={styles.filterField}>
+            <SearchBox
+              id="queue-search"
+              label="Reference or enterprise starts with"
+              placeholder="SEP-2026 or Khumulwng"
+              value={search.search}
+              onChange={(value) => filter({ search: value })}
+            />
+          </div>
 
-        <div>
-          <label className="field-label" htmlFor="order">
-            Order
-          </label>
-          <select
-            id="order"
-            className="select"
-            value={search.order ?? 'OLDEST_WAITING'}
-            onChange={(event) =>
-              filter({ order: event.target.value as AdminIntakeOrder })
-            }
-          >
-            {ORDERS.map((order) => (
-              <option key={order.value} value={order.value}>
-                {order.label}
-              </option>
-            ))}
-          </select>
-        </div>
+          {/* Order Dropdown */}
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="order">
+              Order
+            </label>
+            <div className={styles.selectWrap}>
+              <select
+                id="order"
+                className={styles.selectControl}
+                value={search.order ?? 'OLDEST_WAITING'}
+                onChange={(event) =>
+                  filter({ order: event.target.value as AdminIntakeOrder })
+                }
+              >
+                {ORDERS.map((order) => (
+                  <option key={order.value} value={order.value}>
+                    {order.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className={styles.selectChevron} aria-hidden="true" />
+            </div>
+          </div>
 
-        <div>
-          <label className="field-label" htmlFor="type">
-            Type
-          </label>
-          <select
-            id="type"
-            className="select"
-            value={search.applicationType ?? ''}
-            onChange={(event) =>
-              filter({
-                applicationType: (event.target.value || undefined) as
-                  ApplicationType | undefined,
-              })
-            }
-          >
-            <option value="">Any type</option>
-            <option value="INITIAL">Initial</option>
-            <option value="EXPANSION">Expansion</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="field-label" htmlFor="category">
-            Category
-          </label>
-          <select
-            id="category"
-            className="select"
-            value={search.category ?? ''}
-            onChange={(event) =>
-              filter({
-                category: (event.target.value || undefined) as
-                  ApplicationCategory | undefined,
-              })
-            }
-          >
-            <option value="">Any category</option>
-            <option value="CATEGORY_A">Category A</option>
-            <option value="CATEGORY_B">Category B</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="field-label" htmlFor="sector">
-            Sector
-          </label>
-          <select
-            id="sector"
-            className="select"
-            value={search.sector ?? ''}
-            onChange={(event) =>
-              filter({
-                sector: (event.target.value || undefined) as BusinessSector | undefined,
-              })
-            }
-          >
-            <option value="">Any sector</option>
-            {SECTORS.map((sector) => (
-              <option key={sector} value={sector}>
-                {humanize(sector)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={search.mine ?? false}
-            onChange={(event) =>
-              filter({ mine: event.target.checked ? true : undefined })
-            }
-          />
-          Only what I have claimed
-        </label>
-      </div>
-
-      {rows.length === 0 ? (
-        <div className="card">
-          <div className="empty">
-            {/* Three different facts, and the heading has to say which one. */}
-            <h3>
-              {filtered
-                ? 'Nothing matches'
-                : search.queue
-                  ? 'Nothing in this queue'
-                  : 'No applications yet'}
-            </h3>
-            <p>
-              {filtered
-                ? 'No application matches these filters. Clearing one may bring some back.'
-                : search.queue
-                  ? 'Everything here has been dealt with.'
-                  : 'Nothing has been submitted to the programme office yet.'}
-            </p>
-            {filtered ? (
-              <button
-                type="button"
-                className="button"
-                style={{ marginTop: '1rem' }}
-                onClick={() =>
+          {/* Type Dropdown */}
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="type">
+              Type
+            </label>
+            <div className={styles.selectWrap}>
+              <select
+                id="type"
+                className={styles.selectControl}
+                value={search.applicationType ?? ''}
+                onChange={(event) =>
                   filter({
-                    search: undefined,
-                    applicationType: undefined,
-                    category: undefined,
-                    sector: undefined,
-                    mine: undefined,
+                    applicationType: (event.target.value || undefined) as
+                      | ApplicationType
+                      | undefined,
                   })
                 }
               >
-                Clear the filters
-              </button>
-            ) : null}
+                <option value="">Any type</option>
+                <option value="INITIAL">Initial</option>
+                <option value="EXPANSION">Expansion</option>
+              </select>
+              <ChevronDown className={styles.selectChevron} aria-hidden="true" />
+            </div>
+          </div>
+
+          {/* Cycle Dropdown */}
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="cycle">
+              Cycle
+            </label>
+            <div className={styles.selectWrap}>
+              <select
+                id="cycle"
+                className={styles.selectControl}
+                value={search.cycleId ?? ''}
+                onChange={(event) =>
+                  filter({ cycleId: event.target.value || undefined })
+                }
+              >
+                <option value="">Any cycle</option>
+                {(cycles ?? []).map((cycle) => (
+                  <option key={cycle.id} value={cycle.id}>
+                    {cycle.cycleCode}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className={styles.selectChevron} aria-hidden="true" />
+            </div>
           </div>
         </div>
+
+        {/* Multi-value dimensions. Several values OR together; dimensions AND. */}
+        <div className={styles.sectorGrid}>
+          <MultiSelectFilter
+            id="categories"
+            label="Categories"
+            options={CATEGORIES}
+            selected={search.categories}
+            onChange={(categories) => filter({ categories })}
+          />
+          <MultiSelectFilter
+            id="sectors"
+            label="Sectors"
+            options={SECTORS}
+            selected={search.sectors}
+            onChange={(sectors) => filter({ sectors })}
+          />
+          <MultiSelectFilter
+            id="districts"
+            label="Districts"
+            options={DISTRICTS}
+            selected={search.districts}
+            onChange={(districts) => filter({ districts })}
+          />
+
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={search.mine ?? false}
+              onChange={(event) =>
+                filter({ mine: event.target.checked ? true : undefined })
+              }
+            />
+            Only what I have claimed
+          </label>
+        </div>
+
+        {/* Amounts are typed in rupees and land on blur, once they mean a number. */}
+        <div className={styles.sectorGrid}>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="requested-min">
+              Requested at least (₹)
+            </label>
+            <input
+              id="requested-min"
+              className={styles.textControl}
+              inputMode="decimal"
+              placeholder="Any amount"
+              key={`min-${search.requestedMin ?? ''}`}
+              defaultValue={search.requestedMin ?? ''}
+              onBlur={(event) =>
+                filter({ requestedMin: rupeesOf(event.target.value.trim()) })
+              }
+            />
+          </div>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="requested-max">
+              Requested at most (₹)
+            </label>
+            <input
+              id="requested-max"
+              className={styles.textControl}
+              inputMode="decimal"
+              placeholder="Any amount"
+              key={`max-${search.requestedMax ?? ''}`}
+              defaultValue={search.requestedMax ?? ''}
+              onBlur={(event) =>
+                filter({ requestedMax: rupeesOf(event.target.value.trim()) })
+              }
+            />
+          </div>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="submitted-from">
+              Submitted from
+            </label>
+            <input
+              id="submitted-from"
+              type="date"
+              className={styles.textControl}
+              value={search.submittedFrom ?? ''}
+              onChange={(event) =>
+                filter({ submittedFrom: event.target.value || undefined })
+              }
+            />
+          </div>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="submitted-to">
+              Submitted to
+            </label>
+            <input
+              id="submitted-to"
+              type="date"
+              className={styles.textControl}
+              value={search.submittedTo ?? ''}
+              onChange={(event) =>
+                filter({ submittedTo: event.target.value || undefined })
+              }
+            />
+          </div>
+        </div>
+
+        <div className={styles.sectorGrid}>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="decided-from">
+              Decided from
+            </label>
+            <input
+              id="decided-from"
+              type="date"
+              className={styles.textControl}
+              value={search.decidedFrom ?? ''}
+              onChange={(event) =>
+                filter({ decidedFrom: event.target.value || undefined })
+              }
+            />
+          </div>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="decided-to">
+              Decided to
+            </label>
+            <input
+              id="decided-to"
+              type="date"
+              className={styles.textControl}
+              value={search.decidedTo ?? ''}
+              onChange={(event) =>
+                filter({ decidedTo: event.target.value || undefined })
+              }
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Applications Table Card */}
+      {rows.length === 0 ? (
+        <div className={styles.emptyCard}>
+          {/* Three different facts, and the heading has to say which one. */}
+          <h3 className={styles.emptyTitle}>
+            {filtered
+              ? 'Nothing matches'
+              : search.queue
+                ? 'Nothing in this queue'
+                : 'No applications yet'}
+          </h3>
+          <p className={styles.emptyText}>
+            {filtered
+              ? 'No application matches these filters. Clearing one may bring some back.'
+              : search.queue
+                ? 'Everything here has been dealt with.'
+                : 'Nothing has been submitted to the programme office yet.'}
+          </p>
+          {filtered ? (
+            <button
+              type="button"
+              className={styles.clearFilterBtn}
+              onClick={() =>
+                filter({
+                  search: undefined,
+                  applicationType: undefined,
+                  categories: undefined,
+                  sectors: undefined,
+                  districts: undefined,
+                  cycleId: undefined,
+                  requestedMin: undefined,
+                  requestedMax: undefined,
+                  submittedFrom: undefined,
+                  submittedTo: undefined,
+                  decidedFrom: undefined,
+                  decidedTo: undefined,
+                  mine: undefined,
+                })
+              }
+            >
+              Clear the filters
+            </button>
+          ) : null}
+        </div>
       ) : (
-        <div className="card" aria-busy={isPlaceholderData} {...mark('queue-rows')}>
-          <div className="table-wrap">
-            <table className="table">
+        <div
+          className={styles.tableCard}
+          aria-busy={isPlaceholderData}
+          {...mark('queue-rows')}
+        >
+          <h2 className={styles.tableTitle}>Applications in this queue</h2>
+          <div className={styles.tableWrap}>
+            <table className={styles.appsTable}>
               <caption className="visually-hidden">Applications in this queue</caption>
               <thead>
                 <tr>
@@ -364,17 +761,19 @@ function QueuePage() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id}>
+                  <tr key={row.id} className={styles.appsTableRow}>
                     <td>
                       <Link
                         to="/admin/applications/$id"
                         params={{ id: row.id }}
-                        className="tabular"
+                        className={styles.refLink}
                       >
                         {row.referenceNumber ?? '—'}
                       </Link>
                     </td>
-                    <td>{row.enterpriseName}</td>
+                    <td>
+                      <span className={styles.enterpriseText}>{row.enterpriseName}</span>
+                    </td>
                     <td className="tabular">{row.cycleCode}</td>
                     <td>
                       {row.applicationType === 'EXPANSION'
@@ -390,22 +789,29 @@ function QueuePage() {
                       ) : null}
                     </td>
                     <td>
-                      <span className="badge" data-tone={statusTone(row.status)}>
+                      <span
+                        className={styles.statusBadge}
+                        data-tone={statusTone(row.status)}
+                      >
                         {humanize(row.status)}
                       </span>
                     </td>
                     <td>
-                      {waitingFor(row.statusChangedAt)}
-                      <span className="field-hint">
-                        submitted {formatDate(row.submittedAt)}
-                      </span>
+                      <div className={styles.waitingCell}>
+                        <span className={styles.waitingPrimary}>
+                          {waitingFor(row.statusChangedAt)}
+                        </span>
+                        <span className={styles.waitingSub}>
+                          submitted {formatDate(row.submittedAt)}
+                        </span>
+                      </div>
                     </td>
                     <td>
                       {row.assignedToUserId ? (
                         // Who claimed it is an internal user id; the workspace
                         // is where a name can be resolved, so this says only
                         // that somebody has it.
-                        <span className="badge">Claimed</span>
+                        <span className={styles.statusBadge}>Claimed</span>
                       ) : (
                         <span className="muted">Nobody</span>
                       )}
@@ -416,26 +822,82 @@ function QueuePage() {
             </table>
           </div>
 
-          <Pager
-            shown={rows.length}
-            totalCount={data?.pageInfo.totalCount ?? 0}
-            hasNextPage={data?.pageInfo.hasNextPage ?? false}
-            atStart={!search.after}
-            pageSize={QUEUE_PAGE_SIZE}
-            onFirst={() =>
-              navigate({ search: (previous) => ({ ...previous, after: undefined }) })
-            }
-            onNext={() =>
-              navigate({
-                search: (previous) => ({
-                  ...previous,
-                  after: data?.pageInfo.endCursor ?? undefined,
-                }),
-              })
-            }
-          />
+          <div className={styles.resultsFooter}>
+            <span>{data?.pageInfo.totalCount ?? rows.length} results</span>
+            <Pager
+              shown={rows.length}
+              totalCount={data?.pageInfo.totalCount ?? 0}
+              hasNextPage={data?.pageInfo.hasNextPage ?? false}
+              atStart={!search.after}
+              pageSize={QUEUE_PAGE_SIZE}
+              onFirst={() =>
+                navigate({
+                  search: (previous) => ({ ...previous, after: undefined }),
+                })
+              }
+              onNext={() =>
+                navigate({
+                  search: (previous) => ({
+                    ...previous,
+                    after: data?.pageInfo.endCursor ?? undefined,
+                  }),
+                })
+              }
+            />
+          </div>
         </div>
       )}
     </main>
+  )
+}
+
+/**
+ * One multi-value dimension as a native listbox.
+ *
+ * A native `<select multiple>` rather than a custom popover: it is keyboard
+ * and screen-reader complete for free, and the URL — not the control — is the
+ * record of what is selected. Clearing every option clears the key entirely,
+ * so "nothing selected" reads as "no filter", never as "match nothing".
+ */
+function MultiSelectFilter<TValue extends string>({
+  id,
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  id: string
+  label: string
+  options: readonly TValue[]
+  selected: TValue[] | undefined
+  onChange: (selected: TValue[] | undefined) => void
+}) {
+  return (
+    <div className={styles.filterField}>
+      <label className={styles.filterLabel} htmlFor={id}>
+        {label}
+        {selected?.length ? ` (${selected.length})` : ''}
+      </label>
+      <select
+        id={id}
+        multiple
+        size={4}
+        className={styles.multiSelect}
+        value={selected ?? []}
+        onChange={(event) => {
+          const chosen = Array.from(
+            event.target.selectedOptions,
+            (option) => option.value as TValue,
+          )
+          onChange(chosen.length > 0 ? chosen : undefined)
+        }}
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {humanize(option)}
+          </option>
+        ))}
+      </select>
+    </div>
   )
 }

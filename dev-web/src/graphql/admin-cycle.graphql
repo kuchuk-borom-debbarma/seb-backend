@@ -52,7 +52,28 @@ query AdminCycleById($id: ID!) {
         message
         response {
           head { ...AdminCycleHead }
-          documentRules { id documentType condition }
+          # The rules as this cycle actually holds them, rather than the
+          # defaults this client would otherwise resend on every save.
+          policy {
+            minimumApplicantAge
+            maximumApplicantAge
+            categoryAMaximumMonths
+            expansionWaitMonths
+            majorityOwnershipRequired
+            jurisdiction
+            fundingCeilingState
+            fundingCeilingAmountPaise
+            fundingCeilingScope
+          }
+          identifierRules { kind requirement duplicatePolicy checkType }
+          # What this cycle actually asks. An administrator cannot change a form
+          # they cannot see, and until this existed the only way to look at one
+          # was to start an application against the cycle.
+          formTemplate { ...FormTemplateFields }
+          # The editable definitions behind the template's derived group
+          # members — needed here so editing a draft can send the authoring
+          # form back rather than its own expansion.
+          groupDefinitions { ...GroupDefinitionFields }
           assessmentRules { id assessmentType requiredOutcome }
           reasons { id context code label applicantMessageTemplate }
         }
@@ -133,6 +154,44 @@ mutation UpdateCycleGuidance($input: CycleGuidanceInput!) {
   admin {
     programmeCycle {
       updateOpenGuidance(input: $input) {
+        success
+        message
+        response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}
+
+# The whole rule set of a draft, replaced. The only way a cycle's rules change:
+# once open, only guidance and the closing time may move.
+mutation UpdateCycleDraft($input: UpdateProgrammeCycleInput!) {
+  admin {
+    programmeCycle {
+      updateDraft(input: $input) {
+        success
+        message
+        response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}
+
+mutation SoftDeleteCycleDraft($input: CycleTransitionInput!) {
+  admin {
+    programmeCycle {
+      softDeleteDraft(input: $input) {
+        success
+        message
+        response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}
+
+mutation RestoreCycleDraft($id: ID!, $expectedVersion: Int!) {
+  admin {
+    programmeCycle {
+      restoreDraft(id: $id, expectedVersion: $expectedVersion) {
         success
         message
         response { head { ...AdminCycleHead } }

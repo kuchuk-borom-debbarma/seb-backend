@@ -1,7 +1,7 @@
 # Administrative service
 
 Everything that happens to an application after it is submitted: programme-cycle
-governance, the intake queues, desk review, offline bank evidence, committee
+governance, the intake queues, desk review, offline bank evidence, programme
 decisions, awards and payments, and operational recovery.
 
 The plain-language staff journey — what the rules *are*, and why — is the
@@ -32,11 +32,16 @@ document is how the code implements it.
 | Path | Owns |
 | --- | --- |
 | `controllers/programme-cycle.ts` | Policy input and cycle lifecycle |
-| `controllers/intake.ts` | Queues, assignment, notes, desk review |
-| `controllers/decision.ts` | Bank referrals and outcomes; meetings, agendas, decisions |
+| `controllers/form-template.ts` | Authoring the questions a draft cycle asks — the nine `formTemplate` mutations |
+| `controllers/intake.ts` | Queues, notes, desk review, the workspace |
+| `controllers/analytics.ts` | The intake analytics summary |
+| `controllers/decision.ts` | Bank referrals and outcomes, and the programme decision |
 | `controllers/funding.ts` | Awards, releases, reversals, assessments, recovery |
-| `queries/*` | Drizzle reads and every guarded write |
+| `queries/*` | Drizzle reads and every guarded write; `queries/analytics.ts` groups the queue's own filtered set |
+| `form-template-input.ts` | Refusing an incoherent form before a cycle can carry one |
+| `group-definitions.ts` | Reusable structures: the grammar guards, and expansion into qualified keys |
 | `identifiers.ts` | Normalizing and hashing what a reviewer transcribes |
+| `revisions.ts` | Validating a revision request against the cycle's own stages |
 | `document-scanner.ts` | The internal scanner callback — no HTTP or GraphQL exposure |
 | `support.ts` | Response envelope, audit builder, the reasoned-transition preamble |
 | `types.ts`, `pagination.ts` | Shared shapes; `pagination.ts` re-exports the applicant's |
@@ -53,14 +58,11 @@ There is no claim. `assigned_to_user_id`, `assigned_at` and the append-only
 `seb_application_assignment_event` history remain, but nothing reads them to
 decide whether a write is allowed — they are a record of who worked a file,
 written as a side effect of the work itself. Starting a desk review stamps the
-actor; so does completing one, and so does a TTM decision.
+actor; so does completing one, and so does recording a decision.
 
-The claim was removed because it was never what made a write safe. Seven of the
-eight writes that carried `assigned_to_user_id = actor` also carried
-`status_version`, and *that* is what serialises concurrent writers. The eighth —
-adding an agenda item — had no version term, and keeps the guards it already
-had: the meeting is `DRAFT`, the application is in `TTM_REVIEW`, and fewer than
-twenty items are active.
+The claim was removed because it was never what made a write safe. Every write
+that carried `assigned_to_user_id = actor` also carried `status_version`, and
+*that* is what serialises concurrent writers.
 
 It also cost something concrete. Reading a document was gated on holding the
 file, and claiming required `STAFF_WRITE`, so a reviewer could never open a
@@ -99,8 +101,8 @@ It is therefore kept, on the act it qualifies:
 | Act | Column | Also writes |
 | --- | --- | --- |
 | `completeDeskReview` | `seb_desk_review.conflict_acknowledged` | `SEB.SELF_REVIEW_DISCLOSED` |
-| `recordTtmDecision` | `seb_ttm_decision.conflict_acknowledged` | `SEB.SELF_REVIEW_DISCLOSED` |
-| `correctTtmDecision` | the superseding row's own column | `SEB.SELF_REVIEW_DISCLOSED` |
+| `recordDecision` | `seb_programme_decision.conflict_acknowledged` | `SEB.SELF_REVIEW_DISCLOSED` |
+| `correctDecision` | the superseding row's own column | `SEB.SELF_REVIEW_DISCLOSED` |
 
 Three properties are worth stating because none is accidental.
 
@@ -198,9 +200,11 @@ must be `ACCEPTED`. It needs `STAFF_READ` and nothing more — a draft is refuse
 identically to an application that does not exist, so the path cannot be used
 to discover which drafts exist. There is no
 GraphQL mutation to accept a scan and there must never be one —
-`recordDocumentScanResult` is an internal function for a future trusted scanner.
-The scanner provider is not connected, so staff document access remains a
-public-launch blocker.
+`recordDocumentScanResult` is called only by the queue consumer, which builds
+whatever scanner `SCANNER_TRANSPORT` names. Cloudmersive genuinely examines the
+file; unset means accepted-but-recorded-as-unexamined, which production
+refuses. See the
+[document scanner service](../document-scanner/README.md).
 
 ## Exports
 
@@ -211,24 +215,30 @@ public-launch blocker.
 | `startDeskReview`, `completeDeskReview`, `cancelRevisionRequest` | `controllers/intake.ts` | The review itself |
 | `adminDocumentDownloadUrl` | `controllers/intake.ts` | Fail-closed signed download of a pinned file |
 | `referApplicationToBank`, `recordBankOutcome`, `cancelBankReferral`, `correctBankOutcome` | `controllers/decision.ts` | The offline partner-bank stage |
-| `ttmMeetings`, `ttmMeetingById`, `createTtmMeeting`, `updateTtmMeeting`, `cancelTtmMeeting`, `startTtmMeeting`, `finalizeTtmMeeting` | `controllers/decision.ts` | Meeting lifecycle |
-| `addTtmAgendaItem`, `reorderTtmAgendaItem`, `removeTtmAgendaItem` | `controllers/decision.ts` | Agenda, each change reasoned and retained |
-| `recordTtmDecision`, `correctTtmDecision` | `controllers/decision.ts` | The committee's verdict; a correction supersedes |
+| `recordDecision`, `correctDecision` | `controllers/decision.ts` | The programme's verdict; a correction supersedes |
 | `fundingByApplication`, `createFundingAward`, `changeFundingAward` | `controllers/funding.ts` | The award |
 | `recordFundingRelease`, `reverseFundingRelease` | `controllers/funding.ts` | The money ledger |
 | `recordFundingAssessment` | `controllers/funding.ts` | Utilization, performance, financial audit |
 | `recoveryById`, `openRecoveryCase`, `recordRecoveryEntry`, `closeRecoveryCase`, `cancelRecoveryCase` | `controllers/funding.ts` | Recovery |
 | `createProgrammeCycle`, `openProgrammeCycle`, `closeProgrammeCycle`, `archiveProgrammeCycle` and the rest | `controllers/programme-cycle.ts` | Cycle lifecycle |
+| `replaceFormTemplate`, `addFormStage`, `updateFormStage`, `removeFormStage`, `addFormQuestion`, `updateFormQuestion`, `removeFormQuestion`, `putFormGroupDefinition`, `removeFormGroupDefinition` | `controllers/form-template.ts` | The nine form-authoring mutations; every one re-validates the whole form |
+| `analyticsSummary` | `controllers/analytics.ts` | The filtered intake, grouped along every reporting dimension |
+| `formTemplateProblem` | `form-template-input.ts` | A template in, `null` or one refusal sentence out |
+| `expandGroupDefinitions` | `group-definitions.ts` | Materialises structure members as `USE__MEMBER` fields, or names the first fault |
 | `closeExpiredProgrammeCycles` | `controllers/programme-cycle.ts` | Hourly cron; at most 20 cycles per run |
 | `recordDocumentScanResult` | `document-scanner.ts` | Appends a scan outcome. Not exposed |
 | `identifierMatches` | `queries/intake.ts` | Which transcribed values exist on another case |
 | `calculateRecoveryBalance` | `queries/funding.ts` | The pure accounting fold |
-| `currentStaff`, `authorizeReasonedTransition`, `adminAudit`, `constraintSafe` | `support.ts` | The shared preamble every transition uses |
+| `currentStaff`, `authorizeReasonedTransition`, `adminAudit`, `constraintSafe` | `support.ts` | The shared preamble every transition uses. `constraintSafe` is re-exported from `services/constraints.ts`, where it sits beside the rule that decides which failures mean *try again* — `services/auth` needs it too, and reaching into this package for it would make one service's helper another's dependency |
 
 ## Tests
 
-`test/admin.test.ts` covers the workflow end to end; `test/schema.test.ts`
-covers the constraints. Both run under `npm run check` at 100% coverage.
+`test/service/admin.test.ts` covers the workflow end to end;
+`test/service/schema.test.ts` covers the constraints; the form authoring has
+its own suites (`form-authoring.test.ts`, `form-authoring-refusals.test.ts`,
+`group-definitions.test.ts`, `analytics.test.ts`, `cycle-admin.test.ts`). All
+run under `npm run check`, whose coverage thresholds are a ratchet set just
+below what the suite holds — see `vitest.service.config.ts`.
 
 ## Elsewhere
 

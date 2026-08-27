@@ -1,0 +1,732 @@
+/* ==========================================================================
+   Cycle Details Page Styles
+   ========================================================================== */
+
+.pageWrap {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 32px 64px;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Top Header */
+.headerRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  max-width: 820px;
+}
+
+.cycleIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #e6f9ed;
+  color: #16a34a;
+  flex-shrink: 0;
+}
+
+.headerTextGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cycleTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.statusBadge[data-tone="open"] {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.statusBadge[data-tone="draft"] {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.statusBadge[data-tone="closed"] {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.statusBadge[data-tone="archived"] {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.cycleMeta {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.cycleDescription {
+  font-size: 13px;
+  color: #475569;
+  margin: 4px 0 0;
+  line-height: 1.5;
+}
+
+.backButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.backButton:hover {
+  background: #f8fafc;
+  border-color: #9ca3af;
+  color: #0f172a;
+}
+
+/* Two Column Layout Grid */
+.detailsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.leftColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.rightColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Cards */
+.card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.outlineActionButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #2563eb;
+  background: #ffffff;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.outlineActionButton:hover {
+  background: #eff6ff;
+}
+
+/* Lifecycle Stepper */
+.lifecycleStepper {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 10px 8px;
+  position: relative;
+}
+
+.stepperTrack {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  position: relative;
+}
+
+.lifecycleStep {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  gap: 6px;
+}
+
+.stepCircle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #e2e8f0;
+  background: #ffffff;
+  color: #94a3b8;
+  transition: all 0.15s ease;
+}
+
+.lifecycleStep[data-state='done'] .stepCircle {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
+}
+
+.lifecycleStep[data-state='current'] .stepCircle {
+  border-color: #16a34a;
+  color: #16a34a;
+  background: #ffffff;
+}
+
+.stepConnector {
+  position: absolute;
+  top: 14px;
+  left: 12%;
+  right: 12%;
+  height: 2px;
+  background: #e2e8f0;
+  z-index: 1;
+}
+
+.stepConnectorProgress {
+  height: 100%;
+  background: #16a34a;
+  transition: width 0.2s ease;
+}
+
+.stepLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.lifecycleStep[data-state='done'] .stepLabel,
+.lifecycleStep[data-state='current'] .stepLabel {
+  color: #0f172a;
+}
+
+.stepDate {
+  font-size: 11px;
+  color: #64748b;
+}
+
+/* Action Banner in Lifecycle */
+.actionBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f0f7ff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 6px;
+}
+
+.actionBannerLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e40af;
+}
+
+/* Guidance Card */
+.guidanceBody {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.guidanceIllustration {
+  width: 140px;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.guidanceTextWrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.guidanceText {
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.guidancePlaceholderLine {
+  height: 6px;
+  border-radius: 3px;
+  background: #e2e8f0;
+}
+
+/* Applications Status Rows */
+.countsList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.countRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.countLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.countIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.countIconBadge[data-type="review"] {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.countIconBadge[data-type="submitted"] {
+  background: #faf5ff;
+  color: #9333ea;
+}
+
+.countIconBadge[data-type="bank"] {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.countLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.countValue {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* History Timeline */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  padding-left: 20px;
+}
+
+.timelineItem {
+  position: relative;
+  padding-bottom: 16px;
+}
+
+.timelineItem:last-child {
+  padding-bottom: 0;
+}
+
+.timelineDot {
+  position: absolute;
+  left: -20px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #16a34a;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 2px #16a34a;
+}
+
+.timelineLine {
+  position: absolute;
+  left: -16px;
+  top: 14px;
+  bottom: 0;
+  width: 2px;
+  background: #e2e8f0;
+}
+
+.timelineHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.timelineDate {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.timelineBadge {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #16a34a;
+}
+
+.timelineDesc {
+  font-size: 13px;
+  color: #334155;
+  margin: 2px 0 0;
+}
+
+/* Policy Frozen Table */
+.policyTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.policyRow {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.policyRow:last-child {
+  border-bottom: none;
+}
+
+.policyKeyCell {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  width: 220px;
+  vertical-align: middle;
+}
+
+.policyIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #2563eb;
+  flex-shrink: 0;
+}
+
+.policyKeyText {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.policyValueCell {
+  padding: 14px 0 14px 16px;
+  font-size: 13px;
+  color: #0f172a;
+  vertical-align: middle;
+  line-height: 1.5;
+}
+
+/* Document Pills Wrapper */
+.evidencePillsWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.evidencePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.pillDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pillDot[data-tone="blue"] {
+  background: #2563eb;
+}
+
+.pillDot[data-tone="purple"] {
+  background: #9333ea;
+}
+
+/* Assessment Green Pills */
+.assessmentPillsWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.assessmentPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #f0fdf4;
+  border: 1px solid #dcfce7;
+  font-size: 12px;
+  font-weight: 600;
+  color: #15803d;
+}
+
+.assessmentCheckIcon {
+  color: #16a34a;
+  flex-shrink: 0;
+}
+
+/* Evidence Modal Items */
+.evidenceList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.evidenceItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  gap: 12px;
+}
+
+.evidenceItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.evidenceDocIcon {
+  color: #2563eb;
+  flex-shrink: 0;
+}
+
+.evidenceDocName {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.evidenceConditionBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.evidenceConditionBadge[data-tone="always"] {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.evidenceConditionBadge[data-tone="conditional"] {
+  background: #faf5ff;
+  color: #9333ea;
+}
+
+/* Modal Popup */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+.modalDialog {
+  background: #ffffff;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modalSlideUp {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.modalTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.modalCloseButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modalCloseButton:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.modalBody {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  background: #f8fafc;
+  border-top: 1px solid #e5e7eb;
+}
+
+@media (max-width: 64rem) {
+  .detailsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .headerRow {
+    flex-direction: column;
+  }
+}

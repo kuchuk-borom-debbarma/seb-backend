@@ -1,24 +1,29 @@
 /**
  * The evidence screen.
  *
- * One row per document the application can carry, showing what is attached and
- * what is still wanted. Which documents are *required* is decided by the cycle's
- * rules and by the answers given, and only the server knows that — so the
- * requirement shown against each row is the validation report's own message,
- * not a rule restated here.
+ * One row per `FILE` question the cycle asks, showing what is attached and what
+ * is still wanted. Which documents exist at all, and which are *required*, are
+ * both the cycle's decisions — the rows come from the template and the
+ * requirement shown against each is the validation report's own message, not a
+ * rule restated here.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, createFileRoute } from '@tanstack/react-router'
-import { useMemo, useRef, useState } from 'react'
+import { createFileRoute, useLocation, useRouter } from '@tanstack/react-router'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import {
+  ATTACH_EVIDENCE,
+  ApplicationJourney,
+  issuesForStep,
+} from '#/features/application/ApplicationJourney'
+import {
   applicationQuery,
+  formTemplateQuery,
   loadApplication,
   validationQuery,
 } from '#/features/application/applicationQueries'
+import { resolveTemplate, visibleFields } from '#/features/application/formTemplate'
 import {
-  DOCUMENT_TITLES,
-  DOCUMENT_TYPES,
   FILE_ACCEPT,
   MAX_DOCUMENT_MEGABYTES,
   formatBytes,
@@ -31,7 +36,6 @@ import {
   SoftDeleteDocumentDocument,
 } from '#/graphql/generated/operations'
 import type { ApplicationByIdQuery } from '#/graphql/generated/operations'
-import type { DocumentType } from '#/graphql/generated/schema'
 import { formatDateTime } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { assertSucceeded, messageFor, unwrap } from '#/lib/result'
@@ -48,29 +52,61 @@ export const Route = createFileRoute('/_shell/_applicant/applications/$id/docume
 
 function DocumentsPage() {
   const { id } = Route.useParams()
+  const router = useRouter()
   const queryClient = useQueryClient()
   const { data: application } = useQuery(applicationQuery(id))
   const { data: validation } = useQuery(validationQuery(id))
+  const { data: rawTemplate } = useQuery(formTemplateQuery(id))
+  const template = useMemo(
+    () => (rawTemplate ? resolveTemplate(rawTemplate) : null),
+    [rawTemplate],
+  )
+  const hash = useLocation({ select: (location) => location.hash })
 
-  /** The API's message for each document type it says is missing. */
+  /*
+   * Arriving from the review table with a document slot named in the address.
+   * Waits for the application, because until then the rows are not on the page
+   * to focus.
+   */
+  useEffect(() => {
+    if (!hash || !application) return
+    const slot = document.getElementById(hash)
+    if (!slot) return
+    const stillness = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    slot.scrollIntoView({ block: 'center', behavior: stillness ? 'auto' : 'smooth' })
+    slot.focus({ preventScroll: true })
+  }, [application, hash])
+
+  /** The API's message for each slot it says is missing. */
   const requirements = useMemo(() => {
-    const byType: Partial<Record<DocumentType, string>> = {}
+    const byKey: Record<string, string> = {}
     for (const issue of validation?.issues ?? []) {
-      if (issue.section === 'DOCUMENTS' && issue.code === 'DOCUMENT_REQUIRED') {
-        byType[issue.field as DocumentType] = issue.message
-      }
+      if (issue.code === 'DOCUMENT_REQUIRED') byKey[issue.field] = issue.message
     }
-    return byType
+    return byKey
   }, [validation])
 
-  /** The document attached for each type, deleted ones included. */
+  /** The document attached in each slot, deleted ones included. */
   const attached = useMemo(() => {
-    const byType: Partial<Record<DocumentType, Document>> = {}
+    const byKey: Record<string, Document> = {}
     for (const document of application?.documents ?? []) {
-      byType[document.documentType] = document
+      byKey[document.fieldKey] = document
     }
-    return byType
+    return byKey
   }, [application])
+
+  /*
+   * Only the slots this cycle asks, and only the ones its conditions leave on
+   * screen: a document demanded by a question the applicant answered "no" to is
+   * not asked for at all.
+   */
+  const slots = useMemo(() => {
+    if (!template || !application) return []
+    const visible = visibleFields(template, application.answers)
+    return template.fields.filter(
+      (field) => field.type === 'FILE' && visible.has(field.key),
+    )
+  }, [template, application])
 
   /** Both queries are stale the moment any document changes. */
   const refresh = async () => {
@@ -80,48 +116,102 @@ function DocumentsPage() {
     ])
   }
 
-  if (!application) return null
+  if (!application || !template) return null
 
-  const editable = application.editableSections.includes('DOCUMENTS')
+  const editableStages = new Set(application.editableStageKeys)
+  const documentIssues = issuesForStep(
+    template,
+    validation?.issues ?? [],
+    ATTACH_EVIDENCE,
+  )
+  const lastStageKey = template.stages[template.stages.length - 1]?.key
+
+  const continueToReview = async () => {
+    if (documentIssues.length > 0) {
+      const row = document.getElementById(documentIssues[0]?.field ?? '')
+      row?.focus()
+      row?.scrollIntoView({ block: 'center' })
+      return
+    }
+    await router.navigate({ to: '/applications/$id/review', params: { id } })
+  }
 
   return (
     <main className="page">
       <PageHeader
-        title="Evidence"
+        title="Application form"
         description={
-          editable
+          editableStages.size > 0
             ? `Attach a PDF, JPEG or PNG for each document, up to ${MAX_DOCUMENT_MEGABYTES} MB.`
             : 'These documents are part of a submitted application and can no longer be changed.'
         }
       />
 
-      <div className="stack">
-        {DOCUMENT_TYPES.map((documentType) => (
-          <DocumentRow
-            key={documentType}
-            applicationId={id}
-            documentType={documentType}
-            document={attached[documentType]}
-            requirement={requirements[documentType]}
-            editable={editable}
-            onChanged={refresh}
-          />
-        ))}
-      </div>
-
-      <div className="row" style={{ marginTop: '1.5rem' }}>
-        <Link
-          to="/applications/$id/review"
-          params={{ id }}
-          className="button"
-          data-variant="primary"
-        >
-          Check and submit
-        </Link>
-        <Link to="/applications/$id/form" params={{ id }} className="button">
-          Back to the form
-        </Link>
-      </div>
+      <ApplicationJourney
+        applicationId={id}
+        template={template}
+        activeStep={ATTACH_EVIDENCE}
+        issues={validation?.issues ?? []}
+        editableStageKeys={application.editableStageKeys}
+        footerStatus={
+          documentIssues.length > 0 ? (
+            <span className="badge" data-tone="error" aria-live="polite">
+              {documentIssues.length}{' '}
+              {documentIssues.length === 1 ? 'required file' : 'required files'} missing
+            </span>
+          ) : (
+            <span className="badge" data-tone="ok">
+              Evidence requirements complete
+            </span>
+          )
+        }
+        footer={
+          <>
+            <button
+              type="button"
+              className="button"
+              onClick={() =>
+                void router.navigate({
+                  to: '/applications/$id/form',
+                  params: { id },
+                  search: lastStageKey ? { stage: lastStageKey } : undefined,
+                })
+              }
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              className="button"
+              data-variant="primary"
+              onClick={continueToReview}
+            >
+              Check and submit
+            </button>
+          </>
+        }
+      >
+        <div className="stack">
+          {slots.map((slot) => (
+            <DocumentRow
+              key={slot.key}
+              applicationId={id}
+              fieldKey={slot.key}
+              title={slot.label}
+              hint={slot.helpText}
+              document={attached[slot.key]}
+              requirement={requirements[slot.key]}
+              /*
+               * Per slot, because a document belongs to the stage its question
+               * sits in and a revision reopens named stages. The API refuses on
+               * exactly this rule, so a control offered here is one that works.
+               */
+              editable={editableStages.has(slot.stageKey)}
+              onChanged={refresh}
+            />
+          ))}
+        </div>
+      </ApplicationJourney>
     </main>
   )
 }
@@ -136,14 +226,18 @@ function DocumentsPage() {
  */
 function DocumentRow({
   applicationId,
-  documentType,
+  fieldKey,
+  title,
+  hint,
   document,
   requirement,
   editable,
   onChanged,
 }: {
   applicationId: string
-  documentType: DocumentType
+  fieldKey: string
+  title: string
+  hint: string | null
   document: Document | undefined
   requirement: string | undefined
   editable: boolean
@@ -159,7 +253,7 @@ function DocumentRow({
     mutationFn: (file: File) =>
       uploadDocument({
         applicationId,
-        documentType,
+        fieldKey,
         // 0 means "nothing attached yet"; anything else replaces that exact
         // version, and the server refuses if it moved in the meantime.
         expectedVersion: present?.currentVersion ?? 0,
@@ -229,10 +323,11 @@ function DocumentRow({
   }
 
   return (
-    <section className="card">
+    <section className="card" id={fieldKey} tabIndex={-1}>
       <div className="card-header">
         <div>
-          <h3>{DOCUMENT_TITLES[documentType]}</h3>
+          <h3>{title}</h3>
+          {hint ? <p className="field-hint">{hint}</p> : null}
           {present ? (
             <p className="field-hint">
               <span className="tabular">{present.originalFilename}</span> ·{' '}

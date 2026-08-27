@@ -31,7 +31,7 @@ export type OfficeTerm =
   | 'workingTogether'
   | 'frozenEvidence'
   | 'bankOutcome'
-  | 'meetingState'
+  | 'decisionRecord'
   | 'ledger'
   | 'recoveryLive'
   | 'frozenPolicy'
@@ -51,7 +51,7 @@ export const OFFICE_HELP: Record<OfficeTerm, string> = {
     'application, the other is checking that a named section was fixed. They are ' +
     'counted separately so the two never land in one pile.',
 
-  // Source: admin-workflow-guide.md, "Working the same file as somebody else".
+  // Source: admin-workflow-guide.md, "Intake queues".
   workingTogether:
     'Anybody holding the right role can act on this; there is nothing to reserve ' +
     'first. Knowing who was here last is still worth having, so it is shown — but ' +
@@ -71,12 +71,12 @@ export const OFFICE_HELP: Record<OfficeTerm, string> = {
     'both stay on the file, so what was first said and when the office learned ' +
     'otherwise are both readable.',
 
-  // Source: admin-workflow-guide.md, "TTM meetings and decisions".
-  meetingState:
-    'The state decides what is possible. While a meeting is being planned the agenda ' +
-    'can be changed; once it is in session the evidence locks and decisions are ' +
-    'recorded against it; once finalized nothing moves. It can only be finalized ' +
-    'when every item on the agenda has an outcome.',
+  // Source: admin-workflow-guide.md, "The programme decision".
+  decisionRecord:
+    'An application that has cleared the bank stage waits to be decided, and is ' +
+    'decided here. The record names the submission and the bank outcome that were ' +
+    'read. A decision is never edited: a correction supersedes the one before it, ' +
+    'carries its own reason, and is refused once an award exists.',
 
   // Source: admin-workflow-guide.md, "Awards, releases, and assessments".
   ledger:
@@ -134,20 +134,10 @@ export const OFFICE_LEDES = {
     'is checked against the version you are looking at, so two people acting at ' +
     'once get a refusal rather than a silent overwrite.',
 
-  meeting:
-    'An agenda is built while the meeting is being planned, decisions are recorded ' +
-    'while it is in session, and nothing moves once it is finalized. Only what the ' +
-    'current state allows is offered.',
-
   cycle:
     'The policy applications in this programme year are judged by. Opening it ' +
     'publishes the cycle and freezes these rules into every application started ' +
     'while it is open.',
-
-  meetings:
-    'The committee sits, works through a numbered agenda, and records one decision ' +
-    'for each application on it. An application joins an agenda from its own ' +
-    'workspace, once a partner bank has answered.',
 
   funding:
     'The award, the money released against it, and anything that has to come back. ' +

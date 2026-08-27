@@ -26,11 +26,12 @@ import {
   lte,
   type SQL,
 } from 'drizzle-orm'
+import type { PgSelect } from 'drizzle-orm/pg-core'
 import { COUNT_MISSING, requireInvariant } from '../../application/support'
 
 /** A submitted application without a reference number cannot happen. */
 const REFERENCE_MISSING = 'A reviewed application has no reference number.'
-import type { Database } from '../../../db'
+import { batch, type Database, type Transaction } from '../../../db'
 import {
   coreAuditEvent,
   sebApplication,
@@ -42,10 +43,12 @@ import {
   sebApplicationSubmission,
   sebApplicationSubmissionDocument,
   sebApplicationVersion,
+  sebApplicationVersionAnswer,
   sebDeskReview,
   sebDeskReviewIdentifier,
   sebDeskReviewCheck,
   sebEnterprise,
+  sebEnterpriseVersion,
   sebPartnerBankOutcome,
   sebPartnerBankReferral,
   sebProgrammeCycle,
@@ -53,17 +56,24 @@ import {
   sebProgrammeCycleReason,
   sebRecoveryCase,
   sebRevisionRequest,
-  sebTtmAgendaItem,
-  sebTtmDecision,
+  sebProgrammeDecision,
   sebFundingAward,
   sebDisbursement,
   sebAwardAssessment,
 } from '../../../db/schema'
-import { changedSections } from '../../application/sections'
+import { roleAnswerText } from '../../application/queries/answer-sql'
+import { findPinnedRulesForApplication } from '../../application/queries/form-template'
+import { changedStageKeys } from '../../application/form/answers'
+import type { AnswerMap } from '../../application/form/types'
+import {
+  answersByVersion,
+  findAnswerRows,
+  findPinnedCycleRules,
+} from '../../application/queries/form-template'
 import { MAX_COLLECTION_ROWS } from '../../application/pagination'
 import { encodeAdminCursor, type SortKey } from '../pagination'
 import { prefixMatchAny, prefixPattern } from '../../search'
-import { adminAudit, disclosedSelfReview } from '../support'
+import { adminAudit, disclosedSelfReview, headJustMovedTo } from '../support'
 import { intakeQueueKeys } from '../types'
 import type { IdentifierKind } from '../identifiers'
 import type {
@@ -86,15 +96,42 @@ export const loadApplicationHead = async (db: Database, id: string) => {
     })
     .from(sebApplication)
     .innerJoin(sebEnterprise, eq(sebEnterprise.id, sebApplication.enterpriseId))
+    .innerJoin(
+      sebEnterpriseVersion,
+      and(
+        eq(sebEnterpriseVersion.enterpriseId, sebEnterprise.id),
+        eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
+      ),
+    )
     .innerJoin(sebProgrammeCycle, eq(sebProgrammeCycle.id, sebApplication.programmeCycleId))
     .where(eq(sebApplication.id, id))
     .limit(1)
   return row ?? null
 }
 
+/**
+ * The amount this submission asked for, read from the answer it was given in.
+ *
+ * Resolved here, once, rather than at the three places that bound a decision by
+ * it. The path is a literal because a role-bound field must use its canonical
+ * key — that constraint exists precisely so code which is not template-aware,
+ * like the amount a decision is bounded by, can still find its input across
+ * every cycle.
+ *
+ * Read as text and parsed in JavaScript rather than cast in SQL: a `::bigint`
+ * on a column that is text by design raises on any non-numeric row, turning a
+ * corrupt answer into a failed read of the whole submission instead of one
+ * refusal the officer can act on.
+ */
+export const requestedAmountText = roleAnswerText('SEED_FUND_REQUESTED_PAISE')
+
 export const latestSubmission = async (db: Database, applicationId: string) => {
   const [row] = await db
-    .select({ submission: sebApplicationSubmission, snapshot: sebApplicationVersion })
+    .select({
+      submission: sebApplicationSubmission,
+      snapshot: sebApplicationVersion,
+      requestedAmountText,
+    })
     .from(sebApplicationSubmission)
     .innerJoin(
       sebApplicationVersion,
@@ -106,7 +143,16 @@ export const latestSubmission = async (db: Database, applicationId: string) => {
     .where(eq(sebApplicationSubmission.applicationId, applicationId))
     .orderBy(desc(sebApplicationSubmission.submissionNumber))
     .limit(1)
-  return row ?? null
+  if (!row) return null
+  const parsed = Number(row.requestedAmountText)
+  return {
+    ...row,
+    /** Null when unanswered or unreadable; the caller refuses rather than guessing. */
+    requestedAmountPaise:
+      row.requestedAmountText !== null && Number.isSafeInteger(parsed) && parsed > 0
+        ? parsed
+        : null,
+  }
 }
 
 
@@ -144,24 +190,202 @@ export const intakeSortKey = (order: IntakeOrder | null | undefined): SortKey =>
       ? 'updatedAt'
       : 'statusChangedAt'
 
+/**
+ * Every filter the queue accepts, shared verbatim with the analytics summary.
+ *
+ * The plural fields supersede their singular counterparts when given: a caller
+ * migrating one filter at a time must never have `category` and `categories`
+ * silently intersected into an empty page. An empty list is treated as absent
+ * — "no filter", not "a filter matching nothing".
+ */
+export type IntakeQueueFilterInput = {
+  cycleId?: string | null
+  cycleIds?: readonly string[] | null
+  status?: typeof sebApplication.$inferSelect.status | null
+  statuses?: readonly (typeof sebApplication.$inferSelect.status)[] | null
+  queue?: IntakeQueueKey | null
+  phaseNumber?: number | null
+  applicationType?: typeof sebApplication.$inferSelect.applicationType | null
+  assigneeUserId?: string | null
+  referenceNumber?: string | null
+  search?: string | null
+  sector?: typeof sebEnterpriseVersion.$inferSelect.businessSector | null
+  sectors?: readonly NonNullable<typeof sebEnterpriseVersion.$inferSelect.businessSector>[] | null
+  category?: typeof sebApplicationVersion.$inferSelect.applicationCategory | null
+  categories?: readonly NonNullable<typeof sebApplicationVersion.$inferSelect.applicationCategory>[] | null
+  districts?: readonly NonNullable<typeof sebEnterpriseVersion.$inferSelect.businessDistrict>[] | null
+  registrationTypes?: readonly (typeof sebEnterpriseVersion.$inferSelect.registrationType)[] | null
+  submittedFrom?: Date | null
+  submittedTo?: Date | null
+  requestedMinPaise?: number | null
+  requestedMaxPaise?: number | null
+  decidedFrom?: Date | null
+  decidedTo?: Date | null
+}
+
+/**
+ * A predicate on the requested amount, guarded against corrupt answers.
+ *
+ * The answer column is text by design, so the comparison must cast — and a
+ * bare `::bigint` raises on any non-numeric row, turning one corrupt answer
+ * into a failed read of the whole queue. The regex keeps the cast off those
+ * rows: they simply never match an amount bound, which is the honest answer
+ * for a value that is not an amount.
+ */
+const requestedAtLeast = (bound: number, comparator: '>=' | '<='): SQL => sql`(
+  ${requestedAmountText} ~ '^[0-9]+$'
+  AND (${requestedAmountText})::bigint ${sql.raw(comparator)} ${bound}
+)`
+
+/**
+ * The queue's whole WHERE clause, from one filter set.
+ *
+ * One function rather than a block repeated in the page, the count and the
+ * analytics summary: the summary must describe exactly the set the queue
+ * lists, and two spellings of the same filter is how they would drift apart
+ * with right-looking results and no error.
+ */
+export const intakeQueueFilters = (input: IntakeQueueFilterInput): SQL | undefined => {
+  const pattern = prefixPattern(input.search)
+  /*
+   * "Decided between" means at least one recorded decision in the range. The
+   * decision's own timestamp, because a correction appends a second row: the
+   * application was decided at both moments, and either belongs to a report
+   * about that period. Probes `seb_programme_decision_application_idx`
+   * (application_id, created_at), so no new index is needed for it.
+   */
+  const decided = input.decidedFrom || input.decidedTo
+    ? sql`EXISTS (
+        SELECT 1 FROM ${sebProgrammeDecision}
+        WHERE ${and(
+          eq(sebProgrammeDecision.applicationId, sebApplication.id),
+          input.decidedFrom
+            ? gte(sebProgrammeDecision.createdAt, input.decidedFrom) : undefined,
+          input.decidedTo
+            ? lte(sebProgrammeDecision.createdAt, input.decidedTo) : undefined,
+        )}
+      )`
+    : undefined
+  return and(
+    isNull(sebApplication.deletedAt),
+    sql`${sebApplication.status} <> 'DRAFT'`,
+    ...headFilters(input, pattern),
+    ...enterpriseFilters(input),
+    input.categories?.length
+      ? inArray(sebApplicationVersion.applicationCategory, [...input.categories])
+      : input.category
+        ? eq(sebApplicationVersion.applicationCategory, input.category) : undefined,
+    input.submittedFrom
+      ? gte(sebApplicationSubmission.submittedAt, input.submittedFrom) : undefined,
+    input.submittedTo
+      ? lte(sebApplicationSubmission.submittedAt, input.submittedTo) : undefined,
+    // Inclusive at both ends: a bound equal to the answer still matches it.
+    input.requestedMinPaise != null
+      ? requestedAtLeast(input.requestedMinPaise, '>=') : undefined,
+    input.requestedMaxPaise != null
+      ? requestedAtLeast(input.requestedMaxPaise, '<=') : undefined,
+    decided,
+  )
+}
+
+/* The application-head dimensions. A plural filter supersedes its singular. */
+const headFilters = (
+  input: IntakeQueueFilterInput,
+  pattern: ReturnType<typeof prefixPattern>,
+): (SQL | undefined)[] => [
+  input.cycleIds?.length
+    ? inArray(sebApplication.programmeCycleId, [...input.cycleIds])
+    : input.cycleId ? eq(sebApplication.programmeCycleId, input.cycleId) : undefined,
+  input.statuses?.length
+    ? inArray(sebApplication.status, [...input.statuses])
+    : input.status ? eq(sebApplication.status, input.status) : undefined,
+  input.queue ? queueKeyPredicate(input.queue) : undefined,
+  input.phaseNumber ? eq(sebApplication.phaseNumber, input.phaseNumber) : undefined,
+  input.applicationType
+    ? eq(sebApplication.applicationType, input.applicationType)
+    : undefined,
+  input.assigneeUserId
+    ? eq(sebApplication.assignedToUserId, input.assigneeUserId)
+    : undefined,
+  input.referenceNumber
+    ? eq(sebApplication.referenceNumber, input.referenceNumber)
+    : undefined,
+  // The reference number or the enterprise name: the two things somebody
+  // holding a piece of paper would type.
+  pattern
+    ? prefixMatchAny([sebApplication.referenceNumber, sebEnterprise.currentName], pattern)
+    : undefined,
+]
+
+/*
+ * Sector, district and registration type are read live from the enterprise
+ * (like the name above); none of them are answers since the enterprise
+ * section left the form.
+ */
+const enterpriseFilters = (input: IntakeQueueFilterInput): (SQL | undefined)[] => [
+  input.sectors?.length
+    ? inArray(sebEnterpriseVersion.businessSector, [...input.sectors])
+    : input.sector ? eq(sebEnterpriseVersion.businessSector, input.sector) : undefined,
+  input.districts?.length
+    ? inArray(sebEnterpriseVersion.businessDistrict, [...input.districts])
+    : undefined,
+  input.registrationTypes?.length
+    ? inArray(sebEnterpriseVersion.registrationType, [...input.registrationTypes])
+    : undefined,
+]
+
+/**
+ * The joins every filtered intake read stands on.
+ *
+ * Shared because the filters reach into all of them — the sector and the
+ * district live on the enterprise's current version, the category on the
+ * frozen submitted version, the search on the enterprise name and the
+ * submitted-between range on the newest submission. The page, its count and
+ * every analytics grouping must stand on the same rows or their totals
+ * disagree.
+ */
+export const joinIntakeQueueTables = <T extends PgSelect>(query: T): T =>
+  query
+    .innerJoin(sebEnterprise, eq(sebEnterprise.id, sebApplication.enterpriseId))
+    .innerJoin(
+      sebEnterpriseVersion,
+      and(
+        eq(sebEnterpriseVersion.enterpriseId, sebEnterprise.id),
+        eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
+      ),
+    )
+    .innerJoin(sebProgrammeCycle, eq(sebProgrammeCycle.id, sebApplication.programmeCycleId))
+    .innerJoin(
+      sebApplicationSubmission,
+      and(
+        eq(sebApplicationSubmission.applicationId, sebApplication.id),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${sebApplicationSubmission} AS newer_submission
+          WHERE newer_submission.application_id = ${sebApplication.id}
+            AND newer_submission.submission_number > ${sebApplicationSubmission.submissionNumber}
+        )`,
+      ),
+    )
+    .innerJoin(
+      sebApplicationVersion,
+      and(
+        eq(sebApplicationVersion.applicationId, sebApplication.id),
+        eq(sebApplicationVersion.version, sebApplicationSubmission.applicationVersion),
+      ),
+      /*
+       * Joins refine a builder's row type with the joined tables' nullability,
+       * so the return type is not literally `T` and the cast has to say so.
+       * Every caller names its columns explicitly in `select(...)`, and every
+       * join here is inner — so nothing a caller selected changed shape.
+       */
+    ) as unknown as T
+
 export const listIntakeQueue = async (
   db: Database,
-  input: {
+  input: IntakeQueueFilterInput & {
     first: number
     after: { timestamp: Date; id: string } | null
-    cycleId?: string | null
-    status?: typeof sebApplication.$inferSelect.status | null
-    phaseNumber?: number | null
-    applicationType?: typeof sebApplication.$inferSelect.applicationType | null
-    assigneeUserId?: string | null
-    referenceNumber?: string | null
-    sector?: string | null
-    category?: typeof sebApplicationVersion.$inferSelect.applicationCategory | null
-    submittedFrom?: Date | null
-    submittedTo?: Date | null
     order?: 'OLDEST_WAITING' | 'NEWEST_SUBMISSION' | 'LAST_ACTIVITY' | null
-    queue?: IntakeQueueKey | null
-    search?: string | null
   },
 ): Promise<{ nodes: unknown[]; pageInfo: PageInfo }> => {
   const order = input.order ?? 'OLDEST_WAITING'
@@ -185,36 +409,8 @@ export const listIntakeQueue = async (
    * Everything the filters say, without the cursor — the page seeks from a
    * position, the total counts the whole matching set.
    */
-  const pattern = prefixPattern(input.search)
-  const filters = and(
-    isNull(sebApplication.deletedAt),
-    sql`${sebApplication.status} <> 'DRAFT'`,
-    input.cycleId ? eq(sebApplication.programmeCycleId, input.cycleId) : undefined,
-    input.status ? eq(sebApplication.status, input.status) : undefined,
-    input.queue ? queueKeyPredicate(input.queue) : undefined,
-    input.phaseNumber ? eq(sebApplication.phaseNumber, input.phaseNumber) : undefined,
-    input.applicationType
-      ? eq(sebApplication.applicationType, input.applicationType)
-      : undefined,
-    input.assigneeUserId
-      ? eq(sebApplication.assignedToUserId, input.assigneeUserId)
-      : undefined,
-    input.referenceNumber
-      ? eq(sebApplication.referenceNumber, input.referenceNumber)
-      : undefined,
-    // The reference number or the enterprise name: the two things somebody
-    // holding a piece of paper would type.
-    pattern
-      ? prefixMatchAny([sebApplication.referenceNumber, sebEnterprise.currentName], pattern)
-      : undefined,
-    input.sector ? sql`${sebApplicationVersion.businessSector} = ${input.sector}` : undefined,
-    input.category ? eq(sebApplicationVersion.applicationCategory, input.category) : undefined,
-    input.submittedFrom
-      ? gte(sebApplicationSubmission.submittedAt, input.submittedFrom) : undefined,
-    input.submittedTo
-      ? lte(sebApplicationSubmission.submittedAt, input.submittedTo) : undefined,
-  )
-  const rows = await db
+  const filters = intakeQueueFilters(input)
+  const rows = await joinIntakeQueueTables(db
     .select({
       id: sebApplication.id,
       referenceNumber: sebApplication.referenceNumber,
@@ -223,7 +419,7 @@ export const listIntakeQueue = async (
       applicantUserId: sebApplication.applicantUserId,
       programmeCycleId: sebApplication.programmeCycleId,
       cycleCode: sebProgrammeCycle.cycleCode,
-      sector: sebApplicationVersion.businessSector,
+      sector: sebEnterpriseVersion.businessSector,
       category: sebApplicationVersion.applicationCategory,
       phaseNumber: sebApplication.phaseNumber,
       applicationType: sebApplication.applicationType,
@@ -239,26 +435,7 @@ export const listIntakeQueue = async (
       updatedAt: sebApplication.updatedAt,
     })
     .from(sebApplication)
-    .innerJoin(sebEnterprise, eq(sebEnterprise.id, sebApplication.enterpriseId))
-    .innerJoin(sebProgrammeCycle, eq(sebProgrammeCycle.id, sebApplication.programmeCycleId))
-    .innerJoin(
-      sebApplicationSubmission,
-      and(
-        eq(sebApplicationSubmission.applicationId, sebApplication.id),
-        sql`NOT EXISTS (
-          SELECT 1 FROM ${sebApplicationSubmission} AS newer_submission
-          WHERE newer_submission.application_id = ${sebApplication.id}
-            AND newer_submission.submission_number > ${sebApplicationSubmission.submissionNumber}
-        )`,
-      ),
-    )
-    .innerJoin(
-      sebApplicationVersion,
-      and(
-        eq(sebApplicationVersion.applicationId, sebApplication.id),
-        eq(sebApplicationVersion.version, sebApplicationSubmission.applicationVersion),
-      ),
-    )
+    .$dynamic())
     .where(and(filters, cursor))
     .orderBy(
       descending ? desc(timestampColumn) : asc(timestampColumn),
@@ -267,34 +444,10 @@ export const listIntakeQueue = async (
     .limit(input.first + 1)
   const selected = rows.slice(0, input.first)
   const last = selected.at(-1)
-  /*
-   * The same joins as the page, because the filters reach into all of them —
-   * the sector and category live on the submitted version, the search reaches
-   * the enterprise name, and the submitted-between range is on the submission.
-   */
-  const [total] = await db
-    .select({ value: count() })
-    .from(sebApplication)
-    .innerJoin(sebEnterprise, eq(sebEnterprise.id, sebApplication.enterpriseId))
-    .innerJoin(
-      sebApplicationSubmission,
-      and(
-        eq(sebApplicationSubmission.applicationId, sebApplication.id),
-        sql`NOT EXISTS (
-          SELECT 1 FROM ${sebApplicationSubmission} AS newer_submission
-          WHERE newer_submission.application_id = ${sebApplication.id}
-            AND newer_submission.submission_number > ${sebApplicationSubmission.submissionNumber}
-        )`,
-      ),
-    )
-    .innerJoin(
-      sebApplicationVersion,
-      and(
-        eq(sebApplicationVersion.applicationId, sebApplication.id),
-        eq(sebApplicationVersion.version, sebApplicationSubmission.applicationVersion),
-      ),
-    )
-    .where(filters)
+  // The same joins as the page: the filters reach into all of them.
+  const [total] = await joinIntakeQueueTables(
+    db.select({ value: count() }).from(sebApplication).$dynamic(),
+  ).where(filters)
   return {
     nodes: selected,
     pageInfo: {
@@ -369,8 +522,20 @@ export const intakeQueueSummary = async (
 export const loadWorkspace = async (db: Database, applicationId: string) => {
   const head = await loadApplicationHead(db, applicationId)
   if (!head || head.application.status === 'DRAFT') return null
+  /*
+   * The form this application was filled against.
+   *
+   * The workspace needs it for the same reason the applicant's own screens do:
+   * every stage and field on this page is named by the cycle, not by the
+   * software. A reviewer choosing which stages to reopen must be choosing from
+   * this application's own — the API refuses any other, so offering a fixed list
+   * would offer refusals.
+   */
+  const rules = await findPinnedRulesForApplication(
+    db, applicationId, head.application.currentVersion,
+  )
   const [submissions, documents, revisions, timeline, assignments, notes, reviews,
-    reviewChecks, referrals, bankOutcomeRows, agenda, decisions, awards, releases,
+    reviewChecks, referrals, bankOutcomeRows, decisions, awards, releases,
     assessments, recoveries] = await Promise.all([
     db.select().from(sebApplicationSubmission)
       .where(eq(sebApplicationSubmission.applicationId, applicationId))
@@ -415,12 +580,9 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
     db.select().from(sebPartnerBankOutcome)
       .where(eq(sebPartnerBankOutcome.applicationId, applicationId))
       .orderBy(asc(sebPartnerBankOutcome.createdAt)),
-    db.select().from(sebTtmAgendaItem)
-      .where(eq(sebTtmAgendaItem.applicationId, applicationId))
-      .orderBy(asc(sebTtmAgendaItem.createdAt)),
-    db.select().from(sebTtmDecision)
-      .where(eq(sebTtmDecision.applicationId, applicationId))
-      .orderBy(asc(sebTtmDecision.createdAt)),
+    db.select().from(sebProgrammeDecision)
+      .where(eq(sebProgrammeDecision.applicationId, applicationId))
+      .orderBy(asc(sebProgrammeDecision.createdAt)),
     db.select().from(sebFundingAward)
       .where(eq(sebFundingAward.applicationId, applicationId)),
     db.select({ entry: sebDisbursement, awardApplicationId: sebFundingAward.applicationId })
@@ -467,23 +629,58 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
   const identifierRules = await findIdentifierRules(
     db, frozenSnapshot.programmeCycleId, frozenSnapshot.programmeCycleVersion,
   )
-  const submissionChanges = submissions.slice(1).map((submission, index) => {
-    const previousSubmission = submissions[index]!
-    return {
-      fromSubmissionNumber: previousSubmission.submissionNumber,
-      toSubmissionNumber: submission.submissionNumber,
-      // Shared with the applicant's pre-resubmission review, so staff and
-      // applicant can never be shown a different set of changed sections.
-      sections: changedSections(
-        snapshotsByVersion.get(previousSubmission.applicationVersion)!,
-        snapshotsByVersion.get(submission.applicationVersion)!,
-      ),
-    }
-  })
+  /*
+   * The answers each submission froze, and the form they were given against.
+   *
+   * Read here for the same reason the identifier rules are: the cycle version
+   * is on the snapshot rather than on the application, so it is not known until
+   * the snapshots have loaded.
+   *
+   * Grouped by version before anything reads them. Folding rows from several
+   * submissions into one map would merge them — every value plausible, nothing
+   * thrown — which is exactly what `answersByVersion` exists to make
+   * impossible to express.
+   */
+  const pinnedRules = await findPinnedCycleRules(
+    db, frozenSnapshot.programmeCycleId, frozenSnapshot.programmeCycleVersion,
+  )
+  const answersByVersionId = pinnedRules
+    ? answersByVersion(
+        pinnedRules.template,
+        await findAnswerRows(db, snapshots.map((snapshot) => snapshot.id)),
+      )
+    : new Map<string, AnswerMap>()
+  const answersOf = (version: number): AnswerMap =>
+    answersByVersionId.get(snapshotsByVersion.get(version)?.id ?? '') ?? {}
+
+  const submissionChanges = pinnedRules
+    ? submissions.slice(1).map((submission, index) => {
+        const previousSubmission = submissions[index]!
+        return {
+          fromSubmissionNumber: previousSubmission.submissionNumber,
+          toSubmissionNumber: submission.submissionNumber,
+          // Shared with the applicant's pre-resubmission review, so staff and
+          // applicant can never be shown a different set of changed stages.
+          stageKeys: changedStageKeys(
+            pinnedRules.template,
+            answersOf(previousSubmission.applicationVersion),
+            answersOf(submission.applicationVersion),
+          ),
+        }
+      })
+    : []
   return {
     ...head,
     submissions,
-    snapshots,
+    /*
+     * Each frozen version, carrying what was answered against it. Without the
+     * answers a reviewer is shown the labels, the evidence and the dates and
+     * nothing the applicant wrote — which is most of what a desk review is.
+     */
+    snapshots: snapshots.map((snapshot) => ({
+      ...snapshot,
+      answers: answersByVersionId.get(snapshot.id) ?? {},
+    })),
     submissionChanges,
     documents,
     revisions,
@@ -497,9 +694,9 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
     reviews,
     reviewChecks,
     identifierRules,
+    formTemplate: rules?.template ?? null,
     referrals,
     bankOutcomes: bankOutcomeRows,
-    agenda,
     decisions,
     awards,
     releases,
@@ -519,10 +716,10 @@ export const insertInternalNote = async (
   },
 ) => {
   const id = crypto.randomUUID()
-  const [inserted] = await context.db.batch([
-    context.db.insert(sebApplicationInternalNote).select(sql`
+  const [inserted] = await batch(context.db, (tx) => [
+    tx.insert(sebApplicationInternalNote).select(sql`
       SELECT ${id}, ${input.applicationId}, ${input.correctionOfNoteId ?? null},
-        ${input.note}, ${input.actorUserId}, ${input.now.getTime()}
+        ${input.note}, ${input.actorUserId}, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebApplication}
         WHERE ${sebApplication.id} = ${input.applicationId}
@@ -530,10 +727,10 @@ export const insertInternalNote = async (
           AND ${sebApplication.status} <> 'DRAFT'
       )
     `).returning({ id: sebApplicationInternalNote.id }),
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.INTERNAL_NOTE_ADDED',
         'SEB_APPLICATION_INTERNAL_NOTE', ${id}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${input.now.getTime()}
+        NULL, NULL, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebApplicationInternalNote}
         WHERE ${sebApplicationInternalNote.id} = ${id}
@@ -581,29 +778,19 @@ export const startDeskReviewWrite = async (
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
     isNull(sebApplication.deletedAt),
   )).returning({ id: sebApplication.id })
-  const [changed] = await context.db.batch([
+  const [changed] = await batch(context.db, (tx) => [
     updated,
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'DESK_REVIEW_STARTED',
         ${input.actorUserId}, NULL, NULL, NULL, 'SUBMITTED', 'DESK_REVIEW',
-        NULL, 'Desk review started.', NULL, ${input.now.getTime()}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebApplication}
-        WHERE ${sebApplication.id} = ${input.applicationId}
-          AND ${sebApplication.statusVersion} = ${nextStatusVersion}
-          AND ${sebApplication.status} = 'DESK_REVIEW'
-      )
+        NULL, 'Desk review started.', NULL, ${input.now}
+      WHERE ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}
     `),
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.DESK_REVIEW_STARTED',
         'SEB_APPLICATION', ${input.applicationId}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${input.now.getTime()}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebApplication}
-        WHERE ${sebApplication.id} = ${input.applicationId}
-          AND ${sebApplication.statusVersion} = ${nextStatusVersion}
-          AND ${sebApplication.status} = 'DESK_REVIEW'
-      )
+        NULL, NULL, ${input.now}
+      WHERE ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}
     `),
   ])
   return Array.isArray(changed) && changed.length === 1
@@ -613,8 +800,8 @@ export const unacceptedSubmissionDocumentCount = async (
   db: Database,
   submissionId: string,
 ): Promise<number> => {
-  const [row] = await db.all<{ count: number }>(sql`
-    SELECT COUNT(*) AS count
+  const { rows } = await db.execute<{ count: number }>(sql`
+    SELECT COUNT(*)::int AS count
     FROM ${sebApplicationSubmissionDocument} AS pinned
     WHERE pinned.submission_id = ${submissionId}
       AND NOT EXISTS (
@@ -632,7 +819,7 @@ export const unacceptedSubmissionDocumentCount = async (
       )
   `)
   // COUNT always yields one row, including when the count is zero.
-  return Number(row!.count)
+  return Number(rows[0]!.count)
 }
 
 /**
@@ -741,61 +928,56 @@ export const completeDeskReviewWrite = async (
     eq(sebApplication.statusVersion, input.expectedStatusVersion),
     isNull(sebApplication.deletedAt),
   )).returning({ id: sebApplication.id })
-  const statements = [
+  const statements = (tx: Transaction) => [
     update,
-    context.db.insert(sebDeskReview).select(sql`
+    tx.insert(sebDeskReview).select(sql`
       SELECT ${reviewId}, ${input.applicationId}, ${input.submissionId},
         ${input.outcome}, ${input.reasonCategoryId ?? null},
-        ${input.applicantMessage ?? null}, ${input.actorUserId}, ${input.now.getTime()},
+        ${input.applicantMessage ?? null}, ${input.actorUserId}, ${input.now},
         ${disclosed}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebApplication}
-        WHERE ${sebApplication.id} = ${input.applicationId}
-          AND ${sebApplication.statusVersion} = ${nextStatusVersion}
-          AND ${sebApplication.status} = ${nextStatus}
-      )
+      WHERE ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}
     `),
-    ...input.checks.map((check) => context.db.insert(sebDeskReviewCheck).select(sql`
+    ...input.checks.map((check) => tx.insert(sebDeskReviewCheck).select(sql`
       SELECT ${crypto.randomUUID()}, ${reviewId}, ${check.checkType}, ${check.result},
-        ${check.internalNote ?? null}, ${input.now.getTime()}
+        ${check.internalNote ?? null}, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
     `)),
-    ...input.identifiers.map((identifier) => context.db.insert(sebDeskReviewIdentifier).select(sql`
+    ...input.identifiers.map((identifier) => tx.insert(sebDeskReviewIdentifier).select(sql`
       SELECT ${crypto.randomUUID()}, ${reviewId}, ${input.fundingCaseId},
         ${identifier.kind}, ${identifier.comparableValue}, ${identifier.lastFour},
-        ${identifier.matchedReason}, ${input.now.getTime()}
+        ${identifier.matchedReason}, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
     `)),
-    ...input.revisions.map((revision) => context.db.insert(sebRevisionRequest).select(sql`
+    ...input.revisions.map((revision) => tx.insert(sebRevisionRequest).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, ${input.submissionId},
-        ${revision.section}, ${revision.reasonCategoryId}, ${revision.note},
-        ${input.actorUserId}, ${input.now.getTime()}, NULL, NULL, NULL, NULL, NULL
+        ${revision.stageKey}, ${revision.reasonCategoryId}, ${revision.note},
+        ${input.actorUserId}, ${input.now}, NULL, NULL, NULL, NULL, NULL
       WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
     `)),
-    ...(releasesAssignment ? [context.db.insert(sebApplicationAssignmentEvent).select(sql`
+    ...(releasesAssignment ? [tx.insert(sebApplicationAssignmentEvent).select(sql`
       SELECT ${crypto.randomUUID()}, application.id, 'RELEASED', application.assignment_version,
         ${input.actorUserId}, NULL, ${input.reasonCategoryId!},
         ${input.applicantMessage!},
-        ${input.actorUserId}, ${input.now.getTime()}
+        ${input.actorUserId}, ${input.now}
       FROM ${sebApplication} AS application
       WHERE application.id = ${input.applicationId}
-        AND application.status_version = ${nextStatusVersion}
         AND application.status = 'REJECTED'
+        AND ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}
     `)] : []),
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId},
         ${input.outcome === 'ADVANCE_TO_BANK'
           ? 'DESK_REVIEW_COMPLETED'
           : input.outcome === 'REQUEST_REVISION' ? 'REVISION_REQUESTED' : 'APPLICATION_REJECTED'},
         ${input.actorUserId}, NULL, ${input.submissionId}, NULL, 'DESK_REVIEW',
         ${nextStatus}, NULL, ${input.applicantMessage ?? 'Desk review completed.'},
-        NULL, ${input.now.getTime()}
+        NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
     `),
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.DESK_REVIEW_COMPLETED',
         'SEB_DESK_REVIEW', ${reviewId}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        ${JSON.stringify({ outcome: input.outcome })}, ${input.now.getTime()}
+        ${JSON.stringify({ outcome: input.outcome })}, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
     `),
     /*
@@ -805,17 +987,15 @@ export const completeDeskReviewWrite = async (
      * decided by its own applicant" a query on `action` rather than a join of
      * actor against applicant across every decided application.
      */
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.SELF_REVIEW_DISCLOSED',
         'SEB_DESK_REVIEW', ${reviewId}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        NULL, ${input.now.getTime()}
-      WHERE ${disclosed} = 1
+        NULL, ${input.now}
+      WHERE ${disclosed}
         AND EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
     `),
   ]
-  const [changed] = await context.db.batch(
-    statements as [typeof statements[number], ...Array<typeof statements[number]>],
-  )
+  const [changed] = await batch(context.db, statements)
   return Array.isArray(changed) && changed.length === 1
 }
 
@@ -872,7 +1052,7 @@ export const cancelRevisionRequestWrite = async (
     sql`EXISTS (
       SELECT 1 FROM ${sebRevisionRequest}
       WHERE ${sebRevisionRequest.id} = ${input.revisionRequestId}
-        AND ${sebRevisionRequest.cancelledAt} = ${input.now.getTime()}
+        AND ${sebRevisionRequest.cancelledAt} = ${input.now}
     )`,
     sql`NOT EXISTS (
       SELECT 1 FROM ${sebRevisionRequest}
@@ -881,23 +1061,19 @@ export const cancelRevisionRequestWrite = async (
         AND ${sebRevisionRequest.cancelledAt} IS NULL
     )`,
   )).returning({ id: sebApplication.id })
-  const [cancelled] = await context.db.batch([
+  const [cancelled] = await batch(context.db, (tx) => [
     cancel,
     returnToReview,
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'REVISION_CANCELLED',
         ${input.actorUserId}, NULL, NULL, ${input.revisionRequestId},
         'REVISION_REQUIRED',
-        CASE WHEN EXISTS (
-          SELECT 1 FROM ${sebApplication}
-          WHERE ${sebApplication.id} = ${input.applicationId}
-            AND ${sebApplication.statusVersion} = ${nextStatusVersion}
-        ) THEN 'DESK_REVIEW' ELSE 'REVISION_REQUIRED' END,
-        NULL, 'A mistaken revision request was cancelled.', NULL, ${input.now.getTime()}
+        CASE WHEN ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)} THEN 'DESK_REVIEW' ELSE 'REVISION_REQUIRED' END,
+        NULL, 'A mistaken revision request was cancelled.', NULL, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebRevisionRequest}
         WHERE ${sebRevisionRequest.id} = ${input.revisionRequestId}
-          AND ${sebRevisionRequest.cancelledAt} = ${input.now.getTime()}
+          AND ${sebRevisionRequest.cancelledAt} = ${input.now}
       )
     `),
     /*
@@ -906,14 +1082,14 @@ export const cancelRevisionRequestWrite = async (
      * administrative act here that leaves the application exactly as it was, so
      * without this it left no trace of the officer at all.
      */
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.REVISION_CANCELLED',
         'SEB_APPLICATION', ${input.applicationId}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${input.now.getTime()}
+        NULL, NULL, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebRevisionRequest}
         WHERE ${sebRevisionRequest.id} = ${input.revisionRequestId}
-          AND ${sebRevisionRequest.cancelledAt} = ${input.now.getTime()}
+          AND ${sebRevisionRequest.cancelledAt} = ${input.now}
       )
     `),
   ])

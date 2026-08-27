@@ -73,7 +73,7 @@ export function RoleRefusal({
                 : 'The applicant portal is where your applications are.'}
             </p>
             <Link
-              to={portal === 'applicant' ? '/admin' : '/'}
+              to={portal === 'applicant' ? '/admin' : '/dashboard'}
               className="button"
               data-variant="primary"
             >

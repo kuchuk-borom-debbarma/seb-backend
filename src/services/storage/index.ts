@@ -75,7 +75,44 @@ export const relaysThroughWorker = (env: AppBindings): boolean =>
  */
 export const objectStore = (env: AppBindings) =>
   usesLocalStorage(env)
-    ? bindingObjectStore(env.STORAGE)
+    ? bindingObjectStore(requireBucket(env.STORAGE))
+    : cloudinaryObjectStore(requireCloudinaryConfiguration(env))
+
+/**
+ * The `STORAGE` binding, or a refusal.
+ *
+ * The binding is genuinely optional — a developer's machine and the end-to-end
+ * suite declare it, the deployed configuration does not — so a caller reaching
+ * for it when it is absent is a misconfiguration, not something to assert away.
+ * Refusing here follows the rule the transports already keep: a service that
+ * cannot do the real thing says so rather than quietly doing something else.
+ */
+const requireBucket = (bucket: R2Bucket | undefined): R2Bucket => {
+  if (!bucket) {
+    throw new Error('Local document storage is selected but no STORAGE binding is configured.')
+  }
+  return bucket
+}
+
+/**
+ * Removing objects the programme has abandoned, whichever transport holds them.
+ *
+ * The sibling of `objectReader`, and it branches identically — both are for
+ * callers that must reach the real bytes rather than authorize a transfer, so
+ * both must work under every backend including the one where uploads never
+ * touch this Worker.
+ *
+ * This replaced a `documentBucket(env)` returning the `STORAGE` binding
+ * directly. **The deployed Cloudinary configuration declares no such binding**,
+ * so every caller — all of them cleanup paths — threw there instead of removing
+ * anything: an expired authorization answered the applicant with an unhandled
+ * error rather than "the upload authorization expired", and the scheduled sweep
+ * failed before closing a single intent, so refused uploads stayed at the
+ * provider indefinitely and their rows stayed claimable for ever.
+ */
+export const objectRemover = (env: AppBindings) =>
+  usesLocalStorage(env) || deployedTransport(env) === 'r2'
+    ? bindingObjectStore(requireBucket(env.STORAGE))
     : cloudinaryObjectStore(requireCloudinaryConfiguration(env))
 
 /** The `STORAGE` binding as an object store. Backs both `local` and `r2`. */
@@ -85,6 +122,11 @@ const bindingObjectStore = (bucket: R2Bucket) => ({
       sha256: await crypto.subtle.digest('SHA-256', body),
       httpMetadata: { contentType: facts.contentType },
     })
+  },
+  // The bucket takes the whole batch in one call, which is what the cleanup
+  // path is written around; a provider that cannot is the one that loops.
+  remove: async (keys: string[]) => {
+    await bucket.delete(keys)
   },
   get: async (key: string) => {
     const object = await bucket.get(key)
@@ -117,7 +159,7 @@ const bindingObjectStore = (bucket: R2Bucket) => ({
  */
 export const objectReader = (env: AppBindings) =>
   usesLocalStorage(env) || deployedTransport(env) === 'r2'
-    ? bindingObjectStore(env.STORAGE)
+    ? bindingObjectStore(requireBucket(env.STORAGE))
     : cloudinaryObjectStore(requireCloudinaryConfiguration(env))
 
 /**
@@ -128,9 +170,9 @@ export const objectReader = (env: AppBindings) =>
  */
 export const storage = (env: AppBindings, requestUrl: string): StorageBackend => {
   if (usesLocalStorage(env)) {
-    return localTransport(new URL(requestUrl).origin, env.STORAGE)
+    return localTransport(new URL(requestUrl).origin, requireBucket(env.STORAGE))
   }
   return deployedTransport(env) === 'cloudinary'
     ? cloudinaryTransport(requireCloudinaryConfiguration(env), new URL(requestUrl).origin)
-    : r2Transport(requireR2Configuration(env), env.STORAGE)
+    : r2Transport(requireR2Configuration(env), requireBucket(env.STORAGE))
 }

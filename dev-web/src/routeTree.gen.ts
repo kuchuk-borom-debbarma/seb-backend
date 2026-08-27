@@ -9,16 +9,19 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as ShellRouteImport } from './routes/_shell'
+import { Route as FaqRouteImport } from './routes/faq'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as InviteRouteImport } from './routes/invite'
-import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as ShellApplicantRouteImport } from './routes/_shell/_applicant'
 import { Route as ShellAdminRouteRouteImport } from './routes/_shell/admin/route'
 import { Route as ShellGuideRouteImport } from './routes/_shell/guide'
-import { Route as ShellApplicantIndexRouteImport } from './routes/_shell/_applicant/index'
+import { Route as ShellSettingsRouteRouteImport } from './routes/_shell/settings/route'
 import { Route as ShellApplicantCyclesRouteImport } from './routes/_shell/_applicant/cycles'
+import { Route as ShellApplicantDashboardRouteImport } from './routes/_shell/_applicant/dashboard'
 import { Route as ShellAccountProfileRouteImport } from './routes/_shell/account/profile'
 import { Route as ShellAccountSecurityRouteImport } from './routes/_shell/account/security'
 import { Route as ShellAccountSessionsRouteImport } from './routes/_shell/account/sessions'
@@ -26,6 +29,9 @@ import { Route as ShellAdminIndexRouteImport } from './routes/_shell/admin/index
 import { Route as ShellAdminAuditRouteImport } from './routes/_shell/admin/audit'
 import { Route as ShellAdminInviteRouteImport } from './routes/_shell/admin/invite'
 import { Route as ShellAdminQueueRouteImport } from './routes/_shell/admin/queue'
+import { Route as ShellSettingsIndexRouteImport } from './routes/_shell/settings/index'
+import { Route as ShellSettingsGeneralRouteImport } from './routes/_shell/settings/general'
+import { Route as ShellSettingsSecurityRouteImport } from './routes/_shell/settings/security'
 import { Route as ShellApplicantApplicationsIndexRouteImport } from './routes/_shell/_applicant/applications/index'
 import { Route as ShellApplicantApplicationsNewRouteImport } from './routes/_shell/_applicant/applications/new'
 import { Route as ShellApplicantEnterprisesIndexRouteImport } from './routes/_shell/_applicant/enterprises/index'
@@ -35,8 +41,6 @@ import { Route as ShellAdminAccessIndexRouteImport } from './routes/_shell/admin
 import { Route as ShellAdminCyclesIndexRouteImport } from './routes/_shell/admin/cycles/index'
 import { Route as ShellAdminCyclesIdRouteImport } from './routes/_shell/admin/cycles/$id'
 import { Route as ShellAdminCyclesNewRouteImport } from './routes/_shell/admin/cycles/new'
-import { Route as ShellAdminMeetingsIndexRouteImport } from './routes/_shell/admin/meetings/index'
-import { Route as ShellAdminMeetingsMeetingIdRouteImport } from './routes/_shell/admin/meetings/$meetingId'
 import { Route as ShellApplicantApplicationsIdIndexRouteImport } from './routes/_shell/_applicant/applications/$id.index'
 import { Route as ShellApplicantApplicationsIdDocumentsRouteImport } from './routes/_shell/_applicant/applications/$id.documents'
 import { Route as ShellApplicantApplicationsIdFormRouteImport } from './routes/_shell/_applicant/applications/$id.form'
@@ -45,9 +49,20 @@ import { Route as ShellApplicantApplicationsIdReviewRouteImport } from './routes
 import { Route as ShellApplicantApplicationsIdSubmittedRouteImport } from './routes/_shell/_applicant/applications/$id.submitted'
 import { Route as ShellAdminApplicationsIdIndexRouteImport } from './routes/_shell/admin/applications/$id.index'
 import { Route as ShellAdminApplicationsIdFundingRouteImport } from './routes/_shell/admin/applications/$id.funding'
+import { Route as ShellAdminCyclesIdFormRouteImport } from './routes/_shell/admin/cycles/$id.form'
 
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FaqRoute = FaqRouteImport.update({
+  id: '/faq',
+  path: '/faq',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
@@ -60,9 +75,9 @@ const InviteRoute = InviteRouteImport.update({
   path: '/invite',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SignInRoute = SignInRouteImport.update({
-  id: '/sign-in',
-  path: '/sign-in',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignUpRoute = SignUpRouteImport.update({
@@ -84,14 +99,19 @@ const ShellGuideRoute = ShellGuideRouteImport.update({
   path: '/guide',
   getParentRoute: () => ShellRoute,
 } as any)
-const ShellApplicantIndexRoute = ShellApplicantIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ShellApplicantRoute,
+const ShellSettingsRouteRoute = ShellSettingsRouteRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => ShellRoute,
 } as any)
 const ShellApplicantCyclesRoute = ShellApplicantCyclesRouteImport.update({
   id: '/cycles',
   path: '/cycles',
+  getParentRoute: () => ShellApplicantRoute,
+} as any)
+const ShellApplicantDashboardRoute = ShellApplicantDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => ShellApplicantRoute,
 } as any)
 const ShellAccountProfileRoute = ShellAccountProfileRouteImport.update({
@@ -128,6 +148,21 @@ const ShellAdminQueueRoute = ShellAdminQueueRouteImport.update({
   id: '/queue',
   path: '/queue',
   getParentRoute: () => ShellAdminRouteRoute,
+} as any)
+const ShellSettingsIndexRoute = ShellSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ShellSettingsRouteRoute,
+} as any)
+const ShellSettingsGeneralRoute = ShellSettingsGeneralRouteImport.update({
+  id: '/general',
+  path: '/general',
+  getParentRoute: () => ShellSettingsRouteRoute,
+} as any)
+const ShellSettingsSecurityRoute = ShellSettingsSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => ShellSettingsRouteRoute,
 } as any)
 const ShellApplicantApplicationsIndexRoute =
   ShellApplicantApplicationsIndexRouteImport.update({
@@ -179,17 +214,6 @@ const ShellAdminCyclesNewRoute = ShellAdminCyclesNewRouteImport.update({
   path: '/cycles/new',
   getParentRoute: () => ShellAdminRouteRoute,
 } as any)
-const ShellAdminMeetingsIndexRoute = ShellAdminMeetingsIndexRouteImport.update({
-  id: '/meetings/',
-  path: '/meetings/',
-  getParentRoute: () => ShellAdminRouteRoute,
-} as any)
-const ShellAdminMeetingsMeetingIdRoute =
-  ShellAdminMeetingsMeetingIdRouteImport.update({
-    id: '/meetings/$meetingId',
-    path: '/meetings/$meetingId',
-    getParentRoute: () => ShellAdminRouteRoute,
-  } as any)
 const ShellApplicantApplicationsIdIndexRoute =
   ShellApplicantApplicationsIdIndexRouteImport.update({
     id: '/applications/$id/',
@@ -238,114 +262,133 @@ const ShellAdminApplicationsIdFundingRoute =
     path: '/applications/$id/funding',
     getParentRoute: () => ShellAdminRouteRoute,
   } as any)
+const ShellAdminCyclesIdFormRoute = ShellAdminCyclesIdFormRouteImport.update({
+  id: '/form',
+  path: '/form',
+  getParentRoute: () => ShellAdminCyclesIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof ShellApplicantIndexRoute
+  '/': typeof IndexRoute
+  '/faq': typeof FaqRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/invite': typeof InviteRoute
-  '/sign-in': typeof SignInRoute
+  '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
   '/admin': typeof ShellAdminRouteRouteWithChildren
+  '/settings': typeof ShellSettingsRouteRouteWithChildren
   '/guide': typeof ShellGuideRoute
   '/cycles': typeof ShellApplicantCyclesRoute
+  '/dashboard': typeof ShellApplicantDashboardRoute
   '/account/profile': typeof ShellAccountProfileRoute
   '/account/security': typeof ShellAccountSecurityRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
   '/admin/audit': typeof ShellAdminAuditRoute
   '/admin/invite': typeof ShellAdminInviteRoute
   '/admin/queue': typeof ShellAdminQueueRoute
+  '/settings/general': typeof ShellSettingsGeneralRoute
+  '/settings/security': typeof ShellSettingsSecurityRoute
   '/admin/': typeof ShellAdminIndexRoute
+  '/settings/': typeof ShellSettingsIndexRoute
   '/applications/new': typeof ShellApplicantApplicationsNewRoute
   '/enterprises/$id': typeof ShellApplicantEnterprisesIdRoute
   '/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
-  '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
+  '/admin/cycles/$id': typeof ShellAdminCyclesIdRouteWithChildren
   '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
-  '/admin/meetings/$meetingId': typeof ShellAdminMeetingsMeetingIdRoute
   '/applications/': typeof ShellApplicantApplicationsIndexRoute
   '/enterprises/': typeof ShellApplicantEnterprisesIndexRoute
   '/admin/access/': typeof ShellAdminAccessIndexRoute
   '/admin/cycles/': typeof ShellAdminCyclesIndexRoute
-  '/admin/meetings/': typeof ShellAdminMeetingsIndexRoute
   '/applications/$id/documents': typeof ShellApplicantApplicationsIdDocumentsRoute
   '/applications/$id/form': typeof ShellApplicantApplicationsIdFormRoute
   '/applications/$id/funding': typeof ShellApplicantApplicationsIdFundingRoute
   '/applications/$id/review': typeof ShellApplicantApplicationsIdReviewRoute
   '/applications/$id/submitted': typeof ShellApplicantApplicationsIdSubmittedRoute
   '/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
+  '/admin/cycles/$id/form': typeof ShellAdminCyclesIdFormRoute
   '/applications/$id/': typeof ShellApplicantApplicationsIdIndexRoute
   '/admin/applications/$id/': typeof ShellAdminApplicationsIdIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof ShellApplicantIndexRoute
+  '/': typeof IndexRoute
+  '/faq': typeof FaqRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/invite': typeof InviteRoute
-  '/sign-in': typeof SignInRoute
+  '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
   '/guide': typeof ShellGuideRoute
   '/cycles': typeof ShellApplicantCyclesRoute
+  '/dashboard': typeof ShellApplicantDashboardRoute
   '/account/profile': typeof ShellAccountProfileRoute
   '/account/security': typeof ShellAccountSecurityRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
   '/admin/audit': typeof ShellAdminAuditRoute
   '/admin/invite': typeof ShellAdminInviteRoute
   '/admin/queue': typeof ShellAdminQueueRoute
+  '/settings/general': typeof ShellSettingsGeneralRoute
+  '/settings/security': typeof ShellSettingsSecurityRoute
   '/admin': typeof ShellAdminIndexRoute
+  '/settings': typeof ShellSettingsIndexRoute
   '/applications/new': typeof ShellApplicantApplicationsNewRoute
   '/enterprises/$id': typeof ShellApplicantEnterprisesIdRoute
   '/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
-  '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
+  '/admin/cycles/$id': typeof ShellAdminCyclesIdRouteWithChildren
   '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
-  '/admin/meetings/$meetingId': typeof ShellAdminMeetingsMeetingIdRoute
   '/applications': typeof ShellApplicantApplicationsIndexRoute
   '/enterprises': typeof ShellApplicantEnterprisesIndexRoute
   '/admin/access': typeof ShellAdminAccessIndexRoute
   '/admin/cycles': typeof ShellAdminCyclesIndexRoute
-  '/admin/meetings': typeof ShellAdminMeetingsIndexRoute
   '/applications/$id/documents': typeof ShellApplicantApplicationsIdDocumentsRoute
   '/applications/$id/form': typeof ShellApplicantApplicationsIdFormRoute
   '/applications/$id/funding': typeof ShellApplicantApplicationsIdFundingRoute
   '/applications/$id/review': typeof ShellApplicantApplicationsIdReviewRoute
   '/applications/$id/submitted': typeof ShellApplicantApplicationsIdSubmittedRoute
   '/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
+  '/admin/cycles/$id/form': typeof ShellAdminCyclesIdFormRoute
   '/applications/$id': typeof ShellApplicantApplicationsIdIndexRoute
   '/admin/applications/$id': typeof ShellAdminApplicationsIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
   '/_shell': typeof ShellRouteWithChildren
+  '/faq': typeof FaqRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/invite': typeof InviteRoute
-  '/sign-in': typeof SignInRoute
+  '/login': typeof LoginRoute
   '/sign-up': typeof SignUpRoute
   '/_shell/admin': typeof ShellAdminRouteRouteWithChildren
+  '/_shell/settings': typeof ShellSettingsRouteRouteWithChildren
   '/_shell/_applicant': typeof ShellApplicantRouteWithChildren
   '/_shell/guide': typeof ShellGuideRoute
   '/_shell/_applicant/cycles': typeof ShellApplicantCyclesRoute
+  '/_shell/_applicant/dashboard': typeof ShellApplicantDashboardRoute
   '/_shell/account/profile': typeof ShellAccountProfileRoute
   '/_shell/account/security': typeof ShellAccountSecurityRoute
   '/_shell/account/sessions': typeof ShellAccountSessionsRoute
   '/_shell/admin/audit': typeof ShellAdminAuditRoute
   '/_shell/admin/invite': typeof ShellAdminInviteRoute
   '/_shell/admin/queue': typeof ShellAdminQueueRoute
-  '/_shell/_applicant/': typeof ShellApplicantIndexRoute
+  '/_shell/settings/general': typeof ShellSettingsGeneralRoute
+  '/_shell/settings/security': typeof ShellSettingsSecurityRoute
   '/_shell/admin/': typeof ShellAdminIndexRoute
+  '/_shell/settings/': typeof ShellSettingsIndexRoute
   '/_shell/_applicant/applications/new': typeof ShellApplicantApplicationsNewRoute
   '/_shell/_applicant/enterprises/$id': typeof ShellApplicantEnterprisesIdRoute
   '/_shell/_applicant/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
-  '/_shell/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
+  '/_shell/admin/cycles/$id': typeof ShellAdminCyclesIdRouteWithChildren
   '/_shell/admin/cycles/new': typeof ShellAdminCyclesNewRoute
-  '/_shell/admin/meetings/$meetingId': typeof ShellAdminMeetingsMeetingIdRoute
   '/_shell/_applicant/applications/': typeof ShellApplicantApplicationsIndexRoute
   '/_shell/_applicant/enterprises/': typeof ShellApplicantEnterprisesIndexRoute
   '/_shell/admin/access/': typeof ShellAdminAccessIndexRoute
   '/_shell/admin/cycles/': typeof ShellAdminCyclesIndexRoute
-  '/_shell/admin/meetings/': typeof ShellAdminMeetingsIndexRoute
   '/_shell/_applicant/applications/$id/documents': typeof ShellApplicantApplicationsIdDocumentsRoute
   '/_shell/_applicant/applications/$id/form': typeof ShellApplicantApplicationsIdFormRoute
   '/_shell/_applicant/applications/$id/funding': typeof ShellApplicantApplicationsIdFundingRoute
   '/_shell/_applicant/applications/$id/review': typeof ShellApplicantApplicationsIdReviewRoute
   '/_shell/_applicant/applications/$id/submitted': typeof ShellApplicantApplicationsIdSubmittedRoute
   '/_shell/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
+  '/_shell/admin/cycles/$id/form': typeof ShellAdminCyclesIdFormRoute
   '/_shell/_applicant/applications/$id/': typeof ShellApplicantApplicationsIdIndexRoute
   '/_shell/admin/applications/$id/': typeof ShellAdminApplicationsIdIndexRoute
 }
@@ -353,129 +396,159 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/faq'
     | '/forgot-password'
     | '/invite'
-    | '/sign-in'
+    | '/login'
     | '/sign-up'
     | '/admin'
+    | '/settings'
     | '/guide'
     | '/cycles'
+    | '/dashboard'
     | '/account/profile'
     | '/account/security'
     | '/account/sessions'
     | '/admin/audit'
     | '/admin/invite'
     | '/admin/queue'
+    | '/settings/general'
+    | '/settings/security'
     | '/admin/'
+    | '/settings/'
     | '/applications/new'
     | '/enterprises/$id'
     | '/enterprises/new'
     | '/admin/cycles/$id'
     | '/admin/cycles/new'
-    | '/admin/meetings/$meetingId'
     | '/applications/'
     | '/enterprises/'
     | '/admin/access/'
     | '/admin/cycles/'
-    | '/admin/meetings/'
     | '/applications/$id/documents'
     | '/applications/$id/form'
     | '/applications/$id/funding'
     | '/applications/$id/review'
     | '/applications/$id/submitted'
     | '/admin/applications/$id/funding'
+    | '/admin/cycles/$id/form'
     | '/applications/$id/'
     | '/admin/applications/$id/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/faq'
     | '/forgot-password'
     | '/invite'
-    | '/sign-in'
+    | '/login'
     | '/sign-up'
     | '/guide'
     | '/cycles'
+    | '/dashboard'
     | '/account/profile'
     | '/account/security'
     | '/account/sessions'
     | '/admin/audit'
     | '/admin/invite'
     | '/admin/queue'
+    | '/settings/general'
+    | '/settings/security'
     | '/admin'
+    | '/settings'
     | '/applications/new'
     | '/enterprises/$id'
     | '/enterprises/new'
     | '/admin/cycles/$id'
     | '/admin/cycles/new'
-    | '/admin/meetings/$meetingId'
     | '/applications'
     | '/enterprises'
     | '/admin/access'
     | '/admin/cycles'
-    | '/admin/meetings'
     | '/applications/$id/documents'
     | '/applications/$id/form'
     | '/applications/$id/funding'
     | '/applications/$id/review'
     | '/applications/$id/submitted'
     | '/admin/applications/$id/funding'
+    | '/admin/cycles/$id/form'
     | '/applications/$id'
     | '/admin/applications/$id'
   id:
     | '__root__'
+    | '/'
     | '/_shell'
+    | '/faq'
     | '/forgot-password'
     | '/invite'
-    | '/sign-in'
+    | '/login'
     | '/sign-up'
     | '/_shell/admin'
+    | '/_shell/settings'
     | '/_shell/_applicant'
     | '/_shell/guide'
     | '/_shell/_applicant/cycles'
+    | '/_shell/_applicant/dashboard'
     | '/_shell/account/profile'
     | '/_shell/account/security'
     | '/_shell/account/sessions'
     | '/_shell/admin/audit'
     | '/_shell/admin/invite'
     | '/_shell/admin/queue'
-    | '/_shell/_applicant/'
+    | '/_shell/settings/general'
+    | '/_shell/settings/security'
     | '/_shell/admin/'
+    | '/_shell/settings/'
     | '/_shell/_applicant/applications/new'
     | '/_shell/_applicant/enterprises/$id'
     | '/_shell/_applicant/enterprises/new'
     | '/_shell/admin/cycles/$id'
     | '/_shell/admin/cycles/new'
-    | '/_shell/admin/meetings/$meetingId'
     | '/_shell/_applicant/applications/'
     | '/_shell/_applicant/enterprises/'
     | '/_shell/admin/access/'
     | '/_shell/admin/cycles/'
-    | '/_shell/admin/meetings/'
     | '/_shell/_applicant/applications/$id/documents'
     | '/_shell/_applicant/applications/$id/form'
     | '/_shell/_applicant/applications/$id/funding'
     | '/_shell/_applicant/applications/$id/review'
     | '/_shell/_applicant/applications/$id/submitted'
     | '/_shell/admin/applications/$id/funding'
+    | '/_shell/admin/cycles/$id/form'
     | '/_shell/_applicant/applications/$id/'
     | '/_shell/admin/applications/$id/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
   ShellRoute: typeof ShellRouteWithChildren
+  FaqRoute: typeof FaqRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   InviteRoute: typeof InviteRoute
-  SignInRoute: typeof SignInRoute
+  LoginRoute: typeof LoginRoute
   SignUpRoute: typeof SignUpRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_shell': {
       id: '/_shell'
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof ShellRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/faq': {
+      id: '/faq'
+      path: '/faq'
+      fullPath: '/faq'
+      preLoaderRoute: typeof FaqRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/forgot-password': {
@@ -492,11 +565,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InviteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sign-in': {
-      id: '/sign-in'
-      path: '/sign-in'
-      fullPath: '/sign-in'
-      preLoaderRoute: typeof SignInRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-up': {
@@ -527,18 +600,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellGuideRouteImport
       parentRoute: typeof ShellRoute
     }
-    '/_shell/_applicant/': {
-      id: '/_shell/_applicant/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof ShellApplicantIndexRouteImport
-      parentRoute: typeof ShellApplicantRoute
+    '/_shell/settings': {
+      id: '/_shell/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof ShellSettingsRouteRouteImport
+      parentRoute: typeof ShellRoute
     }
     '/_shell/_applicant/cycles': {
       id: '/_shell/_applicant/cycles'
       path: '/cycles'
       fullPath: '/cycles'
       preLoaderRoute: typeof ShellApplicantCyclesRouteImport
+      parentRoute: typeof ShellApplicantRoute
+    }
+    '/_shell/_applicant/dashboard': {
+      id: '/_shell/_applicant/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof ShellApplicantDashboardRouteImport
       parentRoute: typeof ShellApplicantRoute
     }
     '/_shell/account/profile': {
@@ -589,6 +669,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/queue'
       preLoaderRoute: typeof ShellAdminQueueRouteImport
       parentRoute: typeof ShellAdminRouteRoute
+    }
+    '/_shell/settings/': {
+      id: '/_shell/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof ShellSettingsIndexRouteImport
+      parentRoute: typeof ShellSettingsRouteRoute
+    }
+    '/_shell/settings/general': {
+      id: '/_shell/settings/general'
+      path: '/general'
+      fullPath: '/settings/general'
+      preLoaderRoute: typeof ShellSettingsGeneralRouteImport
+      parentRoute: typeof ShellSettingsRouteRoute
+    }
+    '/_shell/settings/security': {
+      id: '/_shell/settings/security'
+      path: '/security'
+      fullPath: '/settings/security'
+      preLoaderRoute: typeof ShellSettingsSecurityRouteImport
+      parentRoute: typeof ShellSettingsRouteRoute
     }
     '/_shell/_applicant/applications/': {
       id: '/_shell/_applicant/applications/'
@@ -653,20 +754,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAdminCyclesNewRouteImport
       parentRoute: typeof ShellAdminRouteRoute
     }
-    '/_shell/admin/meetings/': {
-      id: '/_shell/admin/meetings/'
-      path: '/meetings'
-      fullPath: '/admin/meetings/'
-      preLoaderRoute: typeof ShellAdminMeetingsIndexRouteImport
-      parentRoute: typeof ShellAdminRouteRoute
-    }
-    '/_shell/admin/meetings/$meetingId': {
-      id: '/_shell/admin/meetings/$meetingId'
-      path: '/meetings/$meetingId'
-      fullPath: '/admin/meetings/$meetingId'
-      preLoaderRoute: typeof ShellAdminMeetingsMeetingIdRouteImport
-      parentRoute: typeof ShellAdminRouteRoute
-    }
     '/_shell/_applicant/applications/$id/': {
       id: '/_shell/_applicant/applications/$id/'
       path: '/applications/$id'
@@ -723,20 +810,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAdminApplicationsIdFundingRouteImport
       parentRoute: typeof ShellAdminRouteRoute
     }
+    '/_shell/admin/cycles/$id/form': {
+      id: '/_shell/admin/cycles/$id/form'
+      path: '/form'
+      fullPath: '/admin/cycles/$id/form'
+      preLoaderRoute: typeof ShellAdminCyclesIdFormRouteImport
+      parentRoute: typeof ShellAdminCyclesIdRoute
+    }
   }
 }
+
+interface ShellAdminCyclesIdRouteChildren {
+  ShellAdminCyclesIdFormRoute: typeof ShellAdminCyclesIdFormRoute
+}
+
+const ShellAdminCyclesIdRouteChildren: ShellAdminCyclesIdRouteChildren = {
+  ShellAdminCyclesIdFormRoute: ShellAdminCyclesIdFormRoute,
+}
+
+const ShellAdminCyclesIdRouteWithChildren =
+  ShellAdminCyclesIdRoute._addFileChildren(ShellAdminCyclesIdRouteChildren)
 
 interface ShellAdminRouteRouteChildren {
   ShellAdminAuditRoute: typeof ShellAdminAuditRoute
   ShellAdminInviteRoute: typeof ShellAdminInviteRoute
   ShellAdminQueueRoute: typeof ShellAdminQueueRoute
   ShellAdminIndexRoute: typeof ShellAdminIndexRoute
-  ShellAdminCyclesIdRoute: typeof ShellAdminCyclesIdRoute
+  ShellAdminCyclesIdRoute: typeof ShellAdminCyclesIdRouteWithChildren
   ShellAdminCyclesNewRoute: typeof ShellAdminCyclesNewRoute
-  ShellAdminMeetingsMeetingIdRoute: typeof ShellAdminMeetingsMeetingIdRoute
   ShellAdminAccessIndexRoute: typeof ShellAdminAccessIndexRoute
   ShellAdminCyclesIndexRoute: typeof ShellAdminCyclesIndexRoute
-  ShellAdminMeetingsIndexRoute: typeof ShellAdminMeetingsIndexRoute
   ShellAdminApplicationsIdFundingRoute: typeof ShellAdminApplicationsIdFundingRoute
   ShellAdminApplicationsIdIndexRoute: typeof ShellAdminApplicationsIdIndexRoute
 }
@@ -746,12 +849,10 @@ const ShellAdminRouteRouteChildren: ShellAdminRouteRouteChildren = {
   ShellAdminInviteRoute: ShellAdminInviteRoute,
   ShellAdminQueueRoute: ShellAdminQueueRoute,
   ShellAdminIndexRoute: ShellAdminIndexRoute,
-  ShellAdminCyclesIdRoute: ShellAdminCyclesIdRoute,
+  ShellAdminCyclesIdRoute: ShellAdminCyclesIdRouteWithChildren,
   ShellAdminCyclesNewRoute: ShellAdminCyclesNewRoute,
-  ShellAdminMeetingsMeetingIdRoute: ShellAdminMeetingsMeetingIdRoute,
   ShellAdminAccessIndexRoute: ShellAdminAccessIndexRoute,
   ShellAdminCyclesIndexRoute: ShellAdminCyclesIndexRoute,
-  ShellAdminMeetingsIndexRoute: ShellAdminMeetingsIndexRoute,
   ShellAdminApplicationsIdFundingRoute: ShellAdminApplicationsIdFundingRoute,
   ShellAdminApplicationsIdIndexRoute: ShellAdminApplicationsIdIndexRoute,
 }
@@ -760,9 +861,24 @@ const ShellAdminRouteRouteWithChildren = ShellAdminRouteRoute._addFileChildren(
   ShellAdminRouteRouteChildren,
 )
 
+interface ShellSettingsRouteRouteChildren {
+  ShellSettingsGeneralRoute: typeof ShellSettingsGeneralRoute
+  ShellSettingsSecurityRoute: typeof ShellSettingsSecurityRoute
+  ShellSettingsIndexRoute: typeof ShellSettingsIndexRoute
+}
+
+const ShellSettingsRouteRouteChildren: ShellSettingsRouteRouteChildren = {
+  ShellSettingsGeneralRoute: ShellSettingsGeneralRoute,
+  ShellSettingsSecurityRoute: ShellSettingsSecurityRoute,
+  ShellSettingsIndexRoute: ShellSettingsIndexRoute,
+}
+
+const ShellSettingsRouteRouteWithChildren =
+  ShellSettingsRouteRoute._addFileChildren(ShellSettingsRouteRouteChildren)
+
 interface ShellApplicantRouteChildren {
   ShellApplicantCyclesRoute: typeof ShellApplicantCyclesRoute
-  ShellApplicantIndexRoute: typeof ShellApplicantIndexRoute
+  ShellApplicantDashboardRoute: typeof ShellApplicantDashboardRoute
   ShellApplicantApplicationsNewRoute: typeof ShellApplicantApplicationsNewRoute
   ShellApplicantEnterprisesIdRoute: typeof ShellApplicantEnterprisesIdRoute
   ShellApplicantEnterprisesNewRoute: typeof ShellApplicantEnterprisesNewRoute
@@ -778,7 +894,7 @@ interface ShellApplicantRouteChildren {
 
 const ShellApplicantRouteChildren: ShellApplicantRouteChildren = {
   ShellApplicantCyclesRoute: ShellApplicantCyclesRoute,
-  ShellApplicantIndexRoute: ShellApplicantIndexRoute,
+  ShellApplicantDashboardRoute: ShellApplicantDashboardRoute,
   ShellApplicantApplicationsNewRoute: ShellApplicantApplicationsNewRoute,
   ShellApplicantEnterprisesIdRoute: ShellApplicantEnterprisesIdRoute,
   ShellApplicantEnterprisesNewRoute: ShellApplicantEnterprisesNewRoute,
@@ -803,6 +919,7 @@ const ShellApplicantRouteWithChildren = ShellApplicantRoute._addFileChildren(
 
 interface ShellRouteChildren {
   ShellAdminRouteRoute: typeof ShellAdminRouteRouteWithChildren
+  ShellSettingsRouteRoute: typeof ShellSettingsRouteRouteWithChildren
   ShellApplicantRoute: typeof ShellApplicantRouteWithChildren
   ShellGuideRoute: typeof ShellGuideRoute
   ShellAccountProfileRoute: typeof ShellAccountProfileRoute
@@ -812,6 +929,7 @@ interface ShellRouteChildren {
 
 const ShellRouteChildren: ShellRouteChildren = {
   ShellAdminRouteRoute: ShellAdminRouteRouteWithChildren,
+  ShellSettingsRouteRoute: ShellSettingsRouteRouteWithChildren,
   ShellApplicantRoute: ShellApplicantRouteWithChildren,
   ShellGuideRoute: ShellGuideRoute,
   ShellAccountProfileRoute: ShellAccountProfileRoute,
@@ -822,10 +940,12 @@ const ShellRouteChildren: ShellRouteChildren = {
 const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
   ShellRoute: ShellRouteWithChildren,
+  FaqRoute: FaqRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   InviteRoute: InviteRoute,
-  SignInRoute: SignInRoute,
+  LoginRoute: LoginRoute,
   SignUpRoute: SignUpRoute,
 }
 export const routeTree = rootRouteImport

@@ -45,12 +45,13 @@ The expected application lifecycle is:
 3. They start an application in an open programme cycle. The first application
    is `INITIAL` with phase `1`; later applications are `EXPANSION` with phase
    `2` or greater.
-4. Meaningful saves create complete immutable `seb_application_version`
-   snapshots, including the exact programme-cycle version and phase
-   classification. Draft form fields remain nullable until submission
-   validation runs.
+4. Meaningful saves create immutable `seb_application_version` rows pinning
+   the exact programme-cycle version and phase classification. The answers
+   themselves are sparse `seb_application_version_answer` rows keyed by the
+   template's field keys — one row per answered value, no row at all for an
+   unanswered question.
 5. Documents occupy stable logical slots in `seb_application_document`.
-   Replacements create new immutable file versions with new R2 object keys.
+   Replacements create new immutable file versions with new storage object keys.
 6. Submission creates an append-only `seb_application_submission` and
    `seb_application_submission_document` rows pointing to the exact form and
    file versions reviewed by TTAADC.
@@ -58,7 +59,7 @@ The expected application lifecycle is:
    `seb_application_event`. A correction request is added as a
    `seb_revision_request`; an incorrect request is cancelled and replaced, not
    edited.
-8. Assignment, desk review, offline bank evidence, and TTM meeting/decision
+8. Assignment, desk review, offline bank evidence, and programme decision
    records retain the complete administrative path without editing older facts.
 9. A sanctioned application receives one `seb_funding_award`. Releases and
    compensating reversals are recorded in the append-only disbursement ledger,
@@ -106,8 +107,9 @@ for optimistic concurrency.
 - `core_user`: verified portal identity, password hash, and soft deletion. Roles
   are intentionally not copied onto the identity row.
 - `core_user_role_grant`: retained assignments for the fixed `APPLICANT`,
-  `ADMIN`, and `SUPER_ADMIN` roles. A partial unique index allows one active
-  grant per user/role while preserving revoked and re-granted history.
+  `REVIEWER`, `APPROVER`, `ADMIN`, and `SUPER_ADMIN` roles. A partial unique
+  index allows one active grant per user/role while preserving revoked and
+  re-granted history.
 - `core_session`: short-lived login sessions. This is the only table whose rows
   are intentionally hard-deleted on sign-out, revocation, user deletion, or
   expiry.
@@ -133,11 +135,13 @@ for optimistic concurrency.
   complete immutable profile history.
 - `seb_programme_cycle` / `seb_programme_cycle_version`: versioned Mission SEP
   policy/application windows such as 2026 and later cycles.
-- `seb_programme_cycle_document_rule`, `…_assessment_rule`,
-  `…_identifier_rule`: what one cycle version demands. All three carry a
+- `seb_programme_cycle_assessment_rule`, `seb_programme_cycle_identifier_rule`:
+  what one cycle version demands. Both carry a
   composite foreign key on `(programme_cycle_id, programme_cycle_version)`, so a
   rule belongs to a *version* and editing a cycle cannot change what an
-  already-submitted application is judged by.
+  already-submitted application is judged by. There is deliberately no
+  document-rule table: which documents a cycle demands is expressed by `FILE`
+  fields in the form template below, and a document slot names its `field_key`.
 
   The identifier rules carry **two independent settings**, which is the point of
   the table. `requirement` is `REQUIRED_ON_PASS`, `OPTIONAL` or `OFF`;
@@ -151,16 +155,50 @@ for optimistic concurrency.
   **No rows means the cycle demands nothing and compares nothing.** That is the
   honest default for a table that did not exist yesterday, and it is what keeps
   cycles created before it working unchanged.
+- `seb_programme_cycle_form_stage`, `seb_programme_cycle_form_field`,
+  `seb_programme_cycle_form_field_option`,
+  `seb_programme_cycle_form_field_condition`: the application form itself, as
+  configuration. A stage is one step of the form; a field is one question with
+  its validation rules as columns and its presentation tokens as closed-set
+  columns; an option is one choice (or, for a `FILE` field, one accepted
+  content type); a condition is one comparison deciding visibility or
+  requiredness — rows sharing a `group_number` are ANDed, separate groups are
+  ORed. All four are pinned to `(programme_cycle_id, programme_cycle_version)`
+  and copied forward on every version bump, so an application always renders
+  against the exact form it was filled on. Single-row rules are `CHECK`s here;
+  the cross-row rules — a `CONDITIONAL` field needs a `REQUIRED_WHEN` rule, the
+  visibility graph is acyclic, the answer byte budget — are refused at
+  authoring time by `formTemplateProblem` in
+  [`form-template-input.ts`](../../services/admin/form-template-input.ts), and
+  the reusable-structure guards by
+  [`group-definitions.ts`](../../services/admin/group-definitions.ts). The
+  narrative lives in
+  [the form template guide](../../../docs/form-template-guide.md).
+- `seb_programme_cycle_form_group_definition`, `…_member`, `…_member_option`:
+  a reusable structure a cycle defines once ("an Owner is a name, a date of
+  birth, a share") and any repeated group can use by name. Members are
+  materialised into ordinary field rows under `USE__MEMBER` qualified keys at
+  authoring time, so the engine, answer storage, and renderer never read these
+  tables; they exist for the authoring round trip, which strips the derived
+  rows and shows the definition instead.
+- `seb_programme_cycle_reason` / `seb_programme_cycle_event`: the cycle
+  version's decision-reason catalogue, and the append-only cycle lifecycle
+  timeline.
 - `seb_funding_case` / `seb_funding_case_version`: the enterprise's single
   long-running Mission SEP funding chain.
-- `seb_application` / `seb_application_version`: current workflow head and full
-  immutable copies of the application form.
+- `seb_application` / `seb_application_version`: current workflow head and
+  immutable per-save rows pinning the cycle version, classification, expansion
+  facts, and the server-computed category.
+- `seb_application_version_answer`: what the applicant answered, one sparse row
+  per value. Composite foreign keys make an answer for a question the pinned
+  cycle version never asked impossible in SQL; `entry_index` addresses repeated
+  group entries and `value_ordinal` the selections of a multiple choice.
 - `seb_application_submission`: formal submission/resubmission history tied to
   exact application versions.
 - `seb_application_submission_document`: exact logical slots and immutable file
   versions frozen into each submission.
 - `seb_application_document` / `seb_application_document_version`: logical
-  evidence slots and immutable R2 upload/replacement history.
+  evidence slots and immutable upload/replacement history in object storage.
 - `seb_application_document_scan`: append-only scanner outcomes; the latest
   result must be accepted before staff download.
 - `seb_revision_request`: immutable reviewer correction requests and their
@@ -184,9 +222,9 @@ for optimistic concurrency.
   because an application's funding case is fixed when it is created.
 - `seb_partner_bank_referral` / version / outcome: offline bank identity,
   referral lifecycle, feedback, and superseding corrections.
-- `seb_ttm_meeting` / version / agenda / decision: formal meetings, pinned
-  evidence, agenda changes, and append-only programme decisions. A decision
-  carries its own `conflict_acknowledged`, and so does each superseding
+- `seb_programme_decision`: append-only decisions on an application, each
+  pinning the submission and bank outcome that were in front of the decider. A
+  decision carries its own `conflict_acknowledged`, and so does each superseding
   correction, because each is a separate act by a possibly different officer.
 
 ### `seb`: awards and derived expansion eligibility
@@ -206,31 +244,36 @@ for optimistic concurrency.
 
 ## How the application form maps to snapshots
 
-`seb_application_version` is a complete snapshot because the policy form is a
-legal/business record. Its nullable draft fields are grouped as follows:
+The questions are not columns. A cycle version declares them as rows in the
+four form-template tables, and a save stores what was answered as rows in
+`seb_application_version_answer` — so adding a question to next year's cycle
+is an authoring act, not a schema change. What `seb_application_version`
+itself still carries as typed columns is only what the server owns:
 
 - Classification: exact programme-cycle version, initial/expansion type, and
-  phase number. These remain historical even if the current heads are corrected.
-- Enterprise: business name, establishment date, CIN/Udyam details, GSTIN,
-  sector, Category A/B, and majority-ownership confirmation.
-- Applicant/promoter: name, designation, birth date, gender, business address,
-  phone, and email.
-- Financial proposal: project cost, requested seed fund, proposed bank loan,
-  and promoter contribution.
-- Prior funding and credit: applicant-declared government funding and bank
-  credit details.
+  phase number. These remain historical even if the current heads are
+  corrected.
 - Expansion facts: prior sanction order/date, net retained disbursement, and
-  continuous-operation months are derived by the backend from the qualifying
-  award and append-only ledger, then frozen into the submitted snapshot.
-- Declaration: relationship, related person, acceptance time, and place.
-- Evidence: documents live in their own versioned tables rather than inside the
-  form snapshot.
+  continuous-operation months, derived by the backend from the qualifying
+  award and append-only ledger — an applicant must never be able to assert
+  them, so they are never answers.
+- Declaration acceptance time, and the `application_category` (`CATEGORY_A` or
+  `CATEGORY_B`) the server computes at submission from the enterprise's
+  establishment date against the cycle's threshold.
 
-There is deliberately no ST certificate number column. ST evidence remains a
-supported document type. There is also no `is_phase_two` or
-`is_expansion_funding` Boolean: `application_type`, `phase_number`, the funding
-case, and the qualifying award express the relationship without contradictory
-state.
+Everything an applicant types — every answer to a template question — is a
+sparse answer row keyed by the field key the template declared. A field never
+answered has no row. Enterprise identity (name, sector, district,
+establishment date, registration numbers) is not frozen into the application
+at all: it is read live from `seb_enterprise` / `seb_enterprise_version`,
+which keep their own immutable history.
+
+Evidence lives in its own versioned document tables rather than inside any
+snapshot; a document slot names the `FILE` field it satisfies by `field_key`.
+
+There is deliberately no `is_phase_two` or `is_expansion_funding` Boolean:
+`application_type`, `phase_number`, the funding case, and the qualifying award
+express the relationship without contradictory state.
 
 ## Integrity rules
 
@@ -257,7 +300,7 @@ Some rules require an atomic multi-row decision and therefore belong to guarded
 services, not one row-level check. Expansion eligibility verifies the preceding
 phase, same enterprise/case, the target cycle’s calendar wait, every required
 latest utilization/performance/financial-audit result, and no competing active
-application. Award creation verifies the latest effective TTM approval. Ledger
+application. Award creation verifies the latest effective decision. Ledger
 writes enforce sanction limits and prevent over-reversals; recovery balances
 and zero-balance closure are recalculated inside write predicates.
 Closed awards retain whether releases were complete or a remainder was
@@ -265,10 +308,15 @@ deliberately not released. Recovery cases may be cancelled only while their
 append-only ledger is empty; after the first entry, corrections and zero-balance
 closure preserve the accounting trail.
 
-Cycle document, assessment, and reason rules are normalized rather than stored
-as arbitrary JSON. This makes each pinned policy version queryable and gives
-D1 explicit uniqueness and value constraints. JSON text remains reserved for
-small allow-listed audit/event metadata.
+Cycle rules — the form template, assessment and reason rules — are normalized
+rows rather than a JSON document, and the reason survives any engine: **a
+document cannot be a foreign-key target**, and the template's entire job is to
+be referenced. A document slot names a file field, a revision request names a
+stage, an option belongs to a field, an answer names the question it answers.
+Against a JSON column every one of those becomes an assertion in application
+code. Rows also make cross-row uniqueness a one-line index and let two cycle
+versions be diffed in SQL. JSON text remains reserved for small allow-listed
+audit and event metadata.
 
 ## Versions and concurrency
 
@@ -300,13 +348,15 @@ the assignment does not gate anything.
 
 ### The guarded-write shape
 
-One `db.batch`, which D1 executes as one transaction:
+One data-modifying statement, which is implicitly atomic:
 
 1. `UPDATE … WHERE current_version = :expected` on the head, plus every term
-   that must still hold — the owner, the status, the lifecycle.
-2. Each dependent row as `INSERT … SELECT … WHERE EXISTS (…)`, where the
-   predicate proves the head reached the new version at this exact timestamp.
-3. The first statement's result decides the outcome.
+   that must still hold — the owner, the status, the lifecycle — returning the
+   row it changed.
+2. Each dependent row as `INSERT … SELECT … FROM` that result, so a losing
+   update leaves them nothing to select. This is stronger than matching on a
+   timestamp: it is the same tuple, not a value that two requests could share.
+3. The update's row count decides the outcome.
 
 A losing request therefore writes nothing at all — no half-applied referral,
 no orphaned audit row — and is told `The record changed. Reload and try
@@ -328,27 +378,49 @@ types: `lower(seb_enterprise.current_name)` scoped by owner,
 `lower(seb_application.reference_number)`, and
 `lower(seb_programme_cycle.cycle_code)`.
 
-Queries use `GLOB` rather than `LIKE` because only `GLOB` can use a
-`BINARY`-collated expression index — `LIKE` falls back to a full scan.
-Confirmed with `EXPLAIN QUERY PLAN` rather than assumed.
+All three are declared `text_pattern_ops`, which is what lets
+`lower(column) LIKE 'term%'` use them. Under the default operator class the same
+query is a sequential scan — right answers, quietly linear, nothing failing.
+Confirmed with `EXPLAIN`, not assumed.
 
-Search is therefore **prefix-only**, and the interface says so. Full-text search
-would need an FTS5 virtual table, which `drizzle-kit export` cannot emit and the
-byte-exact schema check would reject.
+The consequence to know: an index with that operator class answers prefix
+matches and equality, and **cannot** serve an ordering or a range over the same
+expression. These three exist only for the prefix match, and nothing sorts by a
+lowercased reference number.
 
-## D1 conventions
+Search is **prefix-only**, and the interface says so. That is now a choice
+rather than a limitation — `pg_trgm` would index substring search, and would
+genuinely help on a business name where the distinguishing word sits in the
+middle. Until it is enabled the interface must go on saying "starts with".
+
+## Column conventions
 
 - IDs are opaque `TEXT` values generated by the application.
-- Timestamps are integer Unix milliseconds and use Drizzle's `timestamp_ms`
-  mode.
-- Date-only business values use ISO `YYYY-MM-DD` text.
-- Money uses integer paise. Floating-point currency is never stored.
+- Instants are `timestamptz`, never a bare `timestamp`: a bare one drops the
+  offset, so two instants an hour apart compare equal after a clock change, and
+  every deadline here is a comparison against `now()`.
+- Calendar days are `date`. A date of birth does not move when the reader is in
+  another zone.
+- Money is `bigint` paise with a ceiling `CHECK` at `2^53-1`. The ceiling exists
+  because Drizzle reads it into a JavaScript number, which is exact only that
+  far — a value that could not be read back is refused at write time rather than
+  read back wrong.
+- Booleans are real booleans. Every `IN (0, 1)` check went with the change.
+- **Enums stay `text` + `CHECK`, deliberately.** A value cannot be removed from
+  a Postgres enum type without a full table rewrite, and this schema has already
+  removed two whole vocabularies. Widening a `CHECK` is online and
+  transactional, and `text(x, { enum: [...] })` gives the identical TypeScript
+  union either way.
+- A `CHECK` passes when its result is NULL, not only when it is true. Any
+  constraint over a nullable column needs an explicit `IS NOT NULL`, or it
+  silently accepts the row it was written to refuse.
+- Deletion is a predicate, not a key column: indexes serving live rows are
+  partial, `WHERE deleted_at IS NULL`. The planner uses one only when it can
+  prove the predicate, so dropping that term from a query silently falls back to
+  a scan.
+- A composite foreign key needs a unique **constraint**, not a unique index; see
+  "Changing a table that already exists" below for why.
 - JSON text is limited to safe audit/event metadata, not form fields or files.
-- SQLite enum declarations are compile-time help only, so explicit `CHECK`
-  constraints protect runtime writes.
-- Race-sensitive service operations use guarded statements and D1 batches. A
-  batch must remain comfortably below D1's statement limit; large maintenance
-  work is paginated rather than placed in one unbounded batch.
 
 ## Current assumptions
 
@@ -368,14 +440,17 @@ byte-exact schema check would reject.
   A resolved policy can later be represented in programme-cycle policy data and
   submission validation.
 - No programme cycle is seeded by the base schema.
-- Administrative cycle, intake, desk review, offline-bank, TTM, award, release,
-  assessment, recovery, and role-management services exist. Account recovery, a
-  production scanner, notification delivery, and payment integration remain
-  public-launch blockers.
-- `database/schema.sql` is the whole schema and is safe to re-apply. Nothing is
-  deployed, so a change to an existing table is made in the Drizzle files and
-  regenerated; `database/migrations/` is empty until a database exists that
-  cannot be recreated.
+- Administrative cycle, intake, desk review, offline-bank, decision, award,
+  release, assessment, recovery, and role-management services exist, as do
+  account self-service (password reset, email change), a malware scanner
+  behind a swappable seam (Cloudmersive; a permissive transport until its key
+  is configured), and best-effort email notification with PDF attachments.
+  Payment integration remains a public-launch blocker.
+- `database/schema.sql` is the whole schema and is generated, never hand-edited.
+  Nothing is deployed and no database holds anything worth keeping, so applying
+  it means recreating rather than patching. The day a database exists that
+  cannot be thrown away, that reverses and changes to existing tables become an
+  ordered migration chain instead.
 - `core_user_role_grant.role` accepts five values: `APPLICANT`, `REVIEWER`,
   `APPROVER`, `ADMIN`, `SUPER_ADMIN`. The vocabulary is fixed in TypeScript and
   enforced by a `CHECK`, so adding a role is a schema change rather than a
@@ -389,9 +464,10 @@ byte-exact schema check would reject.
 - `seb_document_upload_intent.size_bytes` is capped at 5 MB by a `CHECK`. That
   is a **backstop, deliberately wider than the rule**: the service and the
   browser both refuse at 2 MB, which is what the malware scanner accepts. The
-  `CHECK` is not narrowed to match because SQLite cannot alter one without
-  rebuilding the table, and a bound wider than the rule costs nothing — what
-  would be wrong is a bound *narrower* than it.
+  `CHECK` is left wider rather than tracking the rule, because the rule's home
+  is `MAX_DOCUMENT_BYTES` in the application service and a second spelling of
+  it would have to be migrated in lockstep — a bound wider than the rule costs
+  nothing, and what would be wrong is a bound *narrower* than it.
 
 ## Base-schema workflow
 
@@ -401,59 +477,38 @@ schema change, regenerate and verify the canonical empty-database SQL:
 ```sh
 npm run db:schema:generate
 npm run db:schema:check
-npm test -- test/schema.test.ts
+npm test -- test/service/schema.test.ts
 ```
 
-To initialize a workspace-local D1 database:
+To initialize a local database:
 
 ```sh
 npm run db:setup:local
 ```
 
-Re-running it is safe: every statement in `database/schema.sql` is guarded with
-`IF NOT EXISTS`, so a second apply is a no-op and a half-created database
-recovers rather than erroring partway through. `db:setup:local` also records
-every migration as applied, because the baseline already contains their effect —
-with none to record it finds nothing, and it stays so that the first one added
-is stamped rather than applied a second time.
+`npm run db:setup:local` drops the public schema and rebuilds it from
+`database/schema.sql`.
 
 Keep this README's inventory, lifecycle, assumptions, and current state
 synchronized whenever tables or application rules change.
 
 ### Changing a table that already exists
 
-Today, in the Drizzle schema alone. `database/schema.sql` is the whole schema:
-no database exists that anybody has to keep, so regenerating the baseline is the
-entire change and [`database/migrations/`](../../../database/migrations/README.md)
-is empty. Nothing there is deferred work.
+Change the Drizzle schema and run `npm run db:schema:generate`.
+`npm run db:schema:check` regenerates and fails on any difference, naming the
+tables that moved — which is what keeps `database/schema.sql` a description of
+the schema rather than a second copy of it.
 
-**This reverses the day a database exists that cannot be thrown away**, and the
-reason is worth carrying until then. The guard on the baseline is not a
-migration: `IF NOT EXISTS` only ever helps an object that does not exist yet, so
-against a database whose table is already there in an older shape the statement
-is skipped and **reported as success**, leaving the schema on the old definition
-while the code assumes the new one. SQLite sharpens it further, because it
-cannot `ALTER` a `CHECK` constraint at all — changing one means creating a new
-table, copying every row, dropping the old and renaming, four statements no
-generator can infer.
+`npm run db:setup:local` drops the public schema and rebuilds it. It recreates
+rather than patches, deliberately: guarding every statement with
+`IF NOT EXISTS` would make a re-run *look* successful against a table already
+present in an older shape, leaving the database on the old definition while the
+code assumes the new one.
 
-From then on changes to existing tables are ordered files in that directory,
-applied by `npm run db:migrate` and recorded in `core_schema_migration` — the
-ledger row written in the same batch as the migration it records, so a crash
-cannot leave a database migrated but unaware of it.
-
-One database already survives a change today: the local one behind
-`npm run local`, which persists in `.wrangler` and is skipped silently by the
-same `IF NOT EXISTS`. A positional insert then supplies the wrong number of
-values. Recreate it rather than repairing it:
-
-```sh
-rm -rf .wrangler
-npm run db:setup:local
-```
-
-`npm run db:schema:check` proves what it can. It always proves the baseline
-parses and re-applies to no effect — nothing else in the repo applies it twice.
-It compares the baseline against the migration chain only when a chain exists,
-because with none the two sides are built from the same file and the comparison
-would pass whatever it contained.
+**One ordering rule is not obvious.** A composite foreign key needs its
+referenced columns covered by a unique **constraint**, and generated DDL
+declares foreign keys before it creates indexes — so a key pointing at a
+`uniqueIndex(...)` fails with *"there is no unique constraint matching given
+keys"*. Use `unique(...)` for any column set another table references; twenty-three
+of them here exist for that reason. A **partial** unique index can never be a
+foreign-key target at all.

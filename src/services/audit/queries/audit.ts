@@ -120,7 +120,14 @@ export const listAuditEvents = async (
   const actorRoles = db
     .select({
       userId: coreUserRoleGrant.userId,
-      roles: sql<string>`group_concat(${coreUserRoleGrant.role})`.as('roles'),
+      /*
+       * A real array, not a joined string. `group_concat` was SQLite's, and the
+       * caller split its result on a comma — which was only ever safe because a
+       * role name cannot contain one. `array_agg` removes the question, and the
+       * order makes the list stable for an assertion to read.
+       */
+      roles: sql<string[]>`array_agg(${coreUserRoleGrant.role} ORDER BY ${coreUserRoleGrant.role})`
+        .as('roles'),
     })
     .from(coreUserRoleGrant)
     .where(isNull(coreUserRoleGrant.revokedAt))
@@ -174,7 +181,7 @@ export const listAuditEvents = async (
             email: requireInvariant(row.actorEmail, 'Audit actor has no address.'),
             // Nobody holding no active role can act, but the row survives them
             // being deactivated, so an empty list is a real state here.
-            roles: (row.actorRoles?.split(',') ?? []) as UserRole[],
+            roles: (row.actorRoles ?? []) as UserRole[],
           }
         : null,
       requestId: row.requestId,

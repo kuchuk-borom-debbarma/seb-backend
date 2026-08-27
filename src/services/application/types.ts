@@ -11,24 +11,37 @@ import type { Loaders } from '../../loaders'
 // Re-exported because the operation contexts below name it.
 export type { Loaders } from '../../loaders'
 import type { Database } from '../../db'
+export type { AnswerMap } from './form/types'
+import type { AnswerMap } from './form/types'
+
+/*
+ * `AnswerMap` alone, because `Application` and `ApplicationSnapshot` below both
+ * name one — a caller holding either and unable to name its answers would have
+ * a type it cannot take apart.
+ *
+ * The rest of the form's vocabulary is **not** re-exported here — import it
+ * from `form/types`, or `form/codes` for an issue.
+ *
+ * It was, "so a caller naming an application can name its answers without
+ * reaching past this module into the engine". That reads well and cannot be
+ * done honestly: re-exporting the composites alone left a caller holding a
+ * `ResolvedFormTemplate` with no way to name a `FormField` in it, and
+ * re-exporting the parts as well made this module the second place the
+ * vocabulary is declared. One door into the engine's types, and it is the
+ * engine's own file.
+ */
 import type {
-  applicationCategories,
   awardAssessmentOutcomes,
   awardAssessmentTypes,
   fundingAwardClosureDispositions,
   fundingAwardStatuses,
-  applicationSections,
   applicationStatuses,
   applicationTypes,
-  applicantDesignations,
   businessSectors,
-  creditStatuses,
-  documentTypes,
   enterpriseStatuses,
-  genders,
   programmeCycleStatuses,
   registrationTypes,
-  relationshipTypes,
+  tripuraDistricts,
 } from '../../db/schema'
 
 export type ApplicationOperationContext = {
@@ -44,17 +57,34 @@ export type ApplicationOperationContext = {
 export type SebResult<T> = Envelope<T>
 
 export type RegistrationType = (typeof registrationTypes)[number]
+export type TripuraDistrict = (typeof tripuraDistricts)[number]
 export type BusinessSector = (typeof businessSectors)[number]
 export type EnterpriseStatus = (typeof enterpriseStatuses)[number]
 export type ApplicationStatus = (typeof applicationStatuses)[number]
 export type ApplicationType = (typeof applicationTypes)[number]
-export type ApplicationCategory = (typeof applicationCategories)[number]
-export type ApplicantDesignation = (typeof applicantDesignations)[number]
-export type Gender = (typeof genders)[number]
-export type CreditStatus = (typeof creditStatuses)[number]
-export type RelationshipType = (typeof relationshipTypes)[number]
-export type DocumentType = (typeof documentTypes)[number]
-export type ApplicationSection = (typeof applicationSections)[number]
+/*
+ * Five closed sets stood here — category, designation, gender, credit status
+ * and relationship — naming answers the *old fixed form* asked. What a cycle
+ * asks, and which values it offers, is the cycle's decision now: each is a
+ * `SINGLE_CHOICE` question whose values the template enumerates.
+ *
+ * `applicationCategories` survives in the schema because the category is
+ * role-bound and read across many cycles at once, and `ApplicationCategory`
+ * survives in the *SDL* for the same reason. The TypeScript alias had no
+ * reader on either side of that.
+ */
+/**
+ * The evidence slot a document fills, and the step of the form a question sits
+ * in.
+ *
+ * Both were closed enums and are now template keys, because which documents a
+ * cycle asks for and how it groups its questions are the cycle's decisions. A
+ * key is validated against the template pinned to the application it belongs to
+ * — the schema constrains its shape, and the form engine constrains its
+ * membership.
+ */
+export type DocumentType = string
+export type ApplicationSection = string
 export type ProgrammeCycleStatus = (typeof programmeCycleStatuses)[number]
 export type FundingAwardStatus = (typeof fundingAwardStatuses)[number]
 export type FundingAwardClosureDisposition =
@@ -71,7 +101,7 @@ export type EnterpriseProfileInput = {
   businessSector: BusinessSector | null
   otherBusinessSector: string | null
   businessBlockOrVillage: string | null
-  businessDistrict: string | null
+  businessDistrict: TripuraDistrict | null
   businessPinCode: string | null
   contactNumber: string | null
   contactEmail: string | null
@@ -87,7 +117,13 @@ export type EnterpriseProfileInput = {
  */
 export type SuppliedEnterpriseProfile =
   & Pick<EnterpriseProfileInput, 'name' | 'registrationType'>
-  & Partial<Omit<EnterpriseProfileInput, 'name' | 'registrationType'>>
+  & Partial<Omit<EnterpriseProfileInput, 'name' | 'registrationType' | 'businessDistrict'>>
+  /*
+   * Wider than the stored profile on purpose: over the wire the district is
+   * whatever string the client sent, and normalization is what narrows it to
+   * the closed set — by value, not by trusting a type annotation.
+   */
+  & { businessDistrict?: string | null }
 
 export type Enterprise = EnterpriseProfileInput & {
   id: string
@@ -98,73 +134,6 @@ export type Enterprise = EnterpriseProfileInput & {
   deletedAt: Date | null
 }
 
-export type EnterpriseDetailsInput = {
-  businessName: string | null
-  establishmentDate: string | null
-  registrationType: RegistrationType | null
-  registrationNumber: string | null
-  gstin: string | null
-  businessSector: BusinessSector | null
-  otherBusinessSector: string | null
-  applicationCategory: ApplicationCategory | null
-  majorityOwnershipConfirmed: boolean | null
-}
-
-export type ApplicantProfileInput = {
-  primaryApplicantName: string | null
-  designation: ApplicantDesignation | null
-  dateOfBirth: string | null
-  gender: Gender | null
-  businessBlockOrVillage: string | null
-  businessDistrict: string | null
-  businessPinCode: string | null
-  contactNumber: string | null
-  contactEmail: string | null
-}
-
-export type FinancialInput = {
-  totalProjectCostPaise: number | null
-  seedFundRequestedPaise: number | null
-  bankLoanProposedPaise: number | null
-  promoterContributionPaise: number | null
-}
-
-export type PriorFundingInput = {
-  receivedGovernmentFunding: boolean | null
-  governmentSchemeName: string | null
-  governmentFundingAmountPaise: number | null
-  governmentFundingSanctionYear: number | null
-  hasExistingBankCredit: boolean | null
-  existingBankName: string | null
-  existingCreditAmountPaise: number | null
-  existingCreditStatus: CreditStatus | null
-}
-
-export type DocumentRequirementsInput = {
-  nocRequired: boolean | null
-}
-
-export type DeclarationInput = {
-  relationshipType: RelationshipType | null
-  relatedPersonName: string | null
-  declarationAccepted: boolean | null
-  declarationPlace: string | null
-}
-
-/**
- * A draft save is a replacement snapshot rather than a JSON merge. GraphQL
- * requires each section object; controllers additionally verify every nullable
- * key is present so accidental omission cannot erase only part of a section.
- */
-export type ApplicationDraftInput = {
-  enterprise: EnterpriseDetailsInput
-  applicantProfile: ApplicantProfileInput
-  financial: FinancialInput
-  priorFunding: PriorFundingInput
-  documents: DocumentRequirementsInput
-  declaration: DeclarationInput
-}
-
 export type ExpansionClaim = {
   priorSanctionOrderNumber: string | null
   priorSanctionDate: string | null
@@ -172,20 +141,32 @@ export type ExpansionClaim = {
   continuousOperationMonths: number | null
 }
 
-export type ApplicationSnapshot = ApplicationDraftInput &
-  ExpansionClaim & {
-    version: number
-    programmeCycleVersion: number
-    applicationType: ApplicationType
-    phaseNumber: number
-    changeType: string
-    declarationAcceptedAt: Date | null
-    createdAt: Date
-  }
+/**
+ * One stored version, without its answers.
+ *
+ * The answers live one row each and are read against the template this version
+ * is pinned to, so a caller that wants them asks for them. Keeping them off
+ * this type is what stops a list of applications loading a template and an
+ * answer set per row by accident.
+ */
+export type ApplicationSnapshot = ExpansionClaim & {
+  version: number
+  /** What was answered at this version, against the form it is pinned to. */
+  answers: AnswerMap
+  programmeCycleVersion: number
+  applicationType: ApplicationType
+  phaseNumber: number
+  changeType: string
+  declarationAcceptedAt: Date | null
+  /** Computed at submission; see the schema column. Null on drafts. */
+  applicationCategory: 'CATEGORY_A' | 'CATEGORY_B' | null
+  createdAt: Date
+}
 
 export type ApplicationDocument = {
   id: string
-  documentType: DocumentType
+  /** The FILE field this evidence answers, from the pinned template. */
+  fieldKey: DocumentType
   currentVersion: number
   originalFilename: string
   contentType: string
@@ -196,7 +177,8 @@ export type ApplicationDocument = {
 
 export type RevisionRequest = {
   id: string
-  section: ApplicationSection
+  /** The template stage a reviewer reopened; see `ApplicationSection`. */
+  stageKey: ApplicationSection
   note: string
   requestedAt: Date
   resolvedAt: Date | null
@@ -219,24 +201,31 @@ export type Application = {
   updatedAt: Date
   deletedAt: Date | null
   snapshot: ApplicationSnapshot
+  /**
+   * Every answer on the current version, keyed by template field.
+   *
+   * Read against the template this version is pinned to, so a question the
+   * cycle has since changed still reads as it was answered.
+   */
+  answers: AnswerMap
   documents: ApplicationDocument[]
   revisionRequests: RevisionRequest[]
   /**
-   * Sections the applicant may change right now.
+   * Stages the applicant may change right now.
    *
-   * Every section while the application is a draft, only the sections named by
-   * unresolved revision requests while revision is required, and none
-   * otherwise. Anything outside this list is locked.
+   * Every stage the pinned template declares while the application is a draft,
+   * only the stages named by unresolved revision requests while revision is
+   * required, and none otherwise. Anything outside this list is locked.
    */
-  editableSections: ApplicationSection[]
+  editableStageKeys: ApplicationSection[]
 }
 
-// The list view is deliberately lighter than the detail view: editable
-// sections need the application's revision requests, which a paginated list
-// must not read per row.
+// The list view is deliberately lighter than the detail view: editable stages
+// need the application's revision requests, and the answers need its template,
+// neither of which a paginated list may read per row.
 export type ApplicationSummary = Omit<
   Application,
-  'snapshot' | 'documents' | 'revisionRequests' | 'editableSections'
+  'snapshot' | 'answers' | 'documents' | 'revisionRequests' | 'editableStageKeys'
 > & {
   businessName: string | null
   cycleCode: string
@@ -298,18 +287,6 @@ export type ApplicationStatusGuideEntry = {
   nextAction: string | null
 }
 
-export type ValidationIssue = {
-  section: ApplicationSection
-  field: string
-  code: string
-  message: string
-}
-
-export type ValidationReport = {
-  valid: boolean
-  issues: ValidationIssue[]
-}
-
 /**
  * One unmet expansion rule, stated separately so the applicant can see exactly
  * what remains outstanding rather than a single combined refusal.
@@ -350,7 +327,7 @@ export type TimelineEvent = {
   eventType: string
   fromStatus: ApplicationStatus | null
   toStatus: ApplicationStatus | null
-  section: ApplicationSection | null
+  stageKey: ApplicationSection | null
   message: string | null
   createdAt: Date
 }

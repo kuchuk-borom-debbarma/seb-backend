@@ -18,7 +18,7 @@ and delegates. No business rule lives in this directory.
 
 ## Layout
 
-Nine `.graphql` files, loaded as text modules by a Wrangler rule and stitched
+Ten `.graphql` files, loaded as text modules by a Wrangler rule and stitched
 together in `index.ts`:
 
 ```
@@ -28,29 +28,68 @@ mutations/<ns>/<ns>.graphql   one per namespace
 resolvers/<ns>/<ns>.ts        thin delegation to a service
 ```
 
-The four namespaces are `auth`, `seb` (applicant), `admin` (staff) and `access`
-(role management). Each is a nested field returning a namespace object, so
-`mutation { admin { intake { claim(…) } } }` rather than a flat
-`adminIntakeClaim`. That nesting is what the single-mutation rules below
-depend on.
+The five namespaces are `auth`, `seb` (applicant), `admin` (staff — itself
+nesting `programmeCycle`, `formTemplate`, `intake`, `analytics`, `decision`
+and `funding`), `access` (role management) and `audit` (query-only history).
+Each is a nested field returning a namespace object, so
+`mutation { admin { intake { startDeskReview(…) } } }` rather than a flat
+`adminIntakeStartDeskReview`. That nesting is what the single-mutation rules
+below depend on.
 
 ## Scalars
 
-Three, all declared in `index.ts`. Every scalar is mapped deliberately — the
-client's codegen runs with `strictScalars`, so an unmapped one is a build error
-rather than a silent `any`.
+Four, all declared in `index.ts`. Every scalar is mapped deliberately — the
+client's codegen runs with `strictScalars`, so an unmapped one is a build error.
+**A build error it reports while still writing output**, which is worth knowing:
+codegen prints "Generate outputs" and leaves the previous files in place, so an
+unmapped scalar reads as a clean run while every generated type silently stays
+stale. Check the exit code, not the log.
 
 | Scalar | Wire format | Why |
 | --- | --- | --- |
 | `DateTime` | ISO 8601 string | — |
 | `Date` | `YYYY-MM-DD` string | Date-only business values have no timezone |
 | `Money` | decimal string of paise | A number would be a precision bug in every award and payment |
+| `JSON` | bounded object | The answer map, where a keyed object is the honest shape and a list of `{fieldKey, value}` pairs would be a list pretending not to be one |
+
+## The refusal codes
+
+`ValidationIssue.code` is `ValidationIssueCode!`, a closed enum of 34 values, and
+not a `String!`. The difference is what happens when the two sides disagree: a
+code the engine emits that the schema does not publish is a **serialization
+error**, where a string would have travelled quietly to a client that has no
+branch for it.
+
+The set is declared once, in `services/application/form/codes.ts`, and
+`test/service/issue-codes.test.ts` compares the published schema against it
+directly — not against a fixture, which would only record what somebody believed
+when they wrote it and would go on passing while both sides drifted the same
+wrong way. Adding a member to either without the other is meant to go red.
+
+Worth knowing why this needed saying: `codes.ts` had described this arrangement
+in its own header since the first commit, and **neither the enum nor the test
+existed**. It is the same species as `INVALID_EMAIL` — vocabulary written, the
+mechanism not.
+
+**`JSON` is bounded on the way in, and that is not optional.** The body limit and
+the document-cost limit below both count *structure*; neither can see one
+enormous value, so a single unbounded argument walks past both. `parseValue`
+therefore enforces what the document rule enforces for fields: at most 64 KB
+encoded, 500 keys, 100 entries in a repeated group, 8192 characters in any one
+value, and one level of nesting. Keys must match the field-key shape, which is
+also what refuses `__proto__`. `NaN` and `Infinity` are refused rather than
+encoded as `null`, which would be indistinguishable from a deliberate blank.
+
+The engine checks a byte budget again over the coerced answers. That is not
+redundancy: this is a *transport* bound applied before anything is parsed, and
+the engine's is a *storage* bound applied to what will be written.
 
 ## What bounds a request
 
 Layered so that the cheapest refusal happens first. Every number was measured
-against the real client rather than chosen by taste — its largest operation
-selects **114 fields at depth 7**, and its largest request is **under 16 KB**.
+against the real client rather than chosen by taste — its largest operation,
+`IntakeWorkspace`, selects **174 fields at depth 8**, and its largest request
+is **about 4 KB**.
 
 | Bound | Value | Refused at |
 | --- | --- | --- |

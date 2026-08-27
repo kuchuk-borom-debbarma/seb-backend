@@ -15,19 +15,23 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
+import { useMemo } from 'react'
+import { AnswerSummary } from '#/features/application/AnswerSummary'
 import {
   applicationQuery,
   draftChangesQuery,
+  formTemplateQuery,
 } from '#/features/application/applicationQueries'
-import { DOCUMENT_TITLES, formatBytes } from '#/features/application/documents'
-import { SECTION_TITLES } from '#/features/application/draft'
-import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
+import { formatBytes } from '#/features/application/documents'
+import { resolveTemplate } from '#/features/application/formTemplate'
+import { formatDateTime, humanize } from '#/lib/format'
 
 export const Route = createFileRoute('/_shell/_applicant/applications/$id/submitted')({
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(applicationQuery(params.id)),
       context.queryClient.ensureQueryData(draftChangesQuery(params.id)),
+      context.queryClient.ensureQueryData(formTemplateQuery(params.id)),
     ])
   },
   component: SubmittedPage,
@@ -37,8 +41,13 @@ function SubmittedPage() {
   const { id } = Route.useParams()
   const { data: application } = useQuery(applicationQuery(id))
   const { data: changes } = useQuery(draftChangesQuery(id))
+  const { data: rawTemplate } = useQuery(formTemplateQuery(id))
+  const template = useMemo(
+    () => (rawTemplate ? resolveTemplate(rawTemplate) : null),
+    [rawTemplate],
+  )
 
-  if (!application) return null
+  if (!application || !template) return null
 
   /*
    * The applicant API does not report a submission number of its own. What it
@@ -47,7 +56,6 @@ function SubmittedPage() {
    * would be a number invented in the browser.
    */
   const submissionNumber = changes?.response?.comparedToSubmissionNumber ?? null
-  const snapshot = application.snapshot
   const documents = application.documents.filter((document) => !document.deletedAt)
 
   return (
@@ -106,142 +114,7 @@ function SubmittedPage() {
             <span className="muted">A copy, frozen at the moment above</span>
           </div>
           <div className="card-body">
-            <Group title={SECTION_TITLES.ENTERPRISE}>
-              <Fact label="Business name" value={snapshot.enterprise.businessName} />
-              <Fact
-                label="Established"
-                value={formatDate(snapshot.enterprise.establishmentDate)}
-              />
-              <Fact
-                label="Registration"
-                value={
-                  snapshot.enterprise.registrationType
-                    ? humanize(snapshot.enterprise.registrationType)
-                    : null
-                }
-              />
-              <Fact
-                label="Registration number"
-                value={snapshot.enterprise.registrationNumber}
-              />
-              <Fact label="GSTIN" value={snapshot.enterprise.gstin} />
-              <Fact
-                label="Sector"
-                value={
-                  snapshot.enterprise.businessSector
-                    ? humanize(snapshot.enterprise.businessSector)
-                    : null
-                }
-              />
-              <Fact
-                label="Category"
-                value={
-                  snapshot.enterprise.applicationCategory
-                    ? humanize(snapshot.enterprise.applicationCategory)
-                    : null
-                }
-              />
-            </Group>
-
-            <Group title={SECTION_TITLES.APPLICANT_PROFILE}>
-              <Fact label="Name" value={snapshot.applicantProfile.primaryApplicantName} />
-              <Fact
-                label="Role"
-                value={
-                  snapshot.applicantProfile.designation
-                    ? humanize(snapshot.applicantProfile.designation)
-                    : null
-                }
-              />
-              <Fact
-                label="Date of birth"
-                value={formatDate(snapshot.applicantProfile.dateOfBirth)}
-              />
-              <Fact
-                label="Block or village"
-                value={snapshot.applicantProfile.businessBlockOrVillage}
-              />
-              <Fact label="District" value={snapshot.applicantProfile.businessDistrict} />
-              <Fact label="PIN code" value={snapshot.applicantProfile.businessPinCode} />
-              <Fact
-                label="Contact number"
-                value={snapshot.applicantProfile.contactNumber}
-              />
-              <Fact
-                label="Contact email"
-                value={snapshot.applicantProfile.contactEmail}
-              />
-            </Group>
-
-            <Group title={SECTION_TITLES.FINANCIAL}>
-              <Fact
-                label="Total project cost"
-                value={formatMoney(snapshot.financial.totalProjectCostPaise)}
-              />
-              <Fact
-                label="Seed fund requested"
-                value={formatMoney(snapshot.financial.seedFundRequestedPaise)}
-              />
-              <Fact
-                label="Bank loan proposed"
-                value={formatMoney(snapshot.financial.bankLoanProposedPaise)}
-              />
-              <Fact
-                label="Your own contribution"
-                value={formatMoney(snapshot.financial.promoterContributionPaise)}
-              />
-            </Group>
-
-            <Group title={SECTION_TITLES.PRIOR_FUNDING}>
-              <Fact
-                label="Government funding before"
-                value={snapshot.priorFunding.receivedGovernmentFunding ? 'Yes' : 'No'}
-              />
-              {snapshot.priorFunding.receivedGovernmentFunding ? (
-                <>
-                  <Fact
-                    label="Scheme"
-                    value={snapshot.priorFunding.governmentSchemeName}
-                  />
-                  <Fact
-                    label="Amount"
-                    value={formatMoney(
-                      snapshot.priorFunding.governmentFundingAmountPaise,
-                    )}
-                  />
-                </>
-              ) : null}
-              <Fact
-                label="Existing bank credit"
-                value={snapshot.priorFunding.hasExistingBankCredit ? 'Yes' : 'No'}
-              />
-              {snapshot.priorFunding.hasExistingBankCredit ? (
-                <>
-                  <Fact label="Bank" value={snapshot.priorFunding.existingBankName} />
-                  <Fact
-                    label="Amount"
-                    value={formatMoney(snapshot.priorFunding.existingCreditAmountPaise)}
-                  />
-                </>
-              ) : null}
-            </Group>
-
-            <Group title={SECTION_TITLES.DECLARATION}>
-              <Fact
-                label="Relationship"
-                value={
-                  snapshot.declaration.relationshipType
-                    ? humanize(snapshot.declaration.relationshipType)
-                    : null
-                }
-              />
-              <Fact label="Of" value={snapshot.declaration.relatedPersonName} />
-              <Fact label="Place" value={snapshot.declaration.declarationPlace} />
-              <Fact
-                label="Declared"
-                value={formatDateTime(snapshot.declarationAcceptedAt)}
-              />
-            </Group>
+            <AnswerSummary template={template} answers={application.answers} />
           </div>
         </section>
 
@@ -272,7 +145,7 @@ function SubmittedPage() {
                 <tbody>
                   {documents.map((document) => (
                     <tr key={document.id}>
-                      <td>{DOCUMENT_TITLES[document.documentType]}</td>
+                      <td>{template.byKey.get(document.fieldKey)?.label ?? document.fieldKey}</td>
                       <td className="tabular">{document.originalFilename}</td>
                       <td className="tabular">{formatBytes(document.sizeBytes)}</td>
                     </tr>
@@ -286,37 +159,9 @@ function SubmittedPage() {
         <p className="notice">
           <span className="notice-title">What happens next</span>
           The programme office checks your application. If anything needs correcting you
-          will be told exactly which sections to change, and only those will open again.
+          will be told exactly which stages to change, and only those will open again.
         </p>
       </div>
     </main>
-  )
-}
-
-/** One band of the frozen copy. */
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div style={{ marginBottom: '1.5rem' }}>
-      <p className="eyebrow" style={{ marginBottom: '0.5rem' }}>
-        {title}
-      </p>
-      <div className="detail-grid">{children}</div>
-    </div>
-  )
-}
-
-/**
- * One answer.
- *
- * An unanswered optional question prints as an em dash rather than being
- * omitted, so the acknowledgement shows what was asked as well as what was
- * given.
- */
-function Fact({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div>
-      <span className="field-label">{label}</span>
-      <span>{value === null || value === undefined || value === '' ? '—' : value}</span>
-    </div>
   )
 }

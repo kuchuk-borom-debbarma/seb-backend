@@ -4,7 +4,8 @@
  * the race guarantees of signup or session ownership checks.
  */
 import { and, desc, eq, exists, gt, isNotNull, isNull, lte, ne, not, notExists, sql, type AnyColumn, type SQL } from 'drizzle-orm'
-import type { Database } from '../../../db'
+import { batch, type Database, type Transaction } from '../../../db'
+import { constraintSafe } from '../../constraints'
 import {
   coreAccountChallenge,
   coreAuditEvent,
@@ -28,7 +29,7 @@ export type PublicUserRecord = Pick<
 >
 export type PublicSessionRecord = Omit<SessionRecord, 'tokenDigest'>
 
-const changes = (result: D1Result): number => result.meta.changes ?? 0
+const changes = (result: { rowCount: number | null }): number => result.rowCount ?? 0
 
 /** Builds a guarded audit INSERT used inside the same D1 transaction as a mutation. */
 export const insertAuditEventWhere = (
@@ -49,7 +50,7 @@ export const insertAuditEventWhere = (
       ${value.userAgent ?? null},
       ${value.changesJson ?? null},
       ${value.metadataJson ?? null},
-      ${(value.createdAt as Date).getTime()}
+      ${value.createdAt}
     WHERE ${predicate}
   `)
 
@@ -270,6 +271,19 @@ export const findFirstSuperAdminCandidateByEmail = async (
  * permanent bootstrap-completed marker without introducing mutable flag state.
  * The password hash is repeated in the write predicate so a concurrent password
  * change defeats a request that verified stale credentials.
+ *
+ * **That check is not sufficient against a simultaneous second request**, and
+ * the Neon gate is what showed it: two bootstraps arriving together each
+ * evaluate the absence against their own snapshot, both find no grant, and the
+ * second raises `23505` on `core_user_role_grant_active_uq` — which reached the
+ * caller as an unhandled error rather than as the refusal this endpoint has for
+ * exactly that case. It passed on PGlite, where the harness shares one
+ * connection and the two could not overlap.
+ *
+ * `constraintSafe` turns the lost race into `false`, which is what the absence
+ * check already produces for every request that is merely late. The index stays
+ * the authority — it is the only thing that can be, since the decision is
+ * "nobody has ever held this role" and no predicate can see an uncommitted row.
  */
 export const grantFirstSuperAdmin = async (
   db: Database,
@@ -284,7 +298,7 @@ export const grantFirstSuperAdmin = async (
         ${input.roleGrant.role},
         NULL,
         ${input.roleGrant.grantReason},
-        ${input.roleGrant.grantedAt.getTime()},
+        ${input.roleGrant.grantedAt},
         NULL,
         NULL,
         NULL
@@ -337,15 +351,15 @@ export const grantFirstSuperAdmin = async (
 
   // One batch, one D1 transaction: the swap, the session purge, and all three
   // audits are never observable half-applied.
-  const [inserted] = await db.batch([
+  const inserted = await constraintSafe(() => batch(db, (tx) => [
     insertGrant,
     revokeApplicantGrant,
     destroyExistingSessions,
-    insertAuditEventWhere(db, input.roleGrantAuditEvent, grantExists),
-    insertAuditEventWhere(db, input.roleRevocationAuditEvent, grantExists),
-    insertAuditEventWhere(db, input.bootstrapAuditEvent, grantExists),
-  ])
-  return inserted.length === 1
+    insertAuditEventWhere(tx, input.roleGrantAuditEvent, grantExists),
+    insertAuditEventWhere(tx, input.roleRevocationAuditEvent, grantExists),
+    insertAuditEventWhere(tx, input.bootstrapAuditEvent, grantExists),
+  ]))
+  return inserted !== null && inserted[0].length === 1
 }
 
 /** Atomically creates one challenge only while the normalized email is unused. */
@@ -363,13 +377,13 @@ export const createSignupChallenge = async (
         ${challenge.challengeDigest},
         ${challenge.otpDigest},
         ${challenge.attemptsRemaining},
-        ${challenge.expiresAt.getTime()},
+        ${challenge.expiresAt},
         ${challenge.status},
         NULL,
         NULL,
         NULL,
-        ${challenge.createdAt.getTime()},
-        ${challenge.updatedAt.getTime()}
+        ${challenge.createdAt},
+        ${challenge.updatedAt}
       WHERE NOT EXISTS (
         SELECT 1 FROM ${coreUser} WHERE ${coreUser.email} = ${challenge.email}
       )
@@ -387,7 +401,7 @@ export const createSignupChallenge = async (
     ),
   )
 
-  const [inserted] = await db.batch([insertChallenge, insertAudit])
+  const [inserted] = await batch(db, (tx) => [insertChallenge, insertAudit])
   return inserted.length === 1
 }
 
@@ -429,7 +443,7 @@ export const markSignupChallengeDeliveryFailed = async (
     ),
   )
 
-  await db.batch([markFailed, insertAudit])
+  await batch(db, (tx) => [markFailed, insertAudit])
 }
 
 /**
@@ -476,10 +490,10 @@ export const createUserFromSignupChallenge = async (
         ${user.id},
         ${coreSignupChallenge.email},
         ${user.passwordHash},
-        ${user.emailVerifiedAt?.getTime() ?? null},
+        ${user.emailVerifiedAt ?? null},
         ${user.rowVersion},
-        ${user.createdAt.getTime()},
-        ${user.updatedAt.getTime()},
+        ${user.createdAt},
+        ${user.updatedAt},
         NULL,
         NULL,
         NULL,
@@ -490,7 +504,7 @@ export const createUserFromSignupChallenge = async (
         AND ${coreSignupChallenge.otpDigest} = ${submittedOtpDigest}
         AND ${coreSignupChallenge.status} = 'PENDING'
         AND ${coreSignupChallenge.attemptsRemaining} > 0
-        AND ${coreSignupChallenge.expiresAt} > ${now.getTime()}
+        AND ${coreSignupChallenge.expiresAt} > ${now}
     `)
     .onConflictDoNothing({ target: coreUser.email })
     .returning({ id: coreUser.id })
@@ -505,7 +519,7 @@ export const createUserFromSignupChallenge = async (
       ${roleGrant.role},
       ${roleGrant.grantedByUserId},
       ${roleGrant.grantReason},
-      ${roleGrant.grantedAt.getTime()},
+      ${roleGrant.grantedAt},
       NULL,
       NULL,
       NULL
@@ -542,7 +556,7 @@ export const createUserFromSignupChallenge = async (
 
   const insertAudit = insertAuditEventWhere(db, auditEvent, userExists)
   const insertRoleAudit = insertAuditEventWhere(db, roleAuditEvent, userExists)
-  const [inserted] = await db.batch([
+  const [inserted] = await batch(db, (tx) => [
     insertUser,
     insertRoleGrant,
     consumeWinner,
@@ -625,7 +639,7 @@ export const consumeWrongOtpAttempt = async (
       ),
     )
 
-  await db.batch([exhaust, decrement, db.insert(coreAuditEvent).values(auditEvent)])
+  await batch(db, (tx) => [exhaust, decrement, tx.insert(coreAuditEvent).values(auditEvent)])
 }
 
 /**
@@ -661,11 +675,11 @@ export const createUserSession = async (
         ${value.id},
         ${value.userId},
         ${value.tokenDigest},
-        ${value.expiresAt.getTime()},
+        ${value.expiresAt},
         ${value.ipAddress},
         ${value.userAgent},
-        ${value.createdAt.getTime()},
-        ${value.updatedAt.getTime()}
+        ${value.createdAt},
+        ${value.updatedAt}
       WHERE ${userIsStillActive}
     `)
     .returning({ id: coreSession.id })
@@ -673,7 +687,7 @@ export const createUserSession = async (
     db.select({ id: coreSession.id }).from(coreSession).where(eq(coreSession.id, value.id)),
   )
   const insertAudit = insertAuditEventWhere(db, auditEvent, sessionExists)
-  const [inserted] = await db.batch([insertSession, insertAudit])
+  const [inserted] = await batch(db, (tx) => [insertSession, insertAudit])
   return inserted.length === 1
 }
 
@@ -741,7 +755,7 @@ export const cleanupExpiredAuthenticationState = async (
   db: Database,
   now: Date,
 ): Promise<void> => {
-  await db.batch([
+  await batch(db, (tx) => [
     db
       .update(coreSignupChallenge)
       .set({
@@ -770,11 +784,11 @@ export const cleanupExpiredAuthenticationState = async (
           lte(coreAccountChallenge.expiresAt, now),
         ),
       ),
-    db.delete(coreSession).where(lte(coreSession.expiresAt, now)),
+    tx.delete(coreSession).where(lte(coreSession.expiresAt, now)),
     // A person holding no active role cannot authenticate, but their rows would
     // otherwise survive until expiry and start working again the moment any
     // role is granted back. Sweeping them makes deactivation durable.
-    db.delete(coreSession).where(not(hasActiveRoleGrant(db, coreSession.userId))),
+    tx.delete(coreSession).where(not(hasActiveRoleGrant(tx, coreSession.userId))),
   ])
 }
 
@@ -826,7 +840,7 @@ export const deleteUserSession = async (
   const deleteSession = db
     .delete(coreSession)
     .where(and(eq(coreSession.id, sessionId), eq(coreSession.userId, userId)))
-  const [, deleted] = await db.batch([insertAudit, deleteSession])
+  const [, deleted] = await batch(db, (tx) => [insertAudit, deleteSession])
   return changes(deleted) === 1
 }
 
@@ -835,9 +849,9 @@ export const deleteUserSessionByDigest = async (
   tokenDigest: string,
   auditEvent: AuditEventRecord,
 ): Promise<void> => {
-  await db.batch([
-    db.insert(coreAuditEvent).values(auditEvent),
-    db.delete(coreSession).where(eq(coreSession.tokenDigest, tokenDigest)),
+  await batch(db, (tx) => [
+    tx.insert(coreAuditEvent).values(auditEvent),
+    tx.delete(coreSession).where(eq(coreSession.tokenDigest, tokenDigest)),
   ])
 }
 
@@ -847,8 +861,8 @@ export const deleteOtherUserSessions = async (
   currentSessionId: string,
   auditEvent: AuditEventRecord,
 ): Promise<void> => {
-  await db.batch([
-    db.insert(coreAuditEvent).values(auditEvent),
+  await batch(db, (tx) => [
+    tx.insert(coreAuditEvent).values(auditEvent),
     db
       .delete(coreSession)
       .where(and(eq(coreSession.userId, userId), ne(coreSession.id, currentSessionId))),
@@ -860,8 +874,8 @@ export const deleteAllUserSessions = async (
   userId: string,
   auditEvent: AuditEventRecord,
 ): Promise<void> => {
-  await db.batch([
-    db.insert(coreAuditEvent).values(auditEvent),
-    db.delete(coreSession).where(eq(coreSession.userId, userId)),
+  await batch(db, (tx) => [
+    tx.insert(coreAuditEvent).values(auditEvent),
+    tx.delete(coreSession).where(eq(coreSession.userId, userId)),
   ])
 }

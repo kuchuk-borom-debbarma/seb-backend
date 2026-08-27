@@ -2,13 +2,13 @@
  * The file somebody has open.
  *
  * Most office screens exist only for one particular thing — an application, a
- * meeting, a cycle — so their address carries an id. A guided route cannot know
+ * cycle — so their address carries an id. A guided route cannot know
  * that id: it is written before anybody signs in, and the demonstration
  * database has no fixed contents.
  *
  * That is why every step describing the work itself used to stop at a list and
  * ask the reader to carry on alone. Instead the guide watches the address and
- * remembers the last application, meeting and cycle that were opened; a step
+ * remembers the last application and cycle that were opened; a step
  * naming one of those screens then follows the file already in hand.
  *
  * **It never invents an id.** With nothing in hand the step does not navigate at
@@ -20,11 +20,10 @@
 /** The individual files a guided route can follow. */
 export type Held = {
   application: string | null
-  meeting: string | null
   cycle: string | null
 }
 
-export const NOTHING_HELD: Held = { application: null, meeting: null, cycle: null }
+export const NOTHING_HELD: Held = { application: null, cycle: null }
 
 /*
  * Ids are UUIDs everywhere in this product, so the patterns are exact rather
@@ -32,18 +31,16 @@ export const NOTHING_HELD: Held = { application: null, meeting: null, cycle: nul
  */
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const APPLICATION = new RegExp(`^/admin/applications/(${UUID})(?:/|$)`, 'u')
-const MEETING = new RegExp(`^/admin/meetings/(${UUID})(?:/|$)`, 'u')
 const CYCLE = new RegExp(`^/admin/cycles/(${UUID})(?:/|$)`, 'u')
 
 /**
  * What the address says is open, folded into what was open before.
  *
- * Folded rather than replaced: opening a meeting does not put down the
+ * Folded rather than replaced: opening a cycle does not put down the
  * application, because a route may move between the two and come back.
  */
 export const heldFrom = (pathname: string, previous: Held): Held => ({
   application: APPLICATION.exec(pathname)?.[1] ?? previous.application,
-  meeting: MEETING.exec(pathname)?.[1] ?? previous.meeting,
   cycle: CYCLE.exec(pathname)?.[1] ?? previous.cycle,
 })
 
@@ -75,20 +72,17 @@ export const resolve = (
 ): Destination | null => {
   if (!to) return null
 
-  const needed = to.includes('$meetingId')
-    ? held.meeting
-    : to.startsWith('/admin/cycles/$id')
-      ? held.cycle
-      : to.includes('$id')
-        ? held.application
-        : null
+  const needed = to.startsWith('/admin/cycles/$id')
+    ? held.cycle
+    : to.includes('$id')
+      ? held.application
+      : null
 
   if (to.includes('$')) {
     if (!needed) return null
-    const param = to.includes('$meetingId') ? 'meetingId' : 'id'
     return {
       to,
-      params: { [param]: needed },
+      params: { id: needed },
       pathname: to.replace(/\$\w+/u, needed),
       ...(search ? { search } : {}),
     }

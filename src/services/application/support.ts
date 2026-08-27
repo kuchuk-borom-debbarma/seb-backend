@@ -11,6 +11,8 @@
  * normalized before it can be read as "exactly one row changed", and an
  * expected uniqueness race is a business refusal rather than a fault.
  */
+import { isExpectedConstraintError } from '../constraints'
+import { changedExactlyOne } from '../../db'
 import { auditActions, type coreAuditEvent } from '../../db/schema'
 import { failure, success } from '../envelope'
 import { authenticatedApplicant } from '../auth'
@@ -26,13 +28,12 @@ export const AUTH_REQUIRED_MESSAGE = 'Applicant authentication is required.'
 export const sqlNullable = <T>(value: T | null | undefined): T | null => value ?? null
 
 /** Converts an optional Drizzle date value to D1's millisecond representation. */
-export const sqlDateMilliseconds = (value: Date | null | undefined): number | null =>
-  value ? value.getTime() : null
-
-/** Normalizes D1 insert-returning arrays and mutation metadata to one success test. */
-export const d1ChangedExactlyOne = (
-  result: unknown[] | { meta: { changes?: number } },
-): boolean => Array.isArray(result) ? result.length === 1 : (result.meta.changes ?? 0) === 1
+/*
+ * There is deliberately no date-to-milliseconds helper. Timestamps are
+ * `timestamptz` and a `Date` binds to one directly; converting to epoch
+ * milliseconds produced `timestamptz = bigint`, which Postgres refuses — so a
+ * guarded write that should have refused cleanly threw instead.
+ */
 
 export const currentApplicant = async (context: ApplicationOperationContext) => {
   const authenticated = await authenticatedApplicant(context)
@@ -69,13 +70,9 @@ export const auditRecord = (
   createdAt: input.now,
 })
 
-/** Converts expected uniqueness/check failures into a safe business conflict. */
-const isConstraintError = (error: unknown): boolean =>
-  error instanceof Error && /constraint|unique|foreign key/iu.test(error.message)
-
 /**
- * Converts an expected D1 uniqueness/check race into `false`, while preserving
- * unexpected faults for GraphQL Yoga's server-error handling.
+ * Converts an expected uniqueness or foreign-key race into `false`, while
+ * preserving unexpected faults for GraphQL Yoga's server-error handling.
  */
 export const runConstraintSafe = async (
   operation: () => Promise<boolean>,
@@ -83,18 +80,20 @@ export const runConstraintSafe = async (
   try {
     return await operation()
   } catch (error) {
-    if (isConstraintError(error)) return false
+    if (isExpectedConstraintError(error)) return false
     throw error
   }
 }
 
-/** Constraint-safe variant for aggregate inserts that otherwise return void. */
+/**
+ * Constraint-safe variant for aggregate inserts.
+ *
+ * False means the write did not happen, whether a unique key refused it or its
+ * own guard did — the caller turns either into a refusal rather than a crash.
+ */
 export const runConstraintSafeInsert = async (
-  operation: () => Promise<void>,
-): Promise<boolean> => runConstraintSafe(async () => {
-  await operation()
-  return true
-})
+  operation: () => Promise<boolean>,
+): Promise<boolean> => (await runConstraintSafe(operation)) === true
 
 /** Retries bounded uniqueness races such as generated public references. */
 export const runConstraintRetry = async <T>(
@@ -105,7 +104,7 @@ export const runConstraintRetry = async <T>(
     try {
       return await operation()
     } catch (error) {
-      if (!isConstraintError(error)) throw error
+      if (!isExpectedConstraintError(error)) throw error
     }
   }
   return null
@@ -132,9 +131,9 @@ export const afterSuccessfulClaim = async (
 export const appendWhenChanged = <T>(
   target: T[],
   value: T,
-  result: unknown[] | { meta: { changes?: number } },
+  result: readonly unknown[],
 ): void => {
-  if (d1ChangedExactlyOne(result)) target.push(value)
+  if (changedExactlyOne(result)) target.push(value)
 }
 
 /** Completes a guarded write without repeating the race-result branch in controllers. */

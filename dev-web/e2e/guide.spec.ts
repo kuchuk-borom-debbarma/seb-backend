@@ -88,11 +88,13 @@ test.describe('how this works', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
   })
 
-  test('is the first thing in the navigation', async ({ page }) => {
-    await page.goto('/')
+  test('is offered from the portal navigation', async ({ page }) => {
+    // The redesign leads with the workspace links; the guide keeps its place
+    // in the rail rather than the top slot. The root is the public site now,
+    // so the portal is where the rail lives.
+    await page.goto('/admin')
     const navigation = page.getByRole('navigation', { name: 'Portal sections' })
-    const links = await navigation.getByRole('link').allInnerTexts()
-    expect(links[0]).toBe('How this works')
+    await expect(navigation.getByRole('link', { name: 'How this works' })).toBeVisible()
   })
 
   test('draws the whole route, one stop per row, in order', async ({ page }) => {
@@ -212,7 +214,7 @@ test.describe('walking a route', () => {
      * And the product is still there. A tour that dimmed the page would make
      * the demonstration worse than no demonstration.
      */
-    await expect(page.getByRole('heading', { name: 'Intake' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
     await expect(page.getByLabel('Reference number')).toBeEditable()
   })
 
@@ -600,7 +602,6 @@ test.describe('the office reads its own words', () => {
       '/admin/queue',
       '/admin/cycles',
       '/admin/cycles/new',
-      '/admin/meetings',
       '/admin/access',
     ]) {
       await page.goto(path)
@@ -632,7 +633,7 @@ test.describe('the first visit', () => {
     await signIn(page, both)
     await forgetGuide(page)
 
-    await page.goto('/')
+    await page.goto('/dashboard')
     await expect(page.getByText('First time here?')).toBeVisible()
     await page.getByRole('button', { name: 'Not now' }).click()
     await expect(page.getByText('First time here?')).toHaveCount(0)

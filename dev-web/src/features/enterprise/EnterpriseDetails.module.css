@@ -1,0 +1,354 @@
+/* ==========================================================================
+   Enterprise Details Modern View Styles
+   ========================================================================== */
+
+.pageContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Header Bar
+   ========================================================================== */
+
+.headerBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.titleArea {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.backSquareBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #1e293b;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.backSquareBtn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.enterpriseName {
+  color: #111827;
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.editBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease;
+}
+
+.editBtn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.removeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #dc2626;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease;
+}
+
+.removeBtn:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #f87171;
+}
+
+.removeBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.restoreBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #16a34a;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease;
+}
+
+.restoreBtn:hover:not(:disabled) {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+/* ==========================================================================
+   Main Enterprise Profile Card
+   ========================================================================== */
+
+.profileCard {
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  overflow: hidden;
+}
+
+/* Hero Header */
+.cardHero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28px 32px;
+  background: linear-gradient(135deg, #f8faff 0%, #eef5fe 50%, #f6f9ff 100%);
+  border-bottom: 1px solid #edf2f7;
+  position: relative;
+  overflow: hidden;
+}
+
+.cardHeroLeft {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  z-index: 1;
+}
+
+.heroIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: #dbeafe;
+  color: #2563eb;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.12);
+}
+
+.heroContent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.heroTitle {
+  color: #111827;
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.statusPillActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: #edf7ee;
+  color: #16a34a;
+  font-size: 12px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.statusPillRemoved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.cardHeroArtwork {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+/* ==========================================================================
+   Details Grid Rows
+   ========================================================================== */
+
+.cardBody {
+  padding: 12px 32px 28px;
+  display: flex;
+  flex-direction: column;
+}
+
+.detailsRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  padding: 22px 0;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.detailsRowLast {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  padding: 22px 0 6px;
+  border-bottom: 0;
+}
+
+.itemCol {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.itemIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: #f1f5f9;
+  color: #475569;
+  flex-shrink: 0;
+}
+
+.itemContent {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.itemLabel {
+  color: #64748b;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.itemValue {
+  color: #0f172a;
+  font-size: 13.5px;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+/* ==========================================================================
+   Bottom Action
+   ========================================================================== */
+
+.bottomNav {
+  margin-top: 4px;
+}
+
+.bottomBackBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease;
+}
+
+.bottomBackBtn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+@media (max-width: 52rem) {
+  .detailsRow,
+  .detailsRowLast {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .cardHero {
+    padding: 22px 20px;
+  }
+
+  .cardBody {
+    padding: 8px 20px 20px;
+  }
+}

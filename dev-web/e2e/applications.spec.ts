@@ -11,6 +11,10 @@ const asNewApplicant = async (page: Page) => {
 const registerEnterprise = async (page: Page, name: string) => {
   await page.goto('/enterprises/new')
   await page.getByLabel('Registered or trading name').fill(name)
+  // The form is a four-step wizard now; a name plus defaults carries through.
+  for (let step = 0; step < 3; step += 1) {
+    await page.getByRole('button', { name: 'Next' }).click()
+  }
   await page.getByRole('button', { name: 'Register enterprise' }).click()
   await expect(page).toHaveURL(/\/enterprises\/[0-9a-f-]{36}$/u)
 }

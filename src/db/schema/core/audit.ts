@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { check, index, integer, pgTable, text } from 'drizzle-orm/pg-core'
+import { instant } from '../shared'
 import { coreUser } from './auth'
 
 export const auditOutcomes = ['SUCCESS', 'FAILURE'] as const
@@ -17,7 +18,7 @@ export const auditOutcomes = ['SUCCESS', 'FAILURE'] as const
  * Two absences are deliberate rather than missing:
  *
  * - **Asking an applicant for a correction** has no action of its own. It
- *   happens three ways — a desk review, a bank outcome, a committee decision —
+ *   happens three ways — a desk review, a bank outcome, a programme decision —
  *   and each already records itself with the outcome that caused it, so a
  *   separate name would be a second copy of the same fact.
  * - **Claiming, releasing and reassigning** are gone with the claim itself.
@@ -45,6 +46,16 @@ export const auditActions = {
   passwordChanged: 'USER.PASSWORD_CHANGED',
   emailChangeRequested: 'USER.EMAIL_CHANGE_REQUESTED',
   emailChangeOtpFailed: 'USER.EMAIL_CHANGE_OTP_FAILED',
+  /*
+   * An email-change code that could not be delivered.
+   *
+   * Its own action, because it was recorded as
+   * `AUTH.PASSWORD_RESET_NOTIFICATION_FAILED` — so somebody reading the audit
+   * trail for a failed reset saw email changes among them, and somebody asking
+   * why an address change never arrived found nothing under any name they
+   * would think to search.
+   */
+  emailChangeNotificationFailed: 'USER.EMAIL_CHANGE_NOTIFICATION_FAILED',
   emailChanged: 'USER.EMAIL_CHANGED',
   displayNameChanged: 'USER.DISPLAY_NAME_CHANGED',
   enterpriseCreated: 'SEB.ENTERPRISE_CREATED',
@@ -78,10 +89,8 @@ export const auditActions = {
   bankReferralCancelled: 'SEB.BANK_REFERRAL_CANCELLED',
   bankOutcomeRecorded: 'SEB.BANK_OUTCOME_RECORDED',
   bankOutcomeCorrected: 'SEB.BANK_OUTCOME_CORRECTED',
-  ttmMeetingChanged: 'SEB.TTM_MEETING_CHANGED',
-  ttmAgendaChanged: 'SEB.TTM_AGENDA_CHANGED',
-  ttmDecisionRecorded: 'SEB.TTM_DECISION_RECORDED',
-  ttmDecisionCorrected: 'SEB.TTM_DECISION_CORRECTED',
+  decisionRecorded: 'SEB.DECISION_RECORDED',
+  decisionCorrected: 'SEB.DECISION_CORRECTED',
   selfReviewDisclosed: 'SEB.SELF_REVIEW_DISCLOSED',
   awardCreated: 'SEB.AWARD_CREATED',
   awardChanged: 'SEB.AWARD_CHANGED',
@@ -92,6 +101,16 @@ export const auditActions = {
   recoveryEntryRecorded: 'SEB.RECOVERY_ENTRY_RECORDED',
   recoveryClosed: 'SEB.RECOVERY_CLOSED',
   recoveryCancelled: 'SEB.RECOVERY_CANCELLED',
+  /*
+   * Failure-only, like the two notification actions above: the send is best
+   * effort, and the durable business record is the submission, decision or
+   * award row itself. A success action here would be a second copy of a fact
+   * the history already carries; what the office cannot see anywhere else is
+   * an applicant who was never told.
+   */
+  submissionConfirmationFailed: 'SEB.SUBMISSION_CONFIRMATION_FAILED',
+  approvalNotificationFailed: 'SEB.APPROVAL_NOTIFICATION_FAILED',
+  sanctionNotificationFailed: 'SEB.SANCTION_NOTIFICATION_FAILED',
 } as const
 
 /**
@@ -99,7 +118,7 @@ export const auditActions = {
  * `changesJson` and `metadataJson` contain JSON text, but services must only
  * write explicitly allow-listed, non-secret values.
  */
-export const coreAuditEvent = sqliteTable(
+export const coreAuditEvent = pgTable(
   'core_audit_event',
   {
     id: text('id').primaryKey(),
@@ -115,7 +134,7 @@ export const coreAuditEvent = sqliteTable(
     userAgent: text('user_agent'),
     changesJson: text('changes_json'),
     metadataJson: text('metadata_json'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     check('core_audit_event_outcome_check', sql`${table.outcome} IN ('SUCCESS', 'FAILURE')`),

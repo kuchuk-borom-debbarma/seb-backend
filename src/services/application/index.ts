@@ -1,6 +1,7 @@
 export {
   applicationById,
   applicationDraftChanges,
+  applicationFormTemplate,
   applicationStatusExplanations,
   applicationTimeline,
   availableProgrammeCycles,

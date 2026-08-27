@@ -1,0 +1,1290 @@
+/* ==========================================================================
+   Applicant Dashboard Soft Modern Design System
+   ========================================================================== */
+
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Top Summary Metric Cards
+   ========================================================================== */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.metricCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border: 1px solid #e9eaec;
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--text);
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.metricCard:hover {
+  border-color: #d1d5db;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.06);
+}
+
+.metricLeft {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.metricIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.metricCard:hover .metricIconBadge {
+  transform: scale(1.05);
+}
+
+.metricIconBadge[data-color='blue'] {
+  background: #edf5ff;
+  color: #2563eb;
+}
+
+.metricIconBadge[data-color='green'] {
+  background: #edf7ee;
+  color: #16a34a;
+}
+
+.metricIconBadge[data-color='purple'] {
+  background: #f3effc;
+  color: #7c3aed;
+}
+
+.metricIconBadge svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.8;
+}
+
+.metricInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metricLabel {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.metricValue {
+  color: #111827;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.metricChevron {
+  color: #9ca3af;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.metricCard:hover .metricChevron {
+  color: #374151;
+  transform: translateX(3px);
+}
+
+/* Base metric style for admin screens */
+.metric {
+  display: flex;
+  min-height: 112px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 17px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.metric:hover {
+  border-color: var(--border-strong);
+  background: #fcfcfc;
+}
+
+.metricTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.metricTop svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.6;
+}
+
+/* ==========================================================================
+   Middle Section: Active Cycle Hero + Needs Your Attention
+   ========================================================================== */
+
+.middleGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.cycleHero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 220px;
+  padding: 24px;
+  border: 1px solid #d4e4f7;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #f0f7ff 0%, #e7f1fc 50%, #dbeafe 100%);
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+
+.cycleHeroArtwork {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  height: 100%;
+  max-width: 60%;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.cycleHeroContent {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cycleHeroPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 9999px;
+  background: #dbeafe;
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.cycleHeroDates {
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.cycleHeroRelative {
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.cycleHeroButton {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin-top: 18px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.15);
+  transition: all 0.2s ease;
+}
+
+.cycleHeroButton:hover {
+  background: #1e293b;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+}
+
+.cycleHeroButton svg {
+  transition: transform 0.2s ease;
+}
+
+.cycleHeroButton:hover svg {
+  transform: translateX(3px);
+}
+
+/* Needs Your Attention Card */
+
+.attentionCard {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px;
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.cardTitle {
+  color: #111827;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.cardLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.cardLink:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+.attentionEmpty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px 10px;
+}
+
+.checkBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 12px;
+  border-radius: 50%;
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.checkBadge svg {
+  width: 22px;
+  height: 22px;
+}
+
+.attentionEmptyText {
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.attentionEmptySubtext {
+  color: #6b7280;
+  font-size: 12px;
+  max-width: 280px;
+  line-height: 1.45;
+}
+
+.applicationList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.applicationRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #f0f2f5;
+  border-radius: 10px;
+  background: #fafbfc;
+  color: var(--text);
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.applicationRow:hover {
+  border-color: #e5e7eb;
+  background: #f3f4f6;
+  transform: translateX(2px);
+}
+
+.rowIcon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.rowText {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowText strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowText small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Bottom Section: Get Started
+   ========================================================================== */
+
+.getStartedCard {
+  padding: 20px 22px;
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.getStartedGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.getStartedItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border: 1px solid #f0f2f5;
+  border-radius: 12px;
+  background: #fafbfc;
+  color: #111827;
+  text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.getStartedItem:hover {
+  border-color: #d1d5db;
+  background: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px -2px rgba(0, 0, 0, 0.05);
+}
+
+.getStartedItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.getStartedIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.getStartedItem:hover .getStartedIconBadge {
+  transform: scale(1.05);
+}
+
+.getStartedIconBadge[data-color='blue'] {
+  background: #edf5ff;
+  color: #2563eb;
+}
+
+.getStartedIconBadge[data-color='green'] {
+  background: #edf7ee;
+  color: #16a34a;
+}
+
+.getStartedIconBadge[data-color='purple'] {
+  background: #f3effc;
+  color: #7c3aed;
+}
+
+.getStartedIconBadge svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.8;
+}
+
+.getStartedLabel {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.getStartedChevron {
+  color: #9ca3af;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.getStartedItem:hover .getStartedChevron {
+  color: #374151;
+  transform: translateX(3px);
+}
+
+/* ==========================================================================
+   Account Readiness Checklist Card
+   ========================================================================== */
+
+.emptyStatesCard {
+  padding: 20px 22px;
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.emptyStatesList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.emptyStateItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #f0f2f5;
+  border-radius: 12px;
+  background: #fafbfc;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.emptyStateItem:hover {
+  border-color: #d1d5db;
+  background: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+}
+
+.emptyStateLeft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.emptyStateIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.emptyStateItem:hover .emptyStateIconBadge {
+  transform: scale(1.05);
+}
+
+.emptyStateIconBadge[data-color='blue'] {
+  background: #edf5ff;
+  color: #2563eb;
+}
+
+.emptyStateIconBadge[data-color='green'] {
+  background: #edf7ee;
+  color: #16a34a;
+}
+
+.emptyStateIconBadge[data-color='purple'] {
+  background: #f3effc;
+  color: #7c3aed;
+}
+
+.emptyStateIconBadge svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.8;
+}
+
+.emptyStateText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.emptyStateText strong {
+  color: #111827;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.emptyStateText small {
+  color: #6b7280;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.emptyStateAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.emptyStateAction:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #2563eb;
+  transform: translateX(1px);
+}
+
+.emptyStateAction svg {
+  transition: transform 0.15s ease;
+}
+
+.emptyStateAction:hover svg {
+  transform: translateX(2px);
+}
+
+/* ==========================================================================
+   Admin / Superadmin Modern Dashboard Design System
+   ========================================================================== */
+
+.adminDashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.headerPrimaryButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.12);
+  transition: all 0.2s ease;
+}
+
+.headerPrimaryButton:hover {
+  background: #1e293b;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.2);
+}
+
+.headerPrimaryButton svg {
+  transition: transform 0.2s ease;
+}
+
+.headerPrimaryButton:hover svg {
+  transform: translateX(2px);
+}
+
+.adminMainGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.adminCol {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.adminCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.adminCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.adminCardTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.viewAllLink {
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.viewAllLink:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+/* Waiting on us queue list */
+.waitingQueueList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.waitingQueueRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 1px solid #f0f2f5;
+  border-radius: 10px;
+  background: #fafbfc;
+  color: var(--text);
+  text-decoration: none;
+  min-width: 0;
+  gap: 8px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.waitingQueueRow:hover {
+  border-color: #d1d5db;
+  background: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+}
+
+.waitingQueueLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.waitingIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.waitingIconBadge[data-color='blue'] {
+  background: #edf5ff;
+  color: #2563eb;
+}
+
+.waitingIconBadge[data-color='green'] {
+  background: #eefcf3;
+  color: #16a34a;
+}
+
+.waitingIconBadge[data-color='amber'] {
+  background: #fef8ec;
+  color: #d97706;
+}
+
+.waitingQueueText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.waitingQueueTitle {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.waitingQueueDesc {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.waitingQueueRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.waitingQueueCount {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+}
+
+.waitingQueueChevron {
+  color: #9ca3af;
+  transition: transform 0.2s ease;
+}
+
+.waitingQueueRow:hover .waitingQueueChevron {
+  color: #374151;
+  transform: translateX(2px);
+}
+
+/* Latest scheduled meetings empty state */
+.meetingEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.meetingEmptyIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #f3f4f6;
+  color: #9ca3af;
+  margin-bottom: 10px;
+}
+
+.meetingEmptyText {
+  font-size: 13px;
+  color: #6b7280;
+  margin: 0;
+}
+
+.meetingList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.meetingRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #f0f2f5;
+  border-radius: 10px;
+  background: #fafbfc;
+  color: var(--text);
+  text-decoration: none;
+  min-width: 0;
+  transition: all 0.15s ease;
+}
+
+.meetingRow:hover {
+  border-color: #e5e7eb;
+  background: #f3f4f6;
+  transform: translateX(2px);
+}
+
+/* Quick actions */
+.quickActionsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.quickActionTile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px 8px;
+  border-radius: 10px;
+  text-decoration: none;
+  gap: 8px;
+  min-height: 96px;
+  min-width: 0;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.quickActionTile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px -2px rgba(0, 0, 0, 0.05);
+}
+
+.quickActionTile[data-color='blue'] {
+  background: #edf5ff;
+  border: 1px solid #dbeafe;
+  color: #1e40af;
+}
+
+.quickActionTile[data-color='green'] {
+  background: #eefcf3;
+  border: 1px solid #dcfce7;
+  color: #166534;
+}
+
+.quickActionTile[data-color='amber'] {
+  background: #fef8ec;
+  border: 1px solid #fef3c7;
+  color: #9a3412;
+}
+
+.quickActionTile[data-color='purple'] {
+  background: #faf3ff;
+  border: 1px solid #f3e8ff;
+  color: #6b21a8;
+}
+
+.quickActionIcon {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.8;
+}
+
+.quickActionLabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+/* All queues table */
+.queuesTableWrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 4px;
+}
+
+.queuesTable {
+  width: 100%;
+  min-width: 440px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.queuesTable th {
+  padding: 8px 12px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4b5563;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.queuesTable th[data-numeric] {
+  text-align: right;
+}
+
+.queuesTableRow {
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s ease;
+}
+
+.queuesTableRow:last-child {
+  border-bottom: 0;
+}
+
+.queuesTableRow:hover {
+  background: #f8fafc;
+}
+
+.queuesTable td {
+  padding: 9px 12px;
+  vertical-align: middle;
+}
+
+.queueNameLink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #111827;
+  font-weight: 500;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.queueNameLink:hover {
+  color: #2563eb;
+}
+
+.queueIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.queueIconBadge[data-color='blue'] {
+  background: #edf5ff;
+  color: #2563eb;
+}
+
+.queueIconBadge[data-color='green'] {
+  background: #eefcf3;
+  color: #16a34a;
+}
+
+.queueIconBadge[data-color='amber'] {
+  background: #fef8ec;
+  color: #d97706;
+}
+
+.queueIconBadge[data-color='teal'] {
+  background: #ecfeff;
+  color: #0891b2;
+}
+
+.queueIconBadge[data-color='purple'] {
+  background: #faf3ff;
+  color: #7c3aed;
+}
+
+.queueIconBadge[data-color='green-circle'] {
+  background: #dcfce7;
+  color: #16a34a;
+  border-radius: 50%;
+}
+
+.queueIconBadge[data-color='red-circle'] {
+  background: #fee2e2;
+  color: #ef4444;
+  border-radius: 50%;
+}
+
+.queueTitleText {
+  white-space: nowrap;
+}
+
+.queueDescText {
+  color: #4b5563;
+  font-size: 12.5px;
+}
+
+.queueCountCell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.queueCountLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: #111827;
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  width: 100%;
+}
+
+.queueCountLink:hover {
+  color: #2563eb;
+}
+
+.queueCountLink svg {
+  color: #9ca3af;
+  transition: transform 0.15s ease;
+}
+
+.queueCountLink:hover svg {
+  color: #2563eb;
+  transform: translateX(2px);
+}
+
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
+
+@media (max-width: 64rem) {
+  .middleGrid,
+  .adminMainGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 54rem) {
+  .metrics,
+  .queueSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .getStartedGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .quickActionsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .metric {
+    min-height: 92px;
+  }
+
+  .dashboardGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 38rem) {
+  .emptyStateItem {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .emptyStateAction {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 32rem) {
+  .adminCard {
+    padding: 16px 14px;
+  }
+
+  .cycleHero {
+    padding: 18px;
+  }
+
+  .cycleCallout {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .quickActionsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Programme analytics (CYCLE_ADMIN only) ─────────────────────────────── */
+
+.analyticsStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.analyticsStat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.analyticsStatLabel {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.analyticsStatValue {
+  font-size: 20px;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.analyticsChartRow {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.donutChart {
+  width: 160px;
+  height: 160px;
+  flex-shrink: 0;
+}
+
+/* The same hues the icon badges use, applied to the marks alone — the labels
+   beside them stay in text ink, never in the series colour. */
+.donutSegment[data-color='blue'] {
+  stroke: #2563eb;
+}
+
+.donutSegment[data-color='green'] {
+  stroke: #16a34a;
+}
+
+.donutSegment[data-color='purple'] {
+  stroke: #7c3aed;
+}
+
+.donutTotal {
+  font-size: 24px;
+  font-weight: 650;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.donutCaption {
+  font-size: 11px;
+  fill: var(--text-muted);
+}
+
+.donutLegend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legendSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.legendSwatch[data-color='blue'] {
+  background: #2563eb;
+}
+
+.legendSwatch[data-color='green'] {
+  background: #16a34a;
+}
+
+.legendSwatch[data-color='purple'] {
+  background: #7c3aed;
+}
+
+.legendLabel {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.legendCount {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.analyticsEmpty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}

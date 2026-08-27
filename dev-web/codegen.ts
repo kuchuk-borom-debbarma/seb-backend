@@ -21,6 +21,18 @@ const sharedConfig = {
     DateTime: 'string',
     Date: 'string',
     Money: 'string',
+    /*
+     * Mapped deliberately rather than left to `any`.
+     *
+     * `strictScalars` fails the build on an unmapped scalar, which is what this
+     * exists for — but codegen reports "Generate outputs" and leaves the last
+     * good files in place, so an unmapped scalar reads as a clean run while
+     * every generated type silently stays stale.
+     *
+     * Relative rather than the `#/` alias: codegen reads `#` as its own
+     * module/type separator, so the alias produces a broken import.
+     */
+    JSON: '../../features/application/answers#AnswerMap',
   },
   avoidOptionals: { field: true, inputValue: false },
   skipTypename: true,

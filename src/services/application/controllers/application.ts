@@ -2,6 +2,7 @@
 import { auditActions, applicationStatuses } from '../../../db/schema'
 import { decodeCursor, pageSize } from '../pagination'
 import {
+  findEnterpriseFacts,
   evaluateExpansionEligibility,
   expansionClaimFromAward,
   findApplicationVersion,
@@ -9,15 +10,17 @@ import {
   findExpansionAwardForApplication,
   findLatestSubmittedVersion,
   findOpenProgrammeCycle,
+  findProgrammeCycleIdentity,
   findSubmissionPolicy,
+  findUserEmailById,
   findDraftChanges,
   findOwnedApplicationHead,
   insertApplicationAggregate,
-  listActiveDocumentTypes,
+  listActiveDocumentFieldKeys,
   listApplicationTimeline,
   listApplicantProgrammeCycles,
   listAvailableProgrammeCycles,
-  listOpenRevisionSections,
+  listOpenRevisionStageKeys,
   listOwnedApplications,
   loadOwnedApplication,
   saveApplicationSnapshot,
@@ -36,6 +39,7 @@ import {
   runConstraintSafe,
 } from '../support'
 import { failure, success } from '../../envelope'
+import { bestEffort } from '../../best-effort'
 import {
   APPLICATION_NOT_FOUND_MESSAGE,
   applicantForVersionedWrite,
@@ -43,9 +47,23 @@ import {
   ownedApplicationAtVersion,
 } from '../ownership'
 import { applicationStatusGuide } from '../status-guide'
+import type { ValidationReport } from '../form/engine'
+/*
+ * Re-exported because `applicationFormTemplate` and `validateApplication` below
+ * return them: a caller holding either result and unable to name its type would
+ * have a value it cannot take apart.
+ */
+/*
+ * Re-exported so a caller can name what `applicationFormTemplate` and
+ * `validateApplication` return. Both are the engine's own types; declaring them
+ * here instead would be a second copy of the vocabulary, so the two functions
+ * carry a suppression rather than this module carrying a duplicate.
+ */
+export type { ResolvedFormTemplate } from '../form/types'
+export type { ValidationReport } from '../form/engine'
+import type { AnswerMap, AnswerValue, ResolvedFormTemplate } from '../form/types'
 import type {
   Application,
-  ApplicationDraftInput,
   ApplicationOperationContext,
   ApplicationSection,
   ApplicationStatus,
@@ -58,81 +76,31 @@ import type {
   ProgrammeCycle,
   SebResult,
   TimelineEvent,
-  ValidationReport,
 } from '../types'
+import { changedStageKeys, pruneHidden } from '../form/answers'
 import {
-  normalizeDraftInput,
-  requiredDocumentTypes,
-  validateSubmissionSnapshot,
-} from '../validation'
+  normalizeAnswers,
+  requiredDocumentFieldKeys,
+  applicationCategoryOf,
+  validateAnswersForSubmission,
+} from '../form/engine'
+import {
+  answersFromRows,
+  answersToRows,
+  findAnswerRows,
+  findPinnedCycleRules,
+  findPinnedRulesForApplication,
+} from '../queries/form-template'
+import { ROLE_CANONICAL_KEY } from '../../../db/schema'
+import { buildApplicationPdf } from '../confirmation'
+import { sendNotification } from '../../external-notification'
+import { createAuditEvent } from '../../auth/queries/auth'
 
 const EMPTY_EXPANSION_CLAIM: ExpansionClaim = {
   priorSanctionOrderNumber: null,
   priorSanctionDate: null,
   priorNetDisbursedAmountPaise: null,
   continuousOperationMonths: null,
-}
-
-const currentDraft = (application: Application): ApplicationDraftInput => ({
-  enterprise: application.snapshot.enterprise,
-  applicantProfile: application.snapshot.applicantProfile,
-  financial: application.snapshot.financial,
-  priorFunding: application.snapshot.priorFunding,
-  documents: application.snapshot.documents,
-  declaration: application.snapshot.declaration,
-})
-
-const sourceDraft = (
-  source: NonNullable<Awaited<ReturnType<typeof findEnterpriseApplicationSource>>>,
-  applicantEmail: string,
-): ApplicationDraftInput => {
-  return {
-    enterprise: {
-      businessName: source.version.name,
-      establishmentDate: source.version.establishmentDate,
-      registrationType: source.version.registrationType,
-      registrationNumber: source.version.registrationNumber,
-      gstin: source.version.gstin,
-      businessSector: source.version.businessSector,
-      otherBusinessSector: source.version.otherBusinessSector,
-      applicationCategory: null,
-      majorityOwnershipConfirmed: null,
-    },
-    applicantProfile: {
-      primaryApplicantName: null,
-      designation: null,
-      dateOfBirth: null,
-      gender: null,
-      businessBlockOrVillage: source.version.businessBlockOrVillage,
-      businessDistrict: source.version.businessDistrict,
-      businessPinCode: source.version.businessPinCode,
-      contactNumber: source.version.contactNumber,
-      contactEmail: source.version.contactEmail ?? applicantEmail,
-    },
-    financial: {
-      totalProjectCostPaise: null,
-      seedFundRequestedPaise: null,
-      bankLoanProposedPaise: null,
-      promoterContributionPaise: null,
-    },
-    priorFunding: {
-      receivedGovernmentFunding: null,
-      governmentSchemeName: null,
-      governmentFundingAmountPaise: null,
-      governmentFundingSanctionYear: null,
-      hasExistingBankCredit: null,
-      existingBankName: null,
-      existingCreditAmountPaise: null,
-      existingCreditStatus: null,
-    },
-    documents: { nocRequired: null },
-    declaration: {
-      relationshipType: null,
-      relatedPersonName: null,
-      declarationAccepted: null,
-      declarationPlace: null,
-    },
-  }
 }
 
 export const availableProgrammeCycles = async (
@@ -262,6 +230,16 @@ const startApplication = async (
     expansionClaim = expansionClaimFromAward(evaluated.award, now)
   }
 
+  /*
+   * The cycle's form, resolved before anything is written.
+   *
+   * A cycle whose template does not resolve cannot take an application at all:
+   * the draft would exist with no questions, and the applicant would be told
+   * nothing about why. Refused here rather than at the first save.
+   */
+  const rules = await findPinnedCycleRules(context.db, cycle.id, cycle.currentVersion)
+  if (!rules) return failure('This programme cycle has no application form yet.')
+
   const applicationId = crypto.randomUUID()
   const inserted = await runConstraintSafe(() =>
     insertApplicationAggregate(context.db, {
@@ -273,7 +251,13 @@ const startApplication = async (
       programmeCycleVersion: cycle.currentVersion,
       applicationType: expansion ? 'EXPANSION' : 'INITIAL',
       phaseNumber,
-      draft: sourceDraft(source, applicant.email),
+      /*
+       * Empty. Nothing is prefilled any more: the enterprise facts stopped
+       * being answers when the entity became their single home, and the two
+       * remaining roles — an owner's date of birth and the requested amount —
+       * are things only the applicant can say.
+       */
+      answerRows: [],
       expansionClaim,
       qualifyingAwardId,
       qualifyingReleaseAt,
@@ -305,47 +289,34 @@ export const startExpansionApplication = (
   context: ApplicationOperationContext,
 ): Promise<SebResult<Application>> => startApplication(input, context, true)
 
-type EditableApplicationSection = Exclude<ApplicationSection, 'EXPANSION'>
-
-const sectionKeys: Record<EditableApplicationSection, keyof ApplicationDraftInput> = {
-  ENTERPRISE: 'enterprise',
-  APPLICANT_PROFILE: 'applicantProfile',
-  FINANCIAL: 'financial',
-  PRIOR_FUNDING: 'priorFunding',
-  DOCUMENTS: 'documents',
-  DECLARATION: 'declaration',
-}
-
-const sectionValue = (
-  draft: ApplicationDraftInput,
-  section: EditableApplicationSection,
-): unknown => draft[sectionKeys[section]]
-
+/**
+ * The stages a revision may change, or null when this save is out of scope.
+ *
+ * A revision reopens named stages and nothing else, so every stage outside the
+ * open set must be identical to what was submitted. This is the same
+ * `changedStageKeys` the applicant's own review screen and the administrative
+ * workspace use — it was once a second implementation with a `Date` branch the
+ * other did not have, which is exactly how two answers to "did this change"
+ * come to disagree.
+ */
 const revisionChangesAreAllowed = async (
   context: ApplicationOperationContext,
-  applicationId: string,
-  draft: ApplicationDraftInput,
+  application: Application,
+  template: ResolvedFormTemplate,
+  answers: AnswerMap,
 ): Promise<Set<ApplicationSection> | null> => {
-  const [submitted, openSections] = await Promise.all([
-    findLatestSubmittedVersion(context.db, applicationId),
-    listOpenRevisionSections(context.db, applicationId),
+  const [submitted, openStageKeys] = await Promise.all([
+    findLatestSubmittedVersion(context.db, application.id),
+    listOpenRevisionStageKeys(context.db, application.id),
   ])
-  if (!submitted || openSections.size === 0) return null
-  const submittedDraft = currentDraft({ snapshot: snapshotRecordToPublic(submitted) } as Application)
-  const sections: EditableApplicationSection[] = [
-    'ENTERPRISE',
-    'APPLICANT_PROFILE',
-    'FINANCIAL',
-    'PRIOR_FUNDING',
-    'DOCUMENTS',
-    'DECLARATION',
-  ]
-  return sections.every(
-    (section) =>
-      openSections.has(section) ||
-      JSON.stringify(sectionValue(draft, section)) ===
-        JSON.stringify(sectionValue(submittedDraft, section)),
-  ) ? openSections : null
+  if (!submitted || openStageKeys.size === 0) return null
+  const submittedAnswers = answersFromRows(
+    template,
+    submitted.id,
+    await findAnswerRows(context.db, [submitted.id]),
+  )
+  const changed = changedStageKeys(template, submittedAnswers, answers)
+  return changed.every((stageKey) => openStageKeys.has(stageKey)) ? openStageKeys : null
 }
 
 const expansionEvidenceForHead = async (
@@ -379,7 +350,8 @@ export const saveApplicationDraft = async (
     applicationId: string
     expectedVersion: number
     expectedStatusVersion: number
-    draft: ApplicationDraftInput
+    /** Whatever the client sent. Untyped on purpose — see `normalizeAnswers`. */
+    answers: unknown
   },
   context: ApplicationOperationContext,
 ): Promise<SebResult<Application>> => {
@@ -390,21 +362,40 @@ export const saveApplicationDraft = async (
   if (application.status !== 'DRAFT' && application.status !== 'REVISION_REQUIRED') {
     return failure('The application cannot be edited in its current status.')
   }
-  const normalized = normalizeDraftInput(input.draft)
+  /*
+   * Resolved once, and everything downstream reads this object: the normaliser,
+   * the revision-scope diff, the equality check and the rows that get written.
+   * Resolving it twice is how a save and its validation come to disagree about
+   * what the form is.
+   */
+  const rules = await findPinnedRulesForApplication(
+    context.db, application.id, application.currentVersion,
+  )
+  if (!rules) return failure('The form this application was filled against could not be read.')
+
+  const normalized = normalizeAnswers(rules.template, input.answers, new Date())
   if (!normalized.value || normalized.issues.length > 0) {
     return failure(firstValidationIssueMessage(
       normalized.issues,
       'The draft contains invalid values.',
     ))
   }
-  const draft = normalized.value
-  const revisionSections = application.status === 'REVISION_REQUIRED'
-    ? await revisionChangesAreAllowed(context, application.id, draft)
+  /*
+   * A hidden question's answer is cleared on the way in, not merely ignored.
+   * Left in place it would be stored, shown to a reviewer, and read as though
+   * somebody had been asked for it.
+   */
+  const answers = pruneHidden(rules.template, normalized.value)
+
+  const revisionStageKeys = application.status === 'REVISION_REQUIRED'
+    ? await revisionChangesAreAllowed(context, application, rules.template, answers)
     : undefined
-  if (application.status === 'REVISION_REQUIRED' && !revisionSections) {
-    return failure('Only sections requested for revision may be changed.')
+  if (application.status === 'REVISION_REQUIRED' && !revisionStageKeys) {
+    return failure('Only stages requested for revision may be changed.')
   }
-  if (JSON.stringify(currentDraft(application)) === JSON.stringify(draft)) {
+  // Nothing changed, so nothing is versioned. An autosave that stores an
+  // identical version on every keystroke makes the history useless.
+  if (changedStageKeys(rules.template, application.answers, answers).length === 0) {
     return success(application)
   }
   const now = new Date()
@@ -419,11 +410,11 @@ export const saveApplicationDraft = async (
   const saved = await runConstraintSafe(() => saveApplicationSnapshot(context.db, {
     head: application,
     userId: applicant.id,
-    draft,
+    answerRows: answersToRows(rules.template, answers),
     expansionClaim: expansionEvidence.claim,
     qualifyingAwardId: expansionEvidence.qualifyingAwardId,
     qualifyingReleaseAt: expansionEvidence.qualifyingReleaseAt,
-    revisionSections: revisionSections ? [...revisionSections] : undefined,
+    revisionStageKeys: revisionStageKeys ? [...revisionStageKeys] : undefined,
     programmeCycleVersion: readableVersion.programmeCycleVersion,
     now,
     audit: auditRecord(context, {
@@ -450,17 +441,17 @@ export const validateApplication = async (
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
   const application = await loadOwnedApplication(context.db, applicant.id, applicationId)
   if (!application) return failure('The application was not found.')
-  const documentTypes = await listActiveDocumentTypes(context.db, applicationId)
-  const policy = await findSubmissionPolicy(
-    context.db,
-    application.programmeCycleId,
-    application.snapshot.programmeCycleVersion,
+  const rules = await findPinnedRulesForApplication(
+    context.db, application.id, application.currentVersion,
   )
-  return success(validateSubmissionSnapshot(
-    application.snapshot,
-    documentTypes,
+  if (!rules) return failure('The form this application was filled against could not be read.')
+  return success(validateAnswersForSubmission(
+    rules.template,
+    application.answers,
+    await listActiveDocumentFieldKeys(context.db, applicationId),
     new Date(),
-    policy ?? undefined,
+    rules.policy,
+    await findEnterpriseFacts(context.db, application.enterpriseId),
   ))
 }
 
@@ -553,6 +544,67 @@ const createReferenceNumber = (cycleYear: number): string => {
   return `SEP-${cycleYear}-${suffix}`
 }
 
+/*
+ * Best effort, and deliberately after the write: a mail failure must not undo
+ * or hide a submission that has already happened. The same policy as the
+ * password-change notice in `auth/controllers/account.ts`, with the same
+ * shape of record when it fails — a FAILURE audit row under its own action,
+ * and a fixed log line that never carries the error object, because a
+ * transport error can echo the recipient and these logs are public in CI.
+ */
+const sendSubmissionConfirmation = async (
+  context: ApplicationOperationContext,
+  applicantId: string,
+  application: Application,
+  template: ResolvedFormTemplate,
+): Promise<void> => {
+  try {
+    const [email, cycle] = await Promise.all([
+      findUserEmailById(context.db, applicantId),
+      findProgrammeCycleIdentity(context.db, application.programmeCycleId),
+    ])
+    if (!email || !cycle) throw new Error('The confirmation cannot be addressed.')
+    const bytes = await buildApplicationPdf({
+      referenceNumber: application.referenceNumber,
+      cycleCode: cycle.cycleCode,
+      cycleDisplayName: cycle.displayName,
+      submittedAt: application.firstSubmittedAt,
+      template,
+      answers: application.answers,
+      heading: 'Application submitted',
+    })
+    await sendNotification({
+      to: email,
+      subject: 'Your Mission SEP application has been submitted',
+      body:
+        'Your Mission SEP application has been submitted.\n\n'
+        + `Reference: ${application.referenceNumber ?? application.id}\n`
+        + `Cycle: ${cycle.displayName} (${cycle.cycleCode})\n\n`
+        + 'A copy of the application is attached for your records. The '
+        + 'programme office will review it, and you will be notified of the '
+        + 'outcome and of any request for corrections.',
+      attachments: [{
+        filename: `application-${application.referenceNumber ?? application.id}.pdf`,
+        contentType: 'application/pdf',
+        bytes,
+      }],
+    }, context.env)
+  } catch {
+    // Guarded itself: the audit write failing must not throw into the
+    // submission that has already succeeded.
+    await bestEffort(createAuditEvent(context.db, {
+      ...auditRecord(context, {
+        actorUserId: applicantId,
+        action: auditActions.submissionConfirmationFailed,
+        entityType: 'SEB_APPLICATION',
+        entityId: application.id,
+        now: new Date(),
+      }),
+      outcome: 'FAILURE',
+    }), 'A submission confirmation failed')
+  }
+}
+
 const submit = async (
   input: { applicationId: string; expectedVersion: number; expectedStatusVersion: number },
   context: ApplicationOperationContext,
@@ -570,10 +622,10 @@ const submit = async (
     ? null
     : await findOpenProgrammeCycle(context.db, application.programmeCycleId, now)
   if (!resubmission && !cycle) return failure('The programme cycle is no longer open.')
-  const revisionSections = resubmission
-    ? await listOpenRevisionSections(context.db, application.id)
+  const revisionStageKeys = resubmission
+    ? await listOpenRevisionStageKeys(context.db, application.id)
     : undefined
-  if (resubmission && revisionSections?.size === 0) {
+  if (resubmission && revisionStageKeys?.size === 0) {
     return failure('There are no open revision requests to resolve.')
   }
   const expansionEvidence = await expansionEvidenceForHead(context, application, now)
@@ -588,35 +640,27 @@ const submit = async (
     )
     if (!evaluated.result.eligible) return failure('The expansion application is no longer eligible.')
   }
-  const normalizedDraft = normalizeDraftInput(currentDraft(application))
-  if (!normalizedDraft.value || normalizedDraft.issues.length > 0) {
-    return failure('The application contains invalid values. Run validation for details.')
-  }
-  const draft = normalizedDraft.value
-  const formalSnapshot = {
-    ...application.snapshot,
-    ...expansionEvidence.claim,
-    enterprise: draft.enterprise,
-    applicantProfile: draft.applicantProfile,
-    financial: draft.financial,
-    priorFunding: draft.priorFunding,
-    documents: draft.documents,
-    declaration: draft.declaration,
-  }
-  // Resolved once: the validator and the write must agree about which
-  // documents this cycle requires, and they only do so by asking the same
-  // policy rather than each deriving one.
-  const submissionPolicy =
-    (await findSubmissionPolicy(
-      context.db,
-      application.programmeCycleId,
-      application.snapshot.programmeCycleVersion,
-    )) ?? undefined
-  const report = validateSubmissionSnapshot(
-    formalSnapshot,
-    await listActiveDocumentTypes(context.db, application.id),
+  /*
+   * Resolved **once**, and handed to both the validator and the write.
+   *
+   * They have to agree about which questions exist and which documents this
+   * cycle requires, and the only way they do is by reading the same object. Two
+   * resolutions of the same cycle version would almost always agree, which is
+   * what makes the day they do not so hard to find.
+   */
+  const rules = await findPinnedRulesForApplication(
+    context.db, application.id, application.currentVersion,
+  )
+  if (!rules) return failure('The form this application was filled against could not be read.')
+  const answers = application.answers
+  const facts = await findEnterpriseFacts(context.db, application.enterpriseId)
+  const report = validateAnswersForSubmission(
+    rules.template,
+    answers,
+    await listActiveDocumentFieldKeys(context.db, application.id),
     now,
-    submissionPolicy,
+    rules.policy,
+    facts,
   )
   if (!report.valid) return failure('The application is incomplete. Run validation for details.')
   const currentVersionRecord = await findApplicationVersion(
@@ -630,15 +674,22 @@ const submit = async (
     head: application,
     currentVersion: readableVersion,
     userId: applicant.id,
-    draft,
+    answerRows: answersToRows(rules.template, answers),
     expansionClaim: expansionEvidence.claim,
     qualifyingAwardId: expansionEvidence.qualifyingAwardId,
     qualifyingReleaseAt: expansionEvidence.qualifyingReleaseAt,
-    revisionSections: revisionSections ? [...revisionSections] : undefined,
+    revisionStageKeys: revisionStageKeys ? [...revisionStageKeys] : undefined,
     programmeCycleVersion: readableVersion.programmeCycleVersion,
     referenceNumber: createReferenceNumber(cycle?.cycleYear ?? new Date().getUTCFullYear()),
     resubmission,
-    requiredDocumentTypes: requiredDocumentTypes(formalSnapshot, submissionPolicy),
+    requiredDocumentFieldKeys: requiredDocumentFieldKeys(rules.template, answers),
+    // Frozen onto the snapshot here, from the same facts the validator read —
+    // the moment of submission is what the sorting must reflect.
+    applicationCategory: applicationCategoryOf(
+      facts?.establishmentDate ?? null,
+      rules.policy.categoryAMaximumMonths,
+      now,
+    ),
     now,
     audit: auditRecord(context, {
       actorUserId: applicant.id,
@@ -650,12 +701,19 @@ const submit = async (
       now,
     }),
   }), 3)
-  return completeGuardedOperation(
+  const result = await completeGuardedOperation(
     submitted === true,
     'The application changed. Refresh it and try again.',
     () => loadOwnedApplication(context.db, applicant.id, application.id),
     'Submitted application could not be read.',
   )
+  if (submitted === true && result.success && result.response) {
+    await bestEffort(
+      sendSubmissionConfirmation(context, applicant.id, result.response, rules.template),
+      'A submission confirmation failed',
+    )
+  }
+  return result
 }
 
 export const submitApplication = (
@@ -681,16 +739,37 @@ export const applicationStatusExplanations = async (
   return success({ statuses: applicationStatusGuide })
 }
 
+/**
+ * The form one of this applicant's applications is filled against.
+ *
+ * Its own operation rather than a field on the application, because the two
+ * have opposite lifetimes: the application changes on every autosave and the
+ * form does not change at all once the cycle version is pinned.
+ */
+export const applicationFormTemplate = async (
+  applicationId: string,
+  context: ApplicationOperationContext,
+): Promise<SebResult<ResolvedFormTemplate>> => {
+  const owned = await ownedApplication<ResolvedFormTemplate>(applicationId, context)
+  if ('refusal' in owned) return owned.refusal
+  const rules = await findPinnedRulesForApplication(
+    context.db, owned.application.id, owned.application.currentVersion,
+  )
+  return rules
+    ? success(rules.template)
+    : failure('The form this application was filled against could not be read.')
+}
+
 /** What this draft changes relative to the last submission, for a final review. */
 export const applicationDraftChanges = async (
   applicationId: string,
   context: ApplicationOperationContext,
 ): Promise<SebResult<{
-  sections: ApplicationSection[]
+  stageKeys: ApplicationSection[]
   comparedToSubmissionNumber: number
 }>> => {
   const owned = await ownedApplication<{
-    sections: ApplicationSection[]
+    stageKeys: ApplicationSection[]
     comparedToSubmissionNumber: number
   }>(applicationId, context)
   if ('refusal' in owned) return owned.refusal

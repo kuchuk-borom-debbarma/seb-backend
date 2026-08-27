@@ -20,10 +20,10 @@
  *
  * ## What must not drift
  *
- * `d1_databases` names the same database and id as the deployed configuration.
- * `--persist-to` keys the local database by that identity, so changing it here
- * would give `npm run local` and the suite a different, empty database from the
- * one `scripts/reset-e2e-db.mjs` prepares.
+ * `hyperdrive.localConnectionString` names the Postgres this machine talks to.
+ * `scripts/reset-e2e-db.mjs` prepares that same database, so changing it here
+ * without changing the script gives `npm run local` and the suite a different,
+ * empty database from the one that was prepared.
  *
  * Rate-limit bindings are deliberately absent: local runs count in process, and
  * the suite turns counting off entirely. `npm run check:rate-limits` reads the
@@ -34,6 +34,7 @@
   "name": "seb-backend",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-21",
+  "compatibility_flags": ["nodejs_compat"],
 
   "account_id": "15a26eaa33db8561da8f42e036dfe627",
 
@@ -45,11 +46,16 @@
     }
   ],
 
-  "d1_databases": [
+  /*
+   * `localConnectionString` is what makes `wrangler dev` reach a Postgres on
+   * this machine instead of the deployed Neon branch. The id is still required
+   * by the schema and is not used locally.
+   */
+  "hyperdrive": [
     {
-      "binding": "DB",
-      "database_name": "seb-backend",
-      "database_id": "3be23488-48c3-43a7-b561-5037a521daf2"
+      "binding": "HYPERDRIVE",
+      "id": "REPLACE_WITH_HYPERDRIVE_ID",
+      "localConnectionString": "postgresql://postgres:postgres@localhost:5432/seb_backend"
     }
   ],
 

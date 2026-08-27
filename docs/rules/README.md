@@ -28,9 +28,9 @@ empty row is more honest than silence.
   client's style and has never had the problem. Until a configuration exists,
   **do not run a formatter over `src/`.**
 - **Testing.** What must be covered, what a test is allowed to assume, and why
-  the Worker holds 100% coverage over an allow-list while the client is covered
-  by end-to-end tests instead. Currently inferable only from `vitest.config.ts`
-  and the suites themselves.
+  the Worker's coverage thresholds are a ratchet set just below what the suite
+  holds while the client is covered by end-to-end tests instead. Currently
+  inferable only from `vitest.service.config.ts` and the suites themselves.
 
 ## Related
 

@@ -8,10 +8,12 @@
  */
 import {
   programmeReasonContexts,
-  documentTypes,
   deskReviewChecks,
   deskReviewIdentifierKinds,
 } from '../../../db/schema'
+import { formFieldRoles } from '../../../db/schema/seb/form-template'
+import { formTemplateProblem } from '../form-template-input'
+import { expandGroupDefinitions } from '../group-definitions'
 import { decodeAdminCursor, adminPageSize } from '../pagination'
 import {
   findExpiredOpenCycles,
@@ -60,14 +62,22 @@ const validatePolicyCollections = (input: ProgrammeCycleInput): string | null =>
   const policy = input.policy
   const identifierRules = policy.identifierRules ?? []
   if (
-    !uniqueBy(policy.documentRules, (rule) => rule.documentType) ||
+    !uniqueBy(policy.formTemplate.stages, (stage) => stage.stageKey) ||
+    !uniqueBy(policy.formTemplate.fields, (field) => field.fieldKey) ||
     !uniqueBy(policy.requiredAssessmentTypes, (type) => type) ||
     !uniqueBy(identifierRules, (rule) => rule.kind) ||
     !uniqueBy(policy.reasons, (reason) => `${reason.context}:${reason.code}`)
   ) return 'Cycle policy entries must be unique.'
-  if (policy.documentRules.some((rule) => !documentTypes.includes(rule.documentType))) {
-    return 'The cycle contains an unknown document rule.'
-  }
+  /*
+   * Refused here so it cannot be authored, and refused again by
+   * `resolveFormTemplate` when the rows are read back.
+   *
+   * The schema catches most of this too, but a constraint violation arrives as
+   * "the record changed", which tells somebody editing a cycle nothing about
+   * which question to fix. That is the whole reason this layer exists.
+   */
+  const templateProblem = formTemplateProblem(policy.formTemplate)
+  if (templateProblem) return templateProblem
   /*
    * A unique index and a CHECK enforce both of these in SQL, which is what makes
    * the outcome correct. These exist to make the refusal *useful*: a constraint
@@ -137,6 +147,19 @@ const validateFundingCeiling = (input: ProgrammeCycleInput): string | null => {
   return null
 }
 
+/*
+ * Structures expand before anything validates: every pass below — uniqueness,
+ * the whole-form check, the byte budget — must see the questions the applicant
+ * will actually be asked, and those are the expanded ones. The definitions
+ * ride along on the template and are stored beside the derived rows, which is
+ * what lets the authoring read strip the expansion and show the structure.
+ */
+const withExpandedTemplate = <T extends ProgrammeCycleInput>(input: T): T | string => {
+  const expanded = expandGroupDefinitions(input.policy.formTemplate)
+  if (typeof expanded === 'string') return expanded
+  return { ...input, policy: { ...input.policy, formTemplate: expanded } }
+}
+
 const validateCycleInput = (input: ProgrammeCycleInput): string | null =>
   validateCycleIdentity(input) ??
   validatePolicyCollections(input) ??
@@ -159,8 +182,21 @@ const openingProblem = (cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>): 
     version.jurisdiction === null ||
     version.fundingCeilingState === null
   ) return 'Complete every cycle policy field before opening the cycle.'
-  if (cycle.documentRules.length !== documentTypes.length) {
-    return 'Define exactly one rule for every supported document type.'
+  /*
+   * Every role bound before a cycle can open.
+   *
+   * The administrative queue, the amount a decision is bounded by, and the
+   * eligibility rules all reach their input through a role, and none of them
+   * can resolve a key per cycle — the queue filters across all of them at once.
+   * A cycle that leaves one unbound describes a form no staff screen could
+   * read, so it is refused here rather than discovered later.
+   */
+  const boundRoles = new Set(cycle.formFields.map((field) => field.role).filter(Boolean))
+  if (formFieldRoles.some((role) => !boundRoles.has(role))) {
+    return 'Bind every reporting question before opening the cycle.'
+  }
+  if (cycle.formStages.length === 0 || cycle.formFields.length === 0) {
+    return 'Define the questions before opening the cycle.'
   }
   if (cycle.assessmentRules.length === 0) {
     return 'Define the assessment requirements before opening the cycle.'
@@ -176,12 +212,17 @@ export const createProgrammeCycle = async (
   input: ProgrammeCycleInput,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  // A cycle's policy and form decide who is eligible and for how much — the
+  // programme's own rulebook, not casework — so every cycle write in this file
+  // is held behind a stronger capability than `STAFF_WRITE`.
+  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
-  const problem = validateCycleInput(input)
+  const expanded = withExpandedTemplate(input)
+  if (typeof expanded === 'string') return failure(expanded)
+  const problem = validateCycleInput(expanded)
   if (problem) return failure(problem)
   const id = await constraintSafe(() =>
-    insertProgrammeCycle(context, input, administrator.id, new Date()),
+    insertProgrammeCycle(context, expanded, administrator.id, new Date()),
   )
   if (!id) return failure('The cycle code is already in use or the policy is invalid.')
   // The guarded insert and read use the same D1 request. A successfully
@@ -194,13 +235,15 @@ export const updateDraftProgrammeCycleController = async (
   input: ProgrammeCycleInput & { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
-  const problem = validateCycleInput(input)
+  const expanded = withExpandedTemplate(input)
+  if (typeof expanded === 'string') return failure(expanded)
+  const problem = validateCycleInput(expanded)
   if (problem) return failure(problem)
   if (!normalizeRequiredText(input.reason, 500)) return failure('Enter a change reason.')
   const changed = await constraintSafe(() =>
-    updateDraftProgrammeCycle(context, input, administrator.id, new Date()),
+    updateDraftProgrammeCycle(context, expanded, administrator.id, new Date()),
   )
   if (!changed) return failure(STALE_MESSAGE)
   return success((await loadProgrammeCycle(context.db, input.id))!)
@@ -210,7 +253,7 @@ export const openProgrammeCycle = async (
   input: { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const aggregate = await loadProgrammeCycle(context.db, input.id)
   const problem = openingProblem(aggregate)
@@ -245,7 +288,7 @@ export const updateOpenCycleGuidance = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const [guidance, bankGuidance, reason] = [
     normalizeRequiredText(input.applicantGuidance, 5_000),
@@ -277,7 +320,7 @@ export const changeOpenCycleClosingTime = async (
   input: { id: string; expectedVersion: number; closesAt: Date; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reason = normalizeRequiredText(input.reason, 500)
   const now = new Date()
@@ -309,7 +352,7 @@ const cycleTransition = async (
   context: AdminOperationContext,
   toStatus: 'CLOSED' | 'ARCHIVED',
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reason = normalizeRequiredText(input.reason, 500)
   if (!reason) return failure('Enter a transition reason.')
@@ -323,7 +366,7 @@ const cycleTransition = async (
     const counts = await programmeCycleCounts(context.db, input.id)
     const unfinished = new Set([
       'DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED',
-      'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED',
+      'PARTNER_BANK_EVALUATION', 'AWAITING_DECISION', 'APPROVED',
       'SANCTIONED',
     ])
     if (counts.some(({ status, count }) => count > 0 && unfinished.has(status))) {
@@ -362,7 +405,7 @@ export const setProgrammeCycleDeleted = async (
   context: AdminOperationContext,
   deleted: boolean,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reason = deleted ? normalizeRequiredText(input.reason, 500) : null
   if (deleted && !reason) return failure('Enter a deletion reason.')

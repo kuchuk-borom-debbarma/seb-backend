@@ -68,9 +68,20 @@ test.describe('evidence', () => {
     })
     await page.goto(`/applications/${id}/documents`)
 
-    // The requirement is the API's own message, so the screen never states a
-    // rule the server does not hold.
-    await expect(page.getByText('Upload the detailed project report.')).toBeVisible()
+    /*
+     * The requirement is the API's own message, so the screen never states a
+     * rule the server does not hold.
+     *
+     * The wording changed with the cutover and the change is deliberate: the
+     * name in it is now the *cycle's own label*, and a sentence of the shape
+     * "Upload the {label}." would be guessing at the grammar of words a
+     * programme officer writes. This form reads correctly whatever the cycle
+     * calls its documents, and the validation report needs the name because it
+     * is shown away from the card that carries it.
+     */
+    await expect(
+      page.getByText('Detailed project report has not been uploaded.'),
+    ).toBeVisible()
 
     // The cycle's rules did not ask for these, and the screen says so rather
     // than leaving them looking overdue.
@@ -165,7 +176,7 @@ test.describe('evidence', () => {
     const card = page
       .locator('.card')
       .filter({ has: page.getByRole('heading', { name: 'Detailed project report' }) })
-    await expect(card.getByText('Upload the detailed project report.')).toBeVisible()
+    await expect(card.getByText('Detailed project report has not been uploaded.')).toBeVisible()
 
     await card.locator('input[type="file"]').setInputFiles({
       name: 'dpr.pdf',
@@ -180,7 +191,7 @@ test.describe('evidence', () => {
      * sent, and this is what would notice.
      */
     await expect(card.getByText('dpr.pdf')).toBeVisible({ timeout: 15_000 })
-    await expect(card.getByText('Upload the detailed project report.')).toBeHidden()
+    await expect(card.getByText('Detailed project report has not been uploaded.')).toBeHidden()
   })
 
   test('each issue in the report links to the screen that fixes it', async ({ page }) => {
@@ -195,7 +206,7 @@ test.describe('evidence', () => {
     // form, because that is where the file is attached.
     const documentIssue = page
       .getByRole('row')
-      .filter({ hasText: 'Upload the detailed project report.' })
+      .filter({ hasText: 'Detailed project report has not been uploaded.' })
       .getByRole('link')
     await documentIssue.click()
     await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
@@ -204,13 +215,13 @@ test.describe('evidence', () => {
     await page.goto(`/applications/${id}/review`)
     const formIssue = page
       .getByRole('row')
-      .filter({ hasText: 'About you' })
+      .filter({ hasText: 'Owners' })
       .first()
       .getByRole('link')
     await formIssue.click()
-    // With the field named in the address — the form is forty questions long,
-    // and the section alone is not where the answer goes.
-    await expect(page).toHaveURL(new RegExp(`/applications/${id}/form#\\w+$`, 'u'))
+    // With the field named in the address — the form is dozens of questions
+    // long, and the stage alone is not where the answer goes.
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/form(\\?stage=\\w+)?#\\w+$`, 'u'))
   })
 
   test('sends the no-objection question to the form, not to the evidence screen', async ({
@@ -239,9 +250,15 @@ test.describe('evidence', () => {
     )
 
     await row.getByRole('link').click()
-    await expect(page).toHaveURL(new RegExp(`/applications/${id}/form#nocRequired$`, 'u'))
+    /*
+     * The template's own key, not the camelCase column this used to be. That
+     * one string is the question's name everywhere — in the answers, in a
+     * `ValidationIssue.field`, in the DOM `id` — and all four now come off one
+     * row instead of being kept in step by hand.
+     */
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/form#NOC_REQUIRED$`, 'u'))
     // And the control is genuinely there.
-    await expect(page.locator('#nocRequired')).toBeVisible()
+    await expect(page.locator('#NOC_REQUIRED')).toBeVisible()
   })
 
   test('is reachable from the application and from the form', async ({ page }) => {

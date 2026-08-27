@@ -5,6 +5,17 @@
  */
 export type AppBindings = CloudflareBindings & {
   /**
+   * The bucket documents are written to, when this Worker writes them itself.
+   *
+   * **Optional, and truthfully so.** A developer's machine and the end-to-end
+   * suite declare it; the deployed configuration does not, because R2 is not
+   * enabled on that account and deployed storage goes to Cloudinary. The
+   * generated bindings used to type it as always present, which was a claim the
+   * deployed environment did not honour — every reader is behind
+   * `relaysThroughWorker`, which is the check that decides whether it is there.
+   */
+  STORAGE?: R2Bucket
+  /**
    * Which environment this is: `develop`, `production`, or unset for local.
    *
    * A deployed environment is always told what it is; an unconfigured machine
@@ -21,6 +32,20 @@ export type AppBindings = CloudflareBindings & {
    * `services/rate-limit/README.md` for why the suites need it.
    */
   RATE_LIMIT_DISABLED?: string
+  /**
+   * How many enterprises one applicant may hold at once.
+   *
+   * A programme rule rather than a technical limit: one promoter genuinely may
+   * run several businesses, but an account registering dozens is either a
+   * mistake or an attempt to hold open several applications in one cycle.
+   *
+   * Read on demand and validated at the point of use, so a deployment that sets
+   * it to nonsense refuses the operation with a clear message rather than
+   * silently admitting everybody. Unset takes the documented default in
+   * `services/application/enterprise-policy.ts`; counting excludes deleted
+   * enterprises, which is why deleting one frees a slot.
+   */
+  SEB_MAX_ENTERPRISE_PER_USER?: string
   AUTH_SECRET?: string
   /**
    * Keys the digest of the identity numbers a reviewer transcribes. Separate

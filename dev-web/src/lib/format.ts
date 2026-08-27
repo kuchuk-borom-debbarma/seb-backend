@@ -98,8 +98,9 @@ export const formatRelative = (value: string | null | undefined): string => {
 /**
  * Acronyms this programme uses, which must not be sentence-cased.
  *
- * Without this, `humanize` produces "St certificate", "Dpr" and "Ttm deferral"
- * — which look like typos to the people who work with these documents daily.
+ * Without this, `humanize` produces "St certificate", "Dpr feasibility" and
+ * "Gstin" — which look like typos to the people who work with these documents
+ * daily.
  */
 const ACRONYMS = new Set([
   'ST',
@@ -107,7 +108,6 @@ const ACRONYMS = new Set([
   'GST',
   'GSTIN',
   'NOC',
-  'TTM',
   'TTAADC',
   'SEP',
   'IT',

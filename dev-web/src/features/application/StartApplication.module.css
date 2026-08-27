@@ -1,0 +1,599 @@
+/* ==========================================================================
+   Start an Application Soft Modern Design System
+   ========================================================================== */
+
+.pageContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   Header with Back Navigation
+   ========================================================================== */
+
+.headerWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #374151;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.backBtn:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+  color: #111827;
+}
+
+.pageTitle {
+  color: #111827;
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.pageDescription {
+  color: #6b7280;
+  font-size: 13.5px;
+  margin: 0;
+}
+
+/* ==========================================================================
+   Step Progress Stepper Bar
+   ========================================================================== */
+
+.stepper {
+  display: flex;
+  align-items: center;
+  max-width: 600px;
+  padding: 4px 0 8px;
+}
+
+.stepItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: default;
+}
+
+.stepItemInteractive {
+  cursor: pointer;
+}
+
+.stepCircle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.stepCircleActive {
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.stepCircleComplete {
+  background: #bbf7d0;
+  color: #15803d;
+}
+
+.stepCircleInactive {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  color: #9ca3af;
+}
+
+.stepTextGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.stepLabel {
+  color: #111827;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.stepLabelInactive {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.stepSub {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.stepSubComplete {
+  color: #16a34a;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.stepSubInactive {
+  color: #9ca3af;
+}
+
+.stepDivider {
+  flex: 1;
+  height: 1px;
+  background: #e5e7eb;
+  margin: 0 20px;
+}
+
+/* ==========================================================================
+   Main Content Form Card
+   ========================================================================== */
+
+.card {
+  border: 1px solid #e9eaec;
+  border-radius: 18px;
+  padding: 32px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.categoryTag {
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.cardTitle {
+  color: #111827;
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  letter-spacing: -0.01em;
+}
+
+.cardDescription {
+  color: #6b7280;
+  font-size: 13.5px;
+  margin: 0 0 28px;
+  line-height: 1.5;
+}
+
+.formGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fieldLabel {
+  color: #374151;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.selectWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.selectInput {
+  width: 100%;
+  height: 44px;
+  padding: 0 38px 0 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 13.5px;
+  font-weight: 500;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.selectInput:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.selectChevron {
+  position: absolute;
+  right: 14px;
+  width: 17px;
+  height: 17px;
+  color: #6b7280;
+  pointer-events: none;
+}
+
+.helperText {
+  color: #6b7280;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.helperLink {
+  color: #2563eb;
+  font-weight: 500;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.helperLink:hover {
+  text-decoration: underline;
+}
+
+.divider {
+  border: 0;
+  border-top: 1px solid #f3f4f6;
+  margin: 10px 0;
+}
+
+.cycleNotice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  color: #374151;
+  font-size: 13px;
+}
+
+.cycleIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: #edf7ee;
+  color: #16a34a;
+  flex-shrink: 0;
+}
+
+.cycleIconBadge svg {
+  width: 14px;
+  height: 14px;
+}
+
+.relativeTime {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Choice Cards Grid for Step 2 (Application Type)
+   ========================================================================== */
+
+.choiceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.choiceCard {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 22px 20px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 14px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.choiceCard:hover:not([aria-disabled='true']) {
+  border-color: #cbd5e1;
+  background: #fafbfc;
+}
+
+.choiceCardSelected {
+  border-color: #2563eb !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
+.choiceCardDisabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+
+.customRadio {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid #6b7280;
+  flex-shrink: 0;
+  pointer-events: none;
+  transition: all 0.15s ease;
+}
+
+.customRadioSelected {
+  border-color: #2563eb;
+}
+
+.radioDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2563eb;
+  pointer-events: none;
+}
+
+.choiceIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.choiceIconBadge[data-tone='blue'] {
+  background: #edf5ff;
+  color: #2563eb;
+}
+
+.choiceIconBadge[data-tone='green'] {
+  background: #edf7ee;
+  color: #16a34a;
+}
+
+.choiceIconBadge svg {
+  width: 22px;
+  height: 22px;
+}
+
+.choiceContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.choiceTitle {
+  color: #111827;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.choiceDescription {
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* ==========================================================================
+   Eligibility Callout Panel
+   ========================================================================== */
+
+.eligibilityPanel {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid #d0e5ff;
+  border-radius: 12px;
+  background: #f0f7ff;
+  margin-bottom: 28px;
+}
+
+.eligibilityIcon {
+  color: #2563eb;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.eligibilityTextGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eligibilityTitle {
+  color: #111827;
+  font-size: 13.5px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.eligibilityList {
+  margin: 0;
+  padding-left: 16px;
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.eligibilityDate {
+  margin: 4px 0 0;
+  color: #4b5563;
+  font-size: 13px;
+}
+
+/* ==========================================================================
+   Card Footer Actions
+   ========================================================================== */
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 36px;
+  padding-top: 24px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.cancelBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cancelBtn:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.nextBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  border-radius: 8px;
+  border: none;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.15);
+  transition: all 0.2s ease;
+}
+
+.nextBtn:hover:not(:disabled) {
+  background: #1e293b;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+}
+
+.nextBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nextBtn svg {
+  transition: transform 0.2s ease;
+}
+
+.nextBtn:hover:not(:disabled) svg {
+  transform: translateX(3px);
+}
+
+/* ==========================================================================
+   Empty States
+   ========================================================================== */
+
+.emptyCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 50px 20px;
+  border: 1px solid #e9eaec;
+  border-radius: 18px;
+  background: #ffffff;
+  text-align: center;
+}
+
+.emptyTitle {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.emptyText {
+  color: #6b7280;
+  font-size: 13.5px;
+  max-width: 380px;
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
+
+@media (max-width: 50rem) {
+  .choiceGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 40rem) {
+  .card {
+    padding: 24px 18px;
+  }
+
+  .stepper {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .stepDivider {
+    display: none;
+  }
+}

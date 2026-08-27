@@ -5,7 +5,7 @@
  *
  * **A named environment inherits less than it looks.** Wrangler 4 inherits
  * `name`, `main`, `routes`, `triggers` and the `compatibility_*` keys into an
- * `env.*` block, but **not** `vars`, `d1_databases`, `r2_buckets`, `queues` or
+ * `env.*` block, but **not** `vars`, `hyperdrive`, `r2_buckets`, `queues` or
  * `services`. Any environment added here must redeclare each of those in full,
  * or it deploys with the binding silently missing.
  *
@@ -21,6 +21,10 @@
   "name": "seb-backend",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-21",
+  // `node-postgres` speaks the Postgres wire protocol over a TCP socket, which
+  // a Worker only has with this flag. Without it the Worker fails at the first
+  // query rather than at startup, so the failure looks like a database outage.
+  "compatibility_flags": ["nodejs_compat"],
 
   // Pinned so a stray CLOUDFLARE_ACCOUNT_ID in the environment cannot redirect
   // a deploy to a different account. That is not hypothetical: it happened once
@@ -122,11 +126,22 @@
     "PINGRAM_FROM_ADDRESS": "noreply@pingram.io"
   },
 
-  "d1_databases": [
+  /*
+   * Neon, reached through Hyperdrive's edge pool.
+   *
+   * **`caching.disabled` is a security setting, not a performance one.**
+   * Hyperdrive caches non-mutating query results for up to a minute by default.
+   * This service re-reads roles live on every request precisely so that
+   * revoking somebody's access takes effect on their next action — see the
+   * loaders rule in `docs/rules/code.md`. With caching on, a revoked
+   * administrator keeps reading as an administrator until the entry expires.
+   * Do not turn this on to make the console feel faster.
+   */
+  "hyperdrive": [
     {
-      "binding": "DB",
-      "database_name": "seb-backend",
-      "database_id": "3be23488-48c3-43a7-b561-5037a521daf2"
+      "binding": "HYPERDRIVE",
+      "id": "REPLACE_WITH_HYPERDRIVE_ID",
+      "caching": { "disabled": true }
     }
   ],
   // No `r2_buckets` here. R2 is not enabled on this account, and `wrangler

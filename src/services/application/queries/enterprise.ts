@@ -1,7 +1,7 @@
 /** Drizzle persistence for the canonical enterprise aggregate. */
 import { and, asc, count, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import { COUNT_MISSING, requireInvariant } from '../support'
-import type { Database } from '../../../db'
+import { batch, changedExactlyOne, type Database } from '../../../db'
 import {
   coreAuditEvent,
   sebApplication,
@@ -11,7 +11,7 @@ import {
   sebFundingCase,
   sebFundingCaseVersion,
 } from '../../../db/schema'
-import { d1ChangedExactlyOne, sqlNullable, type AuditRecord } from '../support'
+import { sqlNullable, type AuditRecord } from '../support'
 import type {
   BusinessSector,
   Connection,
@@ -147,6 +147,50 @@ export const listOwnedEnterprises = async (
   }
 }
 
+/**
+ * Registers an enterprise, its funding case, and the first version of each.
+ *
+ * **The cap is a term in the insert, not only a check before it.** The
+ * controller counts first so it can say how many are allowed and what to do
+ * about it; without the predicate here, two requests arriving together would
+ * both read "four of five" and both succeed. Everything else in the transition
+ * depends on this row existing, so a losing writer writes nothing at all.
+ */
+/**
+ * How many live enterprises this applicant holds, and whether the name is taken.
+ *
+ * One read for both, because the controller needs both before it can say
+ * anything useful and two reads would be two round trips for one decision.
+ *
+ * The name comparison is `lower(current_name)`, which is exactly the expression
+ * the partial unique index is built on — see `comparableEnterpriseName`. A
+ * friendly check that normalised differently from the constraint would refuse a
+ * name the database would have accepted, or accept one it then rejects as "the
+ * record changed".
+ */
+export const countOwnedEnterprises = async (
+  db: Database,
+  userId: string,
+  comparableName: string,
+): Promise<{ held: number; nameTaken: boolean }> => {
+  const [row] = await db
+    .select({
+      held: count(),
+      nameTaken: sql<number>`
+        count(*) FILTER (WHERE lower(${sebEnterprise.currentName}) = ${comparableName})
+      `.mapWith(Number),
+    })
+    .from(sebEnterprise)
+    .where(
+      and(
+        eq(sebEnterprise.portalOwnerUserId, userId),
+        isNull(sebEnterprise.deletedAt),
+      ),
+    )
+  const found = requireInvariant(row, COUNT_MISSING)
+  return { held: found.held, nameTaken: found.nameTaken > 0 }
+}
+
 export const insertEnterpriseAggregate = async (
   db: Database,
   input: {
@@ -155,62 +199,82 @@ export const insertEnterpriseAggregate = async (
     userId: string
     profile: EnterpriseProfileInput
     status: 'PROPOSED' | 'ACTIVE'
+    /** How many this deployment allows one applicant, from `maxEnterprisesPerUser`. */
+    limit: number
     now: Date
     audit: AuditRecord
   },
-): Promise<void> => {
+): Promise<boolean> => {
   const enterpriseVersionId = crypto.randomUUID()
   const caseVersionId = crypto.randomUUID()
-  await db.batch([
-    db.insert(sebEnterprise).values({
-      id: input.enterpriseId,
-      portalOwnerUserId: input.userId,
-      currentName: input.profile.name,
-      registrationType: input.profile.registrationType,
-      registrationNumber: input.profile.registrationNumber,
-      gstin: input.profile.gstin,
-      status: input.status,
-      currentVersion: 1,
-      createdAt: input.now,
-      updatedAt: input.now,
-      deletedAt: null,
-      deletedByUserId: null,
-      deleteReason: null,
-    }),
-    db.insert(sebEnterpriseVersion).values({
-      id: enterpriseVersionId,
-      enterpriseId: input.enterpriseId,
-      version: 1,
-      changeType: 'CREATED',
-      changeReason: null,
-      changedByUserId: input.userId,
-      createdAt: input.now,
-      ...input.profile,
-      status: input.status,
-    }),
-    db.insert(sebFundingCase).values({
-      id: input.fundingCaseId,
-      enterpriseId: input.enterpriseId,
-      status: 'OPEN',
-      currentVersion: 1,
-      createdAt: input.now,
-      updatedAt: input.now,
-      deletedAt: null,
-      deletedByUserId: null,
-      deleteReason: null,
-    }),
-    db.insert(sebFundingCaseVersion).values({
-      id: caseVersionId,
-      fundingCaseId: input.fundingCaseId,
-      version: 1,
-      status: 'OPEN',
-      changeType: 'CREATED',
-      changeReason: null,
-      changedByUserId: input.userId,
-      createdAt: input.now,
-    }),
-    db.insert(coreAuditEvent).values(input.audit),
+  /*
+   * Soft-deleted enterprises do not count.
+   *
+   * Deliberate, and it means delete-then-create-then-restore can exceed the
+   * cap by one. The alternative is worse: counting them would leave somebody at
+   * the limit with no way to reach it except by deleting a record the programme
+   * keeps on purpose, and a restore is refused for other reasons long before
+   * this becomes a way to hold dozens.
+   */
+  const withinLimit = sql`(
+    SELECT count(*) FROM ${sebEnterprise}
+    WHERE ${sebEnterprise.portalOwnerUserId} = ${input.userId}
+      AND ${sebEnterprise.deletedAt} IS NULL
+  ) < ${input.limit}`
+  const head = db.insert(sebEnterprise).select(sql`
+    SELECT ${input.enterpriseId}, ${input.userId}, ${input.profile.name},
+      ${input.profile.registrationType}, ${sqlNullable(input.profile.registrationNumber)},
+      ${sqlNullable(input.profile.gstin)}, ${input.status}, 1,
+      ${input.now}, ${input.now}, NULL, NULL, NULL
+    WHERE ${withinLimit}
+  `).returning({ id: sebEnterprise.id })
+  const exists = sql`EXISTS (
+    SELECT 1 FROM ${sebEnterprise} WHERE ${sebEnterprise.id} = ${input.enterpriseId}
+  )`
+  const [created] = await batch(db, (tx) => [
+    head,
+    tx
+      .insert(sebEnterpriseVersion)
+      .values({
+        id: enterpriseVersionId,
+        enterpriseId: input.enterpriseId,
+        version: 1,
+        changeType: 'CREATED',
+        changeReason: null,
+        changedByUserId: input.userId,
+        createdAt: input.now,
+        ...input.profile,
+        status: input.status,
+      })
+      /*
+       * A foreign key would refuse these anyway once the head is absent, but a
+       * refusal is an exception the caller has to classify. Selecting on the
+       * head instead makes a losing writer write nothing and say so.
+       */
+      .onConflictDoNothing(),
+    tx.insert(sebFundingCase).select(sql`
+      SELECT ${input.fundingCaseId}, ${input.enterpriseId}, 'OPEN', 1,
+        ${input.now}, ${input.now}, NULL, NULL, NULL
+      WHERE ${exists}
+    `),
+    tx.insert(sebFundingCaseVersion).select(sql`
+      SELECT ${caseVersionId}, ${input.fundingCaseId}, 1, 'OPEN', 'CREATED', NULL,
+        ${input.userId}, ${input.now}
+      WHERE EXISTS (
+        SELECT 1 FROM ${sebFundingCase}
+        WHERE ${sebFundingCase.id} = ${input.fundingCaseId}
+      )
+    `),
+    tx.insert(coreAuditEvent).select(sql`
+      SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
+        ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
+        ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
+        ${sqlNullable(input.audit.userAgent)}, NULL,
+        ${sqlNullable(input.audit.metadataJson)}, ${input.now}
+      WHERE ${exists}
+    `),
   ])
+  return changedExactlyOne(created)
 }
 
 export const updateEnterpriseAggregate = async (
@@ -248,7 +312,7 @@ export const updateEnterpriseAggregate = async (
   const version = db.insert(sebEnterpriseVersion).select(sql`
     SELECT
       ${crypto.randomUUID()}, ${input.enterpriseId}, ${nextVersion}, 'UPDATED', NULL,
-      ${input.userId}, ${input.now.getTime()}, ${input.profile.name},
+      ${input.userId}, ${input.now}, ${input.profile.name},
       ${input.profile.establishmentDate}, ${input.profile.registrationType},
       ${input.profile.registrationNumber}, ${input.profile.gstin},
       ${input.profile.businessSector}, ${input.profile.otherBusinessSector},
@@ -260,7 +324,7 @@ export const updateEnterpriseAggregate = async (
       WHERE ${sebEnterprise.id} = ${input.enterpriseId}
         AND ${sebEnterprise.portalOwnerUserId} = ${input.userId}
         AND ${sebEnterprise.currentVersion} = ${nextVersion}
-        AND ${sebEnterprise.updatedAt} = ${input.now.getTime()}
+        AND ${sebEnterprise.updatedAt} = ${input.now}
     )
   `)
   const audit = db.insert(coreAuditEvent).select(sql`
@@ -268,16 +332,16 @@ export const updateEnterpriseAggregate = async (
       ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
       ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
       ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now.getTime()}
+      ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebEnterprise}
       WHERE ${sebEnterprise.id} = ${input.enterpriseId}
         AND ${sebEnterprise.currentVersion} = ${nextVersion}
-        AND ${sebEnterprise.updatedAt} = ${input.now.getTime()}
+        AND ${sebEnterprise.updatedAt} = ${input.now}
     )
   `)
-  const [result] = await db.batch([updated, version, audit])
-  return d1ChangedExactlyOne(result)
+  const [result] = await batch(db, (tx) => [updated, version, audit])
+  return result.rowCount === 1
 }
 
 /**
@@ -369,7 +433,7 @@ export const setEnterpriseDeleted = async (
       ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
       ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
       ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now.getTime()}
+      ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebEnterprise}
       WHERE ${sebEnterprise.id} = ${input.enterpriseId}
@@ -407,6 +471,6 @@ export const setEnterpriseDeleted = async (
         )`,
       ),
     )
-  const [result] = await db.batch([claim, updateEnterprise, updateCase])
-  return d1ChangedExactlyOne(result)
+  const [result] = await batch(db, (tx) => [claim, updateEnterprise, updateCase])
+  return result.rowCount === 1
 }

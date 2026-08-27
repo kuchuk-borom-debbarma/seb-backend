@@ -148,6 +148,40 @@ export const cloudinaryObjectStore = (configuration: CloudinaryConfiguration) =>
     const response = await fetch(await signedDeliveryUrl(configuration, objectKey))
     return response.ok ? response : null
   },
+
+  /*
+   * Removing objects the programme has abandoned — an upload authorization
+   * that expired or whose bytes were refused.
+   *
+   * The provider takes one public id per call, so the caller's batch becomes
+   * one request each. That is the cost of not being a bucket, and the caller
+   * already falls back to one call per object.
+   *
+   * **A missing asset is a success.** Cloudinary answers `not found` with
+   * `200` and a result of `"not found"`, and the caller's contract is "the
+   * object is gone" — which it is. Treating it as a failure would leave the
+   * intent row claimable for ever, retried on every cleanup run against an
+   * object that will never come back.
+   */
+  remove: async (objectKeys: string[]): Promise<void> => {
+    for (const objectKey of objectKeys) {
+      const timestamp = String(Math.floor(Date.now() / 1000))
+      const signed = { public_id: objectKey, timestamp, type: 'authenticated' }
+      const form = new FormData()
+      form.set('api_key', configuration.apiKey)
+      for (const [name, value] of Object.entries(signed)) form.set(name, value)
+      form.set('signature', await signUpload(signed, configuration.apiSecret))
+
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${configuration.cloudName}/raw/destroy`,
+        { method: 'POST', body: form },
+      )
+      // Never the body, for the reason `put` gives: it can quote the signature.
+      if (!response.ok) {
+        throw new Error(`Cloudinary refused the deletion (${response.status}).`)
+      }
+    }
+  },
 })
 
 export const cloudinaryTransport = (

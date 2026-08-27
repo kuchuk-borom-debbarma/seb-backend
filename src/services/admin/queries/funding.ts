@@ -1,6 +1,6 @@
 /** Guarded funding, assessment, and operational-recovery persistence. */
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
-import type { Database } from '../../../db'
+import { batch, type Database } from '../../../db'
 import {
   coreAuditEvent,
   sebApplication,
@@ -12,10 +12,10 @@ import {
   sebRecoveryCase,
   sebRecoveryCaseVersion,
   sebRecoveryEntry,
-  sebTtmDecision,
+  sebProgrammeDecision,
   sebUtilizationObligation,
 } from '../../../db/schema'
-import { changedExactlyOne } from '../support'
+import { changedExactlyOne, headJustMovedTo } from '../support'
 import type { AdminOperationContext, AssessmentType, RecoveryComponent } from '../types'
 
 export const fundingWorkspace = async (db: Database, applicationId: string) => {
@@ -27,8 +27,8 @@ export const fundingWorkspace = async (db: Database, applicationId: string) => {
    * the results back correctly — a joined read could not go in here, because a
    * batch is read back by column name and two columns called `id` collide.
    */
-  const [versions, ledger, obligations, assessments, recovery] = await db.batch([
-    db.select().from(sebFundingAwardVersion)
+  const [versions, ledger, obligations, assessments, recovery] = await batch(db, (tx) => [
+    tx.select().from(sebFundingAwardVersion)
       .where(eq(sebFundingAwardVersion.fundingAwardId, award.id))
       .orderBy(asc(sebFundingAwardVersion.version)),
     /*
@@ -38,15 +38,15 @@ export const fundingWorkspace = async (db: Database, applicationId: string) => {
      * the instalments the programme office actually pays, which no caller
      * controls.
      */
-    db.select().from(sebDisbursement)
+    tx.select().from(sebDisbursement)
       .where(eq(sebDisbursement.fundingAwardId, award.id))
       .orderBy(asc(sebDisbursement.sequenceNumber)),
-    db.select().from(sebUtilizationObligation)
+    tx.select().from(sebUtilizationObligation)
       .where(eq(sebUtilizationObligation.fundingAwardId, award.id)),
-    db.select().from(sebAwardAssessment)
+    tx.select().from(sebAwardAssessment)
       .where(eq(sebAwardAssessment.fundingAwardId, award.id))
       .orderBy(asc(sebAwardAssessment.createdAt)),
-    db.select().from(sebRecoveryCase)
+    tx.select().from(sebRecoveryCase)
       .where(eq(sebRecoveryCase.fundingAwardId, award.id))
       .orderBy(desc(sebRecoveryCase.createdAt)),
   ])
@@ -69,8 +69,8 @@ export const createAwardWrite = async (
   const id = crypto.randomUUID()
   const versionId = crypto.randomUUID()
   const nextStatusVersion = input.expectedStatusVersion + 1
-  const [updated] = await context.db.batch([
-    context.db.update(sebApplication).set({
+  const [updated] = await batch(context.db, (tx) => [
+    tx.update(sebApplication).set({
       status: 'SANCTIONED',
       statusVersion: nextStatusVersion,
       statusChangedAt: input.now,
@@ -81,45 +81,45 @@ export const createAwardWrite = async (
       eq(sebApplication.statusVersion, input.expectedStatusVersion),
       isNull(sebApplication.deletedAt),
       sql`EXISTS (
-        SELECT 1 FROM ${sebTtmDecision}
-        WHERE ${sebTtmDecision.id} = ${input.decisionId}
-          AND ${sebTtmDecision.applicationId} = ${input.applicationId}
-          AND ${sebTtmDecision.outcome} = 'APPROVED'
-          AND ${sebTtmDecision.approvedAmountPaise} > 0
+        SELECT 1 FROM ${sebProgrammeDecision}
+        WHERE ${sebProgrammeDecision.id} = ${input.decisionId}
+          AND ${sebProgrammeDecision.applicationId} = ${input.applicationId}
+          AND ${sebProgrammeDecision.outcome} = 'APPROVED'
+          AND ${sebProgrammeDecision.approvedAmountPaise} > 0
           AND NOT EXISTS (
-            SELECT 1 FROM ${sebTtmDecision} AS newer
+            SELECT 1 FROM ${sebProgrammeDecision} AS newer
             WHERE newer.application_id = ${input.applicationId}
-              AND newer.decision_number > ${sebTtmDecision.decisionNumber}
+              AND newer.decision_number > ${sebProgrammeDecision.decisionNumber}
           )
       )`,
     )).returning({ id: sebApplication.id }),
-    context.db.insert(sebFundingAward).select(sql`
+    tx.insert(sebFundingAward).select(sql`
       SELECT ${id}, application.funding_case_id, application.id,
         ${input.sanctionOrder}, ${input.sanctionDate}, decision.approved_amount_paise,
-        ${input.conditions}, 'ACTIVE', NULL, 0, 1, ${input.now.getTime()},
-        ${input.now.getTime()}, NULL, NULL, NULL
+        ${input.conditions}, 'ACTIVE', NULL, 0, 1, ${input.now},
+        ${input.now}, NULL, NULL, NULL
       FROM ${sebApplication} AS application
-      INNER JOIN ${sebTtmDecision} AS decision ON decision.id = ${input.decisionId}
+      INNER JOIN ${sebProgrammeDecision} AS decision ON decision.id = ${input.decisionId}
       WHERE application.id = ${input.applicationId}
         AND application.status = 'SANCTIONED'
-        AND application.status_version = ${nextStatusVersion}
+        AND ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}
     `),
-    context.db.insert(sebFundingAwardVersion).select(sql`
+    tx.insert(sebFundingAwardVersion).select(sql`
       SELECT ${versionId}, ${id}, 1, ${input.sanctionOrder}, ${input.sanctionDate},
         award.sanctioned_amount_paise, ${input.conditions}, 'ACTIVE', NULL, 'CREATED',
-        NULL, NULL, ${input.actorId}, ${input.now.getTime()}
+        NULL, NULL, ${input.actorId}, ${input.now}
       FROM ${sebFundingAward} AS award WHERE award.id = ${id}
     `),
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'AWARD_SANCTIONED',
         ${input.actorId}, NULL, NULL, NULL, 'APPROVED', 'SANCTIONED', NULL,
-        'Funding support was sanctioned.', NULL, ${input.now.getTime()}
+        'Funding support was sanctioned.', NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebFundingAward} WHERE ${sebFundingAward.id} = ${id})
     `),
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.AWARD_CREATED',
         'SEB_FUNDING_AWARD', ${id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL,
-        ${input.now.getTime()}
+        ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebFundingAwardVersion} WHERE ${sebFundingAwardVersion.id} = ${versionId})
     `),
   ])
@@ -163,7 +163,7 @@ export const changeAwardWrite = async (
     )`,
     sql`${input.amountPaise} <= (
       SELECT decision.approved_amount_paise
-      FROM ${sebTtmDecision} AS decision
+      FROM ${sebProgrammeDecision} AS decision
       WHERE decision.application_id = ${sebFundingAward.applicationId}
       ORDER BY decision.created_at DESC
       LIMIT 1
@@ -176,18 +176,18 @@ export const changeAwardWrite = async (
         AND ${sebApplication.deletedAt} IS NULL
     )`,
   )).returning({ id: sebFundingAward.id })
-  const [changed] = await context.db.batch([
+  const [changed] = await batch(context.db, (tx) => [
     changedHead,
-    context.db.insert(sebFundingAwardVersion).select(sql`
+    tx.insert(sebFundingAwardVersion).select(sql`
       SELECT ${crypto.randomUUID()}, award.id, ${next}, award.sanction_order_number,
         award.sanction_date, award.sanctioned_amount_paise, award.applicant_conditions,
         award.status, award.closure_disposition, ${input.changeType},
         ${input.reasonCategoryId}, ${input.reason},
-        ${input.actorId}, ${input.now.getTime()}
+        ${input.actorId}, ${input.now}
       FROM ${sebFundingAward} AS award
       WHERE award.id = ${input.awardId} AND award.current_version = ${next}
     `),
-    context.db.update(sebApplication).set({
+    tx.update(sebApplication).set({
       status: 'CANCELLED',
       statusVersion: input.expectedStatusVersion + 1,
       statusChangedAt: input.now,
@@ -203,21 +203,21 @@ export const changeAwardWrite = async (
           AND ${sebFundingAward.status} = 'CANCELLED'
       )`,
     )),
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'AWARD_CHANGED',
         ${input.actorId}, NULL, NULL, NULL, NULL,
         CASE WHEN ${input.status} = 'CANCELLED' THEN 'CANCELLED' ELSE NULL END,
-        NULL, 'The funding award changed.', NULL, ${input.now.getTime()}
+        NULL, 'The funding award changed.', NULL, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebFundingAwardVersion}
         WHERE ${sebFundingAwardVersion.fundingAwardId} = ${input.awardId}
           AND ${sebFundingAwardVersion.version} = ${next}
       )
     `),
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.AWARD_CHANGED',
         'SEB_FUNDING_AWARD', ${input.awardId}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, ${JSON.stringify({ status: input.status })}, ${input.now.getTime()}
+        NULL, ${JSON.stringify({ status: input.status })}, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebFundingAwardVersion}
         WHERE ${sebFundingAwardVersion.fundingAwardId} = ${input.awardId}
@@ -238,8 +238,8 @@ export const recordReleaseWrite = async (
     amountPaise: number
     occurredAt: Date
     externalReference: string
-    ttmApprovalReference: string
-    ttmApprovalDate: string
+    approvalReference: string
+    approvalDate: string
     bankAccountVerifiedAt: Date
     performanceAgreementReference: string
     performanceAgreementExecutedAt: Date
@@ -255,8 +255,8 @@ export const recordReleaseWrite = async (
   const next = input.expectedLedgerVersion + 1
   const dueAt = new Date(input.occurredAt)
   dueAt.setUTCDate(dueAt.getUTCDate() + 180)
-  const [changed] = await context.db.batch([
-    context.db.update(sebFundingAward).set({ ledgerVersion: next, updatedAt: input.now })
+  const [changed] = await batch(context.db, (tx) => [
+    tx.update(sebFundingAward).set({ ledgerVersion: next, updatedAt: input.now })
       .where(and(
         eq(sebFundingAward.id, input.awardId),
         eq(sebFundingAward.applicationId, input.applicationId),
@@ -268,24 +268,24 @@ export const recordReleaseWrite = async (
           FROM ${sebDisbursement} WHERE funding_award_id = ${input.awardId}
         ) + ${input.amountPaise} <= ${sebFundingAward.sanctionedAmountPaise}`,
       )).returning({ id: sebFundingAward.id }),
-    context.db.insert(sebDisbursement).select(sql`
+    tx.insert(sebDisbursement).select(sql`
       SELECT ${id}, ${input.awardId}, ${next}, 'RELEASE', NULL, ${input.amountPaise},
-        ${input.occurredAt.getTime()}, ${input.externalReference},
-        ${input.ttmApprovalReference}, ${input.ttmApprovalDate},
-        ${input.bankAccountVerifiedAt.getTime()}, ${input.performanceAgreementReference},
-        ${input.performanceAgreementExecutedAt.getTime()}, ${input.physicalVerificationRequired},
-        ${input.physicalVerificationReference}, ${input.physicalVerificationCompletedAt?.getTime() ?? null},
-        NULL, ${input.applicantMessage}, ${input.actorId}, ${input.now.getTime()}
+        ${input.occurredAt}, ${input.externalReference},
+        ${input.approvalReference}, ${input.approvalDate},
+        ${input.bankAccountVerifiedAt}, ${input.performanceAgreementReference},
+        ${input.performanceAgreementExecutedAt}, ${input.physicalVerificationRequired},
+        ${input.physicalVerificationReference}, ${input.physicalVerificationCompletedAt ?? null},
+        NULL, ${input.applicantMessage}, ${input.actorId}, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebFundingAward}
         WHERE ${sebFundingAward.id} = ${input.awardId} AND ${sebFundingAward.ledgerVersion} = ${next}
       )
     `),
-    context.db.insert(sebUtilizationObligation).select(sql`
-      SELECT ${obligationId}, ${input.awardId}, ${id}, ${dueAt.getTime()}, ${input.now.getTime()}
+    tx.insert(sebUtilizationObligation).select(sql`
+      SELECT ${obligationId}, ${input.awardId}, ${id}, ${dueAt}, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebDisbursement} WHERE ${sebDisbursement.id} = ${id})
     `),
-    context.db.update(sebApplication).set({
+    tx.update(sebApplication).set({
       status: 'DISBURSED',
       statusVersion: sql`${sebApplication.statusVersion} + 1`,
       statusChangedAt: input.now,
@@ -299,16 +299,16 @@ export const recordReleaseWrite = async (
       )`,
       sql`EXISTS (SELECT 1 FROM ${sebDisbursement} WHERE ${sebDisbursement.id} = ${id})`,
     )),
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RELEASE_RECORDED',
         'SEB_DISBURSEMENT', ${id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL,
-        ${input.now.getTime()}
+        ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebUtilizationObligation} WHERE ${sebUtilizationObligation.id} = ${obligationId})
     `),
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'RELEASE_RECORDED',
         ${input.actorId}, NULL, NULL, NULL, NULL, 'DISBURSED', NULL,
-        ${input.applicantMessage}, NULL, ${input.now.getTime()}
+        ${input.applicantMessage}, NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebUtilizationObligation} WHERE id = ${obligationId})
     `),
   ])
@@ -333,13 +333,24 @@ export const reverseReleaseWrite = async (
 ): Promise<string | null> => {
   const id = crypto.randomUUID()
   const next = input.expectedLedgerVersion + 1
-  const [changed] = await context.db.batch([
-    context.db.update(sebFundingAward).set({ ledgerVersion: next, updatedAt: input.now })
+  const [changed] = await batch(context.db, (tx) => [
+    tx.update(sebFundingAward).set({ ledgerVersion: next, updatedAt: input.now })
       .where(and(
         eq(sebFundingAward.id, input.awardId),
         eq(sebFundingAward.applicationId, input.applicationId),
         eq(sebFundingAward.ledgerVersion, input.expectedLedgerVersion),
         isNull(sebFundingAward.deletedAt),
+        /*
+         * Grouped, because `release.amount_paise` sits beside `SUM(...)`.
+         * SQLite picked a row for the bare column and answered anyway; Postgres
+         * refuses the query outright, so this guard — the one stopping a
+         * release being reversed for more than it paid — did not merely
+         * mis-answer, it threw.
+         *
+         * On `release.id` rather than the amount: the primary key groups to
+         * exactly the one row the `WHERE` selects, and stays right if two
+         * releases ever share an amount.
+         */
         sql`${input.amountPaise} <= (
           SELECT release.amount_paise - COALESCE(SUM(reversal.amount_paise), 0)
           FROM ${sebDisbursement} AS release
@@ -348,28 +359,29 @@ export const reverseReleaseWrite = async (
           WHERE release.id = ${input.releaseId}
             AND release.funding_award_id = ${input.awardId}
             AND release.entry_type = 'RELEASE'
+          GROUP BY release.id, release.amount_paise
         )`,
       )).returning({ id: sebFundingAward.id }),
-    context.db.insert(sebDisbursement).select(sql`
+    tx.insert(sebDisbursement).select(sql`
       SELECT ${id}, ${input.awardId}, ${next}, 'REVERSAL', ${input.releaseId},
-        ${input.amountPaise}, ${input.occurredAt.getTime()}, ${input.externalReference},
+        ${input.amountPaise}, ${input.occurredAt}, ${input.externalReference},
         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-        ${input.reasonCategoryId}, ${input.applicantMessage}, ${input.actorId}, ${input.now.getTime()}
+        ${input.reasonCategoryId}, ${input.applicantMessage}, ${input.actorId}, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebFundingAward}
         WHERE ${sebFundingAward.id} = ${input.awardId} AND ${sebFundingAward.ledgerVersion} = ${next}
       )
     `),
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'RELEASE_REVERSED',
         ${input.actorId}, NULL, NULL, NULL, NULL, NULL, NULL,
-        ${input.applicantMessage}, NULL, ${input.now.getTime()}
+        ${input.applicantMessage}, NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebDisbursement} WHERE id = ${id})
     `),
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RELEASE_REVERSED',
         'SEB_DISBURSEMENT', ${id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL,
-        ${input.now.getTime()}
+        ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebDisbursement} WHERE id = ${id})
     `),
   ])
@@ -393,21 +405,28 @@ export const recordAssessmentWrite = async (
   },
 ): Promise<string | null> => {
   const id = crypto.randomUUID()
-  const [sequence] = await context.db.all<{ value: number }>(sql`
-    SELECT COALESCE(MAX(assessment_number), 0) + 1 AS value
+  /*
+   * `IS NOT DISTINCT FROM`, because the obligation is nullable and this must
+   * match a null to a null. SQLite spelt that `IS ?`; Postgres reserves `IS`
+   * for `NULL`, `TRUE` and `FALSE` and refuses a parameter outright — so an
+   * assessment against a non-utilization type, which carries no obligation,
+   * threw here instead of being numbered.
+   */
+  const { rows: sequenceRows } = await context.db.execute<{ value: number }>(sql`
+    SELECT (COALESCE(MAX(assessment_number), 0) + 1)::int AS value
     FROM ${sebAwardAssessment}
     WHERE funding_award_id = ${input.awardId}
       AND assessment_type = ${input.type}
-      AND utilization_obligation_id IS ${input.obligationId}
+      AND utilization_obligation_id IS NOT DISTINCT FROM ${input.obligationId}
   `)
-  // SQLite aggregate queries always return one row, even when no assessment
-  // exists yet; COALESCE makes the value non-null.
-  const number = Number(sequence!.value)
-  const [result] = await context.db.batch([
-    context.db.insert(sebAwardAssessment).select(sql`
+  // An aggregate query always returns one row, even when no assessment exists
+  // yet; COALESCE makes the value non-null.
+  const number = Number(sequenceRows[0]!.value)
+  const [result] = await batch(context.db, (tx) => [
+    tx.insert(sebAwardAssessment).select(sql`
     SELECT ${id}, ${input.awardId}, ${input.type}, ${number}, ${input.outcome},
       ${input.obligationId}, ${input.evidenceReference}, ${input.applicantSummary},
-      ${input.internalNote}, ${input.actorId}, ${input.assessedAt.getTime()}, ${input.now.getTime()}
+      ${input.internalNote}, ${input.actorId}, ${input.assessedAt}, ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebFundingAward}
       WHERE ${sebFundingAward.id} = ${input.awardId}
@@ -415,16 +434,16 @@ export const recordAssessmentWrite = async (
         AND ${sebFundingAward.deletedAt} IS NULL
     )
     `).returning({ id: sebAwardAssessment.id }),
-    context.db.insert(sebApplicationEvent).select(sql`
+    tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'ASSESSMENT_RECORDED',
         ${input.actorId}, NULL, NULL, NULL, NULL, NULL, NULL,
-        ${input.applicantSummary}, NULL, ${input.now.getTime()}
+        ${input.applicantSummary}, NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebAwardAssessment} WHERE id = ${id})
     `),
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.ASSESSMENT_RECORDED',
         'SEB_AWARD_ASSESSMENT', ${id}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        ${JSON.stringify({ type: input.type, outcome: input.outcome })}, ${input.now.getTime()}
+        ${JSON.stringify({ type: input.type, outcome: input.outcome })}, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebAwardAssessment} WHERE id = ${id})
     `),
   ])
@@ -491,13 +510,13 @@ export const recoveryWorkspace = async (db: Database, recoveryCaseId: string) =>
    * the results back correctly — a joined read could not go in here, because a
    * batch is read back by column name and two columns called `id` collide.
    */
-  const [versions, entries] = await db.batch([
-    db.select().from(sebRecoveryCaseVersion)
+  const [versions, entries] = await batch(db, (tx) => [
+    tx.select().from(sebRecoveryCaseVersion)
       .where(eq(sebRecoveryCaseVersion.recoveryCaseId, recoveryCaseId))
       .orderBy(asc(sebRecoveryCaseVersion.version)),
     // Uncapped for the same reason as the disbursement ledger: the outstanding
     // balance is folded from these entries, so a cap would corrupt it.
-    db.select().from(sebRecoveryEntry)
+    tx.select().from(sebRecoveryEntry)
       .where(eq(sebRecoveryEntry.recoveryCaseId, recoveryCaseId))
       .orderBy(asc(sebRecoveryEntry.sequenceNumber)),
   ])
@@ -549,12 +568,12 @@ export const openRecoveryWrite = async (
   },
 ): Promise<string | null> => {
   const id = crypto.randomUUID()
-  const [inserted] = await context.db.batch([
-    context.db.insert(sebRecoveryCase).select(sql`
+  const [inserted] = await batch(context.db, (tx) => [
+    tx.insert(sebRecoveryCase).select(sql`
       SELECT ${id}, award.application_id, award.id, 'OPEN', 0,
         ${input.officialReference}, ${input.officialDate}, ${input.reasonCategoryId},
-        ${input.applicantMessage}, ${input.actorId}, 1, ${input.now.getTime()},
-        ${input.now.getTime()}, NULL, NULL, NULL
+        ${input.applicantMessage}, ${input.actorId}, 1, ${input.now},
+        ${input.now}, NULL, NULL, NULL
       FROM ${sebFundingAward} AS award
       WHERE award.id = ${input.awardId} AND award.status = 'CANCELLED'
         AND award.deleted_at IS NULL
@@ -563,9 +582,9 @@ export const openRecoveryWrite = async (
           FROM ${sebDisbursement} WHERE funding_award_id = award.id
         ) > 0
     `).returning({ id: sebRecoveryCase.id }),
-    context.db.insert(sebRecoveryCaseVersion).select(sql`
+    tx.insert(sebRecoveryCaseVersion).select(sql`
       SELECT ${crypto.randomUUID()}, ${id}, 1, 'OPEN', 'OPENED', NULL,
-        ${input.actorId}, ${input.now.getTime()}
+        ${input.actorId}, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebRecoveryCase} WHERE ${sebRecoveryCase.id} = ${id})
     `),
     /*
@@ -574,10 +593,10 @@ export const openRecoveryWrite = async (
      * audit trail and not only the ledger — the ledger says what the balance
      * is, the trail says who moved it.
      */
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_OPENED',
         'SEB_RECOVERY_CASE', ${id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL,
-        ${input.now.getTime()}
+        ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebRecoveryCase} WHERE ${sebRecoveryCase.id} = ${id})
     `),
   ])
@@ -619,12 +638,12 @@ export const recordRecoveryEntryWrite = async (
     : input.entryType === 'RECEIPT' || input.entryType === 'WAIVER'
       ? sql`${input.amountPaise} <= ${recoveryOutstandingSql(input.recoveryCaseId, input.component)}`
       : sql`1 = 1`
-  const [inserted] = await context.db.batch([
-    context.db.insert(sebRecoveryEntry).select(sql`
+  const [inserted] = await batch(context.db, (tx) => [
+    tx.insert(sebRecoveryEntry).select(sql`
       SELECT ${id}, ${input.recoveryCaseId}, ${next}, ${input.entryType},
         ${input.component}, ${input.relatedEntryId}, ${input.amountPaise},
-        ${input.externalReference}, ${input.occurredAt.getTime()}, ${input.reasonCategoryId},
-        ${input.applicantMessage}, ${input.actorId}, ${input.now.getTime()}
+        ${input.externalReference}, ${input.occurredAt}, ${input.reasonCategoryId},
+        ${input.applicantMessage}, ${input.actorId}, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebRecoveryCase}
         WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
@@ -634,7 +653,7 @@ export const recordRecoveryEntryWrite = async (
       )
         AND ${entryGuard}
     `).returning({ id: sebRecoveryEntry.id }),
-    context.db.update(sebRecoveryCase).set({
+    tx.update(sebRecoveryCase).set({
       ledgerVersion: next,
       status: sql`CASE
         WHEN ${recoveryOutstandingSql(input.recoveryCaseId)} = 0 THEN 'SETTLED'
@@ -656,11 +675,11 @@ export const recordRecoveryEntryWrite = async (
      * receipt are the same shape and very different acts — a trail that could
      * not tell them apart would be no use for the one that matters.
      */
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_ENTRY_RECORDED',
         'SEB_RECOVERY_CASE', ${input.recoveryCaseId}, 'SUCCESS', NULL, NULL, NULL,
         NULL, ${JSON.stringify({ entryType: input.entryType, component: input.component })},
-        ${input.now.getTime()}
+        ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebRecoveryEntry} WHERE ${sebRecoveryEntry.id} = ${id})
     `),
   ])
@@ -672,8 +691,8 @@ export const closeRecoveryWrite = async (
   input: { recoveryCaseId: string; expectedVersion: number; actorId: string; reason: string; now: Date },
 ): Promise<boolean> => {
   const next = input.expectedVersion + 1
-  const [changed] = await context.db.batch([
-    context.db.update(sebRecoveryCase).set({
+  const [changed] = await batch(context.db, (tx) => [
+    tx.update(sebRecoveryCase).set({
       status: 'CLOSED', currentVersion: next, updatedAt: input.now,
     }).where(and(
       eq(sebRecoveryCase.id, input.recoveryCaseId),
@@ -682,19 +701,19 @@ export const closeRecoveryWrite = async (
       sql`${recoveryOutstandingSql(input.recoveryCaseId)} = 0`,
       isNull(sebRecoveryCase.deletedAt),
     )).returning({ id: sebRecoveryCase.id }),
-    context.db.insert(sebRecoveryCaseVersion).select(sql`
+    tx.insert(sebRecoveryCaseVersion).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.recoveryCaseId}, ${next}, 'CLOSED',
-        'CLOSED', ${input.reason}, ${input.actorId}, ${input.now.getTime()}
+        'CLOSED', ${input.reason}, ${input.actorId}, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebRecoveryCase}
         WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
           AND ${sebRecoveryCase.currentVersion} = ${next}
       )
     `),
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_CLOSED',
         'SEB_RECOVERY_CASE', ${input.recoveryCaseId}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${input.now.getTime()}
+        NULL, NULL, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebRecoveryCase}
         WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
@@ -724,8 +743,8 @@ export const cancelRecoveryWrite = async (
   },
 ): Promise<boolean> => {
   const next = input.expectedVersion + 1
-  const [changed] = await context.db.batch([
-    context.db.update(sebRecoveryCase).set({
+  const [changed] = await batch(context.db, (tx) => [
+    tx.update(sebRecoveryCase).set({
       status: 'CANCELLED', currentVersion: next, updatedAt: input.now,
     }).where(and(
       eq(sebRecoveryCase.id, input.recoveryCaseId),
@@ -737,9 +756,9 @@ export const cancelRecoveryWrite = async (
         WHERE ${sebRecoveryEntry.recoveryCaseId} = ${input.recoveryCaseId}
       )`,
     )).returning({ id: sebRecoveryCase.id }),
-    context.db.insert(sebRecoveryCaseVersion).select(sql`
+    tx.insert(sebRecoveryCaseVersion).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.recoveryCaseId}, ${next}, 'CANCELLED',
-        'CANCELLED', ${input.reason}, ${input.actorId}, ${input.now.getTime()}
+        'CANCELLED', ${input.reason}, ${input.actorId}, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebRecoveryCase}
         WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
@@ -752,10 +771,10 @@ export const cancelRecoveryWrite = async (
      * behind, so without this the case would vanish from the trail entirely
      * rather than merely being unexplained.
      */
-    context.db.insert(coreAuditEvent).select(sql`
+    tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_CANCELLED',
         'SEB_RECOVERY_CASE', ${input.recoveryCaseId}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${input.now.getTime()}
+        NULL, NULL, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebRecoveryCase}
         WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}

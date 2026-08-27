@@ -81,9 +81,9 @@ const actionFields = (fields: FieldNode[]): FieldNode[] =>
  * per-field limit cannot see this; only the whole document can.
  *
  * The numbers come from measuring the real client rather than from taste. Its
- * largest operation, `IntakeWorkspace`, selects 114 fields at depth 7 — so 500
- * fields is four times the largest thing anyone legitimately sends, and depth
- * 12 is nearly twice the deepest. Both are generous enough that a screen can
+ * largest operation, `IntakeWorkspace`, selects 174 fields at depth 8 — so 500
+ * fields is nearly three times the largest thing anyone legitimately sends,
+ * and depth 12 is half again the deepest. Both are generous enough that a screen can
  * grow without tripping them, and small enough that amplification is bounded.
  */
 const MAX_FIELDS = 500

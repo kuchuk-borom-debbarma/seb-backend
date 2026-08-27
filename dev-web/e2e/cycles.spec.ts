@@ -53,6 +53,42 @@ test.describe('cycle administration', () => {
     await expect(page.getByRole('button', { name: 'Archive' })).toBeVisible()
   })
 
+  /**
+   * What a cycle asks and what it enforces, shown back on its own page.
+   *
+   * Both were write-only: the questions could only be seen by starting an
+   * application against the cycle, and the eligibility rules could be sent and
+   * never read at all — so the editor had nothing to populate from and resent
+   * its own defaults, which is how a settled age limit gets reset by somebody
+   * changing something else.
+   *
+   * Addressed by heading and by text rather than by a role name that a
+   * navigation might also match, per the three-spec scar this suite carries.
+   */
+  test('shows an officer the questions and the rules of a cycle', async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    const code = `SEP-${Date.now().toString(36).toUpperCase()}`
+    await createOpenCycle(page, code)
+
+    const questions = page.locator('[data-guide="cycle-questions"]')
+    await expect(questions.getByRole('heading', { name: 'The enterprise' })).toBeVisible()
+    // A role-bound question says so: the programme reads it across cycles, and
+    // an officer renaming one needs to know it is not theirs alone to move.
+    await expect(
+      questions.getByText('read by the programme as Business Name'),
+    ).toBeVisible()
+
+    const frozen = page.locator('[data-guide="cycle-frozen"]')
+    await expect(frozen.getByText('18 to 60')).toBeVisible()
+    /*
+     * `UNRESOLVED` is a real state — no amount is checked against a ceiling
+     * nobody has approved — so it reads as a sentence rather than a blank.
+     */
+    await expect(
+      frozen.getByText('Not settled, so no amount is checked against one'),
+    ).toBeVisible()
+  })
+
   test('refuses a lifecycle change without a reason', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin/cycles/new')
@@ -98,6 +134,9 @@ test.describe('cycle administration', () => {
 
     await applicantPage.goto('/enterprises/new')
     await applicantPage.getByLabel('Registered or trading name').fill('Journey Works')
+    for (let step = 0; step < 3; step += 1) {
+      await applicantPage.getByRole('button', { name: 'Next' }).click()
+    }
     await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
 
     await applicantPage.goto('/applications/new')
@@ -132,6 +171,9 @@ test.describe('cycle administration', () => {
 
     await applicantPage.goto('/enterprises/new')
     await applicantPage.getByLabel('Registered or trading name').fill('Unfunded Works')
+    for (let step = 0; step < 3; step += 1) {
+      await applicantPage.getByRole('button', { name: 'Next' }).click()
+    }
     await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
 
     await applicantPage.goto('/applications/new')

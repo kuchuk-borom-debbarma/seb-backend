@@ -55,6 +55,7 @@ import { capabilitiesOf } from '../capabilities'
 import { getCurrentSession } from './auth'
 import { findActorPasswordHash } from '../queries/access'
 import { AUTH_REQUIRED_MESSAGE, auditEvent, normalizeEmail } from '../support'
+import { bestEffort } from '../../best-effort'
 import type {
   AuthOperationContext,
   AuthResult,
@@ -74,7 +75,6 @@ const START_EMAIL_CHANGE_MESSAGE =
   'If that address can be used, a confirmation code has been sent to it.'
 const INVALID_CHALLENGE_MESSAGE = 'The code is invalid or has expired.'
 const INVALID_PASSWORD_MESSAGE = 'Your password is incorrect.'
-const DELIVERY_FAILED_MESSAGE = 'The code could not be sent. Please try again.'
 
 const emailSchema = z.email()
 const challengeSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u)
@@ -123,9 +123,13 @@ const issueChallenge = async (
     requestedAction: (typeof auditActions)[keyof typeof auditActions]
     failedAction: (typeof auditActions)[keyof typeof auditActions]
   },
-): Promise<
-  { challengeToken: string; expiresAt: Date; delivered: boolean } | { error: string }
-> => {
+  /*
+   * Always the same shape. There is deliberately no failure arm: every way this
+   * can fall short — no such account, the account stopped qualifying, the code
+   * could not be delivered — answers identically, because a caller able to tell
+   * them apart is a caller able to enumerate who holds an account.
+   */
+): Promise<{ challengeToken: string; expiresAt: Date; delivered: boolean }> => {
   const secret = requireSecret(context)
   const challengeToken = createChallengeToken()
   const now = new Date()
@@ -139,9 +143,9 @@ const issueChallenge = async (
   const id = crypto.randomUUID()
   const otp = createOtp()
 
-  await context.db.batch([
-    supersedeAccountChallenges(context.db, input.userId, input.purpose, now),
-  ])
+  // One statement, so no transaction to open: superseding the outstanding
+  // challenges is atomic on its own.
+  await supersedeAccountChallenges(context.db, input.userId, input.purpose, now)
 
   const created = await createAccountChallenge(
     context.db,
@@ -196,7 +200,25 @@ const issueChallenge = async (
     )
     // Never the error: it can carry the code it was trying to deliver.
     console.error('An account challenge notification failed')
-    return { error: DELIVERY_FAILED_MESSAGE }
+    /*
+     * The same answer an address with no account gets — **this used to be a
+     * different one, and that was the whole oracle**.
+     *
+     * The early return above exists so that "no account here" is
+     * indistinguishable from "a code is on its way". A delivery failure broke
+     * exactly that: an unknown address answered with the ordinary message and
+     * a known one whose send failed answered with `DELIVERY_FAILED_MESSAGE`,
+     * so anyone who could make delivery fail could ask this endpoint which
+     * addresses hold accounts, one at a time.
+     *
+     * **The cost is named rather than hidden.** Somebody whose code genuinely
+     * failed to send is told to check their email and nothing arrives. It is
+     * the same cost the design already accepts for an address with no account,
+     * and the failure is not lost — it is marked on the challenge and audited
+     * under its own action, so the office can see it even though the caller
+     * cannot.
+     */
+    return { challengeToken, expiresAt, delivered: false }
   }
 
   return { challengeToken, expiresAt, delivered: true }
@@ -274,8 +296,6 @@ export const startPasswordReset = async (
     requestedAction: auditActions.passwordResetRequested,
     failedAction: auditActions.passwordResetNotificationFailed,
   })
-  if ('error' in issued) return failure(issued.error)
-
   return success(
     { challengeToken: issued.challengeToken, expiresAt: issued.expiresAt },
     START_RESET_MESSAGE,
@@ -327,7 +347,7 @@ export const completePasswordReset = async (
   // Best effort, and deliberately after the change: somebody who did not ask
   // for this needs to know, but a mail failure must not undo a reset that has
   // already happened.
-  await sendNotification(
+  await bestEffort(sendNotification(
     {
       to: challenge.email,
       subject: 'Your password was changed',
@@ -337,7 +357,7 @@ export const completePasswordReset = async (
         + 'immediately and contact the programme office.',
     },
     context.env,
-  ).catch(() => console.error('A password-change notice failed'))
+  ), 'A password-change notice failed')
 
   return success({ value: true }, 'Your password has been reset. Please sign in.')
 }
@@ -379,7 +399,7 @@ export const changePassword = async (
   // Another writer changed the password while scrypt ran here.
   if (!changed) return failure('Your password could not be changed. Please try again.')
 
-  await sendNotification(
+  await bestEffort(sendNotification(
     {
       to: current.user.email,
       subject: 'Your password was changed',
@@ -389,7 +409,7 @@ export const changePassword = async (
         + 'password immediately and contact the programme office.',
     },
     context.env,
-  ).catch(() => console.error('A password-change notice failed'))
+  ), 'A password-change notice failed')
 
   return success({ value: true }, 'Your password has been changed.')
 }
@@ -431,14 +451,12 @@ export const startEmailChange = async (
       + 'Someone asked to move a Mission SEP portal account to this address. '
       + 'If that was not you, you can ignore this message.',
     requestedAction: auditActions.emailChangeRequested,
-    failedAction: auditActions.passwordResetNotificationFailed,
+    failedAction: auditActions.emailChangeNotificationFailed,
   })
-  if ('error' in issued) return failure(issued.error)
-
   if (issued.delivered) {
     // The old address hears about it too, so losing control of an account is
     // visible to whoever still reads the mailbox it used to use.
-    await sendNotification(
+    await bestEffort(sendNotification(
       {
         to: current.user.email,
         subject: 'A change of email address was requested',
@@ -448,7 +466,7 @@ export const startEmailChange = async (
           + 'password immediately and contact the programme office.',
       },
       context.env,
-    ).catch(() => console.error('An email-change notice failed'))
+    ), 'An email-change notice failed')
   }
 
   return success(

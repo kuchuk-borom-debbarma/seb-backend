@@ -31,7 +31,7 @@ administrator.
 1. `startApplicantSignup` trims and lowercases the email.
 2. It creates an independent 256-bit challenge token and six-digit OTP with a
    ten-minute expiry.
-3. D1 stores HMAC digests, never the raw challenge token or OTP.
+3. The database stores HMAC digests, never the raw challenge token or OTP.
 4. The OTP is passed to the external-notification service. Existing emails
    receive an unstored decoy challenge with the same public response shape and
    no notification, which avoids account enumeration.
@@ -41,7 +41,7 @@ administrator.
    writes safe user/role audit events. Signup does not create a login session.
 
 Repeated signup starts create independent pairs. A wrong OTP decrements only its
-own pair, so one challenge cannot invalidate a sibling. D1 guards and unique
+own pair, so one challenge cannot invalidate a sibling. Write predicates and unique
 constraints decide concurrent redemption; exactly one request can claim the
 normalized email.
 
@@ -52,11 +52,11 @@ email, verifies the scrypt password hash, and creates a random session token.
 The role is deliberately not narrowed: an administrator who holds no
 `APPLICANT` grant must be able to sign in, while a person whose every grant has
 been revoked must not. Applicant capability is enforced separately, at the
-applicant guard. Only the token digest is stored in D1. The raw token is
+applicant guard. Only the token digest is stored in the database. The raw token is
 returned to the browser in an HttpOnly cookie and is never exposed in a GraphQL
 response.
 
-The browser cookie has no persistent `Max-Age`, while the D1 session has a
+The browser cookie has no persistent `Max-Age`, while the stored session has a
 seven-day server expiry. Current-session and session-list responses expose only
 public session IDs and request metadata.
 
@@ -107,7 +107,7 @@ hold active roles, so the deactivation sweep does not apply. Until they expire,
 environment that already has sessions:
 
 ```sh
-npx wrangler d1 execute DB --command 'DELETE FROM core_session'
+psql "$DATABASE_URL" -c 'DELETE FROM core_session'
 ```
 
 ## Module layout
@@ -116,7 +116,7 @@ npx wrangler d1 execute DB --command 'DELETE FROM core_session'
   cookies, and orchestration. Each use case is a directly exported function.
 - `controllers/access.ts`: administrative role-management policy.
 - `queries/auth.ts`: Drizzle statements, guarded writes, ownership checks, and
-  D1 batch boundaries.
+  transaction boundaries.
 - `queries/access.ts`: role-management SQL and its guarded writes.
 - `support.ts`: the response envelope, audit-record builder, and shared text
   normalization, mirroring the other two services' `support.ts`.
@@ -134,7 +134,7 @@ between policy and persistence.
 
 Every operation receives a request-scoped `AuthOperationContext` containing:
 
-- the Drizzle D1 client;
+- the Drizzle client;
 - Cloudflare bindings and configuration;
 - request headers and URL;
 - a response-header sink used to forward `Set-Cookie` through GraphQL Yoga.
@@ -158,7 +158,7 @@ strip an applicant permanently.
 
 Every mutation requires a fresh password confirmation from the caller, checked
 after the cheap authorization and validation so an unauthorized request never
-forces memory-hard scrypt. Because scrypt runs outside D1 and takes real time,
+forces memory-hard scrypt. Because scrypt runs outside the database and takes real time,
 each guarded write repeats the caller's own `SUPER_ADMIN` grant, the subject's
 lifecycle state, and the duplicate-role check in SQL.
 
@@ -199,7 +199,7 @@ client must return with its OTP.
 Authentication records fixed, allow-listed action names for challenge creation,
 notification failure, OTP failure, user creation, sign-in success/failure,
 role grants, sign-out, revocation, and bulk revocation. When practical, a state
-change and its successful audit event share one D1 batch.
+change and its successful audit event share one transaction.
 
 Audit metadata may contain public entity IDs and small operational values. It
 must never contain passwords, password hashes, OTPs, challenge/session tokens,
@@ -229,14 +229,14 @@ production values are provisioned as Cloudflare secrets.
 - Roles and verified-email time are server controlled.
 - Roles are retained grants, not a mutable field on the user. Public signup can
   create only `APPLICANT`.
-- Active roles are loaded from D1 on every request rather than cached in the
+- Active roles are loaded from the database on every request rather than cached in the
   session, so revocation is immediately authoritative.
 - Email normalization is trim plus lowercase; passwords are not normalized.
 - Existing and soft-deleted emails remain reserved.
 - Deleted users cannot sign in and their sessions cannot authenticate.
 - Credential comparison uses a dummy hash when the account is absent to reduce
   account-enumeration timing differences.
-- Race-sensitive signup and session mutations use guarded D1 statements and
+- Race-sensitive signup and session mutations use guarded statements and
   bounded batches.
 - Session cookies are HttpOnly and use the configured SameSite/Secure policy.
 - First-super-administrator bootstrap is absent from GraphQL, cannot choose its
@@ -251,14 +251,14 @@ production values are provisioned as Cloudflare secrets.
 - Bootstrap audits omit caller-controlled request labels so a password, email,
   or temporary secret cannot be copied into retained history through headers.
 - Once bootstrap is permanently closed, requests fail before memory-hard
-  password verification; the final D1 write still repeats the closure check to
+  password verification; the final write still repeats the closure check to
   decide concurrent attempts atomically.
 
-Integration coverage for both namespaces lives in `test/auth.test.ts`. Run it
-with:
+Integration coverage for both namespaces lives in
+`test/service/auth.test.ts`. Run it with:
 
 ```sh
-npm test -- test/auth.test.ts
+npm test -- test/service/auth.test.ts
 ```
 
 See the [administrator RBAC guide](../../../docs/admin-rbac.md) for the fixed

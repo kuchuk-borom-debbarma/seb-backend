@@ -26,13 +26,14 @@ const shellSize = (page: Page) =>
   })
 
 test.describe('the applicant portal', () => {
-  test('is the root, and sign-in lands there', async ({ page }) => {
+  test('is the dashboard, and sign-in lands there', async ({ page }) => {
     const email = uniqueEmail('portal')
     await signUpApplicant(page, email)
     await signIn(page, email)
 
-    await expect(page).toHaveURL(/localhost:\d+\/$/u)
-    await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+    // The root is the public site now; the signed-in home is /dashboard.
+    await expect(page).toHaveURL(/\/dashboard$/u)
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
     await expect(sidebar(page).getByRole('link', { name: 'Enterprises' })).toBeVisible()
   })
 
@@ -43,7 +44,6 @@ test.describe('the applicant portal', () => {
 
     for (const entry of [
       'Intake',
-      'Committee meetings',
       'Cycle administration',
       'Access',
     ]) {
@@ -65,7 +65,11 @@ test.describe('the applicant portal', () => {
       }),
     ).toBeVisible()
     await expect(page.getByText('This account holds')).toBeVisible()
-    await expect(page.getByText('Applicant', { exact: true })).toBeVisible()
+    // "Applicant" also appears in the shell's own chrome, so scope to the
+    // refusal card's main region.
+    await expect(
+      page.getByRole('main').getByText('Applicant', { exact: true }).first(),
+    ).toBeVisible()
 
     // And the navigation beside the refusal is the one that works — listing
     // four links that would every one of them refuse is the thing this
@@ -74,7 +78,7 @@ test.describe('the applicant portal', () => {
     await expect(sidebar(page).getByRole('link', { name: 'Intake' })).toHaveCount(0)
 
     await page.getByRole('link', { name: 'Go to the applicant portal' }).click()
-    await expect(page).toHaveURL(/localhost:\d+\/$/u)
+    await expect(page).toHaveURL(/\/dashboard$/u)
   })
 })
 
@@ -83,13 +87,14 @@ test.describe('the programme office', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
 
     await expect(page).toHaveURL(/\/admin$/u)
-    await expect(page.getByRole('heading', { name: 'Intake' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
     await expect(sidebar(page).getByText('Programme office')).toBeVisible()
   })
 
   test('refuses the applicant portal to an account that is not one', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await page.goto('/')
+    // The root is public; the applicant portal starts at /dashboard.
+    await page.goto('/dashboard')
 
     await expect(
       page.getByRole('heading', { name: 'This part of Mission SEP is for applicants' }),
@@ -117,7 +122,7 @@ test.describe('the programme office', () => {
 
     // The console opens — either administrative role does that.
     await page.goto('/admin')
-    await expect(page.getByRole('heading', { name: 'Intake' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
 
     // Role management does not, and is not advertised.
     await expect(sidebar(page).getByRole('link', { name: 'Access' })).toHaveCount(0)
@@ -148,13 +153,16 @@ test.describe('an account holding both', () => {
     await signIn(page, both)
 
     // Holding applicant, sign-in lands on the applicant portal.
-    await expect(page).toHaveURL(/localhost:\d+\/$/u)
+    await expect(page).toHaveURL(/\/dashboard$/u)
 
-    await sidebar(page).getByRole('link', { name: 'Programme office' }).click()
+    // The crossing lives in the account menu now, so open it first each way.
+    await page.getByRole('button', { name: 'Account menu' }).click()
+    await page.getByRole('menuitem', { name: 'Programme office' }).click()
     await expect(page).toHaveURL(/\/admin$/u)
 
-    await sidebar(page).getByRole('link', { name: 'Applicant portal' }).click()
-    await expect(page).toHaveURL(/localhost:\d+\/$/u)
+    await page.getByRole('button', { name: 'Account menu' }).click()
+    await page.getByRole('menuitem', { name: 'Applicant portal' }).click()
+    await expect(page).toHaveURL(/\/dashboard$/u)
   })
 })
 
@@ -173,12 +181,12 @@ test.describe('the two densities', () => {
     await page.context().clearCookies()
     await signIn(page, both)
 
-    await page.goto('/')
-    await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+    await page.goto('/dashboard')
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
     const applicant = Number.parseFloat(await shellSize(page))
 
     await page.goto('/admin')
-    await expect(page.getByRole('heading', { name: 'Intake' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
     const office = Number.parseFloat(await shellSize(page))
 
     /*
@@ -198,7 +206,7 @@ test.describe('on a narrow screen', () => {
     await signUpApplicant(page, email)
     await signIn(page, email)
 
-    await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
 
     // The larger applicant measure must not cost the page its fit. A card
     // header with a long title beside a badge is where this last broke.

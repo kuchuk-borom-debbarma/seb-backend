@@ -1,9 +1,15 @@
 # Mission SEP application guide
 
 This living guide connects the Mission SEP business process to the GraphQL API,
-Drizzle schema, D1 transactions, and private R2 document storage. The TTAADC
-policy and application form are authoritative; the UI/UX guide influences
+Drizzle schema, Postgres transactions, and private R2 document storage. The
+TTAADC policy and application form are authoritative; the UI/UX guide influences
 presentation only.
+
+**The questions themselves are not in here.** Which questions a cycle asks, what
+they are called and when they appear are declared as a form template frozen with
+the cycle version, so this guide describes the machinery rather than the form —
+see [the schema README](../src/db/schema/README.md) for the tables and
+`src/services/application/form/` for the rules.
 
 ## Applicant journey
 
@@ -11,9 +17,9 @@ An applicant creates a portal account, records one or more enterprises, and
 starts an initial application during an open programme cycle. Meaningful draft
 saves create immutable snapshots. After all required fields and documents are
 present, submission freezes a new formal snapshot and reference number for
-review. A reviewer may later request revisions to named sections. Resubmission
-may change only those sections and is allowed even if the original cycle has
-closed.
+review. A reviewer may later request revisions to named stages of the form.
+Resubmission may change only those stages and is allowed even if the original
+cycle has closed.
 
 If a phase receives an active award and retains a positive released amount for
 12 calendar months, the next expansion phase may become available. Expansion
@@ -44,10 +50,11 @@ flowchart LR
 
 Rina’s 2026 phase-1 draft pins the 2026 rule version. She later updates Tribal
 Foods’ current address, but the submitted address stays frozen. Administrator
-Meera opens the application and requests a financial-section correction; the
+Meera opens the application and requests a correction to the financial stage; the
 new submission freezes only the corrected form plus its exact files. The bank
-records “not recommended” with a safe summary, yet the application still goes
-to TTM because bank feedback is advisory evidence. TTM approves ₹10 lakh.
+records “not recommended” with a safe summary, yet the application is still
+decided on its merits because bank feedback is advisory evidence. The programme
+approves ₹10 lakh.
 
 The award is paid in two releases, so two independent 180-day utilization
 obligations exist. Before Rina starts phase 2 in the 2027 cycle, both retained
@@ -67,7 +74,7 @@ flowchart LR
   C["2026 cycle rules"] -->|"pinned"| S["Submission + exact files"]
   S --> D["Desk review"]
   D --> B["Offline bank feedback"]
-  B --> T["TTM decision"]
+  B --> T["Programme decision"]
   T --> W["Award"]
   W --> R1["Release 1 + UC due"]
   W --> R2["Release 2 + UC due"]
@@ -102,11 +109,10 @@ can distinguish "nothing matches these filters" from "nothing here yet".
 | Desk review | TTAADC’s KYC, evidence, completeness, and DPR scrutiny | Append-only checklist/outcome | All applicable checks pass |
 | Document slot | Current logical evidence type | Versioned head + soft delete | Current DPR |
 | Document version | One finalized private R2 object | Append-only | DPR replacement v2 |
-| Revision request | Reviewer request for one section | Immutable request with resolution/cancellation lifecycle | Correct financial data |
+| Revision request | Reviewer request for one stage of the form | Immutable request with resolution/cancellation lifecycle | Correct financial data |
 | Bank referral | Exact submission sent to a named offline partner bank | Versioned operational root | Tripura Gramin Bank referral 18 |
-| Bank outcome | Bank feedback considered by TTM | Append-only and superseding corrections | Recommended |
-| TTM meeting | Formal meeting and pinned application agenda | Versioned root and agenda history | TTM/2026/07 |
-| TTM decision | Programme approval, rejection, deferral, or revision | Append-only and superseding corrections | Approved ₹10 lakh |
+| Bank outcome | Bank feedback read when deciding | Append-only and superseding corrections | Recommended |
+| Programme decision | Approval, rejection, or revision, pinning the submission and bank outcome read | Append-only and superseding corrections | Approved ₹10 lakh |
 | Award | Authoritative sanction for one application | Versioned, soft-deleted root | `SEP/2026/0042` |
 | Disbursement | Release or compensating reversal | Append-only ledger | ₹5 lakh release |
 | Utilization obligation | Evidence deadline for one release | Append-only | Release 2 due in 180 days |
@@ -135,11 +141,11 @@ stateDiagram-v2
   DRAFT --> SUBMITTED: submit valid snapshot
   SUBMITTED --> DESK_REVIEW
   DESK_REVIEW --> REVISION_REQUIRED
-  REVISION_REQUIRED --> SUBMITTED: resubmit requested sections
+  REVISION_REQUIRED --> SUBMITTED: resubmit requested stages
   DESK_REVIEW --> REJECTED
   DESK_REVIEW --> PARTNER_BANK_EVALUATION
-  PARTNER_BANK_EVALUATION --> TTM_REVIEW
-  TTM_REVIEW --> APPROVED
+  PARTNER_BANK_EVALUATION --> AWAITING_DECISION
+  AWAITING_DECISION --> APPROVED
   APPROVED --> SANCTIONED
   SANCTIONED --> DISBURSED
 ```
@@ -158,54 +164,79 @@ status says who holds the work, never when they will finish it.
 
 ### Knowing what may be edited
 
-`Application.editableSections` lists the sections the applicant may change right
-now — every section while the application is a draft, only the sections named by
-unresolved revision requests while revision is required, and none otherwise. It
-is derived from the same rule the draft-save path enforces, so it can never
-invite an edit the write would refuse.
+`Application.editableStageKeys` lists the stages the applicant may change right
+now — every stage the form declares while the application is a draft, only the
+stages named by unresolved revision requests while revision is required, and none
+otherwise. It is derived from the same rule the draft-save path enforces, so it
+can never invite an edit the write would refuse.
 
-Before resubmitting, `seb.application.draftChanges` names the sections the
-current draft changes relative to the last submission, using the same comparison
-the administrative workspace shows a reviewer. The server-stamped declaration
-acceptance time is excluded, so an edit to one section never reports the
+Before resubmitting, `seb.application.draftChanges` names the stages the current
+draft changes relative to the last submission, using the same comparison the
+administrative workspace shows a reviewer. The server-stamped declaration
+acceptance time is excluded, so an edit to one stage never reports the
 declaration as changed too.
 
-## Form-to-schema mapping
+## The form is the cycle's, not the schema's
 
-| Form section | GraphQL draft object | `seb_application_version` columns |
-| --- | --- | --- |
-| Enterprise | `enterprise` | `business_name`, establishment, registration, GSTIN, sector, category, majority ownership |
-| Promoter/applicant | `applicantProfile` | name, designation, birth date, gender, address, PIN, phone, email |
-| Financial proposal | `financial` | total cost, seed request, bank loan, promoter contribution (all paise) |
-| Prior support/credit | `priorFunding` | declared scheme/amount/year and bank/credit/status |
-| Evidence applicability | `documents` | `noc_required`; actual files use document tables |
-| Declaration | `declaration` | relationship, related person, acceptance, server acceptance time, place |
-| Expansion history | server-derived | prior sanction/date, net disbursement, operation months |
+There is no fixed list of questions. A programme cycle declares its own form —
+stages, questions, choices, bounds and conditions — and that declaration is
+frozen with the cycle version each application pins, so a submission stays
+readable against exactly the questions it was asked.
 
-There is no ST certificate number field. The certificate itself remains a
-required document.
+`seb.application.formTemplate` returns it. Every question carries a `key`, and
+that one string is how it is addressed everywhere: in `answers`, in the DOM `id`
+the client puts on the control, and in a `ValidationIssue.field`. A member of a
+repeated group is addressed `GROUP[0].MEMBER`, indexed from 0.
+
+`Application.answers` is the answer map, keyed by question. A save replaces the
+whole map: every question the form asks must be an own property, an explicit
+`null` clears one, and both an unknown key and a missing one are refused rather
+than quietly dropped.
+
+**Six questions keep fixed keys**, because code that is not template-aware still
+has to find them: the business name, its sector, the application category, the
+establishment date, the applicant's date of birth, and the seed fund requested.
+A cycle chooses their labels, help text, stage, position and choices — only the
+key is fixed. Everything else is the cycle's to name.
+
+Documents are `FILE` questions. Which documents an application can carry, and
+which are required, are therefore the cycle's decisions too, expressed as
+ordinary conditions against whatever questions it happens to declare.
+
+There is no ST certificate number question in the default form. The certificate
+itself remains a required document, and a cycle may add the number if the
+programme decides it wants one.
 
 ## Validation and evidence
 
-Always required at submission: enterprise classification, promoter identity and
-contact, address, financial values, prior-funding answers, declaration, identity
-/ age proof, ST certificate, address proof, DPR, and bank details.
+**What is required is the cycle's decision.** Every rule below that used to be
+written here — always-required answers, and the four conditional document rules
+— is now something a cycle declares: a question is `REQUIRED`, `OPTIONAL`, or
+`CONDITIONAL` on a rule naming another question. The software enforces whatever
+the cycle declares, and nothing beyond it.
 
-Conditional rules:
+The default form reproduces the rules Mission SEP has used: registration number
+and file when the enterprise is registered, a GST file when a GSTIN is supplied,
+a sector description for "other", scheme/amount/year when prior funding is
+declared, bank/amount/status when existing credit is, and a no-objection
+certificate when one applies.
 
-| Condition | Required data/evidence |
-| --- | --- |
-| Registered enterprise | Registration number and business-registration file |
-| GSTIN supplied | GST-registration file |
-| Other sector | Sector description |
-| Prior government funding = yes | Scheme, positive amount, sanction year |
-| Existing bank credit = yes | Bank, positive amount, `STANDARD`/`NPA` |
-| NOC required = yes | NOC file |
+Three rules are **not** the cycle's to express as field bounds, because their
+inputs are cycle scalars rather than answers, and they read their inputs through
+the role bindings: the applicant age range, the Category A/B cutoff, and the
+funding ceiling.
 
-Applicants must be 18 through 60 inclusive. Category A means proposed or no
-more than 24 calendar months established; Category B means older than 24
-months. Category A/B describes enterprise maturity and is independent of
-`INITIAL`/`EXPANSION`, which describes funding phase.
+The numbers themselves are the **cycle's**, not the software's: 18 through 60
+and 24 months are the defaults a cycle version starts from, and each cycle
+declares its own. Age is judged across the owners — at least one owner must be
+in the band, so a founder of 30 with a retired parent as co-owner is not
+refused for the member the rule was never about. The category is computed by
+the server at submission from the enterprise's establishment date: Category A
+is the established side, trading for at least the cycle's threshold; Category
+B is everything younger. An enterprise registered without an establishment
+date cannot be sorted, and submission is refused with a message pointing at
+the enterprise screen. Category A/B describes enterprise maturity and is
+independent of `INITIAL`/`EXPANSION`, which describes funding phase.
 
 Money is exact integer paise and never floating point. Dates are real ISO
 `YYYY-MM-DD` calendar dates. Email is trimmed/lowercased, GSTIN and registration
@@ -238,7 +269,7 @@ Example: a release on 2024-02-29 reaches its 12-month calendar anniversary on
 2025-02-28. A full reversal removes that release from eligibility; a partial
 reversal keeps its original release date. Only one non-rejected attempt for a
 phase can be active. A rejected attempt may retry in a later open cycle; its old
-qualifying link is cancelled in the same D1 batch that creates the replacement.
+qualifying link is cancelled in the same transaction that creates the replacement.
 
 ## Documents and R2
 
@@ -246,7 +277,7 @@ qualifying link is cancelled in the same D1 batch that creates the replacement.
 sequenceDiagram
   participant B as Browser
   participant G as GraphQL Worker
-  participant D as D1
+  participant D as Postgres
   participant R as Private R2
   B->>G: issueDocumentUpload(metadata + checksum)
   G->>D: retain ISSUED intent
@@ -284,10 +315,27 @@ releases and reversals behind it:
   whether it is the current result. Utilization is assessed once per release, so
   more than one utilization result can be current at the same time.
 
-Programme-office detail never leaves the server: TTM approval references,
+Programme-office detail never leaves the server: release approval references,
 bank-account verification, performance agreements, physical verification,
 evidence references, internal notes, recovery cases, and award version history
 are all absent from this view.
+
+## Confirmation emails and the PDF copy
+
+At three moments the applicant is emailed without asking: when a submission or
+resubmission succeeds, when the programme approves the application, and when
+the award is sanctioned. Each message attaches a PDF of the application as it
+was submitted — the questions the cycle asked and the answers given, rendered
+so the applicant has a copy to keep, print, or hand to a bank. The approval
+and sanction messages state the approved or sanctioned amount.
+
+The email is **best-effort, after the fact**. The write it reports on has
+already succeeded before any email is attempted, and a transport or rendering
+failure can never undo it or surface as an error to anybody — what it does
+instead is leave a failure audit record under its own action, so an applicant
+who says "I never got the confirmation" has an answerable question. Nothing
+about the outcome depends on the email arriving; the portal remains the
+authoritative view.
 
 ## Programme cycles the applicant can see
 
@@ -324,7 +372,7 @@ mutation Save($input: SaveApplicationDraftInput!) {
 }
 
 query Validate($id: ID!) {
-  seb { application { validate(applicationId: $id) { success response { valid issues { section field code message } } } } }
+  seb { application { validate(applicationId: $id) { success response { valid issues { stageKey field code message } } } } }
 }
 
 mutation Submit($input: ApplicationVersionInput!) {
@@ -348,11 +396,11 @@ errors.
 Common expected failures include missing authentication, another applicant's
 ID, stale expected versions, closed cycles, competing phase attempts, invalid
 or missing evidence, expired upload intents, and changes outside requested
-revision sections.
+revision stages.
 
 ## Concurrency, history, and audit
 
-D1 batches are atomic, but a zero-row guarded update is not itself an error.
+A transaction is atomic, but a zero-row guarded update is not itself an error.
 The [applicant service README](../src/services/application/README.md) explains
 the write-time predicates and failure-recovery state machines in detail.
 Dependent inserts therefore use `INSERT ... SELECT ... WHERE EXISTS` predicates
@@ -369,18 +417,20 @@ session/challenge digests.
 Regenerate the canonical empty-database schema with `npm run db:schema:generate`
 and verify drift with `npm run db:schema:check`. Use `npm run db:setup:local`
 for
-local D1, `npm test` for Worker integration tests, `npm run test:coverage` for
+a local Postgres, `npm test` for the service suite, `npm run test:coverage` for
 the application coverage gate, and `npm run check` for the complete gate.
 
 The base schema is replaceable because no production database exists; no
 incremental migration is added. Programme-cycle administration, intake, desk
-review, bank evidence, TTM decisions, awards, payments, assessments, and
+review, bank evidence, programme decisions, awards, payments, assessments, and
 recovery now exist under the administrator namespace, and role administration
-under the `access` namespace. Notifications, idempotency, rate limiting, a
-production malware provider, administrator account recovery, and public
-deployment remain excluded. R2 CORS and
-bucket-scoped credentials are required outside tests. Staff document downloads
-remain fail-closed until a production scanner records `ACCEPTED`.
+under the `access` namespace. Rate limiting, account recovery, best-effort
+email notification with a PDF copy of the application, and a real malware
+scanner behind the configuration seam are delivered. Idempotency keys, the
+production scanner key, payment integration, and public deployment remain
+excluded. Storage CORS and bucket-scoped credentials are required outside
+tests. Staff document downloads remain fail-closed until the scanner records
+`ACCEPTED`.
 
 The authoritative-policy differences and unresolved ceiling/jurisdiction
 questions are tracked in the [policy alignment crosswalk](policy-alignment.md).

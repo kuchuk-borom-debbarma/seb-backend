@@ -110,8 +110,9 @@ export const signUpApplicant = async (page: Page, email: string): Promise<void> 
   await page.getByLabel('Choose a password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Create account' }).click()
 
-  // Signup deliberately does not create a session, so it lands on sign-in.
-  await page.waitForURL('**/sign-in')
+  // Signup deliberately does not create a session, so it lands on the
+  // sign-in side of the login screen.
+  await page.waitForURL('**/login')
 }
 
 export const signIn = async (
@@ -119,11 +120,17 @@ export const signIn = async (
   email: string,
   password = PASSWORD,
 ): Promise<void> => {
-  await page.goto('/sign-in')
+  /*
+   * Always through the applicant panel: the login screen's role switcher only
+   * changes the copy and the landing page, not what the API accepts, and the
+   * redirect sends a staff account to the office either way. The button name
+   * is exact because "Switch to Applicant Sign In" also contains "Sign In".
+   */
+  await page.goto('/login')
   await page.getByLabel('Email address').fill(email)
-  await page.getByLabel('Password').fill(password)
-  await page.getByRole('button', { name: 'Sign in' }).click()
-  await page.waitForURL((url) => !url.pathname.startsWith('/sign-in'))
+  await page.getByLabel('Password', { exact: true }).fill(password)
+  await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'))
 }
 
 export const signOut = async (page: Page): Promise<void> => {
@@ -133,8 +140,11 @@ export const signOut = async (page: Page): Promise<void> => {
    * screen and fails there with a strict-mode violation rather than anywhere
    * near what the test was actually checking.
    */
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
-  await page.waitForURL('**/sign-in')
+  // The control lives in the account menu now, so open that first.
+  await page.getByRole('button', { name: 'Account menu' }).click()
+  await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click()
+  // Signing out lands on the public site, not a sign-in form.
+  await page.waitForURL((url) => url.pathname === '/')
 }
 
 /**
@@ -214,6 +224,27 @@ export const openProgrammeCycle = async (
 }
 
 /**
+ * Registers an enterprise with only its name, through the wizard's own steps.
+ *
+ * The wizard asks its questions one category at a time, and every question
+ * after the name is optional, so the helper advances past each remaining
+ * category with the defaults and submits from the last one. It waits for the
+ * enterprise's own page so the record exists before the caller moves on.
+ */
+export const registerEnterprise = async (
+  page: Page,
+  businessName: string,
+): Promise<void> => {
+  await page.goto('/enterprises/new')
+  await page.getByLabel('Registered or trading name').fill(businessName)
+  for (let step = 0; step < 3; step += 1) {
+    await page.getByRole('button', { name: 'Next' }).click()
+  }
+  await page.getByRole('button', { name: 'Register enterprise' }).click()
+  await expect(page).toHaveURL(/\/enterprises\/[0-9a-f-]{36}$/u)
+}
+
+/**
  * Signs up a fresh applicant, registers an enterprise and starts an initial
  * application in the first open cycle. Returns the application's id.
  *
@@ -232,9 +263,7 @@ export const startApplication = async (
   await signUpApplicant(page, email)
   await signIn(page, email)
 
-  await page.goto('/enterprises/new')
-  await page.getByLabel('Registered or trading name').fill(businessName)
-  await page.getByRole('button', { name: 'Register enterprise' }).click()
+  await registerEnterprise(page, businessName)
 
   await page.goto('/applications/new')
   await page.getByLabel('Enterprise').selectOption({ label: businessName })
@@ -298,9 +327,7 @@ export const submitApplication = async (
   await signUpApplicant(page, email)
   await signIn(page, email)
 
-  await page.goto('/enterprises/new')
-  await page.getByLabel('Registered or trading name').fill(businessName)
-  await page.getByRole('button', { name: 'Register enterprise' }).click()
+  await registerEnterprise(page, businessName)
 
   await page.goto('/applications/new')
   await page.getByLabel('Enterprise').selectOption({ label: businessName })
@@ -352,21 +379,27 @@ const openCycleWithoutDocuments = async (
     .getByLabel('Applications close')
     .fill(local(new Date(Date.now() + 2_592_000_000)))
 
-  /*
-   * Make every document optional. The API insists on exactly one rule for every
-   * supported document type, so the rules stay — but a rule whose condition is
-   * OPTIONAL asks for nothing, and an application in this cycle can be
-   * submitted with no files at all.
-   */
-  const conditions = page.locator('select[aria-label^="Required when"]')
-  for (let index = 0; index < (await conditions.count()); index += 1) {
-    await conditions.nth(index).selectOption('OPTIONAL')
-  }
-
   if (configureIdentifiers) await configureIdentifiers(page)
 
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
+  const cycleId = page.url().split('/').pop() as string
+
+  /*
+   * Make every document optional.
+   *
+   * This used to drive `select[aria-label^="Required when"]` — one control per
+   * document rule, on the cycle form. Documents are `FILE` questions of the
+   * cycle's own template now, and there is no screen for editing a template
+   * yet, so this goes through `admin.formTemplate` instead. Arranging state,
+   * not asserting through it: what the test is about is an application that can
+   * be submitted with no files.
+   */
+  await makeDocumentsOptional(page, cycleId)
+  // Each of those was a cycle revision, so the page is holding a version that
+  // has moved on — and opening quotes the version it was rendered with.
+  await page.reload()
+
   await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
   await page.getByRole('button', { name: 'Open for applications' }).click()
   await expect(
@@ -375,31 +408,126 @@ const openCycleWithoutDocuments = async (
   return code
 }
 
+/** Only what this helper reads back and hands straight to the write. */
+type FormQuestionRow = {
+  key: string
+  stageKey: string
+  type: string
+  label: string
+  helpText: string | null
+  requirement: string
+  source: string
+  position: number
+  validation: { maxFileBytes: number | null }
+}
+
+/**
+ * Turns every document a cycle asks for into one it merely accepts.
+ *
+ * Reads the cycle's own questions back and rewrites each `FILE` one as
+ * `OPTIONAL`, one mutation apiece — each is a cycle revision, so each quotes
+ * the version the last one produced.
+ */
+const makeDocumentsOptional = async (page: Page, cycleId: string): Promise<void> => {
+  const call = async (query: string, variables: Record<string, unknown>) => {
+    const response = await page.request.post(`${WORKER_URL}/graphql`, {
+      data: { query, variables },
+      headers: { 'content-type': 'application/json' },
+    })
+    const body = await response.json()
+    expect(body.errors, JSON.stringify(body.errors)).toBeUndefined()
+    return body.data
+  }
+
+  const read = await call(
+    `query($id: ID!) { admin { programmeCycle { byId(id: $id) { response {
+      head { currentVersion }
+      formTemplate { fields {
+        key stageKey type role label helpText requirement source position
+        validation { maxFileBytes }
+      } }
+    } } } } }`,
+    { id: cycleId },
+  )
+  const cycle = read.admin.programmeCycle.byId.response
+  let version = cycle.head.currentVersion as number
+
+  for (const field of cycle.formTemplate.fields as FormQuestionRow[]) {
+    if (field.type !== 'FILE' || field.requirement === 'OPTIONAL') continue
+    const done = await call(
+      `mutation($input: FormQuestionMutationInput!) {
+        admin { formTemplate { updateQuestion(input: $input) {
+          success message response { head { currentVersion } }
+        } } }
+      }`,
+      {
+        input: {
+          scope: {
+            programmeCycleId: cycleId,
+            expectedVersion: version,
+            reason: 'This cycle asks for no documents.',
+          },
+          field: {
+            stageKey: field.stageKey,
+            fieldKey: field.key,
+            fieldType: 'FILE',
+            label: field.label,
+            helpText: field.helpText,
+            requirement: 'OPTIONAL',
+            source: field.source,
+            sortOrder: field.position,
+            maxFileBytes: field.validation.maxFileBytes,
+          },
+        },
+      },
+    )
+    const result = done.admin.formTemplate.updateQuestion
+    expect(result.success, result.message ?? '').toBe(true)
+    version = result.response.head.currentVersion
+  }
+}
+
 /** Every question the form asks, answered. */
 export const fillEveryAnswer = async (
   page: Page,
   id: string,
-  businessName: string,
+  _businessName: string,
 ): Promise<void> => {
+  /*
+   * The form is one stage per screen now, and "Save & next" force-saves the
+   * debounced draft before moving — so filling a stage and advancing is also
+   * the proof its answers persisted enough to move on.
+   *
+   * The enterprise's own facts are no longer questions: the name this helper
+   * used to type into the form now lives on the enterprise entity alone,
+   * which is why the parameter goes unused.
+   */
+  const saveAndNext = async () => {
+    await page.getByRole('button', { name: 'Save & next' }).click()
+  }
+
   await page.goto(`/applications/${id}/form`)
-  await page.getByLabel('Business name').fill(businessName)
-  await page.getByLabel('Date established').fill('2025-03-10')
-  await page.getByLabel('Category', { exact: true }).selectOption({ index: 1 })
-  await page.getByLabel('Sector').selectOption({ label: 'Food processing' })
-  await page.getByLabel('Majority ownership is held by Scheduled Tribe members').check()
-  await page.getByLabel('Your full name').fill('Bethel Debbarma')
-  await page.getByLabel('Your role in the enterprise').selectOption({ index: 1 })
+
+  // Owners: one entry, added explicitly — a fresh group starts empty.
+  await page.getByRole('button', { name: 'Add owners' }).click()
+  await page.getByLabel('Full name').fill('Bethel Debbarma')
+  await page.getByLabel('Role in the enterprise').selectOption({ index: 1 })
   await page.getByLabel('Date of birth').fill('1996-07-14')
   await page.getByLabel('Gender').selectOption({ index: 2 })
-  await page.getByLabel('Block or village').fill('Khumulwng')
-  await page.getByLabel('District').fill('West Tripura')
-  await page.getByLabel('PIN code').fill('799045')
-  await page.getByLabel('Contact number').fill('+919876543210')
-  await page.getByLabel('Contact email').fill('bethel@example.test')
+  await page.getByLabel('Relationship').selectOption({ index: 1 })
+  await page.getByLabel('Of (name)').fill('Sanjoy Debbarma')
+  await saveAndNext()
+
+  // Project cost and funding.
   await page.getByLabel('Total project cost (₹)').fill('1000000')
   await page.getByLabel('Seed fund requested (₹)').fill('250000')
-  await page.getByLabel('Bank loan proposed (₹)').fill('600000')
-  await page.getByLabel('Your own contribution (₹)').fill('150000')
+  // Both are `OPTIONAL` in the cycle's own template, so the renderer marks
+  // them — the label is the cycle's words plus what the software adds.
+  await page.getByLabel('Bank loan proposed (₹) (optional)').fill('600000')
+  await page.getByLabel('Your own contribution (₹) (optional)').fill('150000')
+  await saveAndNext()
+
+  // Previous support and credit: both "no", so nothing else appears.
   await page
     .getByRole('group', {
       name: 'Has this enterprise received government funding before?',
@@ -410,21 +538,30 @@ export const fillEveryAnswer = async (
     .getByRole('group', { name: 'Does this enterprise have existing bank credit?' })
     .getByLabel('No')
     .check()
+  await saveAndNext()
+
+  // Evidence stage: the one non-file question.
   await page
     .getByRole('group', {
       name: 'Is a no-objection certificate needed for these premises?',
     })
     .getByLabel('No')
     .check()
-  await page.getByLabel('Relationship').selectOption({ index: 1 })
-  await page.getByLabel('Of (name)').fill('Sanjoy Debbarma')
-  await page.getByLabel('Place').fill('Khumulwng')
-  await page
-    .getByLabel('I declare that everything in this application is true and complete.')
-    .check()
 
-  // The indicator is the honest signal that the server has the last answer.
+  /*
+   * The indicator is the signal that the server holds the last answer, and the
+   * reload is what makes a silent save failure land *here* rather than on a
+   * review screen listing two dozen questions and saying nothing about why.
+   */
   await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 20_000 })
+  await page.reload()
+  await expect(
+    page
+      .getByRole('group', {
+        name: 'Is a no-objection certificate needed for these premises?',
+      })
+      .getByLabel('No'),
+  ).toBeChecked({ timeout: 20_000 })
 }
 
 /**

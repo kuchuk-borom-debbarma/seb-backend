@@ -196,6 +196,14 @@ test.describe('a reviewer reading casework', () => {
     await signIn(page, reviewer, PASSWORD)
     await page.goto(link)
     await page.getByRole('button', { name: 'Accept the invitation' }).click()
+    /*
+     * Checked, rather than clicked and assumed.
+     *
+     * Without this the failure lands three steps later, on the workspace
+     * refusing a reader — which reads as the very regression this test is about
+     * and is instead an invitation that never took.
+     */
+    await expect(page.getByRole('button', { name: 'Accept the invitation' })).toHaveCount(0)
 
     /*
      * The regression this whole change started from. A reviewer cannot claim,

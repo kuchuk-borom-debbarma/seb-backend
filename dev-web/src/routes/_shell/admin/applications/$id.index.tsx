@@ -11,19 +11,30 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
-import { PageHeader } from '#/components/PageHeader'
+import {
+  ArrowLeft,
+  ClipboardList,
+  FileText,
+  Lock,
+  Play,
+  Plus,
+  User,
+  X,
+} from 'lucide-react'
 import { WhoIsOnThis } from '#/features/admin/WhoIsOnThis'
 import { BankStage } from '#/features/admin/BankStage'
-import { CommitteeStage } from '#/features/admin/CommitteeStage'
+import { DecisionStage } from '#/features/admin/DecisionStage'
 import {
   DeskReviewForm,
+  DeskReviewModal,
   checkTitle,
   type DeskReviewDraft,
 } from '#/features/admin/DeskReviewForm'
 import { statusTone } from '#/features/admin/queues'
 import { cycleReasonsQuery, workspaceQuery } from '#/features/admin/workspaceQueries'
-import { DOCUMENT_TITLES, formatBytes } from '#/features/application/documents'
-import { SECTION_TITLES, sectionTitle } from '#/features/application/draft'
+import { formatBytes } from '#/features/application/documents'
+import { fieldLabel, stageTitle } from '#/features/application/draft'
+import styles from '#/features/admin/Workspace.module.css'
 import {
   AddInternalNoteDocument,
   AdminDocumentDownloadUrlDocument,
@@ -31,14 +42,12 @@ import {
   CompleteDeskReviewDocument,
   StartDeskReviewDocument,
 } from '#/graphql/generated/operations'
-import type { DocumentType } from '#/graphql/generated/schema'
 import { formatDateTime, humanize } from '#/lib/format'
 import { can } from '#/lib/session'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from '#/features/admin/officeGuidance'
-import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
 
 /** The statuses in which a sanction order can exist. */
@@ -74,6 +83,13 @@ function WorkspacePage() {
 
   if (!workspace?.application) return null
   const application = workspace.application
+  /*
+   * Which stages exist is this application's cycle's decision, so every control
+   * that names one reads them from here. Empty only where the cycle's rows have
+   * been edited by hand, in which case a reviewer is offered no stage rather
+   * than a wrong one.
+   */
+  const stages = workspace.formTemplate?.stages ?? []
 
   const openRevisions = workspace.revisions.filter(
     (revision) => !revision.resolvedAt && !revision.cancelledAt,
@@ -81,233 +97,287 @@ function WorkspacePage() {
   const latestSubmission = workspace.submissions.at(-1)
 
   return (
-    <main className="page">
-      <PageHeader
-        title={application.referenceNumber ?? 'Unreferenced application'}
-        meta={`${workspace.enterpriseName ?? 'Unknown enterprise'} · ${workspace.cycleDisplayName ?? workspace.cycleCode ?? ''}`}
-        description={OFFICE_LEDES.workspace}
-        actions={
-          <>
-            <span className="badge" data-tone={statusTone(application.status)}>
-              {humanize(application.status)}
-            </span>
+    <main className={styles.pageWrap}>
+      {/* Header Section */}
+      <div className={styles.headerWrap}>
+        <div className={styles.headerTopRow}>
+          <div className={styles.headerLeft}>
+            <div className={styles.headerIconBadge}>
+              <ClipboardList size={24} aria-hidden="true" />
+            </div>
+            <div className={styles.headerTextGroup}>
+              <h1 className={styles.refTitle}>
+                {application.referenceNumber ?? 'Unreferenced application'}
+              </h1>
+              <p className={styles.metaSubtitle}>
+                {workspace.enterpriseName ?? 'Unknown enterprise'} ·{' '}
+                {workspace.cycleDisplayName ?? workspace.cycleCode ?? ''}
+              </p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             {/* Money outlives the review, so the funding screen is offered
                 from the moment a sanction order can exist. */}
             {FUNDED_STATUSES.has(application.status) ? (
               <Link
                 to="/admin/applications/$id/funding"
                 params={{ id }}
-                className="button"
+                className={styles.backButton}
               >
                 Funding
               </Link>
             ) : null}
-            <Link to="/admin/queue" className="button">
+            <Link to="/admin/queue" className={styles.backButton}>
+              <ArrowLeft size={15} aria-hidden="true" />
               Back to the queue
             </Link>
-          </>
-        }
-      />
-
-      <div className="stack">
-        <WhoIsOnThis
-          assignedTo={application.assignedTo ?? null}
-          assignedAt={application.assignedAt ?? null}
-          lastActivityAt={application.updatedAt ?? null}
-          viewerUserId={viewer?.id}
-        />
-
-        {mayWrite ? (
-          <NextStep
-            applicationId={id}
-            status={application.status}
-            statusVersion={application.statusVersion}
-            reasons={reasons}
-            rules={workspace.identifierRules}
-            reviewingOwnApplication={application.applicantUserId === viewer?.id}
-            hasReview={workspace.reviews.length > 0}
-            onChanged={refresh}
-          />
-        ) : null}
-
-        {mayWrite ? (
-          <BankStage
-            applicationId={id}
-            status={application.status}
-            statusVersion={application.statusVersion}
-            latestSubmissionId={latestSubmission?.id}
-            latestDeskReviewId={workspace.reviews.at(-1)?.id}
-            referrals={workspace.referrals}
-            outcomes={workspace.bankOutcomes}
-            reasons={reasons}
-            onChanged={refresh}
-          />
-        ) : null}
-
-        {mayWrite || mayDecide ? (
-          <CommitteeStage
-            applicationId={id}
-            status={application.status}
-            statusVersion={application.statusVersion}
-            latestSubmissionId={latestSubmission?.id}
-            latestBankOutcomeId={workspace.bankOutcomes.at(-1)?.id}
-            agenda={workspace.agenda}
-            decisions={workspace.decisions}
-            reasons={reasons}
-            decidingOwnApplication={application.applicantUserId === viewer?.id}
-            onChanged={refresh}
-          />
-        ) : null}
-
-        {mayWrite && openRevisions.length > 0 ? (
-          <OpenRevisions
-            applicationId={id}
-            statusVersion={application.statusVersion}
-            revisions={openRevisions}
-            onChanged={refresh}
-          />
-        ) : null}
-
-        <section className="card">
-          <div className="card-header">
-            <p className="eyebrow">Submissions</p>
-            <span className="muted">
-              {workspace.submissions.length}{' '}
-              {workspace.submissions.length === 1 ? 'submission' : 'submissions'}
-            </span>
           </div>
-          <div className="table-wrap">
-            <table className="table">
-              <caption className="visually-hidden">
-                Submissions of this application
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">No.</th>
-                  <th scope="col">Submitted</th>
-                  <th scope="col">What changed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workspace.submissions.map((submission) => {
-                  const change = workspace.submissionChanges.find(
-                    (entry) => entry.toSubmissionNumber === submission.submissionNumber,
-                  )
-                  return (
-                    <tr key={submission.id}>
-                      <td className="tabular">{submission.submissionNumber}</td>
-                      <td>{formatDateTime(submission.submittedAt)}</td>
-                      <td>
-                        {change ? (
-                          change.sections
-                            .map((section) => SECTION_TITLES[section])
-                            .join(', ')
-                        ) : (
-                          // The first submission changed everything by
-                          // definition, so there is nothing to compare it to.
-                          <span className="muted">First submission</span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        </div>
 
-        <Documents
-          applicationId={id}
-          documents={workspace.documents}
-          latestSubmissionId={latestSubmission?.id}
-        />
+        <span className={styles.statusPill} data-tone={statusTone(application.status)}>
+          {humanize(application.status)}
+        </span>
+      </div>
 
-        <InternalNotes applicationId={id} notes={workspace.notes} onChanged={refresh} />
+      {/* Redesigned Top Internal Notes Card */}
+      <InternalNotes applicationId={id} notes={workspace.notes} onChanged={refresh} />
 
-        {workspace.reviews.length > 0 ? (
-          <section className="card">
-            <div className="card-header">
-              <p className="eyebrow">Desk reviews</p>
+      {/* Main 2-Column Grid */}
+      <div className={styles.mainGrid}>
+        {/* Left Column: Who is on this + Next Step + Stages */}
+        <div className={styles.colStack}>
+          <WhoIsOnThis
+            assignedTo={application.assignedTo ?? null}
+            assignedAt={application.assignedAt ?? null}
+            lastActivityAt={application.updatedAt ?? null}
+            viewerUserId={viewer?.id}
+          />
+
+          {mayWrite ? (
+            <NextStep
+              applicationId={id}
+              status={application.status}
+              statusVersion={application.statusVersion}
+              reasons={reasons}
+              stages={stages}
+              rules={workspace.identifierRules}
+              reviewingOwnApplication={application.applicantUserId === viewer?.id}
+              hasReview={workspace.reviews.length > 0}
+              onChanged={refresh}
+            />
+          ) : null}
+
+          {mayWrite ? (
+            <BankStage
+              applicationId={id}
+              status={application.status}
+              statusVersion={application.statusVersion}
+              latestSubmissionId={latestSubmission?.id}
+              latestDeskReviewId={workspace.reviews.at(-1)?.id}
+              referrals={workspace.referrals}
+              outcomes={workspace.bankOutcomes}
+              reasons={reasons}
+              stages={stages}
+              onChanged={refresh}
+            />
+          ) : null}
+
+          {mayWrite || mayDecide ? (
+            <DecisionStage
+              applicationId={id}
+              status={application.status}
+              statusVersion={application.statusVersion}
+              latestBankOutcomeId={workspace.bankOutcomes.at(-1)?.id}
+              decisions={workspace.decisions}
+              reasons={reasons}
+              stages={stages}
+              decidingOwnApplication={application.applicantUserId === viewer?.id}
+              onChanged={refresh}
+            />
+          ) : null}
+
+          {mayWrite && openRevisions.length > 0 ? (
+            <OpenRevisions
+              applicationId={id}
+              statusVersion={application.statusVersion}
+              revisions={openRevisions}
+              onChanged={refresh}
+            />
+          ) : null}
+        </div>
+
+        {/* Right Column: Submissions + Documents + Desk Reviews */}
+        <div className={styles.colStack}>
+          <section className={styles.card}>
+            <div className={styles.cardHeader}>
+              <h2 className={styles.cardTitle}>Submissions</h2>
+              <span className={styles.headerMeta}>
+                {workspace.submissions.length}{' '}
+                {workspace.submissions.length === 1 ? 'submission' : 'submissions'}
+              </span>
             </div>
-            <div className="table-wrap">
-              <table className="table">
-                <caption className="visually-hidden">Completed desk reviews</caption>
+            <div className={styles.tableWrap}>
+              <table className={styles.table}>
+                <caption className="visually-hidden">
+                  Submissions of this application
+                </caption>
                 <thead>
                   <tr>
-                    <th scope="col">Outcome</th>
-                    <th scope="col">Reviewed</th>
-                    <th scope="col">Checks</th>
+                    <th scope="col" style={{ width: '56px' }}>
+                      No.
+                    </th>
+                    <th scope="col" style={{ width: '220px' }}>
+                      Submitted
+                    </th>
+                    <th scope="col">What changed</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {workspace.reviews.map((review) => (
-                    <tr key={review.id}>
-                      <td>
-                        {humanize(review.outcome)}
-                        {/* A review an officer carried out on their own
-                            application is allowed, and is exactly what a reader
-                            of this record needs to see beside the outcome. */}
-                        {review.conflictAcknowledged ? (
-                          <span className="field-hint">
-                            Reviewed by the applicant, declared
-                          </span>
-                        ) : null}
-                      </td>
-                      <td>{formatDateTime(review.reviewedAt)}</td>
-                      <td>
-                        {workspace.reviewChecks
-                          .filter((check) => check.deskReviewId === review.id)
-                          .map((check) => (
-                            <span key={check.id} className="field-hint">
-                              {checkTitle(check.checkType)}: {humanize(check.result)}
-                              {check.internalNote ? ` — ${check.internalNote}` : ''}
-                            </span>
-                          ))}
-                      </td>
-                    </tr>
-                  ))}
+                  {workspace.submissions.map((submission) => {
+                    const change = workspace.submissionChanges.find(
+                      (entry) => entry.toSubmissionNumber === submission.submissionNumber,
+                    )
+                    return (
+                      <tr key={submission.id} className={styles.tableRow}>
+                        <td
+                          className="tabular"
+                          style={{ fontWeight: 600, color: '#111827' }}
+                        >
+                          {submission.submissionNumber}
+                        </td>
+                        <td style={{ color: '#334155' }}>
+                          {formatDateTime(submission.submittedAt)}
+                        </td>
+                        <td>
+                          {change ? (
+                            change.stageKeys
+                              .map((stageKey) => stageTitle(stageKey))
+                              .join(', ')
+                          ) : (
+                            // The first submission changed everything by
+                            // definition, so there is nothing to compare it to.
+                            <span className="muted">First submission</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           </section>
-        ) : null}
 
-        <section className="card">
-          <div className="card-header">
-            <p className="eyebrow">Who has held this</p>
-          </div>
-          {workspace.assignments.length === 0 ? (
-            <div className="card-body">
-              <p className="muted">
-                Nobody has claimed this application yet. Claiming records who holds the
-                next decision — until somebody does, nothing on it can be actioned.
+          <Documents
+            applicationId={id}
+            documents={workspace.documents}
+            latestSubmissionId={latestSubmission?.id}
+          />
+
+          {workspace.reviews.length > 0 ? (
+            <section className={styles.card}>
+              <div className={styles.cardHeader}>
+                <h2 className={styles.cardTitle}>Desk reviews</h2>
+              </div>
+              <div className={styles.tableWrap}>
+                <table className={styles.table}>
+                  <caption className="visually-hidden">Completed desk reviews</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Outcome</th>
+                      <th scope="col">Reviewed</th>
+                      <th scope="col">Checks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workspace.reviews.map((review) => (
+                      <tr key={review.id} className={styles.tableRow}>
+                        <td>
+                          <span
+                            className={styles.statusPill}
+                            data-tone={
+                              review.outcome === 'ADVANCE_TO_BANK'
+                                ? 'ok'
+                                : review.outcome === 'REJECT'
+                                  ? 'error'
+                                  : 'action'
+                            }
+                          >
+                            {humanize(review.outcome)}
+                          </span>
+                          {/* A review an officer carried out on their own
+                              application is allowed, and is exactly what a reader
+                              of this record needs to see beside the outcome. */}
+                          {review.conflictAcknowledged ? (
+                            <span className="field-hint">
+                              Reviewed by the applicant, declared
+                            </span>
+                          ) : null}
+                        </td>
+                        <td>{formatDateTime(review.reviewedAt)}</td>
+                        <td>
+                          {workspace.reviewChecks
+                            .filter((check) => check.deskReviewId === review.id)
+                            .map((check) => (
+                              <span key={check.id} className="field-hint">
+                                {checkTitle(check.checkType)}: {humanize(check.result)}
+                                {check.internalNote ? ` — ${check.internalNote}` : ''}
+                              </span>
+                            ))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Bottom Row: Who has held this */}
+      <section className={styles.card}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>Who has held this</h2>
+        </div>
+        {workspace.assignments.length === 0 ? (
+          <div className={styles.whoHeldEmpty}>
+            <div className={styles.whoHeldIconCircle}>
+              <User size={20} aria-hidden="true" />
+            </div>
+            <div className={styles.whoHeldTextGroup}>
+              <p className={styles.whoHeldTitle}>
+                Nobody has claimed this application yet.
+              </p>
+              <p className={styles.whoHeldDesc}>
+                Claiming records who holds the next decision — until somebody does,
+                nothing on it can be actioned.
               </p>
             </div>
-          ) : (
-            <div className="table-wrap">
-              <table className="table">
-                <caption className="visually-hidden">Assignment history</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">When</th>
-                    <th scope="col">What happened</th>
-                    <th scope="col">Reason</th>
+          </div>
+        ) : (
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <caption className="visually-hidden">Assignment history</caption>
+              <thead>
+                <tr>
+                  <th scope="col">When</th>
+                  <th scope="col">What happened</th>
+                  <th scope="col">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workspace.assignments.map((event) => (
+                  <tr key={event.id} className={styles.tableRow}>
+                    <td>{formatDateTime(event.createdAt)}</td>
+                    <td>{humanize(event.eventType)}</td>
+                    <td className="muted">{event.reason ?? '—'}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {workspace.assignments.map((event) => (
-                    <tr key={event.id}>
-                      <td>{formatDateTime(event.createdAt)}</td>
-                      <td>{humanize(event.eventType)}</td>
-                      <td className="muted">{event.reason ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </main>
   )
 }
@@ -324,6 +394,7 @@ function NextStep({
   status,
   statusVersion,
   reasons,
+  stages,
   rules,
   reviewingOwnApplication,
   hasReview,
@@ -333,6 +404,8 @@ function NextStep({
   status: string
   statusVersion: number
   reasons: Parameters<typeof DeskReviewForm>[0]['reasons']
+  /** This application's own stages; see the workspace comment above. */
+  stages: Parameters<typeof DeskReviewForm>[0]['stages']
   rules: Parameters<typeof DeskReviewForm>[0]['rules']
   reviewingOwnApplication: boolean
   hasReview: boolean
@@ -345,6 +418,7 @@ function NextStep({
    */
   const mark = useMarker()
   const [error, setError] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
 
   const start = useMutation({
     mutationFn: async () => {
@@ -370,30 +444,35 @@ function NextStep({
       unwrap(data.admin.intake.completeDeskReview)
     },
     onMutate: () => setError(null),
-    onSuccess: onChanged,
+    onSuccess: async () => {
+      setModalOpen(false)
+      await onChanged()
+    },
     onError: (cause) => setError(messageFor(cause)),
   })
 
   if (status === 'SUBMITTED') {
     return (
-      <section className="card" {...mark('next-step')}>
-        <div className="card-header">
-          <div>
-            <p className="eyebrow">Next</p>
-            <h3>Start the desk review</h3>
+      <section className={styles.card} {...mark('next-step')}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>Next</h2>
+        </div>
+        <div className={styles.nextActionBox}>
+          <div className={styles.nextActionHeader}>
+            <div className={styles.nextActionIconBadge}>
+              <Play size={16} fill="#2563eb" color="#2563eb" aria-hidden="true" />
+            </div>
+            <h3 className={styles.nextActionTitle}>Start the desk review</h3>
           </div>
           <button
             type="button"
-            className="button"
-            data-variant="primary"
+            className={styles.primaryActionButton}
             disabled={start.isPending}
             onClick={() => start.mutate()}
           >
             {start.isPending ? 'Starting…' : 'Start desk review'}
           </button>
-        </div>
-        <div className="card-body">
-          <p className="muted">
+          <p className={styles.nextActionDesc}>
             Starting the review takes the application out of the submissions queue and
             puts it in yours.
           </p>
@@ -414,40 +493,65 @@ function NextStep({
 
   if (status === 'DESK_REVIEW') {
     return (
-      <section className="card" {...mark('next-step')}>
-        <div className="card-header">
-          <div>
-            <p className="eyebrow">Next</p>
-            <h3>{hasReview ? 'Record another review' : 'Complete the desk review'}</h3>
+      <>
+        <section className={styles.card} {...mark('next-step')}>
+          <div className={styles.cardHeader}>
+            <h2 className={styles.cardTitle}>Next</h2>
           </div>
-        </div>
-        <div className="card-body">
-          <p className="muted" style={{ marginBottom: '0.75rem' }}>
-            The nine checks and the outcome are recorded together, in one write — so a
-            review cannot be left half-saved. Closing this leaves the application exactly
-            where it is.
-          </p>
-          <DeskReviewForm
-            reasons={reasons}
-            rules={rules}
-            reviewingOwnApplication={reviewingOwnApplication}
-            pending={complete.isPending}
-            error={error}
-            onSubmit={(draft) => complete.mutate(draft)}
-          />
-        </div>
-      </section>
+          <div className={styles.nextActionBox}>
+            <div className={styles.nextActionHeader}>
+              <div className={styles.nextActionIconBadge}>
+                <ClipboardList size={16} color="#2563eb" aria-hidden="true" />
+              </div>
+              <h3 className={styles.nextActionTitle}>
+                {hasReview ? 'Record another review' : 'Complete the desk review'}
+              </h3>
+            </div>
+            <button
+              type="button"
+              className={styles.primaryActionButton}
+              onClick={() => setModalOpen(true)}
+            >
+              {hasReview ? 'Open review form' : 'Open desk review'}
+            </button>
+            {error ? (
+              <p
+                className="notice"
+                data-tone="error"
+                role="alert"
+                style={{ marginTop: '0.75rem' }}
+              >
+                {error}
+              </p>
+            ) : null}
+          </div>
+        </section>
+
+        <DeskReviewModal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          hasReview={hasReview}
+          reasons={reasons}
+          stages={stages}
+          rules={rules}
+          reviewingOwnApplication={reviewingOwnApplication}
+          pending={complete.isPending}
+          error={error}
+          onSubmit={(draft) => complete.mutate(draft)}
+        />
+      </>
     )
   }
 
   return (
-    <section className="card">
-      <div className="card-body">
-        <p className="muted">
-          Nothing to do here at the moment — this application is{' '}
-          {humanize(status).toLowerCase()}.
-        </p>
+    <section className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h2 className={styles.cardTitle}>Next</h2>
       </div>
+      <p className="muted" style={{ fontSize: '13px', margin: 0 }}>
+        Nothing to do here at the moment — this application is{' '}
+        {humanize(status).toLowerCase()}.
+      </p>
     </section>
   )
 }
@@ -468,7 +572,7 @@ function OpenRevisions({
   statusVersion: number
   revisions: {
     id: string
-    section: string
+    stageKey: string
     note: string
     requestedAt: string
   }[]
@@ -500,75 +604,73 @@ function OpenRevisions({
   })
 
   return (
-    <section className="card">
-      <div className="card-header">
-        <p className="eyebrow">Waiting on the applicant</p>
+    <section className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h2 className={styles.cardTitle}>Waiting on the applicant</h2>
       </div>
-      <div className="card-body">
-        <div className="stack">
-          {revisions.map((revision) => (
-            <div key={revision.id}>
-              <p className="notice" data-tone="action">
-                <span className="notice-title">{sectionTitle(revision.section)}</span>
-                {revision.note}
-              </p>
-              {cancelling === revision.id ? (
-                <div className="row" style={{ marginTop: '0.5rem', alignItems: 'end' }}>
-                  <div style={{ flex: '1 1 20rem' }}>
-                    <label className="field-label" htmlFor={`cancel-${revision.id}`}>
-                      Why withdraw this request?
-                    </label>
-                    <input
-                      id={`cancel-${revision.id}`}
-                      className="input"
-                      value={reason}
-                      onChange={(event) => setReason(event.target.value)}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="button"
-                    data-variant="danger"
-                    disabled={!reason.trim() || cancel.isPending}
-                    onClick={() => cancel.mutate(revision.id)}
-                  >
-                    {cancel.isPending ? 'Withdrawing…' : 'Withdraw it'}
-                  </button>
-                  <button
-                    type="button"
-                    className="button"
-                    onClick={() => {
-                      setCancelling(null)
-                      setReason('')
-                    }}
-                  >
-                    Keep it
-                  </button>
+      <div className="stack">
+        {revisions.map((revision) => (
+          <div key={revision.id}>
+            <p className="notice" data-tone="action">
+              <span className="notice-title">{stageTitle(revision.stageKey)}</span>
+              {revision.note}
+            </p>
+            {cancelling === revision.id ? (
+              <div className="row" style={{ marginTop: '0.5rem', alignItems: 'end' }}>
+                <div style={{ flex: '1 1 20rem' }}>
+                  <label className="field-label" htmlFor={`cancel-${revision.id}`}>
+                    Why withdraw this request?
+                  </label>
+                  <input
+                    id={`cancel-${revision.id}`}
+                    className="input"
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
+                  />
                 </div>
-              ) : (
                 <button
                   type="button"
                   className="button"
-                  style={{ marginTop: '0.5rem' }}
-                  onClick={() => setCancelling(revision.id)}
+                  data-variant="danger"
+                  disabled={!reason.trim() || cancel.isPending}
+                  onClick={() => cancel.mutate(revision.id)}
                 >
-                  Withdraw this request
+                  {cancel.isPending ? 'Withdrawing…' : 'Withdraw it'}
                 </button>
-              )}
-            </div>
-          ))}
-        </div>
-        {error ? (
-          <p
-            className="notice"
-            data-tone="error"
-            role="alert"
-            style={{ marginTop: '0.75rem' }}
-          >
-            {error}
-          </p>
-        ) : null}
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => {
+                    setCancelling(null)
+                    setReason('')
+                  }}
+                >
+                  Keep it
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="button"
+                style={{ marginTop: '0.5rem' }}
+                onClick={() => setCancelling(revision.id)}
+              >
+                Withdraw this request
+              </button>
+            )}
+          </div>
+        ))}
       </div>
+      {error ? (
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginTop: '0.75rem' }}
+        >
+          {error}
+        </p>
+      ) : null}
     </section>
   )
 }
@@ -583,7 +685,7 @@ function Documents({
   documents: {
     id: string
     submissionId: string
-    documentType: DocumentType
+    fieldKey: string
     documentVersion: number
     originalFilename: string
     sizeBytes: number
@@ -612,55 +714,58 @@ function Documents({
   )
 
   return (
-    <section className="card">
-      <div className="card-header">
-        <div className="label-row">
-          <p className="eyebrow">Documents</p>
-          <Explain label="documents" opener="Which documents a review reads">
-            {OFFICE_HELP.frozenEvidence}
-          </Explain>
-        </div>
+    <section className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h2 className={styles.cardTitle}>Documents</h2>
+        <Explain label="documents" opener="Which documents a review reads">
+          {OFFICE_HELP.frozenEvidence}
+        </Explain>
       </div>
       {current.length === 0 ? (
-        <div className="card-body">
-          {/* Two different facts. Saying "none" when earlier submissions carry
-              documents would report the filter as if it were the application. */}
-          <p className="muted">
-            {documents.length === 0
-              ? 'Nothing has been attached to this application.'
-              : `The latest submission carries no documents. ${documents.length} from earlier ` +
-                'submissions are kept, but a review reads only what its own submission froze.'}
-          </p>
-        </div>
+        // Two different facts. Saying "none" when earlier submissions carry
+        // documents would report the filter as if it were the application.
+        <p className="muted">
+          {documents.length === 0
+            ? 'Nothing has been attached to this application.'
+            : `The latest submission carries no documents. ${documents.length} from earlier ` +
+              'submissions are kept, but a review reads only what its own submission froze.'}
+        </p>
       ) : (
-        <div className="table-wrap">
-          <table className="table">
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
             <caption className="visually-hidden">Documents in this submission</caption>
             <thead>
               <tr>
                 <th scope="col">Document</th>
                 <th scope="col">File</th>
-                <th scope="col">Size</th>
-                <th scope="col" />
+                <th scope="col" style={{ textAlign: 'right' }}>
+                  Size
+                </th>
+                <th scope="col" style={{ textAlign: 'right' }}>
+                  Open
+                </th>
               </tr>
             </thead>
             <tbody>
               {current.map((document) => (
-                <tr key={document.id}>
+                <tr key={document.id} className={styles.tableRow}>
                   <td>
-                    {DOCUMENT_TITLES[document.documentType]}
-                    {document.documentVersion > 1 ? (
-                      <span className="field-hint">
-                        version {document.documentVersion}
-                      </span>
-                    ) : null}
+                    <div className={styles.docTitleCell}>
+                      <FileText size={16} className={styles.docIcon} aria-hidden="true" />
+                      <span>{fieldLabel(document.fieldKey)}</span>
+                      {document.documentVersion > 1 ? (
+                        <span className="field-hint">v{document.documentVersion}</span>
+                      ) : null}
+                    </div>
                   </td>
-                  <td className="tabular">{document.originalFilename}</td>
-                  <td className="tabular">{formatBytes(document.sizeBytes)}</td>
-                  <td>
+                  <td className={styles.filenameCell} title={document.originalFilename}>
+                    {document.originalFilename}
+                  </td>
+                  <td className={styles.sizeCell}>{formatBytes(document.sizeBytes)}</td>
+                  <td className={styles.actionCell}>
                     <button
                       type="button"
-                      className="button"
+                      className={styles.openDocButton}
                       disabled={open.isPending}
                       onClick={() => open.mutate(document.id)}
                     >
@@ -674,11 +779,14 @@ function Documents({
         </div>
       )}
       {error ? (
-        <div className="card-body">
-          <p className="notice" data-tone="error" role="alert">
-            {error}
-          </p>
-        </div>
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginTop: '10px' }}
+        >
+          {error}
+        </p>
       ) : null}
     </section>
   )
@@ -707,8 +815,9 @@ function InternalNotes({
   onChanged: () => Promise<unknown>
 }) {
   const mark = useMarker()
+  const [modalOpen, setModalOpen] = useState(false)
   const [text, setText] = useState('')
-  const [correcting, setCorrecting] = useState<string | null>(null)
+  const [correctingNoteId, setCorrectingNoteId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const add = useMutation({
@@ -717,7 +826,7 @@ function InternalNotes({
         input: {
           applicationId,
           note: text.trim(),
-          correctionOfNoteId: correcting,
+          correctionOfNoteId: correctingNoteId,
         },
       })
       unwrap(data.admin.intake.addInternalNote)
@@ -725,7 +834,8 @@ function InternalNotes({
     onMutate: () => setError(null),
     onSuccess: async () => {
       setText('')
-      setCorrecting(null)
+      setCorrectingNoteId(null)
+      setModalOpen(false)
       await onChanged()
     },
     onError: (cause) => setError(messageFor(cause)),
@@ -735,28 +845,67 @@ function InternalNotes({
     notes.map((note) => note.correctionOfNoteId).filter(Boolean) as string[],
   )
 
+  const correctingNote = notes.find((note) => note.id === correctingNoteId)
+
+  const openAddModal = () => {
+    setCorrectingNoteId(null)
+    setText('')
+    setError(null)
+    setModalOpen(true)
+  }
+
+  const openCorrectModal = (noteId: string) => {
+    setCorrectingNoteId(noteId)
+    setText('')
+    setError(null)
+    setModalOpen(true)
+  }
+
+  const closeModal = () => {
+    setModalOpen(false)
+    setCorrectingNoteId(null)
+    setText('')
+    setError(null)
+  }
+
   return (
-    <section className="card" {...mark('internal-notes')}>
-      <div className="card-header">
-        <p className="eyebrow">Internal notes</p>
-        <span className="muted">Never shown to the applicant</span>
+    <section className={styles.topNotesCard} {...mark('internal-notes')}>
+      <div className={styles.topNotesHeader}>
+        <div className={styles.topNotesHeaderLeft}>
+          <div className={styles.notesLockBadge}>
+            <Lock size={13} aria-hidden="true" />
+          </div>
+          <span className={styles.notesCardTitle}>Internal notes</span>
+          <span className={styles.confidentialTag}>Never shown to applicant</span>
+          {notes.length > 0 ? (
+            <span className={styles.notesCountPill}>
+              {notes.length} {notes.length === 1 ? 'note' : 'notes'}
+            </span>
+          ) : null}
+        </div>
+
+        <button
+          type="button"
+          className={styles.addNoteTriggerButton}
+          onClick={openAddModal}
+        >
+          <Plus size={14} aria-hidden="true" />
+          Add note
+        </button>
       </div>
-      <div className="card-body">
-        {notes.length === 0 ? (
-          <p className="muted">
-            No notes yet. Notes stay inside the office and are never shown to the
-            applicant; once written, one can only be corrected by another that points at
-            it.
-          </p>
-        ) : (
-          <div className="stack">
-            {notes.map((note) => (
-              <div
-                key={note.id}
-                className={corrections.has(note.id) ? 'muted' : undefined}
-              >
-                <p style={{ whiteSpace: 'pre-wrap' }}>{note.note}</p>
-                <span className="field-hint">
+
+      {notes.length === 0 ? (
+        <p className={styles.notesEmptyHint}>
+          No notes yet. Notes stay inside the office and are never shown to the applicant;
+          once written, one can only be corrected by another that points at it.
+        </p>
+      ) : (
+        <div className={styles.notesList}>
+          {notes.map((note) => (
+            <div key={note.id} className={styles.noteItem}>
+              <p className={styles.noteContent}>{note.note}</p>
+              <div className={styles.noteMetaRow}>
+                <span className={styles.noteMeta}>
                   {formatDateTime(note.createdAt)}
                   {note.correctionOfNoteId ? ' · corrects an earlier note' : ''}
                   {corrections.has(note.id) ? ' · corrected later' : ''}
@@ -764,70 +913,130 @@ function InternalNotes({
                 {!note.correctionOfNoteId && !corrections.has(note.id) ? (
                   <button
                     type="button"
-                    className="button"
-                    data-variant="ghost"
-                    onClick={() => setCorrecting(note.id)}
+                    className={styles.correctNoteBtn}
+                    onClick={() => openCorrectModal(note.id)}
                   >
-                    Correct this note
+                    Correct note
                   </button>
                 ) : null}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          ))}
+        </div>
+      )}
 
-        <form
-          style={{ marginTop: '1rem' }}
-          onSubmit={(event) => {
-            event.preventDefault()
-            add.mutate()
+      {/* Add / Correct Internal Note Modal */}
+      {modalOpen ? (
+        <div
+          className={styles.noteModalOverlay}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeModal()
           }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="internal-note-modal-title"
         >
-          <label className="field-label" htmlFor="note">
-            {correcting ? 'Correction' : 'Add a note'}
-          </label>
-          <textarea
-            id="note"
-            className="textarea"
-            rows={3}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-          />
-          <div className="row" style={{ marginTop: '0.5rem' }}>
-            <button
-              type="submit"
-              className="button"
-              disabled={!text.trim() || add.isPending}
-            >
-              {add.isPending
-                ? 'Saving…'
-                : correcting
-                  ? 'Save the correction'
-                  : 'Add the note'}
-            </button>
-            {correcting ? (
+          <div className={styles.noteModalDialog}>
+            <div className={styles.noteModalHeader}>
+              <div className={styles.noteModalHeaderLeft}>
+                <div className={styles.noteModalHeaderIcon}>
+                  <Lock size={16} aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 id="internal-note-modal-title" className={styles.noteModalTitle}>
+                    {correctingNote ? 'Correct internal note' : 'Add internal note'}
+                  </h3>
+                  <p className={styles.noteModalSubtitle}>
+                    Stored permanently. Never visible to the applicant.
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
-                className="button"
-                onClick={() => setCorrecting(null)}
+                className={styles.noteModalCloseButton}
+                onClick={closeModal}
+                aria-label="Close modal"
               >
-                Cancel
+                <X size={15} aria-hidden="true" />
               </button>
-            ) : null}
-          </div>
-        </form>
+            </div>
 
-        {error ? (
-          <p
-            className="notice"
-            data-tone="error"
-            role="alert"
-            style={{ marginTop: '0.75rem' }}
-          >
-            {error}
-          </p>
-        ) : null}
-      </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (text.trim()) add.mutate()
+              }}
+            >
+              <div className={styles.noteModalBody}>
+                {correctingNote ? (
+                  <div className={styles.earlierNoteQuote}>
+                    <div className={styles.earlierNoteQuoteTitle}>
+                      Correcting note from {formatDateTime(correctingNote.createdAt)}:
+                    </div>
+                    <div>"{correctingNote.note}"</div>
+                  </div>
+                ) : null}
+
+                <div>
+                  <label className="field-label" htmlFor="internal-note-input">
+                    {correctingNote ? 'Correction note' : 'Note'}
+                  </label>
+                  <textarea
+                    id="internal-note-input"
+                    className="textarea"
+                    rows={4}
+                    placeholder={
+                      correctingNote
+                        ? 'State the correction and why it supersedes the earlier note…'
+                        : 'Write a note for caseworkers and reviewers…'
+                    }
+                    value={text}
+                    autoFocus
+                    onChange={(event) => setText(event.target.value)}
+                  />
+                  <p className="field-hint">
+                    Notes stay inside the programme office. Once saved, a note cannot be
+                    deleted.
+                  </p>
+                </div>
+
+                {error ? (
+                  <p
+                    className="notice"
+                    data-tone="error"
+                    role="alert"
+                    style={{ margin: 0 }}
+                  >
+                    {error}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className={styles.noteModalFooter}>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={closeModal}
+                  disabled={add.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={styles.primaryActionButton}
+                  disabled={!text.trim() || add.isPending}
+                >
+                  {add.isPending
+                    ? 'Saving…'
+                    : correctingNote
+                      ? 'Save correction'
+                      : 'Save note'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

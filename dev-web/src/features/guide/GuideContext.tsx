@@ -130,7 +130,6 @@ export function GuideProvider({ children, user }: { children: ReactNode; user: W
       const next = heldFrom(pathname, previous)
       if (
         next.application === previous.application &&
-        next.meeting === previous.meeting &&
         next.cycle === previous.cycle
       ) {
         return previous

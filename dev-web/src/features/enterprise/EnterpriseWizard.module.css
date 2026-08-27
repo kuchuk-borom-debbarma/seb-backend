@@ -1,0 +1,362 @@
+/* ==========================================================================
+   Enterprise Wizard (Registration & Profile Journey) Modern Styles
+   ========================================================================== */
+
+.pageContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pageHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pageTitle {
+  color: #111827;
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.pageDesc {
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ==========================================================================
+   Top Stepper Card
+   ========================================================================== */
+
+.stepperCard {
+  border: 1px solid #e9eaec;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 22px 28px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  overflow-x: auto;
+}
+
+.stepperTrack {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 640px;
+}
+
+.stepItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  position: relative;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+}
+
+.stepItemInteractive {
+  cursor: pointer;
+}
+
+.stepCircle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.stepCircleCurrent {
+  background: #0f172a;
+  color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.12);
+}
+
+.stepCircleDone {
+  background: #bbf7d0;
+  color: #15803d;
+}
+
+.stepCircleAhead {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  color: #6b7280;
+}
+
+.stepTextGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stepLabel {
+  color: #111827;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stepLabelAhead {
+  color: #374151;
+  font-weight: 500;
+}
+
+.stepSubtitle {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.stepSubtitleCurrent {
+  color: #2563eb;
+  font-weight: 500;
+}
+
+.stepSubtitleDone {
+  color: #16a34a;
+  font-weight: 500;
+}
+
+.stepSubtitleAhead {
+  color: #9ca3af;
+}
+
+.stepperDashedLine {
+  flex: 1;
+  margin: 15px 16px 0;
+  border-top: 1.5px dashed #cbd5e1;
+}
+
+.stepperFooter {
+  margin-top: 16px;
+  color: #6b7280;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   Main Form Card
+   ========================================================================== */
+
+.formCard {
+  border: 1px solid #e9eaec;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 32px 36px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.categoryHeading {
+  color: #111827;
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
+  letter-spacing: -0.01em;
+}
+
+.categoryDesc {
+  color: #6b7280;
+  font-size: 13.5px;
+  margin: 0 0 26px 0;
+  line-height: 1.45;
+}
+
+.fieldGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldLabel {
+  color: #374151;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.textInput {
+  width: 100%;
+  height: 42px;
+  padding: 8px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #111827;
+  background: #ffffff;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.textInput:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.dateRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.dateInputWrap {
+  position: relative;
+  width: 240px;
+}
+
+.dateInput {
+  width: 100%;
+  height: 42px;
+  padding: 8px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #111827;
+  background: #ffffff;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.dateInput:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.fieldHint {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.selectInput {
+  width: 100%;
+  height: 42px;
+  padding: 8px 36px 8px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #111827;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  appearance: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.selectInput:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+/* ==========================================================================
+   Form Footer & Save Banner
+   ========================================================================== */
+
+.securityHint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #6b7280;
+  font-size: 13px;
+  margin: 32px 0 20px;
+}
+
+.securityHint svg {
+  color: #9ca3af;
+}
+
+.formActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 20px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 26px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: #1e293b;
+  transform: translateY(-1px);
+}
+
+.btnPrimary:disabled,
+.btnSecondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 48rem) {
+  .formCard {
+    padding: 24px 20px;
+  }
+}

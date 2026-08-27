@@ -90,7 +90,7 @@ export default defineConfig({
        * identical.
        */
       command: `node scripts/build-if-stale.mjs && SEB_API_URL=http://localhost:${WORKER_PORT} PORT=${WEB_PORT} node .output/server/index.mjs`,
-      url: `http://localhost:${WEB_PORT}/sign-in`,
+      url: `http://localhost:${WEB_PORT}/login`,
       reuseExistingServer: false,
       timeout: 180_000,
     },

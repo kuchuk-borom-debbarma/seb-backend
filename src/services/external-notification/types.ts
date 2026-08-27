@@ -22,6 +22,19 @@ export type Notification = {
    * — the caller never learns which, and never writes markup.
    */
   body: string
+  /**
+   * Documents that travel with the message, or none.
+   *
+   * Bytes with a name, which passes this file's own printer test: any carrier
+   * can do something honest with them — a printer prints them, a postal
+   * service encloses them. A URL instead would name a place only one
+   * transport could reach, and would leak where the programme keeps things.
+   */
+  attachments?: readonly {
+    filename: string
+    contentType: string
+    bytes: Uint8Array
+  }[]
 }
 
 /** What came back, in terms a support conversation can use. */

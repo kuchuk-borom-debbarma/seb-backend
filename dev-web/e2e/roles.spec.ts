@@ -72,7 +72,7 @@ test.describe('being invited into the office', () => {
      * governs nothing. Casework is theirs to read.
      */
     const sections = await navigationSections(page)
-    expect(sections).toContain('casework')
+    expect(sections).toContain('workspace')
     expect(sections).not.toContain('administration')
 
     /*
@@ -91,7 +91,7 @@ test.describe('being invited into the office', () => {
     await inviteSomebodyTo(page, 'Approver')
     await page.goto('/admin')
     const sections = await navigationSections(page)
-    expect(sections).toContain('casework')
+    expect(sections).toContain('workspace')
     expect(sections).not.toContain('administration')
   })
 })
@@ -119,7 +119,9 @@ test.describe('the super administrator', () => {
     const sections = await navigationSections(page)
     expect(sections).toContain('administration')
     await expect(page.getByRole('link', { name: 'Activity history' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Invite a colleague' })).toBeVisible()
+    // Offered twice — the rail and the dashboard's quick actions — so first()
+    // is deliberate.
+    await expect(page.getByRole('link', { name: 'Invite a colleague' }).first()).toBeVisible()
   })
 })
 

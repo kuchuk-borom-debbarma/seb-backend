@@ -4,7 +4,7 @@
  * One application is taken from signup to money in the bank, through every
  * screen a real applicant and a real programme officer would use: submission,
  * desk review, referral to a partner bank, the bank's outcome, a
- * committee agenda and decision, a sanction order, and a payment.
+ * the programme decision, a sanction order, and a payment.
  *
  * This is the test that proves the parts fit together. The individual specs
  * cover each screen's own rules; this one covers the seam between them, which
@@ -99,46 +99,15 @@ test('an application is carried from submission to payment', async ({ page }) =>
   await page.getByRole('button', { name: 'Record the outcome' }).click()
   await expect(page.getByText('Answered').first()).toBeVisible()
 
-  // --- The committee ------------------------------------------------------
-  await page.goto('/admin/meetings')
-  await page.getByRole('button', { name: 'Schedule a meeting' }).click()
-  const meetingReference = `TTM-J${Date.now().toString(36).toUpperCase()}`
-  await page.getByLabel('Meeting reference').fill(meetingReference)
-  await page
-    .getByLabel('When')
-    .fill(new Date(Date.now() + 86_400_000).toISOString().slice(0, 16))
-  await page.getByLabel('Where').fill('TTAADC headquarters')
-  await page.getByRole('button', { name: 'Schedule it' }).click()
-  await expect(page).toHaveURL(/\/admin\/meetings\/[0-9a-f-]{36}$/u)
-  const meetingUrl = page.url()
-
-  await page.goto(`/admin/applications/${id}`)
-  const meetingLabel = await page
-    .getByLabel('Meeting')
-    .locator('option')
-    .filter({ hasText: meetingReference })
-    .innerText()
-  await page.getByLabel('Meeting').selectOption({ label: meetingLabel })
-  await page.getByRole('button', { name: 'Add it to the agenda' }).click()
-  await expect(page.getByText('On an agenda')).toBeVisible()
-
-  /*
-   * The committee sits. Only a meeting still being planned can take a new item,
-   * and only a meeting in session can produce a decision — so the order here is
-   * the order the office works in, not an arrangement of convenience.
-   */
-  await page.goto(meetingUrl)
-  await page.getByRole('button', { name: 'Start the meeting' }).click()
-  await expect(page.getByText('In session')).toBeVisible()
-
+  // --- The decision -------------------------------------------------------
   await page.goto(`/admin/applications/${id}`)
   await page.getByRole('radio', { name: /^Approved/u }).check()
-  await page.getByLabel('Decision reference').fill('TTM/2026/07/12')
+  await page.getByLabel('Decision reference').fill('SEP/2026/07/12')
   await page.getByLabel('Dated', { exact: true }).fill(today)
   await page.getByLabel('Amount approved (₹)').fill('250000')
   await page
     .getByLabel('What the applicant is told')
-    .fill('The committee has approved your application.')
+    .fill('Your application has been approved.')
   await page.getByRole('button', { name: 'Record the decision' }).click()
 
   // --- The money ----------------------------------------------------------
@@ -155,7 +124,7 @@ test('an application is carried from submission to payment', async ({ page }) =>
   await page.getByLabel('Amount (₹)', { exact: true }).fill('125000')
   await page.getByLabel('Paid on').fill(now)
   await page.getByLabel('Payment reference').fill('NEFT/2026/000771')
-  await page.getByLabel('Committee approval reference').fill('TTM/2026/07/12')
+  await page.getByLabel('Approval reference').fill('SEP/2026/07/12')
   await page.getByLabel('Approved on').fill(today)
   await page.getByLabel('Bank account verified').fill(now)
   await page.getByLabel('Performance agreement').fill('PA/2026/019')
@@ -185,11 +154,11 @@ test('an application is carried from submission to payment', async ({ page }) =>
   // award carries no internal note, no bank prerequisite and no reviewer
   // reference.
   await expect(page.getByText('PA/2026/019')).toHaveCount(0)
-  await expect(page.getByText('TTM/2026/07/12')).toHaveCount(0)
+  await expect(page.getByText('SEP/2026/07/12')).toHaveCount(0)
 })
 
 /*
- * The committee sending an application back.
+ * The decision sending an application back.
  *
  * The same defect the desk review had, at the other gate: `REVISION_REQUIRED`
  * fell through to an empty reason catalogue, so no select rendered, the
@@ -197,9 +166,9 @@ test('an application is carried from submission to payment', async ({ page }) =>
  * refused a decision the form could not complete. Untested, so 138 passing
  * tests said nothing about it.
  */
-test('the committee asks for a correction rather than deciding', async ({ page }) => {
+test('the decision asks for a correction rather than settling it', async ({ page }) => {
   test.setTimeout(240_000)
-  const application = await submitApplication(page, { prefix: 'ttmrev' })
+  const application = await submitApplication(page, { prefix: 'decrev' })
   const id = application.id
   const today = new Date().toISOString().slice(0, 10)
   const unique = Date.now().toString().slice(-6)
@@ -207,7 +176,7 @@ test('the committee asks for a correction rather than deciding', async ({ page }
   await page.context().clearCookies()
   await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
 
-  // --- Through desk review and the bank, so the committee can sit ----------
+  // --- Through desk review and the bank, so it is ready to be decided ------
   await page.goto(`/admin/applications/${id}`)
   await page.getByRole('button', { name: 'Start desk review' }).click()
   for (const check of [
@@ -248,33 +217,6 @@ test('the committee asks for a correction rather than deciding', async ({ page }
   await page.getByRole('button', { name: 'Record the outcome' }).click()
   await expect(page.getByText('Answered').first()).toBeVisible()
 
-  // --- A meeting, in session -----------------------------------------------
-  await page.goto('/admin/meetings')
-  await page.getByRole('button', { name: 'Schedule a meeting' }).click()
-  const meetingReference = `TTM-R${Date.now().toString(36).toUpperCase()}`
-  await page.getByLabel('Meeting reference').fill(meetingReference)
-  await page
-    .getByLabel('When')
-    .fill(new Date(Date.now() + 86_400_000).toISOString().slice(0, 16))
-  await page.getByLabel('Where').fill('TTAADC headquarters')
-  await page.getByRole('button', { name: 'Schedule it' }).click()
-  await expect(page).toHaveURL(/\/admin\/meetings\/[0-9a-f-]{36}$/u)
-  const meetingUrl = page.url()
-
-  await page.goto(`/admin/applications/${id}`)
-  const meetingLabel = await page
-    .getByLabel('Meeting')
-    .locator('option')
-    .filter({ hasText: meetingReference })
-    .innerText()
-  await page.getByLabel('Meeting').selectOption({ label: meetingLabel })
-  await page.getByRole('button', { name: 'Add it to the agenda' }).click()
-  await expect(page.getByText('On an agenda')).toBeVisible()
-
-  await page.goto(meetingUrl)
-  await page.getByRole('button', { name: 'Start the meeting' }).click()
-  await expect(page.getByText('In session')).toBeVisible()
-
   // --- And the decision that sends it back ---------------------------------
   await page.goto(`/admin/applications/${id}`)
   await page.getByRole('radio', { name: /Correction needed/u }).check()
@@ -285,11 +227,11 @@ test('the committee asks for a correction rather than deciding', async ({ page }
   await expect(reason).toBeVisible()
   await reason.selectOption({ index: 1 })
 
-  await page.getByLabel('Decision reference').fill(`TTM/REV/${unique}`)
+  await page.getByLabel('Decision reference').fill(`SEP/REV/${unique}`)
   await page.getByLabel('Dated', { exact: true }).fill(today)
   await page
     .getByLabel('What the applicant is told')
-    .fill('The committee has asked for a correction before deciding.')
+    .fill('A correction is needed before this can be decided.')
 
   await page.getByRole('checkbox', { name: 'Evidence' }).check()
   await page.getByLabel('Reason', { exact: true }).last().selectOption({ index: 1 })

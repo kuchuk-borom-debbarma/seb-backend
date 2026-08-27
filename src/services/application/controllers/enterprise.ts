@@ -4,6 +4,7 @@ import { decodeCursor, pageSize } from '../pagination'
 import {
   listEnterpriseDeletionBlockers,
   findOwnedEnterprise,
+  countOwnedEnterprises,
   insertEnterpriseAggregate,
   listOwnedEnterprises,
   setEnterpriseDeleted,
@@ -30,6 +31,12 @@ import type {
   SuppliedEnterpriseProfile,
 } from '../types'
 import { normalizeEnterpriseProfile } from '../validation'
+import {
+  comparableEnterpriseName,
+  DUPLICATE_ENTERPRISE_NAME_MESSAGE,
+  enterpriseLimitReached,
+  maxEnterprisesPerUser,
+} from '../enterprise-policy'
 
 export const myEnterprises = async (
   input: {
@@ -82,6 +89,22 @@ export const createEnterprise = async (
   }
   const profile = normalized.value
 
+  /*
+   * Both halves of the layering rule. The cap is checked here so the applicant
+   * is told the number and what to do about it, and again inside the insert's
+   * own predicate so two requests arriving together cannot both pass a count
+   * they each read as four of five.
+   */
+  const limit = maxEnterprisesPerUser(context.env.SEB_MAX_ENTERPRISE_PER_USER)
+  if (!limit.ok) return failure(limit.reason)
+  const held = await countOwnedEnterprises(
+    context.db,
+    applicant.id,
+    comparableEnterpriseName(profile.name),
+  )
+  if (held.held >= limit.limit) return failure(enterpriseLimitReached(limit.limit))
+  if (held.nameTaken) return failure(DUPLICATE_ENTERPRISE_NAME_MESSAGE)
+
   const now = new Date()
   const status = profile.establishmentDate === null ? 'PROPOSED' : 'ACTIVE'
   const enterpriseId = crypto.randomUUID()
@@ -92,6 +115,7 @@ export const createEnterprise = async (
       userId: applicant.id,
       profile,
       status,
+      limit: limit.limit,
       now,
       audit: auditRecord(context, {
         actorUserId: applicant.id,
@@ -102,7 +126,18 @@ export const createEnterprise = async (
       }),
     }),
   )
-  if (!inserted) return failure('The enterprise registration or GSTIN is already in use.')
+  /*
+   * Either the unique keys refused it, or the cap did between the count above
+   * and the write. The second is a race and reads as the first, which is worth
+   * naming: both messages are honest about *what* was refused, and neither
+   * tells an applicant something they cannot act on.
+   */
+  if (!inserted) {
+    return failure(
+      'The enterprise registration or GSTIN is already in use, or you have reached '
+      + 'your limit. Refresh and try again.',
+    )
+  }
   return success(requireInvariant(
     await findOwnedEnterprise(context.db, applicant.id, enterpriseId),
     'Created enterprise could not be read.',

@@ -7,12 +7,12 @@
  * ones.
  *
  * Reason categories are the exception, and they cost two extra requests. Every
- * write that needs a reason — releasing a claim, reassigning, requesting a
- * correction — names a category defined by the *programme cycle*, but the
- * workspace reports its cycle by code rather than by id. So the cycle list is
- * searched for that code and the cycle then read for its reasons. Both are
- * cached for a long time because a cycle's reason catalogue does not change
- * during a working day.
+ * write that needs a reason — requesting a correction, cancelling a referral,
+ * recording a rejection — names a category defined by the *programme cycle*,
+ * but the workspace reports its cycle by code rather than by id. So the
+ * cycle list is searched for that code and the cycle then read for its
+ * reasons. Both are cached for a long time because a cycle's reason
+ * catalogue does not change during a working day.
  *
  * Recorded as a gap: `AdminWorkspace` exposing `programmeCycleId` would remove
  * both requests.
@@ -34,7 +34,7 @@ export const workspaceQuery = (applicationId: string) =>
       const data = await gql(IntakeWorkspaceDocument, { applicationId })
       return unwrap(data.admin.intake.workspace)
     },
-    // Never served stale: another reviewer may have claimed it a moment ago,
+    // Never served stale: another officer may have acted on it a moment ago,
     // and every write here is checked against a version read from this data.
     staleTime: 0,
   })

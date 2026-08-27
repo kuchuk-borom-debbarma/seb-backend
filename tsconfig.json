@@ -10,7 +10,15 @@
     ],
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
-    "types": ["@cloudflare/vitest-pool-workers"]
+    "types": ["@cloudflare/vitest-pool-workers"],
+    /*
+     * The client's own alias, so `test/service/client-parity.test.ts` can
+     * import the real client function rather than a copy of it. That test
+     * exists to prove the two implementations of the visibility rules agree,
+     * and it can only do that by importing both — which means this
+     * configuration has to be able to resolve what the client imports.
+     */
+    "paths": { "#/*": ["./dev-web/src/*"] }
   },
   // The Worker only. `dev-web` is a separate package with its own TypeScript
   // configuration, React JSX runtime and generated types; type-checking it from

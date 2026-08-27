@@ -1,0 +1,393 @@
+/* ==========================================================================
+   Programme Cycles Page Styles
+   ========================================================================== */
+
+.pageWrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 28px 32px 48px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Header */
+.headerRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.headerTitleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pageTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.pageSubtitle {
+  font-size: 13.5px;
+  color: #475569;
+  margin: 0;
+  max-width: 760px;
+  line-height: 1.5;
+}
+
+.createCycleButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.createCycleButton:hover {
+  background: #1e293b;
+  transform: translateY(-1px);
+}
+
+/* Illustration Banner */
+.bannerIllustration {
+  background: linear-gradient(180deg, #f0f7ff 0%, #e0f2fe 100%);
+  border-radius: 16px;
+  padding: 24px 20px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.bannerSvg {
+  max-width: 440px;
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Filter Card */
+.filterCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 18px 22px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  margin-bottom: 20px;
+}
+
+.filterGrid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(140px, 1fr) minmax(140px, 1fr) auto;
+  gap: 20px;
+  align-items: flex-end;
+}
+
+.filterItem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.filterLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+
+.searchInputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchInput {
+  width: 100%;
+  height: 38px;
+  padding: 0 34px 0 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #111827;
+  background: #ffffff;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.searchInput:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.searchInput::placeholder {
+  color: #9ca3af;
+}
+
+.searchIcon {
+  position: absolute;
+  right: 10px;
+  color: #64748b;
+  pointer-events: none;
+}
+
+.selectInput {
+  width: 100%;
+  height: 38px;
+  padding: 0 32px 0 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #111827;
+  background: #ffffff;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  box-sizing: border-box;
+}
+
+.selectInput:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.toggleWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: #cbd5e1;
+  transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.switch input:checked + .slider {
+  background-color: #2563eb;
+}
+
+.switch input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+/* Cycles List Card */
+.cyclesCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.cyclesCardTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 16px 0;
+}
+
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.table th {
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.tableRow {
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.12s ease;
+}
+
+.tableRow:last-child {
+  border-bottom: none;
+}
+
+.tableRow:hover {
+  background: #f8fafc;
+}
+
+.table td {
+  padding: 14px;
+  vertical-align: middle;
+  color: #334155;
+}
+
+.cycleTitleCell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.calendarIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #2563eb;
+  flex-shrink: 0;
+}
+
+.cycleLink {
+  font-weight: 600;
+  color: #2563eb;
+  text-decoration: none;
+  font-size: 13.5px;
+  transition: color 0.15s ease;
+}
+
+.cycleLink:hover {
+  text-decoration: underline;
+  color: #1d4ed8;
+}
+
+.cycleCode {
+  color: #64748b;
+  font-weight: 400;
+  font-size: 13px;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.statusBadge[data-tone="open"] {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.statusBadge[data-tone="draft"] {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.statusBadge[data-tone="closed"] {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.statusBadge[data-tone="archived"] {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.resultCount {
+  font-size: 12.5px;
+  color: #64748b;
+  margin-top: 16px;
+}
+
+/* Empty States */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.emptyTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 6px 0;
+}
+
+.emptyDesc {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0 0 16px 0;
+  max-width: 360px;
+}
+
+@media (max-width: 54rem) {
+  .pageWrap {
+    padding: 20px 16px 36px;
+  }
+
+  .headerRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filterGrid {
+    grid-template-columns: 1fr;
+  }
+}

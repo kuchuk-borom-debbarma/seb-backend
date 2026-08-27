@@ -11,12 +11,13 @@ import {
   foreignKey,
   index,
   integer,
-  sqliteTable,
+  pgTable,
   text,
+  unique,
   uniqueIndex,
-} from 'drizzle-orm/sqlite-core'
+} from 'drizzle-orm/pg-core'
 import { coreUser } from '../core/auth'
-import { versionedSoftDeleteColumns } from '../shared'
+import { dateOnly, instant, paise, versionedSoftDeleteColumns } from '../shared'
 import { sebApplication } from './application'
 import { sebFundingAward } from './funding'
 import { sebProgrammeCycleReason } from './programme'
@@ -39,7 +40,7 @@ export const recoveryEntryTypes = ['DEMAND', 'RECEIPT', 'WAIVER', 'REVERSAL'] as
 export const recoveryComponents = ['PRINCIPAL', 'PENAL_INTEREST'] as const
 
 /** Searchable current state of one recovery incident. */
-export const sebRecoveryCase = sqliteTable(
+export const sebRecoveryCase = pgTable(
   'seb_recovery_case',
   {
     id: text('id').primaryKey(),
@@ -50,7 +51,7 @@ export const sebRecoveryCase = sqliteTable(
     status: text('status', { enum: recoveryCaseStatuses }).notNull().default('OPEN'),
     ledgerVersion: integer('ledger_version').notNull().default(0),
     officialDecisionReference: text('official_decision_reference').notNull(),
-    officialDecisionDate: text('official_decision_date').notNull(),
+    officialDecisionDate: dateOnly('official_decision_date').notNull(),
     reasonCategoryId: text('reason_category_id')
       .notNull()
       .references(() => sebProgrammeCycleReason.id, { onDelete: 'restrict' }),
@@ -82,7 +83,7 @@ export const sebRecoveryCase = sqliteTable(
 )
 
 /** Immutable lifecycle version for a recovery case. */
-export const sebRecoveryCaseVersion = sqliteTable(
+export const sebRecoveryCaseVersion = pgTable(
   'seb_recovery_case_version',
   {
     id: text('id').primaryKey(),
@@ -96,7 +97,7 @@ export const sebRecoveryCaseVersion = sqliteTable(
     changedByUserId: text('changed_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     uniqueIndex('seb_recovery_case_version_number_uq').on(
@@ -116,7 +117,7 @@ export const sebRecoveryCaseVersion = sqliteTable(
 )
 
 /** Append-only recovery accounting ledger. */
-export const sebRecoveryEntry = sqliteTable(
+export const sebRecoveryEntry = pgTable(
   'seb_recovery_entry',
   {
     id: text('id').primaryKey(),
@@ -127,9 +128,9 @@ export const sebRecoveryEntry = sqliteTable(
     entryType: text('entry_type', { enum: recoveryEntryTypes }).notNull(),
     component: text('component', { enum: recoveryComponents }).notNull(),
     relatedEntryId: text('related_entry_id'),
-    amountPaise: integer('amount_paise').notNull(),
+    amountPaise: paise('amount_paise').notNull(),
     externalReference: text('external_reference').notNull().unique(),
-    occurredAt: integer('occurred_at', { mode: 'timestamp_ms' }).notNull(),
+    occurredAt: instant('occurred_at').notNull(),
     reasonCategoryId: text('reason_category_id').references(
       () => sebProgrammeCycleReason.id,
       { onDelete: 'restrict' },
@@ -138,21 +139,24 @@ export const sebRecoveryEntry = sqliteTable(
     recordedByUserId: text('recorded_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     uniqueIndex('seb_recovery_entry_sequence_uq').on(
       table.recoveryCaseId,
       table.sequenceNumber,
     ),
-    uniqueIndex('seb_recovery_entry_case_id_uq').on(table.recoveryCaseId, table.id),
+    unique('seb_recovery_entry_case_id_uq').on(table.recoveryCaseId, table.id),
     foreignKey({
       columns: [table.recoveryCaseId, table.relatedEntryId],
       foreignColumns: [table.recoveryCaseId, table.id],
       name: 'seb_recovery_entry_related_case_fk',
     }).onDelete('restrict'),
     check('seb_recovery_entry_sequence_check', sql`${table.sequenceNumber} >= 1`),
-    check('seb_recovery_entry_amount_check', sql`${table.amountPaise} > 0`),
+    check(
+      'seb_recovery_entry_amount_check',
+      sql`${table.amountPaise} > 0 AND ${table.amountPaise} <= 9007199254740991`,
+    ),
     check(
       'seb_recovery_entry_type_check',
       sql`${table.entryType} IN ('DEMAND', 'RECEIPT', 'WAIVER', 'REVERSAL')`,

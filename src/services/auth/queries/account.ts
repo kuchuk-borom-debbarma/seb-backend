@@ -12,8 +12,10 @@
  * check happens outside D1 and is slow, so the guarded write repeats its
  * conditions at write time rather than trusting what was read.
  */
-import { and, eq, exists, gt, isNull, lte, ne, sql } from 'drizzle-orm'
-import type { Database } from '../../../db'
+import { and, eq, exists, gt, isNull, lte, ne, notExists, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
+import { batch, type Database, type Transaction } from '../../../db'
+import { constraintSafe } from '../../constraints'
 import {
   coreAccountChallenge,
   coreAuditEvent,
@@ -37,7 +39,13 @@ export type AccountChallengeRecord = typeof coreAccountChallenge.$inferSelect
  * unreachable branch in gated code is a permanent hole in the coverage that
  * proves the rest.
  */
-const changedOne = (result: D1Result): boolean => result.meta.changes === 1
+/**
+ * Whether a guarded write moved exactly the one row it claimed.
+ *
+ * Zero means somebody else acted first. More than one would mean the predicate
+ * was not specific to a single row, which is a bug rather than a race.
+ */
+const changedOne = (result: { rowCount: number | null }): boolean => result.rowCount === 1
 
 /**
  * Records a challenge, but only for an account that could actually use it.
@@ -67,13 +75,13 @@ export const createAccountChallenge = async (
           ${challenge.challengeDigest},
           ${challenge.otpDigest},
           ${challenge.attemptsRemaining},
-          ${(challenge.expiresAt as Date).getTime()},
+          ${challenge.expiresAt},
           ${challenge.status ?? 'PENDING'},
           NULL,
           NULL,
           NULL,
-          ${(challenge.createdAt as Date).getTime()},
-          ${(challenge.updatedAt as Date).getTime()}
+          ${challenge.createdAt},
+          ${challenge.updatedAt}
         WHERE ${exists(
           db
             .select({ id: coreUser.id })
@@ -100,7 +108,7 @@ export const createAccountChallenge = async (
     ),
   )
 
-  const [inserted] = await db.batch([insertChallenge, insertAudit])
+  const [inserted] = await batch(db, (tx) => [insertChallenge, insertAudit])
   return changedOne(inserted)
 }
 
@@ -208,7 +216,7 @@ export const consumeWrongAccountOtpAttempt = async (
       ),
     )
 
-  await db.batch([exhaust, decrement, db.insert(coreAuditEvent).values(auditEvent)])
+  await batch(db, (tx) => [exhaust, decrement, tx.insert(coreAuditEvent).values(auditEvent)])
 }
 
 /** Marks an undeliverable challenge unusable without erasing its history. */
@@ -218,7 +226,7 @@ export const markAccountChallengeDeliveryFailed = async (
   now: Date,
   auditEvent: AuditEventRecord,
 ): Promise<void> => {
-  await db.batch([
+  await batch(db, (tx) => [
     db
       .update(coreAccountChallenge)
       .set({
@@ -233,7 +241,7 @@ export const markAccountChallengeDeliveryFailed = async (
           eq(coreAccountChallenge.status, 'PENDING'),
         ),
       ),
-    db.insert(coreAuditEvent).values(auditEvent),
+    tx.insert(coreAuditEvent).values(auditEvent),
   ])
 }
 
@@ -290,15 +298,31 @@ export const applyPasswordReset = async (
       rowVersion: sql`${coreUser.rowVersion} + 1`,
       updatedAt: input.now,
     })
-    .where(and(eq(coreUser.id, input.userId), stillConsumed))
+    .where(and(
+      eq(coreUser.id, input.userId),
+      /*
+       * A closed account does not get new credentials.
+       *
+       * The reset is refused at the start for a deleted account, so this is
+       * about the window between: a code goes out, the office closes the
+       * account, and the code comes back. Without this the write happily set a
+       * working password on it. Nothing could sign in with it today, but that
+       * is a property of a *different* check — and this write is the one that
+       * has to be authoritative about who it is writing for.
+       */
+      isNull(coreUser.deletedAt),
+      stillConsumed,
+    ))
 
-  const [consumed] = await db.batch([
+  const [, updated] = await batch(db, (tx) => [
     consume,
     setPassword,
-    db.delete(coreSession).where(and(eq(coreSession.userId, input.userId), stillConsumed)),
-    insertAuditEventWhere(db, input.auditEvent, stillConsumed),
+    tx.delete(coreSession).where(and(eq(coreSession.userId, input.userId), stillConsumed)),
+    insertAuditEventWhere(tx, input.auditEvent, stillConsumed),
   ])
-  return changedOne(consumed)
+  // Whether the password changed, not whether the code was spent — the two
+  // stopped being the same thing the moment the write gained a term of its own.
+  return changedOne(updated)
 }
 
 /**
@@ -341,7 +365,7 @@ export const applyPasswordChange = async (
       .where(and(eq(coreUser.id, input.userId), eq(coreUser.passwordHash, input.passwordHash))),
   )
 
-  const [updated] = await db.batch([
+  const [updated] = await batch(db, (tx) => [
     setPassword,
     db
       .delete(coreSession)
@@ -352,7 +376,7 @@ export const applyPasswordChange = async (
           changed,
         ),
       ),
-    insertAuditEventWhere(db, input.auditEvent, changed),
+    insertAuditEventWhere(tx, input.auditEvent, changed),
   ])
   return changedOne(updated)
 }
@@ -401,6 +425,29 @@ export const applyEmailChange = async (
       ),
   )
 
+  /*
+   * The address is still free, as a term in the write rather than a read
+   * before it.
+   *
+   * Its caller has always answered "That address is no longer available" when
+   * this returns false — and this could not return false. `core_user.email` is
+   * unique, so an address claimed between the code being sent and redeemed
+   * made the `UPDATE` raise `23505`, uncaught, and the applicant got an
+   * unhandled error in place of the sentence written for them. The refusal was
+   * described but never reachable.
+   *
+   * Aliased for the reason the super-administrator guard is: this is a subquery
+   * inside an `UPDATE` of the same table, where an unqualified self-reference
+   * resolves to the row being written.
+   */
+  const otherUser = alias(coreUser, 'other_user')
+  const addressIsFree = notExists(
+    db
+      .select({ id: otherUser.id })
+      .from(otherUser)
+      .where(and(eq(otherUser.email, input.newEmail), ne(otherUser.id, input.userId))),
+  )
+
   const setEmail = db
     .update(coreUser)
     .set({
@@ -410,7 +457,14 @@ export const applyEmailChange = async (
       rowVersion: sql`${coreUser.rowVersion} + 1`,
       updatedAt: input.now,
     })
-    .where(and(eq(coreUser.id, input.userId), stillConsumed))
+    .where(and(
+      eq(coreUser.id, input.userId),
+      // A closed account does not get to move: the session check above reads
+      // live, but a deletion landing inside this window would slip past it.
+      isNull(coreUser.deletedAt),
+      addressIsFree,
+      stillConsumed,
+    ))
 
   const moved = exists(
     db
@@ -419,7 +473,20 @@ export const applyEmailChange = async (
       .where(and(eq(coreUser.id, input.userId), eq(coreUser.email, input.newEmail))),
   )
 
-  const [consumed] = await db.batch([
+  /*
+   * `constraintSafe`, for the same reason the role grant and the bootstrap
+   * carry it: `addressIsFree` reads rows this `UPDATE` does not write, so
+   * nothing blocks and a true dead heat still reaches the unique index on
+   * `core_user.email`. A concurrent signup claiming the same address — or a
+   * second email change to it — commits first, this raises `23505`, and without
+   * this it propagates out of `batch` as an unhandled error.
+   *
+   * The predicate is not redundant: it is what makes the *ordinary* late
+   * request a clean refusal rather than a caught violation. The index is the
+   * only thing that can decide a dead heat, because an uncommitted row is
+   * invisible to any predicate.
+   */
+  const written = await constraintSafe(() => batch(db, (tx) => [
     consume,
     setEmail,
     db
@@ -431,9 +498,23 @@ export const applyEmailChange = async (
           moved,
         ),
       ),
-    insertAuditEventWhere(db, input.auditEvent, moved),
-  ])
-  return changedOne(consumed)
+    insertAuditEventWhere(tx, input.auditEvent, moved),
+  ]))
+  if (!written) return false
+  const [, updated] = written
+  /*
+   * Whether the *address moved*, not whether the challenge was consumed.
+   *
+   * It reported the consumption, which was indistinguishable from the move
+   * only because the move could not fail quietly — it raised `23505` instead.
+   * Now that a taken address is refused by a predicate, reading the wrong
+   * statement would tell the applicant their address had changed while leaving
+   * them on the old one.
+   *
+   * The challenge is spent either way, deliberately: a code that has been
+   * redeemed once must not work a second time, whatever it achieved.
+   */
+  return changedOne(updated)
 }
 
 /** Whether an address is already spoken for, soft-deleted accounts included. */
@@ -458,7 +539,7 @@ export const applyDisplayNameChange = async (
 ): Promise<boolean> => {
   const guard = and(eq(coreUser.id, input.userId), isNull(coreUser.deletedAt))
 
-  const [updated] = await db.batch([
+  const [updated] = await batch(db, (tx) => [
     db
       .update(coreUser)
       .set({
@@ -470,7 +551,7 @@ export const applyDisplayNameChange = async (
     insertAuditEventWhere(
       db,
       input.auditEvent,
-      exists(db.select({ id: coreUser.id }).from(coreUser).where(guard)),
+      exists(tx.select({ id: coreUser.id }).from(coreUser).where(guard)),
     ),
   ])
   return changedOne(updated)

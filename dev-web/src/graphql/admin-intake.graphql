@@ -107,18 +107,19 @@ query IntakeWorkspace($applicationId: ID!) {
           cycleCode
           cycleDisplayName
           submissions { id submissionNumber applicationVersion submittedAt }
-          submissionChanges { fromSubmissionNumber toSubmissionNumber sections }
+          submissionChanges { fromSubmissionNumber toSubmissionNumber stageKeys }
+          formTemplate { ...FormTemplateFields }
           documents {
             id
             submissionId
             documentId
-            documentType
+            fieldKey
             documentVersion
             originalFilename
             contentType
             sizeBytes
           }
-          revisions { id section note requestedAt resolvedAt cancelledAt }
+          revisions { id stageKey note requestedAt resolvedAt cancelledAt }
           assignments {
             id
             eventType
@@ -150,7 +151,6 @@ query IntakeWorkspace($applicationId: ID!) {
             applicantSummary
             createdAt
           }
-          agenda { id applicationId submissionId bankOutcomeId position status currentVersion }
           decisions {
             id
             outcome
@@ -236,7 +236,30 @@ mutation CancelRevision($input: CancelRevisionInput!) {
       cancelRevision(input: $input) {
         success
         message
-        response { revisions { id section note requestedAt resolvedAt cancelledAt } }
+        response { revisions { id stageKey note requestedAt resolvedAt cancelledAt } }
+      }
+    }
+  }
+}
+
+# The intake casework as aggregates: one filtered set counted along every
+# reporting dimension. The API reuses the queue's own filter block, so these
+# numbers always describe exactly the set the queue would list.
+query IntakeAnalytics($input: AdminIntakeAnalyticsInput) {
+  admin {
+    analytics {
+      summary(input: $input) {
+        success
+        message
+        response {
+          statuses { status count }
+          categories { category count }
+          sectors { sector count }
+          districts { district count }
+          cycles { cycleId cycleCode count }
+          requested { count totalPaise averagePaise }
+          monthly { month count }
+        }
       }
     }
   }

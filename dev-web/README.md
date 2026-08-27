@@ -19,9 +19,9 @@ Worker. Concretely:
   role removes its section on the next navigation; and a link appears only once
   its screen exists. An entry that leads nowhere is a defect, and the
   end-to-end suite asserts it.
-- Disabled and hidden states come from real data — `editableSections` decides
-  which form sections are open, `expansionEligibility.reasons` decides whether
-  an expansion can start.
+- Disabled and hidden states come from real data — `editableStageKeys` decides
+  which form stages are open, `expansionEligibility.reasons` decides whether an
+  expansion can start.
 - Money is rendered from the `Money` scalar, which is a decimal string of
   **paise**, not rupees and not a number.
 
@@ -76,8 +76,8 @@ overrides `main` and `assets`. Everything else in the file it finds survives.
 
 Without [`wrangler.jsonc`](wrangler.jsonc) the walk reaches the repository root
 and finds the **API Worker's** config, so the client builds as `seb-backend`
-carrying the API's D1 binding, its queue producer and consumer, and its hourly
-cron. Deploying that would replace the API Worker with the server-rendered
+carrying the API's Hyperdrive binding, its queue producer and consumer, and its
+hourly cron. Deploying that would replace the API Worker with the server-rendered
 client.
 
 That is not a theory about the code; it is what the build does with the file
@@ -124,36 +124,26 @@ The generated output is gitignored, so run it once after cloning.
 These are inherited from the API and are surfaced honestly in the interface
 rather than hidden:
 
-- **Signup codes are printed to the console.** Notification delivery is a
-  `console.log` transport until roadmap §18 is built, so the verify screen says
-  to read the code from the Wrangler output. It does not claim an email was
-  sent.
-- **Uploading evidence needs R2 credentials.** `services/application/uploads.ts`
-  requires `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID` and
-  `R2_SECRET_ACCESS_KEY`. The evidence screen is built for the real flow and
-  performs it: it checksums the file, asks the Worker to authorize an object,
-  and would put the bytes straight into the bucket. Without credentials the
-  Worker refuses at the signing step, and the screen shows what it answered.
-  Note that the Worker masks that particular error — a missing configuration is
-  an operator's problem and is not described to an applicant — so the message
-  is the generic one, and the specific cause is in the Worker's own output.
-
-  With a bucket configured, it must also allow `PUT` from the client's origin:
-  the browser uploads directly to the presigned URL, which is the one request
-  in the whole client that does not go through the backend-for-frontend.
-
-  Everything else on that screen works without credentials — listing what is
-  required, removing a document and putting it back.
-- **An agenda item does not report which meeting it is on.** The API accepts a
-  committee decision only while that meeting is in session, but an application's
-  workspace cannot tell whether it is — so the screen states the rule and links
-  to the meetings list rather than hiding a control it cannot decide about.
-  `AdminAgendaItem.meetingId` would let it.
+- **Signup codes are printed to the console locally.** Notification delivery
+  goes through a transport seam; on a developer's machine the console transport
+  prints each message as a `DEV_EMAIL` line, so the verify screen says to read
+  the code from the Wrangler output. It does not claim an email was sent. A
+  deployed environment with a real transport configured sends actual email.
+- **Uploads work locally with no credentials, and deployment is where storage
+  gets real.** On a developer's machine documents land in the Worker's own
+  `STORAGE` binding, so the evidence screen's whole flow — checksum, grant,
+  upload, finalize — runs unconfigured. A deployed environment picks a backend
+  with `STORAGE_TRANSPORT`: R2 sends the browser straight to the bucket, which
+  must then allow `PUT` from the client's origin — the one request in the
+  whole client that does not go through the backend-for-frontend — while
+  Cloudinary relays the bytes through the Worker. See the
+  [storage service](../src/services/storage/README.md).
 - **The workspace does not report its cycle's id**, only its code. Every write
-  that names a reason — releasing a claim, reassigning, requesting a correction
-  — needs a reason category defined by the programme cycle, so the client finds
-  the cycle by code before it can read the catalogue. That costs two extra
-  cached requests. `AdminWorkspace.programmeCycleId` would remove both.
+  that names a reason — requesting a correction, cancelling a referral,
+  recording a rejection — needs a reason category defined by the programme
+  cycle, so the client finds the cycle by code before it can read the
+  catalogue. That costs two extra cached requests.
+  `AdminWorkspace.programmeCycleId` would remove both.
 - **Scheduled work does not run.** Wrangler does not fire cron triggers in local
   development, so the session sweep and expired-upload cleanup need
   `wrangler dev --test-scheduled` and a request to `/__scheduled`.
@@ -164,21 +154,29 @@ Built:
 
 - **Authentication** — sign in, sign up with the console code, sign out, and
   signed-in devices with per-session and bulk revocation.
-- **The applicant portal** — enterprises, starting an initial or expansion
-  application, the six-section draft form with autosave, the evidence screen,
-  the validation report and submission or resubmission, the timeline, the
-  funding view, and the cycles an applicant can apply in.
-- **Programme cycle administration** — the list, the dense policy form, and
-  every transition the API exposes.
+- **The public site** — a landing page at `/`, an FAQ at `/faq`, and sign-in
+  at `/login`, all reachable without an account.
+- **The applicant portal**, at `/dashboard` — enterprises, starting an initial
+  or expansion application, the template-driven form rendered stage by stage
+  as a `FormJourney` stepper with autosave, the review step that shows the
+  whole application before submission, the evidence screen, the validation
+  report and submission or resubmission, the timeline, the funding view, and
+  the cycles an applicant can apply in.
+- **Account self-service** — profile and display name, password change,
+  email change, forgotten-password recovery, and signed-in devices, under
+  `/settings` and `/account`.
+- **Programme cycle administration** — the list, the dense policy form, the
+  cycle editor's form screen for authoring the stages and questions a draft
+  cycle asks, and every transition the API exposes.
 - **Intake** — the queue console with counts for every named queue, one queue
   per page with the API's filters and ordering held in the address, reference
-  lookup, and the application workspace: assignment, internal notes, desk
-  review, and withdrawal of a correction request.
+  lookup, an analytics panel on the office home summarising the filtered
+  intake, and the application workspace: internal notes, desk review, and
+  withdrawal of a correction request.
 - **Access** — exact-address lookup, the complete role history, and grant and
   revoke with the operator's own password as a step-up.
 - **Decisions** — referral to a partner bank, recording and correcting its
-  outcome, committee meetings with their agendas, and recording and correcting
-  a committee decision.
+  outcome, and recording and correcting the programme's decision.
 - **Funding** — issuing the sanction order, the award ledger, releasing a
   payment with every prerequisite the API demands, reversing one, assessments,
   amending or closing an award, and recovery cases with their own ledger and
@@ -192,26 +190,29 @@ pages, and no control that does not do what it says.
 ## The whole programme, end to end
 
 `e2e/journey.spec.ts` carries one application from signup to money in the bank:
-submission, claim, desk review, referral to a partner bank, the bank's outcome,
-a committee agenda and decision, the sanction order, and a payment — then signs
+submission, desk review, referral to a partner bank, the bank's outcome,
+the programme decision, the sanction order, and a payment — then signs
 back in as the applicant and checks they can see their own award, and that
 nothing the office keeps to itself has leaked into it.
 
-It reaches all of that without a storage bucket by opening a cycle whose
-document rules are all `OPTIONAL`. That is a legitimate policy the API accepts,
-not a fixture: an application in such a cycle genuinely requires no files. Every
-other cycle in the suite keeps the ordinary rules.
+It reaches all of that without configured storage by opening a cycle whose
+form declares its document questions `OPTIONAL`. That is a legitimate policy
+the API accepts, not a fixture: an application in such a cycle genuinely
+requires no files. Every other cycle in the suite keeps the ordinary rules.
 
 ## Two portals
 
-The client is two portals sharing one institution.
+The client is a public site and two portals sharing one institution.
 
-- **`/` — the applicant portal.** Overview, enterprises, applications and the
-  cycles you can apply in. Needs the `APPLICANT` role.
-- **`/admin` — the programme office.** Intake, committee meetings, cycle
-  administration, and role management at `/admin/access`. Needs `ADMIN` or
+- **`/` — the public site.** The landing page, the FAQ at `/faq`, and sign-in
+  at `/login`. No account needed.
+- **`/dashboard` — the applicant portal.** Overview, enterprises, applications
+  and the cycles you can apply in. Needs the `APPLICANT` role.
+- **`/admin` — the programme office.** Intake, cycle administration, and role
+  management at `/admin/access`. Needs `ADMIN` or
   `SUPER_ADMIN`; the access screen needs `SUPER_ADMIN` specifically.
-- **Shared** — `/guide` and `/account/sessions`, reachable from either.
+- **Shared** — `/guide` and the account screens under `/settings` and
+  `/account`, reachable from either portal.
 
 Signing in lands each account in the portal its roles fit, so an officer with no
 applicant grant never has to read a refusal after every sign-in. Opening a
@@ -257,7 +258,7 @@ itself.
 
 **How this works** (`/guide`) is the first entry in the navigation. It opens
 with the route a file takes: all eleven states, each placed under the desk that
-holds it — applicant, programme office, partner bank, committee — numbered in
+holds it — applicant, programme office, partner bank — numbered in
 the order they happen. The office's description of each stop is this screen's
 own; the applicant's plain-language wording is quoted beneath it from the API's
 status guide, where the account is allowed to read it. That surface is
@@ -288,7 +289,7 @@ string — and a tour missing from that table fell through to applicant-only and
 vanished from the office with nothing failing.
 
 **The file in hand.** Most office screens exist only for one particular
-application, meeting or cycle, so their address carries an id a tour cannot
+application or cycle, so their address carries an id a tour cannot
 know. The guide watches the address and remembers the last one opened; a step
 naming such a screen follows it. With nothing in hand the step does not
 navigate at all — the rail says what to open, and offers to take you there once
@@ -298,7 +299,7 @@ would be the demonstration lying about what it knows.
 `Explain` attaches a short answer to a word whose name does not give one. It is
 kept sparse — at most one per card, and only where the meaning is genuinely not
 guessable, because an icon beside every label teaches nothing and doubles the
-reading. One sits on the application form. Eight sit in the programme office,
+reading. One sits on the application form. Nine sit in the programme office,
 which is where the vocabulary is hardest: an applicant reads "Submitted" and
 knows what it means, while an officer reads two queues that both hold
 `SUBMITTED` and has to be told why they are separate.
@@ -355,10 +356,40 @@ Shared controls live in `src/components/ListControls.tsx` — `SearchBox` and
 and says "continued" past the first page because a keyset cursor cannot know
 which page number it is on.
 
+## The form is rendered, not written
+
+There is no hand-written application form. `FormRenderer` walks the template the
+API returns and draws a control per question, so the labels, the help text, the
+choices, the bounds and the conditions are all the cycle's own — a programme
+officer adding a question adds a control without a deploy.
+
+**A programme officer therefore owns the words on an applicant's screen.** That
+is the point of the change rather than a side effect of it, and it is worth
+saying out loud: rewording a question is a versioned cycle revision carrying a
+required reason and refused on an open cycle, none of which is true of a code
+deploy. Who approves that wording is an open question — see
+[roadmap §21](../docs/ROADMAP.md).
+
+**The client decides visibility itself**, in `features/application/formTemplate.ts`.
+It has to: a question must appear the moment the answer above it changes, and a
+round trip per keystroke is not that. That makes two implementations of one rule,
+which is exactly how two implementations come to disagree — so
+`test/service/client-parity.test.ts` in the API package runs both over the same
+templates and asserts they agree, on every condition operator, on chains where
+the source is itself hidden, and on ANDed and ORed groups. It compares the real
+functions rather than a fixture of expected values, because a fixture goes on
+passing while both drift the same wrong way.
+
+`FormControls.tsx` holds `Field`, `YesNoField` and `Attestation` unchanged from
+the six hand-built sections they replace. That is deliberate: the ~150
+label-addressed assertions in the end-to-end suite are the proof that the cutover
+preserved behaviour, and they only prove it if the controls still render the same
+markup.
+
 ## What bounds a request
 
 The client is built to stay well inside the server's limits — its largest
-operation selects 114 fields at depth 7, and its largest request is under 16 KB,
+operation selects 174 fields at depth 8, and its largest request is about 4 KB,
 against limits of 500, 12 and 64 KB.
 
 Those limits, and why a document-wide field limit exists at all, belong to the
@@ -421,7 +452,7 @@ fails there with a clear message rather than mysteriously later.
 
 `dev-web` is a separate package with its own dependency tree. The Worker's
 `npm run check` excludes it from TypeScript, Vitest and `fallow`, so the
-backend's 100% coverage gate and dead-code analysis continue to cover only the
+backend's coverage gate and dead-code analysis continue to cover only the
 Worker.
 
 See the [combined application guide][applicant] for what the

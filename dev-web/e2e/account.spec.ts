@@ -33,9 +33,9 @@ test.describe('resetting a forgotten password', () => {
     await signIn(secondPage, email)
     await signOut(page)
 
-    // The way in is from the sign-in screen, so prove that link goes somewhere.
-    await page.goto('/sign-in')
-    await page.getByRole('link', { name: 'Forgotten your password?' }).click()
+    // The way in is from the login screen, so prove that link goes somewhere.
+    await page.goto('/login')
+    await page.getByRole('link', { name: 'Forgot your password?' }).click()
     await expect(page).toHaveURL(/\/forgot-password/u)
 
     /*
@@ -65,15 +65,16 @@ test.describe('resetting a forgotten password', () => {
     await page.getByLabel('Choose a new password').fill(NEW_PASSWORD)
     await page.getByRole('button', { name: 'Set new password' }).click()
 
-    // Ends on sign-in, because a reset deliberately does not create a session.
-    await page.waitForURL('**/sign-in')
+    // Ends on the login screen: a reset deliberately does not create a session.
+    await page.waitForURL('**/login')
 
     await signIn(page, email, NEW_PASSWORD)
-    await expect(page).toHaveURL(/\/(?!sign-in)/u)
+    await expect(page).not.toHaveURL(/\/login/u)
 
     // The other device really was signed out, not merely hidden from a list.
-    await secondPage.goto('/')
-    await expect(secondPage).toHaveURL(/\/sign-in/u)
+    // The root is public now, so a portal route is what proves it.
+    await secondPage.goto('/applications')
+    await expect(secondPage).toHaveURL(/\/login/u)
     await second.close()
   })
 
@@ -98,6 +99,7 @@ test.describe('changing a password that is known', () => {
     await signUpApplicant(page, email)
     await signIn(page, email)
 
+    // The old address forwards to settings, where the form lives now.
     await page.goto('/account/security')
     await page.getByLabel('Current password').fill(PASSWORD)
     const NEW_PASSWORD = 'another correct horse entirely'
@@ -120,6 +122,7 @@ test.describe('changing a password that is known', () => {
     const email = uniqueEmail('changepwbad')
     await signUpApplicant(page, email)
     await signIn(page, email)
+    // The old address forwards to settings, where the form lives now.
     await page.goto('/account/security')
 
     // The repeat is checked in the browser, so this never reaches the API and

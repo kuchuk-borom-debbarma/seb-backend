@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { signIn, signUpApplicant, uniqueEmail } from './support'
+import { registerEnterprise, signIn, signUpApplicant, uniqueEmail } from './support'
 
 /** A fresh applicant per test, so one test's enterprises never affect another. */
 const asNewApplicant = async (page: import('@playwright/test').Page) => {
@@ -7,6 +7,11 @@ const asNewApplicant = async (page: import('@playwright/test').Page) => {
   await signUpApplicant(page, email)
   await signIn(page, email)
   return email
+}
+
+/** Advances the wizard past the current category, after its checks pass. */
+const next = async (page: import('@playwright/test').Page) => {
+  await page.getByRole('button', { name: 'Next' }).click()
 }
 
 test.describe('enterprises', () => {
@@ -27,12 +32,36 @@ test.describe('enterprises', () => {
     await asNewApplicant(page)
     await page.goto('/enterprises/new')
 
+    // The wizard asks one category at a time; the first is the enterprise
+    // itself.
     await page.getByLabel('Registered or trading name').fill('Khumulwng Food Works')
     await page.getByLabel('Date established').fill('2026-01-15')
     await page.getByLabel('Sector').selectOption('FOOD_PROCESSING')
-    await page.getByLabel('Block or village').fill('Khumulwng')
-    await page.getByLabel('District').fill('West Tripura')
+    await next(page)
+
+    // Registration and tax: the defaults stand for a sole proprietorship.
+    await next(page)
+
+    // Business location. The address must be the business's own, and the form
+    // says so up front.
+    await expect(page.getByText('not a personal or home address')).toBeVisible()
+    await page
+      .getByLabel('Office address (as per your business documents)')
+      .fill('Khumulwng')
+    // Stored as the district code; every screen renders the name from it.
+    await page.getByLabel('District').selectOption('WEST_TRIPURA')
     await page.getByLabel('PIN code').fill('799045')
+    await next(page)
+
+    // Contact details. A malformed number is refused by the browser's own
+    // validity check before it can reach the API.
+    await page.getByLabel('Contact number').fill('12345')
+    expect(
+      await page
+        .getByLabel('Contact number')
+        .evaluate((input: HTMLInputElement) => input.checkValidity()),
+    ).toBe(false)
+    await page.getByLabel('Contact number').fill('')
     await page.getByRole('button', { name: 'Register enterprise' }).click()
 
     // Registration lands on the new enterprise, not back on the list.
@@ -41,26 +70,43 @@ test.describe('enterprises', () => {
       page.getByRole('heading', { name: 'Khumulwng Food Works' }),
     ).toBeVisible()
     await expect(page.getByText('Food processing')).toBeVisible()
+    // The read view shows the district's bare name, mapped from the code.
     await expect(page.getByText('West Tripura')).toBeVisible()
+    await expect(page.getByText('Sole Proprietorship')).toBeVisible()
 
     await page.goto('/enterprises')
     await expect(page.getByRole('link', { name: 'Khumulwng Food Works' })).toBeVisible()
   })
 
-  test('asks for a registration number only when the enterprise is registered', async ({
+  test('requires the statutory number only for the incorporated types', async ({
     page,
   }) => {
     await asNewApplicant(page)
     await page.goto('/enterprises/new')
 
-    // The API refuses a number on an unregistered enterprise, so the field is
-    // not offered until the type calls for one.
-    await expect(page.getByLabel('UDYAM number')).toBeHidden()
-    await page.getByLabel('Registration').selectOption('UDYAM')
-    await expect(page.getByLabel('UDYAM number')).toBeVisible()
+    // The name is the one requirement of the first category; the registration
+    // questions live in the second.
+    await page.getByLabel('Registered or trading name').fill('Statutory Works')
+    await next(page)
 
-    await page.getByLabel('Registration').selectOption('NONE')
-    await expect(page.getByLabel('UDYAM number')).toBeHidden()
+    // A fresh form starts as a sole proprietorship, whose number is optional —
+    // that is what keeps a name-only registration possible.
+    await expect(page.getByLabel('Registration', { exact: true })).toHaveValue(
+      'SOLE_PROPRIETORSHIP',
+    )
+    await expect(page.getByLabel('Registration number')).not.toHaveAttribute('required')
+    await expect(page.getByText('Only if the proprietorship holds one.')).toBeVisible()
+
+    // The incorporated types each hold a statutory number, so the field turns
+    // required and takes the name of the number the type confers.
+    await page.getByLabel('Registration', { exact: true }).selectOption('PRIVATE_LIMITED')
+    await expect(page.getByLabel('CIN', { exact: true })).toHaveAttribute('required', '')
+
+    await page.getByLabel('Registration', { exact: true }).selectOption('LLP')
+    await expect(page.getByLabel('LLPIN', { exact: true })).toHaveAttribute(
+      'required',
+      '',
+    )
   })
 
   test('describes the sector when it is not one of the listed ones', async ({ page }) => {
@@ -77,7 +123,12 @@ test.describe('enterprises', () => {
     await page.goto('/enterprises/new')
 
     await page.getByLabel('Registered or trading name').fill('Bad GSTIN Works')
+    await next(page)
+    // The browser does not police the GSTIN's shape; the Worker does, and its
+    // message is what the person sees.
     await page.getByLabel('GSTIN').fill('not-a-gstin')
+    await next(page)
+    await next(page)
     await page.getByRole('button', { name: 'Register enterprise' }).click()
 
     await expect(page.getByRole('alert')).toBeVisible()
@@ -86,18 +137,22 @@ test.describe('enterprises', () => {
 
   test('edits an enterprise and keeps the change', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/enterprises/new')
-    await page.getByLabel('Registered or trading name').fill('Original Name')
-    await page.getByRole('button', { name: 'Register enterprise' }).click()
+    await registerEnterprise(page, 'Original Name')
     await expect(page.getByRole('heading', { name: 'Original Name' })).toBeVisible()
 
+    // Editing reopens the same wizard; the change on the first category is
+    // kept in memory while the later ones are stepped through.
     await page.getByRole('button', { name: 'Edit' }).click()
     await page.getByLabel('Registered or trading name').fill('Corrected Name')
+    await next(page)
+    await next(page)
+    await next(page)
     await page.getByLabel('Contact number').fill('+919876543210')
     await page.getByRole('button', { name: 'Save changes' }).click()
 
     await expect(page.getByRole('heading', { name: 'Corrected Name' })).toBeVisible()
-    await expect(page.getByText('+919876543210')).toBeVisible()
+    // The Worker stores the bare 10 digits, so the +91 typed above is gone.
+    await expect(page.getByText('9876543210', { exact: true })).toBeVisible()
 
     await page.reload()
     await expect(page.getByRole('heading', { name: 'Corrected Name' })).toBeVisible()
@@ -105,9 +160,7 @@ test.describe('enterprises', () => {
 
   test('removes an enterprise and restores it again', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/enterprises/new')
-    await page.getByLabel('Registered or trading name').fill('Removable Works')
-    await page.getByRole('button', { name: 'Register enterprise' }).click()
+    await registerEnterprise(page, 'Removable Works')
 
     await page.getByRole('button', { name: 'Remove' }).click()
     await expect(page.getByText('This enterprise has been removed')).toBeVisible()

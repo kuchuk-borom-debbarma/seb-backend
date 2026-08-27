@@ -161,40 +161,18 @@ query ApplicationById($id: ID!) {
           createdAt
           updatedAt
           deletedAt
-          editableSections
+          editableStageKeys
+          answers
           snapshot {
             version
+            programmeCycleVersion
             declarationAcceptedAt
-            enterprise {
-              businessName establishmentDate registrationType registrationNumber
-              gstin businessSector otherBusinessSector applicationCategory
-              majorityOwnershipConfirmed
-            }
-            applicantProfile {
-              primaryApplicantName designation dateOfBirth gender
-              businessBlockOrVillage businessDistrict businessPinCode
-              contactNumber contactEmail
-            }
-            financial {
-              totalProjectCostPaise seedFundRequestedPaise bankLoanProposedPaise
-              promoterContributionPaise
-            }
-            priorFunding {
-              receivedGovernmentFunding governmentSchemeName
-              governmentFundingAmountPaise governmentFundingSanctionYear
-              hasExistingBankCredit existingBankName existingCreditAmountPaise
-              existingCreditStatus
-            }
-            documents { nocRequired }
-            declaration {
-              relationshipType relatedPersonName declarationAccepted declarationPlace
-            }
             priorSanctionOrderNumber priorSanctionDate
             priorNetDisbursedAmountPaise continuousOperationMonths
           }
           revisionRequests {
             id
-            section
+            stageKey
             note
             requestedAt
             resolvedAt
@@ -202,7 +180,7 @@ query ApplicationById($id: ID!) {
           }
           documents {
             id
-            documentType
+            fieldKey
             currentVersion
             originalFilename
             contentType
@@ -216,6 +194,50 @@ query ApplicationById($id: ID!) {
   }
 }
 
+fragment FormTemplateFields on FormTemplate {
+  programmeCycleId
+  programmeCycleVersion
+  stages { key title description iconName estimatedMinutes position }
+  fields {
+    key
+    stageKey
+    type
+    role
+    label
+    helpText
+    requirement
+    source
+    position
+    repeatGroupKey
+    groupDefinitionKey
+    options { value label position description iconName }
+    validation {
+      minLength maxLength pattern patternMessage
+      minValue maxValue minDate maxDate relativeDateBound
+      minRepeat maxRepeat maxFileBytes
+    }
+    presentation {
+      placeholder note tone widthHint prefixText suffixText
+      autocompleteHint showCharCount textareaRows choiceStyle
+    }
+    conditions {
+      effect groupNumber sequenceNumber sourceFieldKey operator comparisonValue
+    }
+  }
+}
+
+query ApplicationFormTemplate($applicationId: ID!) {
+  seb {
+    application {
+      formTemplate(applicationId: $applicationId) {
+        success
+        message
+        response { ...FormTemplateFields }
+      }
+    }
+  }
+}
+
 query ApplicationTimeline($applicationId: ID!, $first: Int) {
   seb {
     application {
@@ -223,7 +245,7 @@ query ApplicationTimeline($applicationId: ID!, $first: Int) {
         success
         message
         response {
-          nodes { id eventType fromStatus toStatus section message createdAt }
+          nodes { id eventType fromStatus toStatus stageKey message createdAt }
           pageInfo { endCursor hasNextPage totalCount }
         }
       }
@@ -251,7 +273,7 @@ query ValidateApplication($applicationId: ID!) {
         message
         response {
           valid
-          issues { section field code message }
+          issues { stageKey field code message }
         }
       }
     }
@@ -264,7 +286,7 @@ query DraftChanges($applicationId: ID!) {
       draftChanges(applicationId: $applicationId) {
         success
         message
-        response { sections comparedToSubmissionNumber }
+        response { stageKeys comparedToSubmissionNumber }
       }
     }
   }

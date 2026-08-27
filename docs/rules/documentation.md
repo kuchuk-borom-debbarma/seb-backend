@@ -117,5 +117,5 @@ Some headings are referenced by anchor and must not be renamed:
 
 | Heading | Referenced by |
 | --- | --- |
-| `## Role administration` in [`../admin-rbac.md`](../admin-rbac.md) | three inbound anchor links |
+| `## Role administration` in [`../admin-rbac.md`](../admin-rbac.md) | two inbound anchor links |
 | The nine sections of [`../admin-workflow-guide.md`](../admin-workflow-guide.md) cited in `officeGuidance.ts` | the client's office help text |

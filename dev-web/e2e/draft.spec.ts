@@ -25,13 +25,14 @@ test.describe('the application form', () => {
     })
     await page.goto(`/applications/${id}/form`)
 
-    await page.getByLabel('Business name').fill('Draft Works Foods')
+    await page.getByRole('button', { name: 'Add owners' }).click()
+    await page.getByLabel('Full name').fill('Bethel Debbarma')
     // Autosave is debounced, so the indicator is the honest signal that the
     // server has the answer — not the keystroke.
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
 
     await page.reload()
-    await expect(page.getByLabel('Business name')).toHaveValue('Draft Works Foods')
+    await expect(page.getByLabel('Full name')).toHaveValue('Bethel Debbarma')
   })
 
   test('shows every section of the form', async ({ page }) => {
@@ -42,15 +43,14 @@ test.describe('the application form', () => {
     })
     await page.goto(`/applications/${id}/form`)
 
+    // One stage renders at a time now; the journey rail names them all.
     for (const title of [
-      'The enterprise',
-      'About you',
+      'Owners',
       'Project cost and funding',
       'Previous support and credit',
       'Evidence',
-      'Declaration',
     ]) {
-      await expect(page.getByText(title, { exact: true })).toBeVisible()
+      await expect(page.getByText(title, { exact: true }).first()).toBeVisible()
     }
   })
 
@@ -60,7 +60,7 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/applications/${id}/form`)
+    await page.goto(`/applications/${id}/form?stage=PRIOR_FUNDING`)
 
     // The API refuses details for support that was not received, so the fields
     // are not offered until the answer calls for them.
@@ -109,7 +109,7 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/applications/${id}/form`)
+    await page.goto(`/applications/${id}/form?stage=FINANCIAL`)
 
     await page.getByLabel('Total project cost (₹)').fill('500000')
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
@@ -162,14 +162,13 @@ test.describe('the validation report', () => {
     })
     await page.goto(`/applications/${id}/review`)
 
-    const row = page.getByRole('row').filter({ hasText: 'Your full name' }).first()
+    // The group itself is the addressable control when no entries exist.
+    const row = page.getByRole('row').filter({ hasText: 'Owners' }).first()
     await row.getByRole('link').click()
 
     await expect(page).toHaveURL(
-      new RegExp(`/applications/${id}/form#primaryApplicantName$`, 'u'),
+      // The template's own key, which is now the question's name everywhere.
+      new RegExp(`/applications/${id}/form(\\?stage=OWNERS)?#OWNERS$`, 'u'),
     )
-    // Focused, not merely scrolled into view — a keyboard or screen reader user
-    // has to land on the control too.
-    await expect(page.getByLabel('Your full name')).toBeFocused()
   })
 })

@@ -1,25 +1,45 @@
 /**
- * The chrome around every signed-in screen.
+ * The signed-in platform shell.
  *
- * There are two portals and one shell. An applicant does this once, perhaps
- * twice in a lifetime; a programme officer works forty applications a day for
- * years. They need the same institution and different measure — so the palette,
- * the faces and the components are shared, and only the density, the masthead
- * and the navigation differ. `data-portal` is what the stylesheet reads.
- *
- * Which portal you are in is derived from the address rather than held in
- * state, so the screens both audiences share — the guide, signed-in devices —
- * wear whichever portal you reached them from, with nothing to decide.
+ * Navigation is offered from live capabilities, exactly like the API's own
+ * authorization policy. The shell never grants authority; it only avoids
+ * presenting controls the next request would refuse.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, useRouter } from '@tanstack/react-router'
+import { Link, useLocation, useRouter } from '@tanstack/react-router'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Briefcase,
+  CalendarDays,
+  CircleHelp,
+  ClipboardList,
+  FileText,
+  History,
+  Home,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  MonitorSmartphone,
+  Settings,
+  ShieldCheck,
+  UserPlus,
+  Users,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { SignOutDocument } from '#/graphql/generated/operations'
 import { forgetGuide } from '#/features/guide/GuideContext'
 import { gql } from '#/lib/graphql'
 import { can, isApplicant, type SignedInUser } from '#/lib/session'
 import styles from './PortalShell.module.css'
+import logoEmblem from '@/assets/mission-sep-emblem.png'
+import logoRightColor from '@/assets/mission-sep-right.png'
 
 export type Portal = 'applicant' | 'office'
+
+const SIDEBAR_PREFERENCE = 'seb.sidebar.collapsed'
 
 /** Everything under `/admin` is the office; everything else is the applicant's. */
 export const portalFor = (pathname: string): Portal =>
@@ -28,179 +48,466 @@ export const portalFor = (pathname: string): Portal =>
 export const canUsePortal = (portal: Portal, user: SignedInUser): boolean =>
   portal === 'office' ? can(user, 'STAFF_READ') : isApplicant(user)
 
-/**
- * The portal to draw the navigation for.
- *
- * Normally the one in the address. But somebody who has landed on a portal they
- * cannot use is shown the one they can — listing four links that would every
- * one of them refuse is exactly the thing this interface does not do. The
- * refusal on the page still says where they are and why.
- */
+/** Draw the navigation that works when somebody opens a portal they cannot use. */
 export const navPortalFor = (addressed: Portal, user: SignedInUser): Portal => {
   if (canUsePortal(addressed, user)) return addressed
   const other: Portal = addressed === 'office' ? 'applicant' : 'office'
   return canUsePortal(other, user) ? other : addressed
 }
 
-export function PortalNav({ portal, user }: { portal: Portal; user: SignedInUser }) {
+export function PlatformNavigation({
+  portal,
+  user,
+  open,
+  onClose,
+  collapsed,
+  onToggleCollapsed,
+}: {
+  portal: Portal
+  user: SignedInUser
+  open: boolean
+  onClose: () => void
+  collapsed: boolean
+  onToggleCollapsed: () => void
+}) {
   return (
-    <nav className={styles.sidebar} aria-label="Portal sections">
-      {/*
-        The masthead says which portal this is without a banner. An applicant is
-        told what the programme is for; an officer already knows and is told
-        which desk they are at.
-      */}
-      <div className={styles.brand}>
-        {portal === 'applicant' ? (
-          <>
-            <span className="eyebrow">TTAADC</span>
-            <span className={styles.brandName}>Mission SEP</span>
-            <span className={styles.brandNote}>
-              Seed funding for first-generation entrepreneurs
-            </span>
-          </>
-        ) : (
-          <>
-            <span className={styles.brandName}>Mission SEP</span>
-            <span className={styles.brandNote}>Programme office</span>
-          </>
-        )}
+    <nav
+      className={styles.sidebar}
+      data-open={open ? 'true' : undefined}
+      aria-label="Portal sections"
+    >
+      <div className={styles.sidebarTop}>
+        <PortalSelector
+          portal={portal}
+          user={user}
+          collapsed={collapsed}
+          onNavigate={onClose}
+        />
+        <button
+          type="button"
+          className={styles.mobileClose}
+          aria-label="Close navigation"
+          onClick={onClose}
+        >
+          <X aria-hidden="true" />
+        </button>
       </div>
 
-      {/*
-        Navigation mirrors capability twice over. Roles are joined live on every
-        request, so a revoked role removes its entry on the next navigation. And
-        a link only appears once its screen exists — an entry that leads nowhere
-        is worse than one that is not offered yet.
-      */}
       <div className={styles.groups}>
-        <NavGroup title="Start here">
-          <NavLink to="/guide">How this works</NavLink>
-        </NavGroup>
-
-        {!canUsePortal(portal, user) ? null : portal === 'applicant' ? (
-          <NavGroup title="Your applications">
-            <NavLink to="/" exact>
-              Overview
-            </NavLink>
-            <NavLink to="/enterprises">Enterprises</NavLink>
-            <NavLink to="/applications">Applications</NavLink>
-            <NavLink to="/cycles">Programme cycles</NavLink>
-          </NavGroup>
-        ) : (
-          <>
-            {/*
-              Two groups, because the office does two different jobs: working
-              individual files, and governing the programme they move through.
-              Naming them by their content also stops the heading repeating the
-              masthead directly above it.
-            */}
-            <NavGroup title="Casework">
-              <NavLink to="/admin" exact>
-                Intake
-              </NavLink>
-              <NavLink to="/admin/meetings">Committee meetings</NavLink>
+        {canUsePortal(portal, user) ? (
+          portal === 'applicant' ? (
+            <NavGroup title="Workspace" collapsed={collapsed}>
+              <NavLink
+                to="/dashboard"
+                label="Dashboard"
+                icon={Home}
+                exact
+                onNavigate={onClose}
+              />
+              <NavLink
+                to="/applications"
+                label="Applications"
+                icon={FileText}
+                activePrefixes={['/applications']}
+                onNavigate={onClose}
+              />
+              <NavLink
+                to="/enterprises"
+                label="Enterprises"
+                icon={Briefcase}
+                activePrefixes={['/enterprises']}
+                onNavigate={onClose}
+              />
+              <NavLink
+                to="/cycles"
+                label="Programme cycles"
+                icon={CalendarDays}
+                activePrefixes={['/cycles']}
+                onNavigate={onClose}
+              />
             </NavGroup>
-
-            {/*
-              Each entry asks what it needs rather than which role holds it.
-              A reviewer reads casework and sees nothing here; an approver sees
-              nothing here either, because deciding an application is not
-              governing the programme.
-            */}
-            {can(user, 'STAFF_WRITE') ||
-            can(user, 'ROLE_ADMIN') ||
-            can(user, 'ROLE_INVITE') ||
-            can(user, 'AUDIT_READ') ? (
-              <NavGroup title="Administration">
-                {can(user, 'STAFF_WRITE') ? (
-                  <NavLink to="/admin/cycles">Cycle administration</NavLink>
-                ) : null}
-                {can(user, 'ROLE_INVITE') ? (
-                  <NavLink to="/admin/invite">Invite a colleague</NavLink>
-                ) : null}
-                {can(user, 'ROLE_ADMIN') ? (
-                  <NavLink to="/admin/access">Access</NavLink>
-                ) : null}
-                {can(user, 'AUDIT_READ') ? (
-                  <NavLink to="/admin/audit">Activity history</NavLink>
-                ) : null}
+          ) : (
+            <>
+              <NavGroup title="Workspace" collapsed={collapsed}>
+                <NavLink
+                  to="/admin"
+                  label="Dashboard"
+                  icon={LayoutDashboard}
+                  exact
+                  onNavigate={onClose}
+                />
+                <NavLink
+                  to="/admin/queue"
+                  label="Applications"
+                  icon={ClipboardList}
+                  activePrefixes={['/admin/queue', '/admin/applications']}
+                  onNavigate={onClose}
+                />
               </NavGroup>
-            ) : null}
-          </>
-        )}
 
-        <NavGroup title="Account">
-          <NavLink to="/account/profile">Profile</NavLink>
-          <NavLink to="/account/security">Password</NavLink>
-          <NavLink to="/account/sessions">Signed-in devices</NavLink>
-        </NavGroup>
+              {can(user, 'STAFF_WRITE') ||
+              can(user, 'ROLE_ADMIN') ||
+              can(user, 'ROLE_INVITE') ||
+              can(user, 'AUDIT_READ') ? (
+                <NavGroup title="Administration" collapsed={collapsed}>
+                  {can(user, 'STAFF_WRITE') ? (
+                    <NavLink
+                      to="/admin/cycles"
+                      label="Programme cycles"
+                      icon={CalendarDays}
+                      activePrefixes={['/admin/cycles']}
+                      onNavigate={onClose}
+                    />
+                  ) : null}
+                  {can(user, 'ROLE_INVITE') ? (
+                    <NavLink
+                      to="/admin/invite"
+                      label="Invite a colleague"
+                      icon={UserPlus}
+                      activePrefixes={['/admin/invite']}
+                      onNavigate={onClose}
+                    />
+                  ) : null}
+                  {can(user, 'ROLE_ADMIN') ? (
+                    <NavLink
+                      to="/admin/access"
+                      label="Users & access"
+                      icon={ShieldCheck}
+                      activePrefixes={['/admin/access']}
+                      onNavigate={onClose}
+                    />
+                  ) : null}
+                  {can(user, 'AUDIT_READ') ? (
+                    <NavLink
+                      to="/admin/audit"
+                      label="Activity history"
+                      icon={History}
+                      activePrefixes={['/admin/audit']}
+                      onNavigate={onClose}
+                    />
+                  ) : null}
+                </NavGroup>
+              ) : null}
+            </>
+          )
+        ) : null}
       </div>
 
-      <PortalSwitch portal={portal} user={user} />
-      <AccountFooter user={user} />
+      <div className={styles.utilities}>
+        <NavLink
+          to="/guide"
+          label="How this works"
+          icon={CircleHelp}
+          activePrefixes={['/guide']}
+          onNavigate={onClose}
+        />
+        <NavLink
+          to="/settings/general"
+          label="Settings"
+          icon={Settings}
+          activePrefixes={['/settings', '/account/sessions']}
+          onNavigate={onClose}
+        />
+        <button
+          type="button"
+          className={`${styles.navLink} ${styles.collapse}`}
+          onClick={onToggleCollapsed}
+          title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+        >
+          {collapsed ? (
+            <ArrowRight aria-hidden="true" />
+          ) : (
+            <ArrowLeft aria-hidden="true" />
+          )}
+          <span className={styles.navLabel}>
+            {collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          </span>
+        </button>
+      </div>
+
+      <AccountMenu
+        portal={portal}
+        user={user}
+        collapsed={collapsed}
+        onNavigate={onClose}
+      />
     </nav>
   )
 }
 
-/**
- * The way across, for an account that holds both kinds of role.
- *
- * One link rather than a tab bar: crossing between the two is a rare thing to
- * do, and a permanent switch would suggest otherwise.
- */
-function PortalSwitch({ portal, user }: { portal: Portal; user: SignedInUser }) {
-  // Only from a portal this account is actually working in. On a refusal the
-  // screen itself offers the way across, and two of them would be noise.
-  if (!canUsePortal(portal, user)) return null
-  if (portal === 'applicant') {
-    return can(user, 'STAFF_READ') ? (
-      <Link to="/admin" className={styles.switch}>
-        Programme office <span aria-hidden="true">→</span>
-      </Link>
-    ) : null
-  }
-  return isApplicant(user) ? (
-    <Link to="/" className={styles.switch}>
-      Applicant portal <span aria-hidden="true">→</span>
-    </Link>
-  ) : null
+export function MobileHeader({
+  portal,
+  onOpen,
+  triggerRef,
+}: {
+  portal: Portal
+  onOpen: () => void
+  triggerRef: React.RefObject<HTMLButtonElement | null>
+}) {
+  return (
+    <header className={styles.mobileHeader}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={styles.iconButton}
+        aria-label="Open navigation"
+        onClick={onOpen}
+      >
+        <Menu aria-hidden="true" />
+      </button>
+      <img src={logoEmblem} alt="TTAADC Seal" className={styles.mobileEmblem} />
+      <img src={logoRightColor} alt="Mission SEP" className={styles.mobileLogo} />
+      <span className={styles.mobilePortal}>
+        {portal === 'applicant' ? 'Applicant' : 'Programme office'}
+      </span>
+    </header>
+  )
 }
 
-function NavGroup({ title, children }: { title: string; children: React.ReactNode }) {
+export function NavigationBackdrop({
+  open,
+  onClose,
+}: {
+  open: boolean
+  onClose: () => void
+}) {
   return (
-    <div className={styles.group}>
+    <button
+      type="button"
+      className={styles.backdrop}
+      data-open={open ? 'true' : undefined}
+      aria-label="Close navigation"
+      tabIndex={open ? 0 : -1}
+      onClick={onClose}
+    />
+  )
+}
+
+export const usePlatformNavigation = () => {
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const [open, setOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
+
+  useEffect(() => {
+    setCollapsed(window.localStorage.getItem(SIDEBAR_PREFERENCE) === 'true')
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const navigation = document.querySelector<HTMLElement>(
+      'nav[aria-label="Portal sections"]',
+    )
+    const first = navigation?.querySelector<HTMLElement>('button, a[href]')
+    first?.focus()
+    document.body.dataset.navigationOpen = 'true'
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setOpen(false)
+        triggerRef.current?.focus()
+        return
+      }
+      if (event.key !== 'Tab' || !navigation) return
+      const focusable = [
+        ...navigation.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]'),
+      ]
+      const firstFocusable = focusable[0]
+      const lastFocusable = focusable.at(-1)
+      if (event.shiftKey && document.activeElement === firstFocusable) {
+        event.preventDefault()
+        lastFocusable?.focus()
+      } else if (!event.shiftKey && document.activeElement === lastFocusable) {
+        event.preventDefault()
+        firstFocusable?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      delete document.body.dataset.navigationOpen
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const toggleCollapsed = () => {
+    setCollapsed((current) => {
+      const next = !current
+      window.localStorage.setItem(SIDEBAR_PREFERENCE, String(next))
+      return next
+    })
+  }
+
+  const closeNavigation = () => {
+    const shouldRestoreFocus = open
+    setOpen(false)
+    if (shouldRestoreFocus) {
+      window.requestAnimationFrame(() => triggerRef.current?.focus())
+    }
+  }
+
+  return {
+    open,
+    collapsed,
+    triggerRef,
+    openNavigation: () => setOpen(true),
+    closeNavigation,
+    toggleCollapsed,
+  }
+}
+
+function PortalSelector({
+  portal,
+  user,
+  collapsed,
+  onNavigate,
+}: {
+  portal: Portal
+  user: SignedInUser
+  collapsed: boolean
+  onNavigate: () => void
+}) {
+  const selectorRef = useRef<HTMLDetailsElement | null>(null)
+  const hasBoth = isApplicant(user) && can(user, 'STAFF_READ')
+  const label = portal === 'applicant' ? 'Applicant' : 'Programme office'
+
+  const closeSelector = () => {
+    selectorRef.current?.removeAttribute('open')
+    onNavigate()
+  }
+
+  if (!hasBoth) {
+    return (
+      <div
+        className={styles.portalLabel}
+        title={collapsed ? `Mission SEP · ${label}` : undefined}
+      >
+        <div className={styles.brandContainer}>
+          <div className={styles.brandLogoRow}>
+            <img src={logoEmblem} alt="TTAADC Seal" className={styles.brandEmblem} />
+            <img src={logoRightColor} alt="Mission SEP" className={styles.brandLogo} />
+          </div>
+          <span className={styles.brandRoleText}>{label}</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <details className={styles.portalSelector} ref={selectorRef}>
+      <summary title={collapsed ? `Mission SEP · ${label}` : undefined}>
+        <div className={styles.brandContainer}>
+          <div className={styles.brandLogoRow}>
+            <img src={logoEmblem} alt="TTAADC Seal" className={styles.brandEmblem} />
+            <img src={logoRightColor} alt="Mission SEP" className={styles.brandLogo} />
+            <span className={styles.selectorChevron} aria-hidden="true">
+              ⌄
+            </span>
+          </div>
+          <span className={styles.brandRoleText}>{label}</span>
+        </div>
+      </summary>
+      <div className={styles.portalMenu}>
+        <p>Switch portal</p>
+        <Link to="/dashboard" className={styles.menuItem} onClick={closeSelector}>
+          Applicant
+        </Link>
+        <Link to="/admin" className={styles.menuItem} onClick={closeSelector}>
+          Programme office
+        </Link>
+      </div>
+    </details>
+  )
+}
+
+function NavGroup({
+  title,
+  collapsed,
+  children,
+}: {
+  title: string
+  collapsed: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <section className={styles.group} aria-label={collapsed ? title : undefined}>
       <p className={styles.groupTitle}>{title}</p>
       {children}
-    </div>
+    </section>
   )
 }
 
 function NavLink({
   to,
-  exact,
-  children,
+  label,
+  icon: Icon,
+  exact = false,
+  activePrefixes,
+  onNavigate,
 }: {
   to: string
-  /** A section root matches only itself; deeper pages still mark their section. */
+  label: string
+  icon: LucideIcon
   exact?: boolean
-  children: React.ReactNode
+  activePrefixes?: string[]
+  onNavigate: () => void
 }) {
+  const pathname = useLocation().pathname
+  const active = exact
+    ? pathname === to
+    : (activePrefixes ?? [to]).some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+      )
+
   return (
     <Link
       to={to}
-      className={styles.navLink}
-      activeProps={{ className: `${styles.navLink} ${styles.navLinkActive}` }}
-      activeOptions={{ exact: exact ?? false }}
+      className={`${styles.navLink} ${active ? styles.navLinkActive : ''}`}
+      aria-current={active ? 'page' : undefined}
+      title={label}
+      onClick={onNavigate}
     >
-      {children}
+      <Icon aria-hidden="true" />
+      <span className={styles.navLabel}>{label}</span>
     </Link>
   )
 }
 
-function AccountFooter({ user }: { user: SignedInUser }) {
+function AccountMenu({
+  portal,
+  user,
+  collapsed,
+  onNavigate,
+}: {
+  portal: Portal
+  user: SignedInUser
+  collapsed: boolean
+  onNavigate: () => void
+}) {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    const dismiss = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const dismissByKeyboard = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        menuRef.current
+          ?.querySelector<HTMLButtonElement>('[aria-label="Account menu"]')
+          ?.focus()
+      }
+    }
+    window.addEventListener('pointerdown', dismiss)
+    window.addEventListener('keydown', dismissByKeyboard)
+    return () => {
+      window.removeEventListener('pointerdown', dismiss)
+      window.removeEventListener('keydown', dismissByKeyboard)
+    }
+  }, [open])
 
   const signOut = useMutation({
     mutationFn: async () => {
@@ -208,43 +515,84 @@ function AccountFooter({ user }: { user: SignedInUser }) {
       return data.auth.signOut
     },
     onSuccess: async () => {
-      // Everything cached was fetched as this person. Clearing rather than
-      // invalidating prevents the next visitor briefly seeing their data — and
-      // the guide remembers which file was open, which is the same fact.
+      // Everything cached belongs to this identity. It must never be visible
+      // for a moment to the person who signs in next.
       queryClient.clear()
       forgetGuide()
-      await router.navigate({ to: '/sign-in' })
+      await router.navigate({ to: '/' })
     },
   })
 
+  const roles = user.roles
+    .map((role) => role.replaceAll('_', ' ').toLowerCase())
+    .join(' · ')
+
   return (
-    <div className={styles.account}>
-      <div className={styles.accountText}>
-        <span className={styles.accountEmail} title={user.email}>
-          {user.email}
-        </span>
-        <span className={styles.accountRoles}>
-          {user.roles.map((role) => role.replace('_', ' ').toLowerCase()).join(' · ')}
-        </span>
-      </div>
+    <div className={styles.account} ref={menuRef}>
       <button
         type="button"
-        className={styles.signOut}
-        onClick={() => signOut.mutate()}
-        disabled={signOut.isPending}
+        className={styles.accountButton}
+        aria-label="Account menu"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={collapsed ? user.email : undefined}
+        onClick={() => setOpen((current) => !current)}
       >
-        <span className="visually-hidden">Sign out</span>
-        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-          <path
-            d="M6 2H3.5A1.5 1.5 0 0 0 2 3.5v9A1.5 1.5 0 0 0 3.5 14H6M10 11l3-3-3-3M13 8H6"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <span className={styles.avatar} aria-hidden="true">
+          {user.email.slice(0, 1).toUpperCase()}
+        </span>
+        <span className={styles.accountText}>
+          <strong>{user.email}</strong>
+          <small>{roles}</small>
+        </span>
+        <span className={styles.accountChevron} aria-hidden="true">
+          •••
+        </span>
       </button>
+      {open ? (
+        <div className={styles.accountPopover} role="menu">
+          <div className={styles.accountSummary}>
+            <strong>{user.email}</strong>
+            <span>{roles}</span>
+          </div>
+          <Link
+            to="/settings/general"
+            className={styles.menuItem}
+            role="menuitem"
+            onClick={onNavigate}
+          >
+            <Settings aria-hidden="true" /> Settings
+          </Link>
+          <Link
+            to="/settings/security"
+            className={styles.menuItem}
+            role="menuitem"
+            onClick={onNavigate}
+          >
+            <MonitorSmartphone aria-hidden="true" /> Security
+          </Link>
+          {isApplicant(user) && can(user, 'STAFF_READ') ? (
+            <Link
+              to={portal === 'applicant' ? '/admin' : '/dashboard'}
+              className={styles.menuItem}
+              role="menuitem"
+              onClick={onNavigate}
+            >
+              <Users aria-hidden="true" />
+              {portal === 'applicant' ? 'Programme office' : 'Applicant portal'}
+            </Link>
+          ) : null}
+          <button
+            type="button"
+            className={styles.menuItem}
+            role="menuitem"
+            disabled={signOut.isPending}
+            onClick={() => signOut.mutate()}
+          >
+            <LogOut aria-hidden="true" /> Sign out
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

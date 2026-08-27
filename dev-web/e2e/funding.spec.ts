@@ -1,12 +1,11 @@
 /**
  * The applicant's view of their award.
  *
- * An award only exists after the committee approves an application and the
- * programme office issues a sanction order, and neither of those screens is
- * built yet. So what is covered here is the state every application is in
- * first — nothing sanctioned — and the rule that decides whether the screen is
- * offered at all. The sanctioned path is covered once the administrative
- * console can sanction.
+ * What is covered here is the state every application is in first — nothing
+ * sanctioned — and the rule that decides whether the screen is offered at
+ * all. The sanctioned path itself — approval, the sanction order, a payment,
+ * and the applicant reading the result — is carried end to end by
+ * `journey.spec.ts`.
  */
 import { expect, test } from '@playwright/test'
 import {

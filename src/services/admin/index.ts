@@ -1,5 +1,6 @@
 export * from './controllers/programme-cycle'
 export * from './controllers/intake'
+export * from './controllers/analytics'
 export * from './controllers/decision'
 export * from './controllers/funding'
 export * from './document-scanner'

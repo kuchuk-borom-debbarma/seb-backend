@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { HeadContent, Scripts, createRootRouteWithContext } from '@tanstack/react-router'
 import appCss from '#/styles.css?url'
+import landingCss from '#/landing.css?url'
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
@@ -10,7 +11,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: 'color-scheme', content: 'light' },
       { title: 'Mission SEP' },
     ],
-    links: [{ rel: 'stylesheet', href: appCss }],
+    links: [
+      { rel: 'stylesheet', href: appCss },
+      { rel: 'stylesheet', href: landingCss },
+    ],
   }),
   shellComponent: RootDocument,
   errorComponent: RootError,

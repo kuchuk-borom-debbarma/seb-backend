@@ -47,7 +47,7 @@ function ForgotPasswordPage() {
         )}
 
         <p className={styles.footer}>
-          Remembered it? <Link to="/sign-in">Sign in</Link>
+          Remembered it? <Link to="/login">Sign in</Link>
         </p>
       </div>
     </main>
@@ -141,7 +141,7 @@ function ResetStep({
       // A reset ends every session, including any this browser held, so the
       // cached one has to go before navigating.
       await forgetSession(queryClient)
-      await router.navigate({ to: '/sign-in' })
+      await router.navigate({ to: '/login' })
     },
   })
 

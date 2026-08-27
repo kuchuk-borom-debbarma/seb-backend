@@ -1,22 +1,30 @@
 /**
- * Offline partner-bank feedback and formal TTM meeting decisions.
+ * Offline partner-bank feedback, and the programme decision it feeds.
  *
- * Bank identities are frozen as supplied text by product decision. Meetings
- * and agenda heads are versioned operational roots; outcomes and decisions are
- * append-only so a correction never erases what staff previously recorded.
+ * Bank identities are frozen as supplied text by product decision. Referral
+ * heads are versioned operational roots; outcomes and decisions are append-only
+ * so a correction never erases what staff previously recorded.
+ *
+ * **Nothing convenes to decide an application.** One that clears the bank stage
+ * waits in `AWAITING_DECISION` and is decided directly, and the decision itself
+ * pins which submission and which appraisal were in front of the decider. The
+ * programme's own source describes a Tripartite Meeting instead; the divergence
+ * is recorded in `docs/policy-alignment.md` rather than absorbed here.
  */
 import { sql } from 'drizzle-orm'
 import {
+  boolean,
   check,
   foreignKey,
   index,
   integer,
-  sqliteTable,
+  pgTable,
   text,
+  unique,
   uniqueIndex,
-} from 'drizzle-orm/sqlite-core'
+} from 'drizzle-orm/pg-core'
 import { coreUser } from '../core/auth'
-import { versionedSoftDeleteColumns } from '../shared'
+import { dateOnly, instant, paise, versionedSoftDeleteColumns } from '../shared'
 import { sebApplication, sebApplicationSubmission } from './application'
 import { sebDeskReview } from './review'
 import { sebProgrammeCycleReason } from './programme'
@@ -28,25 +36,19 @@ export const bankOutcomes = [
   'NOT_RECOMMENDED',
   'MORE_INFORMATION_REQUIRED',
 ] as const
-export const ttmMeetingStatuses = ['DRAFT', 'IN_SESSION', 'FINALIZED', 'CANCELLED'] as const
-export const ttmMeetingChangeTypes = [
-  'CREATED',
-  'UPDATED',
-  'STARTED',
-  'FINALIZED',
-  'CANCELLED',
-] as const
-export const ttmAgendaStatuses = ['ACTIVE', 'REMOVED', 'DECIDED'] as const
-export const ttmAgendaChangeTypes = ['ADDED', 'REORDERED', 'REMOVED', 'DECIDED'] as const
-export const ttmDecisionOutcomes = [
-  'APPROVED',
-  'REJECTED',
-  'DEFERRED',
-  'REVISION_REQUIRED',
-] as const
+/**
+ * What a programme decision can be.
+ *
+ * There is deliberately no *deferral*. Deferring meant holding an application
+ * over to a later sitting, and with nothing that sits it would name no event at
+ * all — a decision that moves the application nowhere and points at no future
+ * date is not a decision. One nobody is ready to decide simply stays where it
+ * is, in `AWAITING_DECISION`.
+ */
+export const decisionOutcomes = ['APPROVED', 'REJECTED', 'REVISION_REQUIRED'] as const
 
 /** Current state of one offline referral for an exact submitted application. */
-export const sebPartnerBankReferral = sqliteTable(
+export const sebPartnerBankReferral = pgTable(
   'seb_partner_bank_referral',
   {
     id: text('id').primaryKey(),
@@ -56,7 +58,7 @@ export const sebPartnerBankReferral = sqliteTable(
     bankName: text('bank_name').notNull(),
     bankBranch: text('bank_branch'),
     referralReference: text('referral_reference').notNull().unique(),
-    referralDate: text('referral_date').notNull(),
+    referralDate: dateOnly('referral_date').notNull(),
     status: text('status', { enum: bankReferralStatuses }).notNull().default('OPEN'),
     internalNote: text('internal_note'),
     referredByUserId: text('referred_by_user_id')
@@ -75,7 +77,7 @@ export const sebPartnerBankReferral = sqliteTable(
       foreignColumns: [sebDeskReview.applicationId, sebDeskReview.id],
       name: 'seb_partner_bank_referral_review_fk',
     }).onDelete('restrict'),
-    uniqueIndex('seb_partner_bank_referral_application_id_uq').on(
+    unique('seb_partner_bank_referral_application_id_uq').on(
       table.applicationId,
       table.id,
     ),
@@ -95,7 +97,7 @@ export const sebPartnerBankReferral = sqliteTable(
 )
 
 /** Immutable referral lifecycle snapshot. */
-export const sebPartnerBankReferralVersion = sqliteTable(
+export const sebPartnerBankReferralVersion = pgTable(
   'seb_partner_bank_referral_version',
   {
     id: text('id').primaryKey(),
@@ -109,7 +111,7 @@ export const sebPartnerBankReferralVersion = sqliteTable(
     changedByUserId: text('changed_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     uniqueIndex('seb_partner_bank_referral_version_number_uq').on(
@@ -129,7 +131,7 @@ export const sebPartnerBankReferralVersion = sqliteTable(
 )
 
 /** Append-only bank feedback; a correction supersedes an earlier outcome. */
-export const sebPartnerBankOutcome = sqliteTable(
+export const sebPartnerBankOutcome = pgTable(
   'seb_partner_bank_outcome',
   {
     id: text('id').primaryKey(),
@@ -138,8 +140,8 @@ export const sebPartnerBankOutcome = sqliteTable(
     outcomeNumber: integer('outcome_number').notNull(),
     outcome: text('outcome', { enum: bankOutcomes }).notNull(),
     decisionReference: text('decision_reference').notNull(),
-    decisionDate: text('decision_date').notNull(),
-    availableLoanAmountPaise: integer('available_loan_amount_paise'),
+    decisionDate: dateOnly('decision_date').notNull(),
+    availableLoanAmountPaise: paise('available_loan_amount_paise'),
     applicantSummary: text('applicant_summary').notNull(),
     internalNote: text('internal_note'),
     supersedesOutcomeId: text('supersedes_outcome_id'),
@@ -151,7 +153,7 @@ export const sebPartnerBankOutcome = sqliteTable(
     recordedByUserId: text('recorded_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     foreignKey({
@@ -168,11 +170,11 @@ export const sebPartnerBankOutcome = sqliteTable(
       table.referralId,
       table.outcomeNumber,
     ),
-    uniqueIndex('seb_partner_bank_outcome_referral_id_uq').on(table.referralId, table.id),
-    // Agenda evidence repeats application_id so raw SQL cannot attach an
-    // outcome from another application. SQLite requires this exact referenced
-    // column order to be independently unique.
-    uniqueIndex('seb_partner_bank_outcome_application_id_uq').on(
+    unique('seb_partner_bank_outcome_referral_id_uq').on(table.referralId, table.id),
+    // The decision repeats application_id so raw SQL cannot attach an outcome
+    // from another application. A composite foreign key needs its referenced
+    // columns unique in exactly this order, hence a second index over the pair.
+    unique('seb_partner_bank_outcome_application_id_uq').on(
       table.applicationId,
       table.id,
     ),
@@ -186,7 +188,9 @@ export const sebPartnerBankOutcome = sqliteTable(
     ),
     check(
       'seb_partner_bank_outcome_amount_check',
-      sql`${table.availableLoanAmountPaise} IS NULL OR ${table.availableLoanAmountPaise} >= 0`,
+      sql`${table.availableLoanAmountPaise} IS NULL
+        OR (${table.availableLoanAmountPaise} >= 0
+            AND ${table.availableLoanAmountPaise} <= 9007199254740991)`,
     ),
     check(
       'seb_partner_bank_outcome_correction_check',
@@ -204,167 +208,44 @@ export const sebPartnerBankOutcome = sqliteTable(
   ],
 )
 
-/** Searchable current meeting state. */
-export const sebTtmMeeting = sqliteTable(
-  'seb_ttm_meeting',
+/**
+ * The programme decision on one application, append-only.
+ *
+ * An application that clears the partner bank waits in `AWAITING_DECISION`, and
+ * whoever holds `DECIDE` records the outcome here.
+ *
+ * **The evidence is pinned on the decision itself.** `submissionId` says which
+ * form version was decided and `bankOutcomeId` which appraisal was read, both by
+ * composite key so neither can name another application's. Without the first, a
+ * revision request has no submission to attach to; without the second, a later
+ * corrected appraisal would leave the decision pointing at nothing in
+ * particular.
+ *
+ * A correction supersedes rather than edits, and the whole series is scoped to
+ * the application, which is why `decisionNumber` is unique per application and
+ * never restarts.
+ */
+export const sebProgrammeDecision = pgTable(
+  'seb_programme_decision',
   {
     id: text('id').primaryKey(),
-    meetingReference: text('meeting_reference').notNull().unique(),
-    scheduledAt: integer('scheduled_at', { mode: 'timestamp_ms' }).notNull(),
-    venue: text('venue').notNull(),
-    description: text('description'),
-    status: text('status', { enum: ttmMeetingStatuses }).notNull().default('DRAFT'),
-    ...versionedSoftDeleteColumns(() => coreUser.id),
-  },
-  (table) => [
-    check('seb_ttm_meeting_version_check', sql`${table.currentVersion} >= 1`),
-    check(
-      'seb_ttm_meeting_status_check',
-      sql`${table.status} IN ('DRAFT', 'IN_SESSION', 'FINALIZED', 'CANCELLED')`,
-    ),
-    index('seb_ttm_meeting_schedule_idx').on(table.status, table.scheduledAt),
-    /* The meetings list orders by this alone; the index above is led by status,
-       which that list does not constrain. */
-    index('seb_ttm_meeting_scheduled_idx').on(table.scheduledAt),
-  ],
-)
-
-/** Immutable meeting revisions and lifecycle transitions. */
-export const sebTtmMeetingVersion = sqliteTable(
-  'seb_ttm_meeting_version',
-  {
-    id: text('id').primaryKey(),
-    meetingId: text('meeting_id')
-      .notNull()
-      .references(() => sebTtmMeeting.id, { onDelete: 'restrict' }),
-    version: integer('version').notNull(),
-    meetingReference: text('meeting_reference').notNull(),
-    scheduledAt: integer('scheduled_at', { mode: 'timestamp_ms' }).notNull(),
-    venue: text('venue').notNull(),
-    description: text('description'),
-    status: text('status', { enum: ttmMeetingStatuses }).notNull(),
-    changeType: text('change_type', { enum: ttmMeetingChangeTypes }).notNull(),
-    reason: text('reason'),
-    changedByUserId: text('changed_by_user_id')
-      .notNull()
-      .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  },
-  (table) => [
-    uniqueIndex('seb_ttm_meeting_version_number_uq').on(table.meetingId, table.version),
-    check('seb_ttm_meeting_version_number_check', sql`${table.version} >= 1`),
-    check(
-      'seb_ttm_meeting_version_status_check',
-      sql`${table.status} IN ('DRAFT', 'IN_SESSION', 'FINALIZED', 'CANCELLED')`,
-    ),
-    check(
-      'seb_ttm_meeting_version_change_type_check',
-      sql`${table.changeType} IN ('CREATED', 'UPDATED', 'STARTED', 'FINALIZED', 'CANCELLED')`,
-    ),
-  ],
-)
-
-/** Current agenda position and pinned evidence for one application. */
-export const sebTtmAgendaItem = sqliteTable(
-  'seb_ttm_agenda_item',
-  {
-    id: text('id').primaryKey(),
-    meetingId: text('meeting_id')
-      .notNull()
-      .references(() => sebTtmMeeting.id, { onDelete: 'restrict' }),
     applicationId: text('application_id').notNull(),
+    /* Which submission was in front of the decider. */
     submissionId: text('submission_id').notNull(),
-    bankOutcomeId: text('bank_outcome_id').notNull(),
-    position: integer('position').notNull(),
-    status: text('status', { enum: ttmAgendaStatuses }).notNull().default('ACTIVE'),
-    currentVersion: integer('current_version').notNull(),
-    createdByUserId: text('created_by_user_id')
-      .notNull()
-      .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
-  },
-  (table) => [
-    foreignKey({
-      columns: [table.applicationId, table.submissionId],
-      foreignColumns: [sebApplicationSubmission.applicationId, sebApplicationSubmission.id],
-      name: 'seb_ttm_agenda_item_submission_fk',
-    }).onDelete('restrict'),
-    foreignKey({
-      columns: [table.applicationId, table.bankOutcomeId],
-      foreignColumns: [sebPartnerBankOutcome.applicationId, sebPartnerBankOutcome.id],
-      name: 'seb_ttm_agenda_item_bank_outcome_fk',
-    }).onDelete('restrict'),
-    uniqueIndex('seb_ttm_agenda_item_meeting_position_uq').on(table.meetingId, table.position),
-    uniqueIndex('seb_ttm_agenda_item_application_id_uq').on(table.applicationId, table.id),
-    uniqueIndex('seb_ttm_agenda_item_active_application_uq')
-      .on(table.applicationId)
-      .where(sql`${table.status} = 'ACTIVE'`),
-    check('seb_ttm_agenda_item_position_check', sql`${table.position} >= 1`),
-    check('seb_ttm_agenda_item_version_check', sql`${table.currentVersion} >= 1`),
-    check(
-      'seb_ttm_agenda_item_status_check',
-      sql`${table.status} IN ('ACTIVE', 'REMOVED', 'DECIDED')`,
-    ),
-    index('seb_ttm_agenda_item_meeting_idx').on(table.meetingId, table.position),
-  ],
-)
-
-/** Immutable agenda changes make reorder/removal races reviewable. */
-export const sebTtmAgendaItemVersion = sqliteTable(
-  'seb_ttm_agenda_item_version',
-  {
-    id: text('id').primaryKey(),
-    agendaItemId: text('agenda_item_id')
-      .notNull()
-      .references(() => sebTtmAgendaItem.id, { onDelete: 'restrict' }),
-    version: integer('version').notNull(),
-    position: integer('position').notNull(),
-    status: text('status', { enum: ttmAgendaStatuses }).notNull(),
-    changeType: text('change_type', { enum: ttmAgendaChangeTypes }).notNull(),
-    reason: text('reason'),
-    changedByUserId: text('changed_by_user_id')
-      .notNull()
-      .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  },
-  (table) => [
-    uniqueIndex('seb_ttm_agenda_item_version_number_uq').on(
-      table.agendaItemId,
-      table.version,
-    ),
-    check('seb_ttm_agenda_item_version_number_check', sql`${table.version} >= 1`),
-    check('seb_ttm_agenda_item_version_position_check', sql`${table.position} >= 1`),
-    check(
-      'seb_ttm_agenda_item_version_status_check',
-      sql`${table.status} IN ('ACTIVE', 'REMOVED', 'DECIDED')`,
-    ),
-    check(
-      'seb_ttm_agenda_item_version_change_type_check',
-      sql`${table.changeType} IN ('ADDED', 'REORDERED', 'REMOVED', 'DECIDED')`,
-    ),
-  ],
-)
-
-/** Final or superseding programme decision for one agenda item. */
-export const sebTtmDecision = sqliteTable(
-  'seb_ttm_decision',
-  {
-    id: text('id').primaryKey(),
-    applicationId: text('application_id').notNull(),
-    agendaItemId: text('agenda_item_id').notNull(),
+    /* Which bank appraisal was read. Null where a cycle refers to no bank. */
+    bankOutcomeId: text('bank_outcome_id'),
     decisionNumber: integer('decision_number').notNull(),
-    outcome: text('outcome', { enum: ttmDecisionOutcomes }).notNull(),
+    outcome: text('outcome', { enum: decisionOutcomes }).notNull(),
     decisionReference: text('decision_reference').notNull().unique(),
-    decisionDate: text('decision_date').notNull(),
-    approvedAmountPaise: integer('approved_amount_paise'),
+    /* When the decision was taken, which may precede when it was typed. */
+    decisionDate: dateOnly('decision_date').notNull(),
+    approvedAmountPaise: paise('approved_amount_paise'),
     applicantConditions: text('applicant_conditions'),
     reasonCategoryId: text('reason_category_id').references(
       () => sebProgrammeCycleReason.id,
       { onDelete: 'restrict' },
     ),
     applicantMessage: text('applicant_message').notNull(),
-    nextAction: text('next_action'),
     supersedesDecisionId: text('supersedes_decision_id'),
     correctionReasonCategoryId: text('correction_reason_category_id').references(
       () => sebProgrammeCycleReason.id,
@@ -374,60 +255,59 @@ export const sebTtmDecision = sqliteTable(
     recordedByUserId: text('recorded_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
     /*
      * Whether the officer disclosed that this is their own application. Kept
      * on the decision, and again on a correction, because each is its own act
      * and a disclosure made for the first does not cover the second.
-     *
-     * Last in the column list on purpose: every write here is a positional
-     * `INSERT ... SELECT`, so a column added anywhere else shifts every value
-     * after it.
      */
-    conflictAcknowledged: integer('conflict_acknowledged', { mode: 'boolean' })
+    conflictAcknowledged: boolean('conflict_acknowledged')
       .notNull()
       .default(false),
   },
   (table) => [
     foreignKey({
-      columns: [table.applicationId, table.agendaItemId],
-      foreignColumns: [sebTtmAgendaItem.applicationId, sebTtmAgendaItem.id],
-      name: 'seb_ttm_decision_agenda_item_fk',
+      columns: [table.applicationId, table.submissionId],
+      foreignColumns: [sebApplicationSubmission.applicationId, sebApplicationSubmission.id],
+      name: 'seb_programme_decision_submission_fk',
     }).onDelete('restrict'),
     foreignKey({
-      columns: [table.agendaItemId, table.supersedesDecisionId],
-      foreignColumns: [table.agendaItemId, table.id],
-      name: 'seb_ttm_decision_supersedes_fk',
+      columns: [table.applicationId, table.bankOutcomeId],
+      foreignColumns: [sebPartnerBankOutcome.applicationId, sebPartnerBankOutcome.id],
+      name: 'seb_programme_decision_bank_outcome_fk',
     }).onDelete('restrict'),
-    uniqueIndex('seb_ttm_decision_number_uq').on(table.agendaItemId, table.decisionNumber),
-    uniqueIndex('seb_ttm_decision_agenda_id_uq').on(table.agendaItemId, table.id),
-    uniqueIndex('seb_ttm_decision_one_correction_uq').on(table.supersedesDecisionId),
-    check('seb_ttm_decision_number_check', sql`${table.decisionNumber} >= 1`),
+    /* A correction supersedes a decision on the same application, never another. */
+    foreignKey({
+      columns: [table.applicationId, table.supersedesDecisionId],
+      foreignColumns: [table.applicationId, table.id],
+      name: 'seb_programme_decision_supersedes_fk',
+    }).onDelete('restrict'),
+    uniqueIndex('seb_programme_decision_number_uq').on(
+      table.applicationId,
+      table.decisionNumber,
+    ),
+    /* Backs the supersedes key above. */
+    unique('seb_programme_decision_application_id_uq').on(table.applicationId, table.id),
+    /* One correction per decision, so a series cannot fork. */
+    uniqueIndex('seb_programme_decision_one_correction_uq').on(table.supersedesDecisionId),
+    check('seb_programme_decision_number_check', sql`${table.decisionNumber} >= 1`),
     check(
-      'seb_ttm_decision_conflict_check',
-      sql`${table.conflictAcknowledged} IN (0, 1)`,
+      'seb_programme_decision_outcome_check',
+      sql`${table.outcome} IN ('APPROVED', 'REJECTED', 'REVISION_REQUIRED')`,
     ),
     check(
-      'seb_ttm_decision_outcome_check',
-      sql`${table.outcome} IN ('APPROVED', 'REJECTED', 'DEFERRED', 'REVISION_REQUIRED')`,
-    ),
-    check(
-      'seb_ttm_decision_amount_check',
-      sql`(${table.outcome} = 'APPROVED' AND ${table.approvedAmountPaise} > 0)
+      'seb_programme_decision_amount_check',
+      sql`(${table.outcome} = 'APPROVED' AND ${table.approvedAmountPaise} > 0
+          AND ${table.approvedAmountPaise} <= 9007199254740991)
         OR (${table.outcome} <> 'APPROVED' AND ${table.approvedAmountPaise} IS NULL)`,
     ),
     check(
-      'seb_ttm_decision_deferral_check',
-      sql`(${table.outcome} = 'DEFERRED' AND ${table.nextAction} IS NOT NULL)
-        OR (${table.outcome} <> 'DEFERRED' AND ${table.nextAction} IS NULL)`,
-    ),
-    check(
-      'seb_ttm_decision_reason_check',
+      'seb_programme_decision_reason_check',
       sql`(${table.outcome} = 'APPROVED' AND ${table.reasonCategoryId} IS NULL)
         OR (${table.outcome} <> 'APPROVED' AND ${table.reasonCategoryId} IS NOT NULL)`,
     ),
     check(
-      'seb_ttm_decision_correction_check',
+      'seb_programme_decision_correction_check',
       sql`(${table.supersedesDecisionId} IS NULL
           AND ${table.correctionReasonCategoryId} IS NULL
           AND ${table.correctionReason} IS NULL)
@@ -435,6 +315,6 @@ export const sebTtmDecision = sqliteTable(
           AND ${table.correctionReasonCategoryId} IS NOT NULL
           AND ${table.correctionReason} IS NOT NULL)`,
     ),
-    index('seb_ttm_decision_application_idx').on(table.applicationId, table.createdAt),
+    index('seb_programme_decision_application_idx').on(table.applicationId, table.createdAt),
   ],
 )

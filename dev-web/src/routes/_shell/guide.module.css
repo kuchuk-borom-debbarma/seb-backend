@@ -1,94 +1,118 @@
-/*
- * The opening statement, then the route, then the ways in.
- *
- * The lede is set larger than anything else on the page and in the display
- * face — it is the one paragraph that has to be read, and the rest of the
- * screen is quiet around it.
- */
-.thesis {
-  max-width: 46rem;
-  margin-bottom: var(--space-7);
-}
+/* ==========================================================================
+   How Mission SEP Works - Page Level Styling
+   ========================================================================== */
 
-.lede {
-  font-family: var(--font-display);
-  font-size: 1.375rem;
-  line-height: 1.45;
-  color: var(--ink);
-}
-
-.lede em {
-  font-style: italic;
-  color: var(--clay);
-}
-
-/* Three facts in the utility face, the way a file cover is annotated. */
-.count {
-  margin-top: var(--space-4);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.02em;
-  color: var(--ink-faint);
-}
-
-.band {
-  margin-bottom: var(--space-7);
-}
-
-.bandNote {
-  max-width: 46rem;
-  margin: calc(var(--space-2) * -1) 0 var(--space-5);
-  font-size: 0.875rem;
-  color: var(--ink-muted);
-}
-
-.tours {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
-  gap: var(--space-4);
-}
-
-.tour {
+.pageWrap {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 28px 24px 80px;
   display: flex;
   flex-direction: column;
-  align-items: start;
-  gap: var(--space-2);
-  padding: var(--space-5);
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
+  gap: 20px;
+  animation: fadeIn 0.25s ease-out;
 }
 
-/* Who the route is for comes before what it is called: people look for
-   themselves in a list like this before they look for a topic. */
-.audience {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--clay);
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.tourTitle {
-  font-family: var(--font-display);
-  font-size: 1.0625rem;
+.headerRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
 }
 
-.promise {
-  font-size: 0.875rem;
-  line-height: 1.5;
-  color: var(--ink-muted);
+.headerLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
   flex: 1;
 }
 
-.length {
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--ink-faint);
+.pageTitle {
+  font-size: 26px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.02em;
 }
 
-.withheld {
-  margin-top: var(--space-4);
-  font-size: 0.8125rem;
-  color: var(--ink-faint);
+.pageSubtitle {
+  font-size: 14.5px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.5;
+  max-width: 600px;
+}
+
+.statPillsGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.statPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: border-color 0.15s ease;
+}
+
+.statPill:hover {
+  border-color: #cbd5e1;
+}
+
+.statPillIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #2563eb;
+}
+
+.statPill[data-type='desks'] .statPillIcon {
+  color: #059669;
+}
+
+.statPill[data-type='ref'] .statPillIcon {
+  color: #7c3aed;
+}
+
+@media (max-width: 48rem) {
+  .pageWrap {
+    padding: 20px 16px 60px;
+  }
+
+  .headerRow {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .statPillsGroup {
+    width: 100%;
+  }
+
+  .statPill {
+    flex: 1;
+    justify-content: center;
+  }
 }

@@ -1,0 +1,530 @@
+/* ==========================================================================
+   Applications List Soft Modern Design System
+   ========================================================================== */
+
+.pageContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
+   4 Top Metric Counter Cards
+   ========================================================================== */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.metricCard {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid #e9eaec;
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--text);
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  text-align: left;
+}
+
+.metricCard:hover {
+  border-color: #d1d5db;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.06);
+}
+
+.metricCardActive {
+  border-color: #93c5fd;
+  background: #f8faff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
+}
+
+.metricIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.metricCard:hover .metricIconBadge {
+  transform: scale(1.05);
+}
+
+.metricIconBadge[data-color='blue'] {
+  background: #edf5ff;
+  color: #2563eb;
+}
+
+.metricIconBadge[data-color='amber'] {
+  background: #fef8ee;
+  color: #d97706;
+}
+
+.metricIconBadge[data-color='purple'] {
+  background: #f3effc;
+  color: #7c3aed;
+}
+
+.metricIconBadge[data-color='green'] {
+  background: #edf7ee;
+  color: #16a34a;
+}
+
+.metricIconBadge svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.8;
+}
+
+.metricInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metricLabel {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.metricValue {
+  color: #111827;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Search & Filter Controls Bar
+   ========================================================================== */
+
+.controlsBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.searchWrap {
+  position: relative;
+  flex: 1;
+  min-width: 260px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 17px;
+  height: 17px;
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  height: 42px;
+  padding: 0 16px 0 40px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 13.5px;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.searchInput:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.searchInput::placeholder {
+  color: #9ca3af;
+}
+
+.filtersRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.selectWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.filterSelect {
+  height: 42px;
+  padding: 0 36px 0 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 13.5px;
+  font-weight: 500;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filterSelect:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.selectChevron {
+  position: absolute;
+  right: 12px;
+  width: 16px;
+  height: 16px;
+  color: #6b7280;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   Applications Table Card Container
+   ========================================================================== */
+
+.tableCard {
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  overflow: hidden;
+}
+
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.th {
+  padding: 14px 20px;
+  border-bottom: 1px solid #f0f2f5;
+  background: #fafbfc;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.tr {
+  border-bottom: 1px solid #f0f2f5;
+  transition: background-color 0.15s ease;
+}
+
+.tr:last-child {
+  border-bottom: 0;
+}
+
+.tr:hover {
+  background-color: #fafbfc;
+}
+
+.td {
+  padding: 18px 20px;
+  color: #111827;
+  font-size: 13.5px;
+  vertical-align: middle;
+}
+
+.cellStack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.appTitle {
+  color: #111827;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.appTitle:hover {
+  color: #2563eb;
+}
+
+.appRef {
+  color: #6b7280;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.typeBadge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #edf5ff;
+  color: #2563eb;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.typeBadge[data-type='EXPANSION'] {
+  background: #f3effc;
+  color: #7c3aed;
+}
+
+.cycleName {
+  color: #111827;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.cycleCloses {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.enterpriseName {
+  color: #111827;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.enterpriseRef {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.statusPill[data-status='APPROVED'],
+.statusPill[data-status='SANCTIONED'],
+.statusPill[data-status='DISBURSED'] {
+  background: #eef7ee;
+  color: #16a34a;
+}
+
+.statusPill[data-status='DRAFT'] {
+  background: #fef8ee;
+  color: #d97706;
+}
+
+.statusPill[data-status='SUBMITTED'],
+.statusPill[data-status='DESK_REVIEW'],
+.statusPill[data-status='PARTNER_BANK_EVALUATION'],
+.statusPill[data-status='TTM_REVIEW'] {
+  background: #f3effc;
+  color: #7c3aed;
+}
+
+.statusPill[data-status='REVISION_REQUIRED'] {
+  background: #fff4ed;
+  color: #ea580c;
+}
+
+.statusPill[data-status='REJECTED'],
+.statusPill[data-status='CANCELLED'] {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.dateText {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.timeText {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.actionLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #6b7280;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.actionLink:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+/* ==========================================================================
+   Pagination Footer
+   ========================================================================== */
+
+.paginationBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-top: 1px solid #f0f2f5;
+  color: #6b7280;
+  font-size: 13px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.pageControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pageBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pageBtn:hover:not(:disabled) {
+  border-color: #d1d5db;
+  background: #f9fafb;
+}
+
+.pageBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pageBtnActive {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Empty State Card
+   ========================================================================== */
+
+.emptyCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.emptyIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 16px;
+  border-radius: 50%;
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.emptyTitle {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.emptyDescription {
+  color: #6b7280;
+  font-size: 13.5px;
+  max-width: 360px;
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
+
+@media (max-width: 64rem) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 40rem) {
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .controlsBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filtersRight {
+    width: 100%;
+  }
+
+  .selectWrap,
+  .filterSelect {
+    width: 100%;
+  }
+
+  .paginationBar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

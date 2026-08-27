@@ -1,24 +1,38 @@
 /** Thin GraphQL delegation for the administrative namespace. */
+import { resolveFormTemplate } from '../../../services/application/form/template'
 import {
+  addFormQuestion,
+  addFormStage,
+  removeFormQuestion,
+  putFormGroupDefinition,
+  removeFormGroupDefinition,
+  definitionsOf,
+  removeFormStage,
+  replaceFormTemplate,
+  updateFormQuestion,
+  updateFormStage,
+} from '../../../services/admin/controllers/form-template'
+
+/** Which cycle, at which version, and why — the same on every form mutation. */
+type FormScope = { programmeCycleId: string; expectedVersion: number; reason: string }
+
+import {
+  analyticsSummary,
   cancelRecoveryCase,
   addInternalNote,
-  addTtmAgendaItem,
   adminDocumentDownloadUrl,
   archiveProgrammeCycle,
   changeFundingAward,
   cancelRevisionRequest,
-  cancelTtmMeeting,
   changeOpenCycleClosingTime,
   cancelBankReferral,
   closeProgrammeCycle,
   closeRecoveryCase,
   completeDeskReview,
   correctBankOutcome,
-  correctTtmDecision,
+  correctDecision,
   createFundingAward,
   createProgrammeCycle,
-  createTtmMeeting,
-  finalizeTtmMeeting,
   fundingByApplication,
   intakeByReference,
   intakeQueue,
@@ -30,24 +44,18 @@ import {
   programmeCycleById,
   programmeCycleEvents,
   programmeCycles,
-  removeTtmAgendaItem,
   recordBankOutcome,
   recordFundingAssessment,
   recordFundingRelease,
   recordRecoveryEntry,
-  recordTtmDecision,
+  recordDecision,
   recoveryById,
   referApplicationToBank,
   reverseFundingRelease,
-  reorderTtmAgendaItem,
   setProgrammeCycleDeleted,
   startDeskReview,
-  startTtmMeeting,
-  ttmMeetingById,
-  ttmMeetings,
   updateDraftProgrammeCycleController,
   updateOpenCycleGuidance,
-  updateTtmMeeting,
 } from '../../../services/admin'
 import type { StaffMember } from '../../../loaders'
 import type { GraphQLContext } from '../../types'
@@ -70,11 +78,15 @@ export const adminResolvers = {
   AdminQuery: {
     programmeCycle: () => ({}),
     intake: () => ({}),
-    decision: () => ({}),
     funding: () => ({}),
+    analytics: () => ({}),
+  },
+  AdminAnalyticsQuery: {
+    summary: (_parent: unknown, args: { input?: Parameters<typeof analyticsSummary>[0] }, context: GraphQLContext) => analyticsSummary(args.input ?? {}, context),
   },
   AdminMutation: {
     programmeCycle: () => ({}),
+    formTemplate: () => ({}),
     intake: () => ({}),
     decision: () => ({}),
     funding: () => ({}),
@@ -92,13 +104,79 @@ export const adminResolvers = {
     workspace: (_parent: unknown, args: { applicationId: string }, context: GraphQLContext) => intakeWorkspace(args.applicationId, context),
     documentDownloadUrl: (_parent: unknown, args: { applicationId: string; submissionDocumentId: string }, context: GraphQLContext) => adminDocumentDownloadUrl(args, context),
   },
-  AdminDecisionQuery: {
-    meetings: (_parent: unknown, args: Parameters<typeof ttmMeetings>[0], context: GraphQLContext) => ttmMeetings(args, context),
-    meetingById: (_parent: unknown, args: { meetingId: string }, context: GraphQLContext) => ttmMeetingById(args.meetingId, context),
-  },
   AdminFundingQuery: {
     byApplication: (_parent: unknown, args: { applicationId: string }, context: GraphQLContext) => fundingByApplication(args.applicationId, context),
     recoveryById: (_parent: unknown, args: { recoveryCaseId: string }, context: GraphQLContext) => recoveryById(args.recoveryCaseId, context),
+  },
+  /*
+   * Every one of these takes the same scope — which cycle, at which version,
+   * why — flattened into the controller's input, because the service layer
+   * does not know about GraphQL's shapes and should not learn.
+   */
+  AdminFormTemplateMutation: {
+    replace: (
+      _parent: unknown,
+      args: Args<{ scope: FormScope; template: unknown }>,
+      context: GraphQLContext,
+    ) => replaceFormTemplate(
+      { ...args.input.scope, template: args.input.template as never }, context,
+    ),
+    addStage: (
+      _parent: unknown,
+      args: Args<{ scope: FormScope; stage: unknown }>,
+      context: GraphQLContext,
+    ) => addFormStage({ ...args.input.scope, stage: args.input.stage as never }, context),
+    updateStage: (
+      _parent: unknown,
+      args: Args<{ scope: FormScope; stage: unknown }>,
+      context: GraphQLContext,
+    ) => updateFormStage({ ...args.input.scope, stage: args.input.stage as never }, context),
+    removeStage: (
+      _parent: unknown,
+      args: Args<{ scope: FormScope; stageKey: string }>,
+      context: GraphQLContext,
+    ) => removeFormStage({ ...args.input.scope, stageKey: args.input.stageKey }, context),
+    addQuestion: (
+      _parent: unknown,
+      args: Args<{ scope: FormScope; field: unknown; options?: unknown; conditions?: unknown }>,
+      context: GraphQLContext,
+    ) => addFormQuestion({
+      ...args.input.scope,
+      field: args.input.field as never,
+      options: args.input.options as never,
+      conditions: args.input.conditions as never,
+    }, context),
+    updateQuestion: (
+      _parent: unknown,
+      args: Args<{ scope: FormScope; field: unknown; options?: unknown; conditions?: unknown }>,
+      context: GraphQLContext,
+    ) => updateFormQuestion({
+      ...args.input.scope,
+      field: args.input.field as never,
+      options: args.input.options as never,
+      conditions: args.input.conditions as never,
+    }, context),
+    removeQuestion: (
+      _parent: unknown,
+      args: Args<{ scope: FormScope; fieldKey: string }>,
+      context: GraphQLContext,
+    ) => removeFormQuestion({ ...args.input.scope, fieldKey: args.input.fieldKey }, context),
+    putGroupDefinition: (
+      _parent: unknown,
+      args: Args<{ scope: FormScope; definition: unknown }>,
+      context: GraphQLContext,
+    ) => putFormGroupDefinition(
+      { ...args.input.scope, definition: args.input.definition as never },
+      context,
+    ),
+    removeGroupDefinition: (
+      _parent: unknown,
+      args: Args<{ scope: FormScope; definitionKey: string }>,
+      context: GraphQLContext,
+    ) => removeFormGroupDefinition(
+      { ...args.input.scope, definitionKey: args.input.definitionKey },
+      context,
+    ),
   },
   AdminProgrammeCycleMutation: {
     create: (_parent: unknown, args: Args<Parameters<typeof createProgrammeCycle>[0]>, context: GraphQLContext) => createProgrammeCycle(args.input, context),
@@ -122,16 +200,8 @@ export const adminResolvers = {
     cancelBankReferral: (_parent: unknown, args: Args<Parameters<typeof cancelBankReferral>[0]>, context: GraphQLContext) => cancelBankReferral(args.input, context),
     recordBankOutcome: (_parent: unknown, args: Args<Parameters<typeof recordBankOutcome>[0]>, context: GraphQLContext) => recordBankOutcome(args.input, context),
     correctBankOutcome: (_parent: unknown, args: Args<Parameters<typeof correctBankOutcome>[0]>, context: GraphQLContext) => correctBankOutcome(args.input, context),
-    createMeeting: (_parent: unknown, args: Args<Parameters<typeof createTtmMeeting>[0]>, context: GraphQLContext) => createTtmMeeting(args.input, context),
-    updateMeeting: (_parent: unknown, args: Args<Parameters<typeof updateTtmMeeting>[0]>, context: GraphQLContext) => updateTtmMeeting(args.input, context),
-    cancelMeeting: (_parent: unknown, args: Args<Parameters<typeof cancelTtmMeeting>[0]>, context: GraphQLContext) => cancelTtmMeeting(args.input, context),
-    addAgendaItem: (_parent: unknown, args: Args<Parameters<typeof addTtmAgendaItem>[0]>, context: GraphQLContext) => addTtmAgendaItem(args.input, context),
-    reorderAgendaItem: (_parent: unknown, args: Args<Parameters<typeof reorderTtmAgendaItem>[0]>, context: GraphQLContext) => reorderTtmAgendaItem(args.input, context),
-    removeAgendaItem: (_parent: unknown, args: Args<Parameters<typeof removeTtmAgendaItem>[0]>, context: GraphQLContext) => removeTtmAgendaItem(args.input, context),
-    startMeeting: (_parent: unknown, args: Args<Parameters<typeof startTtmMeeting>[0]>, context: GraphQLContext) => startTtmMeeting(args.input, context),
-    finalizeMeeting: (_parent: unknown, args: Args<Parameters<typeof finalizeTtmMeeting>[0]>, context: GraphQLContext) => finalizeTtmMeeting(args.input, context),
-    recordDecision: (_parent: unknown, args: Args<Parameters<typeof recordTtmDecision>[0]>, context: GraphQLContext) => recordTtmDecision(args.input, context),
-    correctDecision: (_parent: unknown, args: Args<Parameters<typeof correctTtmDecision>[0]>, context: GraphQLContext) => correctTtmDecision(args.input, context),
+    recordDecision: (_parent: unknown, args: Args<Parameters<typeof recordDecision>[0]>, context: GraphQLContext) => recordDecision(args.input, context),
+    correctDecision: (_parent: unknown, args: Args<Parameters<typeof correctDecision>[0]>, context: GraphQLContext) => correctDecision(args.input, context),
   },
   AdminFundingMutation: {
     createAward: (_parent: unknown, args: Args<Parameters<typeof createFundingAward>[0]>, context: GraphQLContext) => createFundingAward(args.input, context),
@@ -155,10 +225,56 @@ export const adminResolvers = {
    */
   AdminApplicationQueueItem: { assignedTo: resolveAssignee },
   AdminApplicationState: { assignedTo: resolveAssignee },
+  /*
+   * Resolved from the cycle's own rows on read, rather than stored resolved.
+   * The workspace does the same for an application; both go through
+   * `resolveFormTemplate`, so what an officer edits and what an applicant is
+   * asked can never be two different readings of the same rows.
+   */
+  AdminCycleAggregate: {
+    /*
+     * Lifted off the version row, which is where a cycle's rules live — the
+     * head carries its identity and its window and nothing about eligibility.
+     *
+     * Named field by field rather than spread, so a column added to the version
+     * is a deliberate decision to publish it. A version row also carries the
+     * change reason and who made it, and those belong to the event history
+     * rather than to a policy a client renders as form fields.
+     */
+    policy: (parent: { version: Record<string, unknown> }) => ({
+      minimumApplicantAge: parent.version.minimumApplicantAge,
+      maximumApplicantAge: parent.version.maximumApplicantAge,
+      categoryAMaximumMonths: parent.version.categoryAMaximumMonths,
+      expansionWaitMonths: parent.version.expansionWaitMonths,
+      majorityOwnershipRequired: parent.version.majorityOwnershipRequired,
+      jurisdiction: parent.version.jurisdiction,
+      fundingCeilingState: parent.version.fundingCeilingState,
+      fundingCeilingAmountPaise: parent.version.fundingCeilingAmountPaise,
+      fundingCeilingScope: parent.version.fundingCeilingScope,
+    }),
+    groupDefinitions: (parent: Parameters<typeof definitionsOf>[0]) =>
+      definitionsOf(parent),
+    formTemplate: (parent: {
+      head: { id: string; currentVersion: number }
+      formStages: unknown[]
+      formFields: unknown[]
+      formFieldOptions: unknown[]
+      formFieldConditions: unknown[]
+    }) => resolveFormTemplate({
+      programmeCycleId: parent.head.id,
+      programmeCycleVersion: parent.head.currentVersion,
+      stages: parent.formStages as never,
+      fields: parent.formFields as never,
+      options: parent.formFieldOptions as never,
+      conditions: parent.formFieldConditions as never,
+    }),
+  },
   AdminWorkspace: {
     notes: (parent: { internalNotes?: unknown[] }) => parent.internalNotes ?? [],
-    snapshots: (parent: { snapshots: Parameters<typeof snapshotRecordToPublic>[0][] }) =>
-      parent.snapshots.map(snapshotRecordToPublic),
+    snapshots: (parent: {
+      snapshots: Array<Parameters<typeof snapshotRecordToPublic>[0]
+        & { answers: Parameters<typeof snapshotRecordToPublic>[1] }>
+    }) => parent.snapshots.map((snapshot) => snapshotRecordToPublic(snapshot, snapshot.answers)),
     documents: (parent: { documents: Array<{ pin: Record<string, unknown>; file: Record<string, unknown> }> }) =>
       parent.documents.map(({ pin, file }) => ({ ...pin, ...file, id: pin.id })),
     reviewChecks: (parent: { reviewChecks: Array<{ check: unknown }> }) =>

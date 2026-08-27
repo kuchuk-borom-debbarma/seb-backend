@@ -51,6 +51,22 @@ const asHtml = (body: string): string =>
   `<p>${escapeHtml(body).replaceAll('\n', '<br>')}</p>`
 
 /**
+ * Binary to base64 without `Buffer`, which the Workers runtime does not have.
+ *
+ * Chunked because `String.fromCharCode(...bytes)` spreads the whole document
+ * onto the argument stack, and a PDF is comfortably large enough to overflow
+ * it. The chunk size is far below every engine's argument limit.
+ */
+const toBase64 = (bytes: Uint8Array): string => {
+  let binary = ''
+  const CHUNK = 8_192
+  for (let index = 0; index < bytes.length; index += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + CHUNK))
+  }
+  return btoa(binary)
+}
+
+/**
  * Fails without saying anything a log should not repeat.
  *
  * The caller logs whatever is thrown here (`auth/controllers/auth.ts`), and
@@ -82,6 +98,22 @@ export const pingramTransport = (
           ...(configuration.fromName ? { fromName: configuration.fromName } : {}),
           ...(configuration.fromAddress
             ? { fromAddress: configuration.fromAddress }
+            : {}),
+          /*
+           * `attachments: [{filename, contentType, content}]` with base64
+           * content is the provider's documented shape as best understood.
+           * If Pingram rejects one, the failure surfaces as the sanitised
+           * `refuse(status)` below — the response body is never repeated,
+           * because it can echo the filename and the document itself.
+           */
+          ...(notification.attachments?.length
+            ? {
+                attachments: notification.attachments.map((attachment) => ({
+                  filename: attachment.filename,
+                  contentType: attachment.contentType,
+                  content: toBase64(attachment.bytes),
+                })),
+              }
             : {}),
         }),
       })

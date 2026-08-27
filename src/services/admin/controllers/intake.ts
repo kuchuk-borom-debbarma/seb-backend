@@ -32,7 +32,13 @@ import {
   loadWorkspace,
   startDeskReviewWrite,
   unacceptedSubmissionDocumentCount,
+  type IntakeQueueFilterInput,
 } from '../queries/intake'
+/*
+ * Re-exported so a caller naming `intakeQueue`'s input can name its shape too;
+ * without this the exported signatures reference a type nothing else can reach.
+ */
+export type { IntakeQueueFilterInput } from '../queries/intake'
 import {
   ADMIN_REQUIRED_MESSAGE,
   constraintSafe,
@@ -43,6 +49,7 @@ import {
   normalizeRequiredText,
   STALE_MESSAGE,
 } from '../support'
+import { revisionRequestProblem } from '../revisions'
 import { failure, success } from '../../envelope'
 import {
   IDENTIFIER_FOR_CHECK,
@@ -63,42 +70,61 @@ import type {
   RevisionRequestInput,
 } from '../types'
 
+/**
+ * Refuses a filter set that cannot mean anything, naming the rule.
+ *
+ * Shared by the queue and the analytics summary, which accept the same filter
+ * shape — a range the queue refuses must not quietly reach the summary as an
+ * empty chart, or the two screens would disagree about whether the request
+ * was even valid.
+ */
+export const intakeFilterProblem = (
+  input: IntakeQueueFilterInput,
+): string | null => {
+  // Two named queues are subsets of one status, so combining the filters could
+  // silently return an empty page instead of the queue that was asked for.
+  // Refusing says which one to drop rather than leaving the caller guessing.
+  if (input.queue && (input.status || input.statuses?.length)) {
+    return 'Filter by queue or by status, not both.'
+  }
+  if (input.phaseNumber !== null && input.phaseNumber !== undefined && input.phaseNumber < 1) {
+    return 'Phase number must be positive.'
+  }
+  if (input.submittedFrom && input.submittedTo && input.submittedTo < input.submittedFrom) {
+    return 'The submission date range is invalid.'
+  }
+  if (input.decidedFrom && input.decidedTo && input.decidedTo < input.decidedFrom) {
+    return 'The decision date range is invalid.'
+  }
+  // The scalar already refuses negatives and fractions; what only this layer
+  // can see is the two bounds crossing, and a direct caller sending junk.
+  for (const bound of [input.requestedMinPaise, input.requestedMaxPaise]) {
+    if (bound !== null && bound !== undefined
+      && (!Number.isSafeInteger(bound) || bound < 0)) {
+      return 'The requested amount range is invalid.'
+    }
+  }
+  if (input.requestedMinPaise != null && input.requestedMaxPaise != null
+    && input.requestedMaxPaise < input.requestedMinPaise) {
+    return 'The requested amount range is invalid.'
+  }
+  return null
+}
+
 export const intakeQueue = async (
-  input: {
+  input: IntakeQueueFilterInput & {
     first?: number | null
     after?: string | null
-    cycleId?: string | null
-    status?: Parameters<typeof listIntakeQueue>[1]['status']
-    phaseNumber?: number | null
-    applicationType?: Parameters<typeof listIntakeQueue>[1]['applicationType']
-    assigneeUserId?: string | null
-    referenceNumber?: string | null
-    sector?: string | null
-    category?: Parameters<typeof listIntakeQueue>[1]['category']
-    submittedFrom?: Date | null
-    submittedTo?: Date | null
     order?: 'OLDEST_WAITING' | 'NEWEST_SUBMISSION' | 'LAST_ACTIVITY' | null
-    queue?: IntakeQueueKey | null
-    search?: string | null
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
   if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
-  // Two named queues are subsets of one status, so combining the filters could
-  // silently return an empty page instead of the queue that was asked for.
-  // Refusing says which one to drop rather than leaving the caller guessing.
-  if (input.queue && input.status) {
-    return failure('Filter by queue or by status, not both.')
-  }
+  const problem = intakeFilterProblem(input)
+  if (problem) return failure(problem)
   const first = adminPageSize(input.first)
   const after = decodeAdminCursor(input.after, intakeSortKey(input.order))
   if (!first || after === 'INVALID') return failure('Invalid pagination arguments.')
-  if (input.phaseNumber !== null && input.phaseNumber !== undefined && input.phaseNumber < 1) {
-    return failure('Phase number must be positive.')
-  }
-  if (input.submittedFrom && input.submittedTo && input.submittedTo < input.submittedFrom) {
-    return failure('The submission date range is invalid.')
-  }
   return success(await listIntakeQueue(context.db, { ...input, first, after }))
 }
 
@@ -321,10 +347,27 @@ const readIdentifiers = async (
 
 const validateAdvanceOutcome = async (
   context: AdminOperationContext,
-  input: { checks: DeskReviewCheckInput[]; revisions: RevisionRequestInput[] },
+  input: {
+    checks: DeskReviewCheckInput[]
+    revisions: RevisionRequestInput[]
+    reasonCategoryId?: string | null
+    applicantMessage?: string | null
+  },
   applicationType: 'INITIAL' | 'EXPANSION',
   submissionId: string,
 ): Promise<string | null> => {
+  /*
+   * An advancement carries neither, and `seb_desk_review_reason_check` has
+   * always said so — but nothing here did, so the refusal came from the
+   * database and reached the officer as "The record changed. Reload and try
+   * again." Reloading never helped, because nothing had changed.
+   *
+   * The rule this restores is the repository's own: the query is the
+   * correctness, and the controller is the sentence that explains it.
+   */
+  if (input.reasonCategoryId || normalizeRequiredText(input.applicantMessage ?? '', 1_000)) {
+    return 'Advancement to the bank carries no reason and no message to the applicant.'
+  }
   const hasNonPassingCheck = input.checks.some((check) =>
     check.checkType === 'EXPANSION_EVIDENCE' && applicationType === 'INITIAL'
       ? check.result !== 'NOT_APPLICABLE'
@@ -356,32 +399,6 @@ const validateOutcomeReason = async (
   })) return 'Select an approved outcome reason.'
   return normalizeRequiredText(input.applicantMessage ?? '', 1_000)
     ? null : 'Enter an applicant-safe explanation.'
-}
-
-const validateRevisionRequests = async (
-  context: AdminOperationContext,
-  revisions: RevisionRequestInput[],
-  cycleId: string,
-  cycleVersion: number,
-): Promise<string | null> => {
-  if (revisions.length < 1 || revisions.length > 6) {
-    return 'Provide one to six editable-section revision requests.'
-  }
-  if (new Set(revisions.map((revision) => revision.section)).size !== revisions.length) {
-    return 'Only one open request may target each section.'
-  }
-  for (const revision of revisions) {
-    const approved = await approvedReason(context.db, {
-      id: revision.reasonCategoryId,
-      cycleId,
-      version: cycleVersion,
-      context: 'REVISION',
-    })
-    if (!normalizeRequiredText(revision.note, 1_000) || !approved) {
-      return 'Every revision needs an approved reason and safe instruction.'
-    }
-  }
-  return null
 }
 
 export const completeDeskReview = async (
@@ -425,17 +442,27 @@ export const completeDeskReview = async (
       )
     : await validateOutcomeReason(context, input, cycleId, cycleVersion)
   if (outcomeProblem) return failure(outcomeProblem)
-  if (input.outcome === 'REQUEST_REVISION') {
-    const revisionProblem = await validateRevisionRequests(
-      context,
-      input.revisions,
-      cycleId,
-      cycleVersion,
-    )
-    if (revisionProblem) return failure(revisionProblem)
-  } else if (input.revisions.length > 0) {
-    return failure('This outcome cannot include revision requests.')
-  }
+  /*
+   * The same rules the decision and bank paths apply, from the same function.
+   *
+   * This used to be a fifth copy, and it was **missing the one rule that says a
+   * stage must be one the cycle's form actually has**. A review requesting a
+   * revision on a stage the template does not declare left the applicant unable
+   * to save or resubmit — the scope intersected with nothing — and told them the
+   * application had changed on every attempt.
+   */
+  const revisionProblem = await revisionRequestProblem(context, {
+    carriesRevisions: input.outcome === 'REQUEST_REVISION',
+    revisions: input.revisions,
+    cycleId,
+    cycleVersion,
+    maximum: 6,
+    stagesMessage: 'Provide one to six editable-stage revision requests, '
+      + 'each on a stage this application\u2019s form has.',
+    instructionMessage: 'Every revision needs an approved reason and safe instruction.',
+    unexpectedMessage: 'This outcome cannot include revision requests.',
+  })
+  if (revisionProblem) return failure(revisionProblem)
 
   /*
    * One extra read on this path, and it is one rather than none.

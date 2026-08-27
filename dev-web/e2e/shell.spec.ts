@@ -17,7 +17,7 @@ test.describe('the signed-in shell', () => {
      * applicant sections are offered.
      */
     await expect(sidebar.getByText('Programme office', { exact: true })).toBeVisible()
-    await expect(sidebar.getByRole('link', { name: 'Intake' })).toBeVisible()
+    await expect(sidebar.getByRole('link', { name: 'Applications' })).toBeVisible()
     await expect(sidebar.getByRole('link', { name: 'Enterprises' })).toHaveCount(0)
     await expect(sidebar.getByRole('link', { name: 'Applicant portal' })).toHaveCount(0)
   })
@@ -67,9 +67,14 @@ test.describe('the signed-in shell', () => {
 
   test('marks the current section', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL)
+    // The old sessions address forwards into settings, whose own nav marks
+    // the active tab.
     await page.goto('/account/sessions')
+    await expect(page).toHaveURL(/\/settings\/security$/u)
 
-    const current = page.getByRole('link', { name: 'Signed-in devices' })
+    const current = page
+      .getByRole('navigation', { name: 'Settings sections' })
+      .getByRole('link', { name: 'Security' })
     await expect(current).toHaveAttribute('data-status', 'active')
   })
 
@@ -120,9 +125,10 @@ test.describe('signed-in devices', () => {
     await page.getByRole('button', { name: 'Sign out other devices' }).click()
     await expect(page.getByRole('row')).toHaveCount(2) // header + this device
 
-    // The other device is genuinely signed out, not just hidden from the list.
-    await secondPage.goto('/')
-    await expect(secondPage).toHaveURL(/\/sign-in/u)
+    // The other device is genuinely signed out, not just hidden from the
+    // list. The root is public now, so a portal route is what proves it.
+    await secondPage.goto('/applications')
+    await expect(secondPage).toHaveURL(/\/login/u)
     await second.close()
   })
 
@@ -131,10 +137,11 @@ test.describe('signed-in devices', () => {
     await page.goto('/account/sessions')
 
     await page.getByRole('button', { name: 'Sign out everywhere' }).click()
-    await expect(page).toHaveURL(/\/sign-in/u)
+    // Ending every session lands on the public site.
+    await page.waitForURL((url) => url.pathname === '/')
 
-    await page.goto('/')
-    await expect(page).toHaveURL('/sign-in?next=%2F')
+    await page.goto('/applications')
+    await expect(page).toHaveURL('/login?next=%2Fapplications')
   })
 })
 
@@ -151,7 +158,7 @@ test.describe('on a narrow screen', () => {
     // rather than down the side.
     const navigation = page.getByRole('navigation', { name: 'Portal sections' })
     await expect(navigation).toBeVisible()
-    await expect(navigation.getByRole('link', { name: 'Intake' })).toBeVisible()
+    await expect(navigation.getByRole('link', { name: 'Applications' })).toBeVisible()
 
     // The bar takes its content height, not a share of the viewport.
     const bar = await navigation.boundingBox()
@@ -166,7 +173,9 @@ test.describe('on a narrow screen', () => {
 
   test('a table scrolls inside its wrapper rather than collapsing', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL)
-    await page.goto('/admin')
+    // The settings device list keeps the shared `.table-wrap` idiom; the
+    // redesigned admin dashboard wraps its table in its own module class.
+    await page.goto('/settings/security')
 
     const wrapper = page.locator('.table-wrap').first()
     const scrollable = await wrapper.evaluate(
@@ -180,7 +189,7 @@ test.describe('by keyboard alone', () => {
   test('every control on the sign-in screen is reachable and visibly focused', async ({
     page,
   }) => {
-    await page.goto('/sign-in')
+    await page.goto('/login')
 
     const reached: string[] = []
     for (let step = 0; step < 12; step += 1) {

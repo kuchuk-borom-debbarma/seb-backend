@@ -22,10 +22,10 @@ setup(
     await signUpApplicant(page, SUPER_ADMIN_EMAIL)
 
     // Before promotion this is an ordinary applicant, so sign-in lands on the
-    // applicant portal at the root.
+    // applicant portal's dashboard.
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await expect(page).toHaveURL(/localhost:\d+\/$/u)
-    expect(await navigationSections(page)).toContain('your applications')
+    await expect(page).toHaveURL(/\/dashboard$/u)
+    expect(await navigationSections(page)).toContain('workspace')
 
     await page.context().clearCookies()
     await bootstrapSuperAdmin()
@@ -38,6 +38,6 @@ setup(
      */
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await expect(page).toHaveURL(/\/admin$/u)
-    expect(await navigationSections(page)).toContain('casework')
+    expect(await navigationSections(page)).toContain('workspace')
   },
 )
