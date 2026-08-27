@@ -142,7 +142,10 @@ test.describe('cycle administration', () => {
     await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
 
     await applicantPage.goto('/applications/new')
-    await applicantPage.getByLabel('Enterprise').selectOption({ label: 'Journey Works' })
+    const journeySelect = applicantPage.getByLabel('Enterprise')
+    if (await journeySelect.isEnabled()) {
+      await journeySelect.selectOption({ label: 'Journey Works' })
+    }
     await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
     await applicantPage.getByRole('button', { name: 'Next' }).click()
     await applicantPage.getByRole('radio', { name: 'Initial application' }).check()
@@ -181,7 +184,10 @@ test.describe('cycle administration', () => {
     await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
 
     await applicantPage.goto('/applications/new')
-    await applicantPage.getByLabel('Enterprise').selectOption({ label: 'Unfunded Works' })
+    const unfundedSelect = applicantPage.getByLabel('Enterprise')
+    if (await unfundedSelect.isEnabled()) {
+      await unfundedSelect.selectOption({ label: 'Unfunded Works' })
+    }
     await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
     await applicantPage.getByRole('button', { name: 'Next' }).click()
 

@@ -575,38 +575,44 @@ export const insertProgrammeCycle = async (
       versionValues(id, 1, input, 'DRAFT', 'CREATED', null, actorUserId, now),
     ),
     /*
-     * One prepared statement per row.
+     * One multi-row insert per table, not one statement per row.
      *
-     * This used to be forced: the old engine had a low bind-variable ceiling
-     * and the comment here promised the batch stayed under forty statements.
-     * Neither is true now — Postgres allows 65535 parameters, and a real form
-     * template is closer to a hundred rows than to forty. **A multi-row insert
-     * per table is the right shape and would be four statements rather than a
-     * hundred**; it is left as-is only because changing the write shape and the
-     * schema in one step would make a failure ambiguous between them.
+     * Each statement in the batch is its own round trip to Postgres, and a
+     * real template is over a hundred rows — per-row inserts made creating a
+     * cycle a twenty-second wait from a deployed Worker to a remote database.
+     * Postgres takes 65535 bind parameters, far above any guarded template.
+     * Empty tables are skipped: drizzle refuses `.values([])`.
      */
-    ...policy.formStages.map((row) =>
-      tx.insert(sebProgrammeCycleFormStage).values(row)),
-    ...policy.formFields.map((row) =>
-      tx.insert(sebProgrammeCycleFormField).values(row)),
-    ...policy.formFieldOptions.map((row) =>
-      tx.insert(sebProgrammeCycleFormFieldOption).values(row)),
-    ...policy.formFieldConditions.map((row) =>
-      tx.insert(sebProgrammeCycleFormFieldCondition).values(row)),
-    // Definitions after their derived rows exist is fine either way — nothing
-    // references across; they are copied forward with the seven rule tables.
-    ...policy.groupDefinitions.map((row) =>
-      tx.insert(sebProgrammeCycleFormGroupDefinition).values(row)),
-    ...policy.groupDefinitionMembers.map((row) =>
-      tx.insert(sebProgrammeCycleFormGroupDefinitionMember).values(row)),
-    ...policy.groupDefinitionMemberOptions.map((row) =>
-      tx.insert(sebProgrammeCycleFormGroupDefinitionMemberOption).values(row)),
-    ...policy.identifierRules.map((row) =>
-      tx.insert(sebProgrammeCycleIdentifierRule).values(row)),
-    ...policy.assessmentRules.map((row) =>
-      tx.insert(sebProgrammeCycleAssessmentRule).values(row)),
-    ...policy.reasons.map((row) =>
-      tx.insert(sebProgrammeCycleReason).values(row)),
+    ...[
+      policy.formStages.length
+        ? tx.insert(sebProgrammeCycleFormStage).values(policy.formStages) : null,
+      policy.formFields.length
+        ? tx.insert(sebProgrammeCycleFormField).values(policy.formFields) : null,
+      policy.formFieldOptions.length
+        ? tx.insert(sebProgrammeCycleFormFieldOption).values(policy.formFieldOptions) : null,
+      policy.formFieldConditions.length
+        ? tx.insert(sebProgrammeCycleFormFieldCondition).values(policy.formFieldConditions)
+        : null,
+      // Definitions after their derived rows exist is fine either way — nothing
+      // references across; they are copied forward with the seven rule tables.
+      policy.groupDefinitions.length
+        ? tx.insert(sebProgrammeCycleFormGroupDefinition).values(policy.groupDefinitions)
+        : null,
+      policy.groupDefinitionMembers.length
+        ? tx.insert(sebProgrammeCycleFormGroupDefinitionMember)
+            .values(policy.groupDefinitionMembers)
+        : null,
+      policy.groupDefinitionMemberOptions.length
+        ? tx.insert(sebProgrammeCycleFormGroupDefinitionMemberOption)
+            .values(policy.groupDefinitionMemberOptions)
+        : null,
+      policy.identifierRules.length
+        ? tx.insert(sebProgrammeCycleIdentifierRule).values(policy.identifierRules) : null,
+      policy.assessmentRules.length
+        ? tx.insert(sebProgrammeCycleAssessmentRule).values(policy.assessmentRules) : null,
+      policy.reasons.length
+        ? tx.insert(sebProgrammeCycleReason).values(policy.reasons) : null,
+    ].filter((statement) => statement !== null),
     tx.insert(coreAuditEvent).values(audit),
   ]
   await batch(context.db, statements)
@@ -662,28 +668,36 @@ export const updateDraftProgrammeCycle = async (
         now,
       ),
     ),
-    ...policy.formStages.map((row) =>
-      tx.insert(sebProgrammeCycleFormStage).values(row)),
-    ...policy.formFields.map((row) =>
-      tx.insert(sebProgrammeCycleFormField).values(row)),
-    ...policy.formFieldOptions.map((row) =>
-      tx.insert(sebProgrammeCycleFormFieldOption).values(row)),
-    ...policy.formFieldConditions.map((row) =>
-      tx.insert(sebProgrammeCycleFormFieldCondition).values(row)),
-    // Definitions after their derived rows exist is fine either way — nothing
-    // references across; they are copied forward with the seven rule tables.
-    ...policy.groupDefinitions.map((row) =>
-      tx.insert(sebProgrammeCycleFormGroupDefinition).values(row)),
-    ...policy.groupDefinitionMembers.map((row) =>
-      tx.insert(sebProgrammeCycleFormGroupDefinitionMember).values(row)),
-    ...policy.groupDefinitionMemberOptions.map((row) =>
-      tx.insert(sebProgrammeCycleFormGroupDefinitionMemberOption).values(row)),
-    ...policy.identifierRules.map((row) =>
-      tx.insert(sebProgrammeCycleIdentifierRule).values(row)),
-    ...policy.assessmentRules.map((row) =>
-      tx.insert(sebProgrammeCycleAssessmentRule).values(row)),
-    ...policy.reasons.map((row) =>
-      tx.insert(sebProgrammeCycleReason).values(row)),
+    // One multi-row insert per table — see the same shape at creation; each
+    // statement is a round trip, and a draft revision rewrites every table.
+    ...[
+      policy.formStages.length
+        ? tx.insert(sebProgrammeCycleFormStage).values(policy.formStages) : null,
+      policy.formFields.length
+        ? tx.insert(sebProgrammeCycleFormField).values(policy.formFields) : null,
+      policy.formFieldOptions.length
+        ? tx.insert(sebProgrammeCycleFormFieldOption).values(policy.formFieldOptions) : null,
+      policy.formFieldConditions.length
+        ? tx.insert(sebProgrammeCycleFormFieldCondition).values(policy.formFieldConditions)
+        : null,
+      policy.groupDefinitions.length
+        ? tx.insert(sebProgrammeCycleFormGroupDefinition).values(policy.groupDefinitions)
+        : null,
+      policy.groupDefinitionMembers.length
+        ? tx.insert(sebProgrammeCycleFormGroupDefinitionMember)
+            .values(policy.groupDefinitionMembers)
+        : null,
+      policy.groupDefinitionMemberOptions.length
+        ? tx.insert(sebProgrammeCycleFormGroupDefinitionMemberOption)
+            .values(policy.groupDefinitionMemberOptions)
+        : null,
+      policy.identifierRules.length
+        ? tx.insert(sebProgrammeCycleIdentifierRule).values(policy.identifierRules) : null,
+      policy.assessmentRules.length
+        ? tx.insert(sebProgrammeCycleAssessmentRule).values(policy.assessmentRules) : null,
+      policy.reasons.length
+        ? tx.insert(sebProgrammeCycleReason).values(policy.reasons) : null,
+    ].filter((statement) => statement !== null),
     tx.insert(coreAuditEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${actorUserId}, 'SEB.CYCLE_UPDATED',
         'SEB_PROGRAMME_CYCLE', ${input.id}, 'SUCCESS', NULL, NULL, NULL,

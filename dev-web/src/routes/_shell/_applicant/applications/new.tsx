@@ -14,7 +14,7 @@ import {
   Rocket,
   TrendingUp,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { cyclesQuery } from '#/features/application/queries'
 import { useMarker } from '#/features/guide/GuideContext'
 import {
@@ -94,6 +94,25 @@ function StartApplicationPage() {
   const { data: cycles } = useQuery(cyclesQuery)
 
   const open = cycles?.available ?? []
+
+  /*
+   * A choice of one is not a choice. With a single enterprise or a single
+   * open cycle, the select is filled in and locked — the applicant reads
+   * what will be used instead of being asked to pick it.
+   */
+  const soleEnterpriseId = enterprises?.length === 1 ? enterprises[0]!.id : null
+  const soleCycleId = open.length === 1 ? open[0]!.id : null
+  useEffect(() => {
+    const enterpriseId =
+      search.enterpriseId ?? (soleEnterpriseId !== null ? soleEnterpriseId : undefined)
+    const cycleId = search.cycleId ?? (soleCycleId !== null ? soleCycleId : undefined)
+    if (enterpriseId === search.enterpriseId && cycleId === search.cycleId) return
+    void navigate({
+      search: (previous) => ({ ...previous, enterpriseId, cycleId }),
+      replace: true,
+    })
+  }, [navigate, search.cycleId, search.enterpriseId, soleCycleId, soleEnterpriseId])
+
   const chosen = Boolean(
     enterprises?.some((enterprise) => enterprise.id === search.enterpriseId) &&
     open.some((cycle) => cycle.id === search.cycleId),
@@ -272,6 +291,7 @@ function StartApplicationPage() {
                       <select
                         id="enterprise"
                         className={styles.selectInput}
+                        disabled={soleEnterpriseId !== null}
                         value={search.enterpriseId ?? ''}
                         onChange={(event) => {
                           setKind(null)
@@ -310,6 +330,7 @@ function StartApplicationPage() {
                       <select
                         id="cycle"
                         className={styles.selectInput}
+                        disabled={soleCycleId !== null}
                         value={search.cycleId ?? ''}
                         onChange={(event) => {
                           setKind(null)

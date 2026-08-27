@@ -1059,6 +1059,11 @@ function AdminCyclePage() {
                   onChange={(event) => setReason(event.target.value)}
                 />
               </div>
+              {changeClosing.error ? (
+                <p className="notice" data-tone="error" role="alert" style={{ margin: 0 }}>
+                  {messageFor(changeClosing.error)}
+                </p>
+              ) : null}
             </div>
             <div className={styles.modalFooter}>
               <button
@@ -1200,6 +1205,13 @@ function AdminCyclePage() {
                   onChange={(event) => setReason(event.target.value)}
                 />
               </div>
+              {/* The refusal belongs where the click happened — rendered only
+                  at the page top, it hid behind this very overlay. */}
+              {transition.error || removeDraft.error ? (
+                <p className="notice" data-tone="error" role="alert" style={{ margin: 0 }}>
+                  {messageFor(transition.error ?? removeDraft.error)}
+                </p>
+              ) : null}
             </div>
             <div className={styles.modalFooter}>
               <button

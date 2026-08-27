@@ -4,7 +4,7 @@
  */
 import { z } from 'zod'
 import { auditActions, type UserRole } from '../../../db/schema'
-import { sendNotification } from '../../external-notification'
+import { notificationDelivery, sendNotification } from '../../external-notification'
 import { capabilitiesOf, rolesHaveCapability, type Capability } from '../capabilities'
 import { clearSessionCookie, readSessionToken, setSessionCookie } from '../cookies'
 import {
@@ -251,7 +251,7 @@ export const startApplicantSignup = async (
   const now = new Date()
   const expiresAt = new Date(now.getTime() + CHALLENGE_TTL_MS)
   const challengeToken = createChallengeToken()
-  const response = { challengeToken, expiresAt }
+  const response = { challengeToken, expiresAt, delivery: notificationDelivery(context.env) }
 
   const id = crypto.randomUUID()
   const otp = createOtp()

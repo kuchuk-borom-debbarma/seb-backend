@@ -68,7 +68,7 @@ interface StorySlide {
   desc: string
 }
 
-type Challenge = { challengeToken: string; expiresAt: string }
+type Challenge = { challengeToken: string; expiresAt: string; delivery: string }
 
 const applicantSlides: StorySlide[] = [
   {
@@ -546,9 +546,19 @@ function LoginPage() {
                       <div className="flex items-start gap-2">
                         <Info className="mt-0.5 size-3.5 shrink-0 text-[#1d4ed8]" />
                         <p className="text-[10.5px] leading-relaxed text-[#1e40af]">
-                          <strong>Read the code from the server console.</strong> This
-                          local build prints the six-digit code to Wrangler instead of
-                          emailing it. It expires {formatRelative(challenge.expiresAt)}.
+                          {challenge.delivery === 'CONSOLE' ? (
+                            <>
+                              <strong>Read the code from the server console.</strong>{' '}
+                              This development server prints the six-digit code to its
+                              log instead of emailing it.
+                            </>
+                          ) : (
+                            <>
+                              <strong>Check your inbox.</strong> We emailed a six-digit
+                              code to the address you entered.
+                            </>
+                          )}{' '}
+                          It expires {formatRelative(challenge.expiresAt)}.
                         </p>
                       </div>
                     </div>

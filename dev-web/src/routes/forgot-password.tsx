@@ -21,7 +21,7 @@ export const Route = createFileRoute('/forgot-password')({
   component: ForgotPasswordPage,
 })
 
-type Challenge = { challengeToken: string; expiresAt: string }
+type Challenge = { challengeToken: string; expiresAt: string; delivery: string }
 
 function ForgotPasswordPage() {
   // Two genuinely sequential steps, as in sign-up: the API issues a challenge
@@ -153,15 +153,21 @@ function ResetStep({
         reset.mutate()
       }}
     >
-      {/*
-        Notification delivery is a console transport in development (roadmap
-        §18). Saying so is more useful than pretending an email was sent.
-      */}
-      <p className="notice" data-tone="action">
-        <span className="notice-title">Read the code from the server console</span>
-        This development build prints the six-digit code to the Wrangler output instead of
-        emailing it. It expires {formatRelative(challenge.expiresAt)}.
-      </p>
+      {/* The server says how the code travelled; the screen repeats it
+          instead of guessing from its build. */}
+      {challenge.delivery === 'CONSOLE' ? (
+        <p className="notice" data-tone="action">
+          <span className="notice-title">Read the code from the server console</span>
+          This development server prints the six-digit code to its log instead of
+          emailing it. It expires {formatRelative(challenge.expiresAt)}.
+        </p>
+      ) : (
+        <p className="notice" data-tone="action">
+          <span className="notice-title">Check your inbox</span>
+          We emailed a six-digit code to the address you entered. It expires{' '}
+          {formatRelative(challenge.expiresAt)}.
+        </p>
+      )}
 
       <div>
         <label className="field-label" htmlFor="otp">

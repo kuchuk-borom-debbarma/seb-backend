@@ -57,6 +57,18 @@ enum UserRole {
   SUPER_ADMIN
 }
 
+"""How a one-time code reaches the person who asked for it."""
+enum CodeDelivery {
+  """Sent to the address by the configured provider. Say "check your inbox"."""
+  EMAIL
+
+  """
+  Printed to the worker's log — a development machine with no provider
+  configured. Say so; pretending an email was sent helps nobody.
+  """
+  CONSOLE
+}
+
 """A signup attempt in progress."""
 type StartApplicantSignupResponse {
   """
@@ -69,6 +81,9 @@ type StartApplicantSignupResponse {
 
   """When the attempt expires. Ten minutes after it started."""
   expiresAt: DateTime!
+
+  """How the six-digit code is reaching the person."""
+  delivery: CodeDelivery!
 }
 
 """
@@ -203,6 +218,9 @@ type StartAccountChallengeResponse {
 
   """When the attempt expires. Ten minutes after it started."""
   expiresAt: DateTime!
+
+  """How the six-digit code is reaching the person."""
+  delivery: CodeDelivery!
 }
 
 """A challenge, or the reason one could not be started."""

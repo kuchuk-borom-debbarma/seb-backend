@@ -279,7 +279,12 @@ export const startApplication = async (
   await registerEnterprise(page, businessName)
 
   await page.goto('/applications/new')
-  await page.getByLabel('Enterprise').selectOption({ label: businessName })
+  // A sole enterprise arrives preselected and locked; selecting would throw.
+  const enterpriseSelect = page.getByLabel('Enterprise')
+  await expect(enterpriseSelect).toHaveValue(/./u, { timeout: 15_000 }).catch(() => {})
+  if (await enterpriseSelect.isEnabled()) {
+    await enterpriseSelect.selectOption({ label: businessName })
+  }
   /*
    * By code, never by position, and `cycleCode` is required so there is no way
    * back to position.
@@ -345,7 +350,12 @@ export const submitApplication = async (
   await registerEnterprise(page, businessName)
 
   await page.goto('/applications/new')
-  await page.getByLabel('Enterprise').selectOption({ label: businessName })
+  // A sole enterprise arrives preselected and locked; selecting would throw.
+  const enterpriseSelect = page.getByLabel('Enterprise')
+  await expect(enterpriseSelect).toHaveValue(/./u, { timeout: 15_000 }).catch(() => {})
+  if (await enterpriseSelect.isEnabled()) {
+    await enterpriseSelect.selectOption({ label: businessName })
+  }
   /*
    * By code, not by position. The suite shares one database, so by the time
    * this runs there are other open cycles — ones that do require documents —
