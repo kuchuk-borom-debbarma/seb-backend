@@ -1124,7 +1124,7 @@ describe('Mission SEP administration', () => {
       success: false,
       // Names the missing role, not "the form is invalid". The first of the
       // two roles in declaration order is what the check reports.
-      message: 'This cycle has no question the programme can read as APPLICANT_DATE_OF_BIRTH.',
+      message: 'Every cycle needs one question the programme reads as APPLICANT_DATE_OF_BIRTH: an owner\u2019s date of birth — the age eligibility rule reads it. Bind another question to this role before removing its holder.',
     })
 
     const missingCollections = [

@@ -209,7 +209,10 @@ test.describe('evidence', () => {
       .filter({ hasText: 'Detailed project report has not been uploaded.' })
       .getByRole('link')
     await documentIssue.click()
-    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
+    // With the document named in the address, so the screen can lead with it.
+    await expect(page).toHaveURL(
+      new RegExp(`/applications/${id}/documents(#\\w+)?$`, 'u'),
+    )
 
     // An answer on the form leads to the form.
     await page.goto(`/applications/${id}/review`)
@@ -256,7 +259,9 @@ test.describe('evidence', () => {
      * `ValidationIssue.field`, in the DOM `id` — and all four now come off one
      * row instead of being kept in step by hand.
      */
-    await expect(page).toHaveURL(new RegExp(`/applications/${id}/form#NOC_REQUIRED$`, 'u'))
+    await expect(page).toHaveURL(
+      new RegExp(`/applications/${id}/form(\\?stage=\\w+)?#NOC_REQUIRED$`, 'u'),
+    )
     // And the control is genuinely there.
     await expect(page.locator('#NOC_REQUIRED')).toBeVisible()
   })
@@ -272,8 +277,15 @@ test.describe('evidence', () => {
     await page.getByRole('link', { name: 'Evidence' }).click()
     await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
 
+    /*
+     * From the form, evidence is a stop on the journey rail — named, but
+     * locked until the answer stages before it are complete, because the
+     * journey is walked in order. Reachability from the form is the rail
+     * saying where it lives, not a shortcut past incomplete stages.
+     */
     await page.goto(`/applications/${id}/form`)
-    await page.getByRole('link', { name: 'Attach evidence' }).click()
-    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
+    const evidenceStep = page.getByRole('button', { name: /Attach evidence/u })
+    await expect(evidenceStep).toBeVisible()
+    await expect(evidenceStep).toBeDisabled()
   })
 })

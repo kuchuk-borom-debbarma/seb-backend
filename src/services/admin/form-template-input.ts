@@ -597,6 +597,19 @@ if (budget > MAX_ANSWER_BYTES) {
  * back. `openingProblem` still checks at open time; this is what stops the
  * cycle reaching that state at all.
  */
+/*
+ * What each role is *for*, said to the officer who just removed its holder.
+ * The bare enum name told them which internal key was unbound and nothing
+ * about why the programme needs it or what to do instead.
+ */
+const ROLE_PURPOSE: Record<string, string> = {
+  SEED_FUND_REQUESTED_PAISE:
+    'the amount of seed funding requested — the queue, the decision bound and '
+    + 'the analytics all read it',
+  APPLICANT_DATE_OF_BIRTH:
+    'an owner\u2019s date of birth — the age eligibility rule reads it',
+}
+
 const roleProblem = (template: FormTemplateInput): string | null => {
   const bound = new Map<string, string[]>()
   for (const field of template.fields) {
@@ -606,7 +619,9 @@ const roleProblem = (template: FormTemplateInput): string | null => {
   for (const role of formFieldRoles) {
     const holders = bound.get(role) ?? []
     if (holders.length === 0) {
-      return `This cycle has no question the programme can read as ${role}.`
+      return `Every cycle needs one question the programme reads as ${role}: `
+        + `${ROLE_PURPOSE[role] ?? 'a reporting question'}. `
+        + 'Bind another question to this role before removing its holder.'
     }
     if (holders.length > 1) {
       return `${holders.join(' and ')} both claim to be the cycle's ${role}.`

@@ -264,7 +264,7 @@ describe('what a cycle may not say about its questions', () => {
    */
   it('refuses a form with no question the programme can read as a role', () => {
     expect(spoiled(withoutField('SEED_FUND_REQUESTED_PAISE')))
-      .toBe('This cycle has no question the programme can read as SEED_FUND_REQUESTED_PAISE.')
+      .toBe('Every cycle needs one question the programme reads as SEED_FUND_REQUESTED_PAISE: the amount of seed funding requested — the queue, the decision bound and the analytics all read it. Bind another question to this role before removing its holder.')
   })
 
   it('refuses two questions claiming the same role', () => {

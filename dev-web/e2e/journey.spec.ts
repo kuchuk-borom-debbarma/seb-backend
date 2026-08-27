@@ -36,6 +36,7 @@ test('an application is carried from submission to payment', async ({ page }) =>
   ).toBeVisible()
 
   await page.getByRole('button', { name: 'Start desk review' }).click()
+  await page.getByRole('button', { name: 'Open desk review' }).click()
   await expect(page.getByRole('heading', { name: /desk review/iu })).toBeVisible()
 
   // --- Desk review --------------------------------------------------------
@@ -179,6 +180,7 @@ test('the decision asks for a correction rather than settling it', async ({ page
   // --- Through desk review and the bank, so it is ready to be decided ------
   await page.goto(`/admin/applications/${id}`)
   await page.getByRole('button', { name: 'Start desk review' }).click()
+  await page.getByRole('button', { name: 'Open desk review' }).click()
   for (const check of [
     'IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION',
     'FORM_COMPLETENESS', 'DOCUMENT_COMPLETENESS', 'ANSWER_DOCUMENT_CONSISTENCY',

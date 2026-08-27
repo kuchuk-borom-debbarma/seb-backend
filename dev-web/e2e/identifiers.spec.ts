@@ -54,6 +54,7 @@ const expectStatus = async (page: Page, status: string) => {
 const openReview = async (page: Page, id: string) => {
   await page.goto(`/admin/applications/${id}`)
   await page.getByRole('button', { name: 'Start desk review' }).click()
+  await page.getByRole('button', { name: 'Open desk review' }).click()
   for (const check of [
     'IDENTITY_KYC',
     'ST_ELIGIBILITY',
@@ -182,6 +183,7 @@ test.describe('what one cycle asks for', () => {
   test('shows an empty rule set back as the setting it is', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin/cycles/new')
+    await page.getByRole('button', { name: /Desk review & Reasons/u }).click()
 
     // Remove every rule. A cycle that collects nothing is legitimate, and it is
     // indistinguishable from one somebody forgot to configure — so it says so
@@ -198,6 +200,7 @@ test.describe('what one cycle asks for', () => {
   test('is reachable and labelled for somebody working by keyboard', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin/cycles/new')
+    await page.getByRole('button', { name: /Desk review & Reasons/u }).click()
 
     // Every control in the rule editor is named. An unlabelled select in a row
     // of four identical-looking selects is unusable without sight of the

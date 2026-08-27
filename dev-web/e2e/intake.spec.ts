@@ -265,6 +265,7 @@ test.describe('sending an application back for correction', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto(`/admin/applications/${application.id}`)
     await page.getByRole('button', { name: 'Start desk review' }).click()
+    await page.getByRole('button', { name: 'Open desk review' }).click()
 
     for (const check of [
       'IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION',

@@ -125,6 +125,7 @@ test.describe('working the same file', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto(`/admin/applications/${id}`)
     await page.getByRole('button', { name: 'Start desk review' }).click()
+    await page.getByRole('button', { name: 'Open desk review' }).click()
 
     // The same officer in two tabs is the honest reproduction of two officers:
     // the guard is on the record's version, not on who holds it.

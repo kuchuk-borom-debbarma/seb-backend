@@ -393,7 +393,11 @@ const openCycleWithoutDocuments = async (
     .getByLabel('Applications close')
     .fill(local(new Date(Date.now() + 2_592_000_000)))
 
-  if (configureIdentifiers) await configureIdentifiers(page)
+  if (configureIdentifiers) {
+    // The identifier rules live on the wizard's last step.
+    await page.getByRole('button', { name: /Desk review & Reasons/u }).click()
+    await configureIdentifiers(page)
+  }
 
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)

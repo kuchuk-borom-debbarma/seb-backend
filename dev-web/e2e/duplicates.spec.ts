@@ -29,6 +29,7 @@ const expectStatus = async (page: Page, status: string) => {
 const openReview = async (page: Page, id: string) => {
   await page.goto(`/admin/applications/${id}`)
   await page.getByRole('button', { name: 'Start desk review' }).click()
+  await page.getByRole('button', { name: 'Open desk review' }).click()
 
   for (const check of [
     'IDENTITY_KYC',
@@ -53,6 +54,7 @@ test.describe('what the documents say', () => {
 
     await page.goto(`/admin/applications/${id}`)
     await page.getByRole('button', { name: 'Start desk review' }).click()
+    await page.getByRole('button', { name: 'Open desk review' }).click()
 
     // Nothing passed yet, so nothing is being attested to.
     await expect(page.getByLabel('Scheduled Tribe certificate number')).toHaveCount(0)

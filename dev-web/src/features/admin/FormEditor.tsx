@@ -345,6 +345,7 @@ export function FormEditor({
         className="button"
         data-variant="primary"
         disabled={!canAct}
+        title={canAct ? undefined : 'Write a change reason above first.'}
         onClick={stageDraft ? saveStage : definitionDraft ? saveDefinition : saveQuestion}
       >
         {busy
@@ -713,26 +714,6 @@ function StagePane({
       </div>
     ) : null
 
-  const structureRows = (group: FieldView) => {
-    const structureKey = structureKeyOf(group.key, template, definitions)
-    const structure = definitions.find((each) => each.definitionKey === structureKey)
-    if (!structure) return null
-    return structure.members.map((member) => (
-      <div
-        key={`${group.key}__${member.memberKey}`}
-        className={[styles.questionRow, styles.memberRow, styles.derived].join(' ')}
-      >
-        <span>{member.label}</span>
-        <span className={styles.questionKey}>
-          {group.key}__{member.memberKey} · {humanize(member.fieldType).toLowerCase()}
-        </span>
-        <span className={styles.derivedTag}>
-          from structure {structure.label}
-        </span>
-      </div>
-    ))
-  }
-
   const questionRow = (field: FieldView, parentFieldKey: string | null) => {
     const derived = isDerivedMember(field, template, definitions)
     const structureKey = derived
@@ -772,6 +753,7 @@ function StagePane({
                 className="button"
                 data-variant="ghost"
                 disabled={!canAct}
+                title={canAct ? undefined : 'Write a change reason above first.'}
                 onClick={() => onRemoveQuestion(field.key)}
               >
                 Remove
@@ -783,13 +765,6 @@ function StagePane({
         {field.type === 'REPEAT_GROUP' ? (
           <>
             {membersOf(field.key).map((member) => questionRow(member, field.key))}
-            {/*
-              A structure-bound group carries no member rows of its own — the
-              server strips the derived expansion because the definition is
-              what is edited — so the members are drawn from the definition,
-              read-only, under the qualified keys the expansion will mint.
-            */}
-            {structureRows(field)}
             {structureKeyOf(field.key, template, definitions) === null ? (
               <div className={styles.memberRow} style={{ padding: '0.25rem 0 0.5rem' }}>
                 <button
@@ -853,6 +828,7 @@ function StagePane({
                 className="button"
                 data-variant="ghost"
                 disabled={!canAct}
+                title={canAct ? undefined : 'Write a change reason above first.'}
                 onClick={onRemoveStage}
               >
                 Remove stage
@@ -1076,6 +1052,7 @@ function StructuresPane({
                   className="button"
                   data-variant="ghost"
                   disabled={!canAct}
+                  title={canAct ? undefined : 'Write a change reason above first.'}
                   onClick={() => onRemove(definition.definitionKey)}
                 >
                   Remove
