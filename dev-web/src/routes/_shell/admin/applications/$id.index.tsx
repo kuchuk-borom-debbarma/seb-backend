@@ -7,13 +7,16 @@ import {
   FileText,
   Lock,
   Play,
+  Plus,
   User,
+  X,
 } from 'lucide-react'
 import { WhoIsOnThis } from '#/features/admin/WhoIsOnThis'
 import { BankStage } from '#/features/admin/BankStage'
 import { CommitteeStage } from '#/features/admin/CommitteeStage'
 import {
   DeskReviewForm,
+  DeskReviewModal,
   checkTitle,
   type DeskReviewDraft,
 } from '#/features/admin/DeskReviewForm'
@@ -36,7 +39,6 @@ import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from '#/features/admin/officeGuidance'
-import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
 
 /** The statuses in which a sanction order can exist. */
@@ -84,7 +86,6 @@ function WorkspacePage() {
                 {workspace.enterpriseName ?? 'Unknown enterprise'} ·{' '}
                 {workspace.cycleDisplayName ?? workspace.cycleCode ?? ''}
               </p>
-              <p className={styles.ledeDescription}>{OFFICE_LEDES.workspace}</p>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -109,17 +110,11 @@ function WorkspacePage() {
         </span>
       </div>
 
+      {/* Redesigned Top Internal Notes Card */}
+      <InternalNotes applicationId={id} notes={workspace.notes} onChanged={refresh} />
+
       {/* Main 2-Column Grid */}
-      <div
-        className={styles.mainGrid}
-        data-reviewing={
-          (application.status as string) === 'DESK_REVIEW' ||
-          application.status === 'PARTNER_BANK_EVALUATION' ||
-          application.status === 'TTM_REVIEW'
-            ? 'true'
-            : undefined
-        }
-      >
+      <div className={styles.mainGrid}>
         {/* Left Column: Who is on this + Next Step + Stages */}
         <div className={styles.colStack}>
           <WhoIsOnThis
@@ -258,12 +253,18 @@ function WorkspacePage() {
                     {workspace.reviews.map((review) => (
                       <tr key={review.id} className={styles.tableRow}>
                         <td>
-                          {humanize(review.outcome)}
-                          {review.conflictAcknowledged ? (
-                            <span className="field-hint">
-                              Reviewed by the applicant, declared
-                            </span>
-                          ) : null}
+                          <span
+                            className={styles.statusPill}
+                            data-tone={
+                              review.outcome === 'ADVANCE_TO_BANK'
+                                ? 'ok'
+                                : review.outcome === 'REJECT'
+                                  ? 'error'
+                                  : 'action'
+                            }
+                          >
+                            {humanize(review.outcome)}
+                          </span>
                         </td>
                         <td>{formatDateTime(review.reviewedAt)}</td>
                         <td>
@@ -286,54 +287,50 @@ function WorkspacePage() {
         </div>
       </div>
 
-      {/* Bottom 2-Column Grid: Internal Notes + Who has held this */}
-      <div className={styles.bottomGrid}>
-        <InternalNotes applicationId={id} notes={workspace.notes} onChanged={refresh} />
-
-        <section className={styles.card}>
-          <div className={styles.cardHeader}>
-            <h2 className={styles.cardTitle}>Who has held this</h2>
+      {/* Bottom Row: Who has held this */}
+      <section className={styles.card}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>Who has held this</h2>
+        </div>
+        {workspace.assignments.length === 0 ? (
+          <div className={styles.whoHeldEmpty}>
+            <div className={styles.whoHeldIconCircle}>
+              <User size={20} aria-hidden="true" />
+            </div>
+            <div className={styles.whoHeldTextGroup}>
+              <p className={styles.whoHeldTitle}>
+                Nobody has claimed this application yet.
+              </p>
+              <p className={styles.whoHeldDesc}>
+                Claiming records who holds the next decision — until somebody does,
+                nothing on it can be actioned.
+              </p>
+            </div>
           </div>
-          {workspace.assignments.length === 0 ? (
-            <div className={styles.whoHeldEmpty}>
-              <div className={styles.whoHeldIconCircle}>
-                <User size={20} aria-hidden="true" />
-              </div>
-              <div className={styles.whoHeldTextGroup}>
-                <p className={styles.whoHeldTitle}>
-                  Nobody has claimed this application yet.
-                </p>
-                <p className={styles.whoHeldDesc}>
-                  Claiming records who holds the next decision — until somebody does,
-                  nothing on it can be actioned.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className={styles.tableWrap}>
-              <table className={styles.table}>
-                <caption className="visually-hidden">Assignment history</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">When</th>
-                    <th scope="col">What happened</th>
-                    <th scope="col">Reason</th>
+        ) : (
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <caption className="visually-hidden">Assignment history</caption>
+              <thead>
+                <tr>
+                  <th scope="col">When</th>
+                  <th scope="col">What happened</th>
+                  <th scope="col">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workspace.assignments.map((event) => (
+                  <tr key={event.id} className={styles.tableRow}>
+                    <td>{formatDateTime(event.createdAt)}</td>
+                    <td>{humanize(event.eventType)}</td>
+                    <td className="muted">{event.reason ?? '—'}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {workspace.assignments.map((event) => (
-                    <tr key={event.id} className={styles.tableRow}>
-                      <td>{formatDateTime(event.createdAt)}</td>
-                      <td>{humanize(event.eventType)}</td>
-                      <td className="muted">{event.reason ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </main>
   )
 }
@@ -362,6 +359,7 @@ function NextStep({
 }) {
   const mark = useMarker()
   const [error, setError] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
 
   const start = useMutation({
     mutationFn: async () => {
@@ -387,7 +385,10 @@ function NextStep({
       unwrap(data.admin.intake.completeDeskReview)
     },
     onMutate: () => setError(null),
-    onSuccess: onChanged,
+    onSuccess: async () => {
+      setModalOpen(false)
+      await onChanged()
+    },
     onError: (cause) => setError(messageFor(cause)),
   })
 
@@ -433,28 +434,52 @@ function NextStep({
 
   if (status === 'DESK_REVIEW') {
     return (
-      <section className={styles.card} {...mark('next-step')}>
-        <div className={styles.cardHeader}>
-          <h2 className={styles.cardTitle}>
-            {hasReview ? 'Record another review' : 'Complete the desk review'}
-          </h2>
-        </div>
-        <div>
-          <p className="muted" style={{ marginBottom: '0.75rem', fontSize: '13px' }}>
-            The nine checks and the outcome are recorded together, in one write — so a
-            review cannot be left half-saved. Closing this leaves the application exactly
-            where it is.
-          </p>
-          <DeskReviewForm
-            reasons={reasons}
-            rules={rules}
-            reviewingOwnApplication={reviewingOwnApplication}
-            pending={complete.isPending}
-            error={error}
-            onSubmit={(draft) => complete.mutate(draft)}
-          />
-        </div>
-      </section>
+      <>
+        <section className={styles.card} {...mark('next-step')}>
+          <div className={styles.cardHeader}>
+            <h2 className={styles.cardTitle}>Next</h2>
+          </div>
+          <div className={styles.nextActionBox}>
+            <div className={styles.nextActionHeader}>
+              <div className={styles.nextActionIconBadge}>
+                <ClipboardList size={16} color="#2563eb" aria-hidden="true" />
+              </div>
+              <h3 className={styles.nextActionTitle}>
+                {hasReview ? 'Record another review' : 'Complete the desk review'}
+              </h3>
+            </div>
+            <button
+              type="button"
+              className={styles.primaryActionButton}
+              onClick={() => setModalOpen(true)}
+            >
+              {hasReview ? 'Open review form' : 'Open desk review'}
+            </button>
+            {error ? (
+              <p
+                className="notice"
+                data-tone="error"
+                role="alert"
+                style={{ marginTop: '0.75rem' }}
+              >
+                {error}
+              </p>
+            ) : null}
+          </div>
+        </section>
+
+        <DeskReviewModal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          hasReview={hasReview}
+          reasons={reasons}
+          rules={rules}
+          reviewingOwnApplication={reviewingOwnApplication}
+          pending={complete.isPending}
+          error={error}
+          onSubmit={(draft) => complete.mutate(draft)}
+        />
+      </>
     )
   }
 
@@ -713,8 +738,9 @@ function InternalNotes({
   onChanged: () => Promise<unknown>
 }) {
   const mark = useMarker()
+  const [modalOpen, setModalOpen] = useState(false)
   const [text, setText] = useState('')
-  const [correcting, setCorrecting] = useState<string | null>(null)
+  const [correctingNoteId, setCorrectingNoteId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const add = useMutation({
@@ -723,7 +749,7 @@ function InternalNotes({
         input: {
           applicationId,
           note: text.trim(),
-          correctionOfNoteId: correcting,
+          correctionOfNoteId: correctingNoteId,
         },
       })
       unwrap(data.admin.intake.addInternalNote)
@@ -731,7 +757,8 @@ function InternalNotes({
     onMutate: () => setError(null),
     onSuccess: async () => {
       setText('')
-      setCorrecting(null)
+      setCorrectingNoteId(null)
+      setModalOpen(false)
       await onChanged()
     },
     onError: (cause) => setError(messageFor(cause)),
@@ -741,96 +768,198 @@ function InternalNotes({
     notes.map((note) => note.correctionOfNoteId).filter(Boolean) as string[],
   )
 
+  const correctingNote = notes.find((note) => note.id === correctingNoteId)
+
+  const openAddModal = () => {
+    setCorrectingNoteId(null)
+    setText('')
+    setError(null)
+    setModalOpen(true)
+  }
+
+  const openCorrectModal = (noteId: string) => {
+    setCorrectingNoteId(noteId)
+    setText('')
+    setError(null)
+    setModalOpen(true)
+  }
+
+  const closeModal = () => {
+    setModalOpen(false)
+    setCorrectingNoteId(null)
+    setText('')
+    setError(null)
+  }
+
   return (
-    <section className={styles.card} {...mark('internal-notes')}>
-      <div className={styles.cardHeader}>
-        <div className={styles.cardHeaderTitleGroup}>
-          <h2 className={styles.cardTitle}>Internal notes</h2>
-          <Lock size={14} className="muted" aria-hidden="true" />
+    <section className={styles.topNotesCard} {...mark('internal-notes')}>
+      <div className={styles.topNotesHeader}>
+        <div className={styles.topNotesHeaderLeft}>
+          <div className={styles.notesLockBadge}>
+            <Lock size={13} aria-hidden="true" />
+          </div>
+          <span className={styles.notesCardTitle}>Internal notes</span>
+          <span className={styles.confidentialTag}>Never shown to applicant</span>
+          {notes.length > 0 ? (
+            <span className={styles.notesCountPill}>
+              {notes.length} {notes.length === 1 ? 'note' : 'notes'}
+            </span>
+          ) : null}
         </div>
-        <span className={styles.cardSubtitle}>Never shown to the applicant</span>
+
+        <button
+          type="button"
+          className={styles.addNoteTriggerButton}
+          onClick={openAddModal}
+        >
+          <Plus size={14} aria-hidden="true" />
+          Add note
+        </button>
       </div>
 
       {notes.length === 0 ? (
-        <div className={styles.notesCallout}>
-          <FileText size={18} className={styles.notesCalloutIcon} aria-hidden="true" />
-          <p className={styles.notesCalloutText}>
-            No notes yet. Notes stay inside the office and are never shown to the
-            applicant; once written, one can only be corrected by another that points at
-            it.
-          </p>
-        </div>
+        <p className={styles.notesEmptyHint}>
+          No notes yet. Notes stay inside the office and are never shown to the
+          applicant; once written, one can only be corrected by another that points at
+          it.
+        </p>
       ) : (
-        <div className="stack">
+        <div className={styles.notesList}>
           {notes.map((note) => (
             <div key={note.id} className={styles.noteItem}>
               <p className={styles.noteContent}>{note.note}</p>
-              <span className={styles.noteMeta}>
-                {formatDateTime(note.createdAt)}
-                {note.correctionOfNoteId ? ' · corrects an earlier note' : ''}
-                {corrections.has(note.id) ? ' · corrected later' : ''}
-              </span>
-              {!note.correctionOfNoteId && !corrections.has(note.id) ? (
-                <button
-                  type="button"
-                  className="button"
-                  data-variant="ghost"
-                  onClick={() => setCorrecting(note.id)}
-                  style={{ alignSelf: 'flex-start', marginTop: '4px' }}
-                >
-                  Correct this note
-                </button>
-              ) : null}
+              <div className={styles.noteMetaRow}>
+                <span className={styles.noteMeta}>
+                  {formatDateTime(note.createdAt)}
+                  {note.correctionOfNoteId ? ' · corrects an earlier note' : ''}
+                  {corrections.has(note.id) ? ' · corrected later' : ''}
+                </span>
+                {!note.correctionOfNoteId && !corrections.has(note.id) ? (
+                  <button
+                    type="button"
+                    className={styles.correctNoteBtn}
+                    onClick={() => openCorrectModal(note.id)}
+                  >
+                    Correct note
+                  </button>
+                ) : null}
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      <form
-        className={styles.noteForm}
-        onSubmit={(event) => {
-          event.preventDefault()
-          add.mutate()
-        }}
-      >
-        <input
-          type="text"
-          className={styles.noteInput}
-          placeholder={correcting ? 'Correction note' : 'Add a note'}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-        <button
-          type="submit"
-          className={styles.addNoteButton}
-          disabled={!text.trim() || add.isPending}
+      {/* Add / Correct Internal Note Modal */}
+      {modalOpen ? (
+        <div
+          className={styles.noteModalOverlay}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeModal()
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="internal-note-modal-title"
         >
-          {add.isPending
-            ? 'Saving…'
-            : correcting
-              ? 'Save correction'
-              : 'Add the note'}
-        </button>
-        {correcting ? (
-          <button
-            type="button"
-            className="button"
-            onClick={() => setCorrecting(null)}
-          >
-            Cancel
-          </button>
-        ) : null}
-      </form>
+          <div className={styles.noteModalDialog}>
+            <div className={styles.noteModalHeader}>
+              <div className={styles.noteModalHeaderLeft}>
+                <div className={styles.noteModalHeaderIcon}>
+                  <Lock size={16} aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 id="internal-note-modal-title" className={styles.noteModalTitle}>
+                    {correctingNote ? 'Correct internal note' : 'Add internal note'}
+                  </h3>
+                  <p className={styles.noteModalSubtitle}>
+                    Stored permanently. Never visible to the applicant.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className={styles.noteModalCloseButton}
+                onClick={closeModal}
+                aria-label="Close modal"
+              >
+                <X size={15} aria-hidden="true" />
+              </button>
+            </div>
 
-      {error ? (
-        <p
-          className="notice"
-          data-tone="error"
-          role="alert"
-          style={{ marginTop: '0.75rem' }}
-        >
-          {error}
-        </p>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (text.trim()) add.mutate()
+              }}
+            >
+              <div className={styles.noteModalBody}>
+                {correctingNote ? (
+                  <div className={styles.earlierNoteQuote}>
+                    <div className={styles.earlierNoteQuoteTitle}>
+                      Correcting note from {formatDateTime(correctingNote.createdAt)}:
+                    </div>
+                    <div>"{correctingNote.note}"</div>
+                  </div>
+                ) : null}
+
+                <div>
+                  <label className="field-label" htmlFor="internal-note-input">
+                    {correctingNote ? 'Correction note' : 'Note'}
+                  </label>
+                  <textarea
+                    id="internal-note-input"
+                    className="textarea"
+                    rows={4}
+                    placeholder={
+                      correctingNote
+                        ? 'State the correction and why it supersedes the earlier note…'
+                        : 'Write a note for caseworkers and reviewers…'
+                    }
+                    value={text}
+                    autoFocus
+                    onChange={(event) => setText(event.target.value)}
+                  />
+                  <p className="field-hint">
+                    Notes stay inside the programme office. Once saved, a note cannot be
+                    deleted.
+                  </p>
+                </div>
+
+                {error ? (
+                  <p
+                    className="notice"
+                    data-tone="error"
+                    role="alert"
+                    style={{ margin: 0 }}
+                  >
+                    {error}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className={styles.noteModalFooter}>
+                <button
+                  type="button"
+                  className={styles.cancelButton}
+                  onClick={closeModal}
+                  disabled={add.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={styles.primaryActionButton}
+                  disabled={!text.trim() || add.isPending}
+                >
+                  {add.isPending
+                    ? 'Saving…'
+                    : correctingNote
+                      ? 'Save correction'
+                      : 'Save note'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       ) : null}
     </section>
   )

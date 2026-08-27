@@ -1,0 +1,636 @@
+/* ==========================================================================
+   Cycle Form / Milestone Wizard Styles
+   ========================================================================== */
+
+.formContainer {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 28px 64px;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Back Link & Header */
+.pageHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #0f172a;
+  font-size: 22px;
+  font-weight: 700;
+  text-decoration: none;
+  letter-spacing: -0.01em;
+  transition: color 0.15s ease;
+}
+
+.backLink:hover {
+  color: #2563eb;
+}
+
+.backArrowIcon {
+  color: #64748b;
+  transition: transform 0.15s ease;
+}
+
+.backLink:hover .backArrowIcon {
+  transform: translateX(-3px);
+  color: #2563eb;
+}
+
+.headerSubtitle {
+  font-size: 13.5px;
+  color: #475569;
+  margin: 0 0 0 28px;
+}
+
+/* Info Callout Banner */
+.infoBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: #f0f7ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+
+.infoIconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #ffffff;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.infoContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.infoTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e3a8a;
+  margin: 0;
+}
+
+.infoText {
+  font-size: 13px;
+  color: #1e40af;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Milestone Stepper Navigation */
+.stepperNav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 8px 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  gap: 8px;
+}
+
+.stepButton {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.stepButton:hover:not([data-active='true']) {
+  background: #f8fafc;
+}
+
+.stepButton[data-active='true'] {
+  background: #eff6ff;
+}
+
+.stepBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 11.5px;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #64748b;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.stepButton[data-active='true'] .stepBadge {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.stepBadge[data-complete='true'] {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.stepTextWrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stepTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stepButton[data-active='true'] .stepTitle {
+  color: #1d4ed8;
+}
+
+.stepSubtitle {
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stepDivider {
+  width: 1px;
+  height: 24px;
+  background: #e2e8f0;
+  flex-shrink: 0;
+}
+
+/* Card & Section Styles */
+.sectionCard {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.sectionHeaderIconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.sectionHeaderIconWrap[data-color='blue'] {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.sectionHeaderIconWrap[data-color='green'] {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.sectionHeaderIconWrap[data-color='purple'] {
+  background: #faf5ff;
+  color: #9333ea;
+}
+
+.sectionHeaderIconWrap[data-color='orange'] {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.sectionTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.sectionDivider {
+  flex: 1;
+  height: 1px;
+  background: #f1f5f9;
+}
+
+.fieldHint {
+  font-size: 12px;
+  color: #64748b;
+  margin: 4px 0 0;
+  line-height: 1.4;
+}
+
+/* Form Controls */
+.formGrid3 {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1fr;
+  gap: 16px;
+}
+
+.formGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.formGrid4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.inputField {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #111827;
+  background: #ffffff;
+  outline: none;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.inputField:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.inputField::placeholder {
+  color: #9ca3af;
+}
+
+.selectField {
+  width: 100%;
+  height: 40px;
+  padding: 0 32px 0 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #111827;
+  background: #ffffff;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  box-sizing: border-box;
+}
+
+.selectField:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.textareaField {
+  width: 100%;
+  min-height: 80px;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #111827;
+  background: #ffffff;
+  outline: none;
+  transition: all 0.15s ease;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.textareaField:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+/* Choice Cards Grid */
+.choiceCardsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.choiceCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.choiceCard:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.choiceCard[data-selected='true'] {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.choiceCard[data-selected='true'][data-theme='purple'] {
+  border-color: #9333ea;
+  background: #faf5ff;
+}
+
+.choiceCard[data-selected='true'][data-theme='orange'] {
+  border-color: #ea580c;
+  background: #fff7ed;
+}
+
+.choiceCardLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.radioIndicator {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.choiceCard[data-selected='true'] .radioIndicator {
+  border-color: #16a34a;
+}
+
+.choiceCard[data-selected='true'][data-theme='orange'] .radioIndicator {
+  border-color: #ea580c;
+}
+
+.radioDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #16a34a;
+}
+
+.choiceCard[data-selected='true'][data-theme='orange'] .radioDot {
+  background: #ea580c;
+}
+
+.checkboxIndicator {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1.5px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  background: #ffffff;
+}
+
+.choiceCard[data-selected='true'] .checkboxIndicator {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
+}
+
+.choiceCard[data-selected='true'][data-theme='purple'] .checkboxIndicator {
+  background: #9333ea;
+  border-color: #9333ea;
+  color: #ffffff;
+}
+
+.choiceCardText {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.choiceCardIcon {
+  color: #64748b;
+}
+
+.choiceCard[data-selected='true'] .choiceCardIcon {
+  color: #16a34a;
+}
+
+.choiceCard[data-selected='true'][data-theme='purple'] .choiceCardIcon {
+  color: #9333ea;
+}
+
+.choiceCard[data-selected='true'][data-theme='orange'] .choiceCardIcon {
+  color: #ea580c;
+}
+
+/* Full Width Checkbox Card */
+.fullCheckboxCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  width: fit-content;
+}
+
+.fullCheckboxCard:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.fullCheckboxCard[data-selected='true'] {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+
+/* Tab Pane Animation */
+.tabPane {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: tabFadeIn 0.18s ease-out;
+}
+
+@keyframes tabFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Footer Actions */
+.footerBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  margin-top: 8px;
+}
+
+.footerRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.cancelButton {
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cancelButton:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.prevButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.prevButton:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.nextButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.nextButton:hover {
+  background: #1e293b;
+}
+
+.submitButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 20px;
+  border-radius: 8px;
+  background: #16a34a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.submitButton:hover {
+  background: #15803d;
+}
+
+@media (max-width: 54rem) {
+  .formContainer {
+    padding: 16px 14px 48px;
+  }
+
+  .formGrid3,
+  .formGrid4,
+  .formGrid2 {
+    grid-template-columns: 1fr;
+  }
+
+  .stepperNav {
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+}

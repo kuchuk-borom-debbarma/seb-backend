@@ -495,8 +495,137 @@
 }
 
 /* ==========================================================================
-   Fallback Empty Readiness Banners & Legacy/Admin Sections
+   Account Readiness Checklist Card
    ========================================================================== */
+
+.emptyStatesCard {
+  padding: 20px 22px;
+  border: 1px solid #e9eaec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.emptyStatesList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.emptyStateItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #f0f2f5;
+  border-radius: 12px;
+  background: #fafbfc;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.emptyStateItem:hover {
+  border-color: #d1d5db;
+  background: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+}
+
+.emptyStateLeft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.emptyStateIconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.emptyStateItem:hover .emptyStateIconBadge {
+  transform: scale(1.05);
+}
+
+.emptyStateIconBadge[data-color='blue'] {
+  background: #edf5ff;
+  color: #2563eb;
+}
+
+.emptyStateIconBadge[data-color='green'] {
+  background: #edf7ee;
+  color: #16a34a;
+}
+
+.emptyStateIconBadge[data-color='purple'] {
+  background: #f3effc;
+  color: #7c3aed;
+}
+
+.emptyStateIconBadge svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.8;
+}
+
+.emptyStateText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.emptyStateText strong {
+  color: #111827;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.emptyStateText small {
+  color: #6b7280;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.emptyStateAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.emptyStateAction:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #2563eb;
+  transform: translateX(1px);
+}
+
+.emptyStateAction svg {
+  transition: transform 0.15s ease;
+}
+
+.emptyStateAction:hover svg {
+  transform: translateX(2px);
+}
 
 /* ==========================================================================
    Admin / Superadmin Modern Dashboard Design System
@@ -1005,6 +1134,19 @@
   }
 }
 
+@media (max-width: 38rem) {
+  .emptyStateItem {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .emptyStateAction {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 @media (max-width: 32rem) {
   .adminCard {
     padding: 16px 14px;
@@ -1017,14 +1159,6 @@
   .cycleCallout {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .emptyState {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .emptyState a {
-    grid-column: 2;
   }
 
   .quickActionsGrid {

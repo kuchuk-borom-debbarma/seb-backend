@@ -32,9 +32,9 @@
   --green-hover: var(--brand-hover);
   --green-tint: var(--brand-tint);
 
-  /* Clay marks work the reader must do something about. */
-  --clay: #8a5a16;
-  --clay-tint: #faf0dc;
+  /* Neutral slate markers for guide & explain tooltips. */
+  --clay: #475569;
+  --clay-tint: #f1f5f9;
 
   --danger: #8c2f2f;
   --danger-tint: #f7e7e4;
@@ -872,54 +872,75 @@ th.numeric {
   }
 }
 
-/* An explanation attached to one question. Not a hover tooltip: hover cannot be
-   reached by touch or by keyboard, and an explanation nobody can open is
-   decoration. */
+/* An explanation attached to a question or section. Opens on hover, focus, or click. */
 .explain {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.0625rem;
-  height: 1.0625rem;
+  width: 1.125rem;
+  height: 1.125rem;
   margin-left: var(--space-2);
   padding: 0;
-  border: 1px solid var(--clay);
+  border: 1px solid #cbd5e1;
   border-radius: 50%;
-  background: none;
-  color: var(--clay);
+  background: #ffffff;
+  color: #64748b;
   font-family: var(--font-body);
   font-size: 0.6875rem;
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
   vertical-align: middle;
+  transition: all 0.15s ease;
 }
 
-.explain:hover {
-  background: var(--clay-tint);
+.explain:hover,
+.explain:focus-visible {
+  background: #f8fafc;
+  border-color: #0f172a;
+  color: #0f172a;
+  transform: scale(1.06);
+  outline: none;
 }
 
 .explain-popover {
   position: absolute;
-  z-index: 20;
-  max-width: 22rem;
-  margin-top: var(--space-1);
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface);
-  border: 1px solid var(--clay);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 6px 20px rgb(26 31 27 / 0.12);
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 100;
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.05);
   font-size: 0.8125rem;
   line-height: 1.5;
-  color: var(--ink);
+  color: #334155;
   font-weight: 400;
   text-transform: none;
   letter-spacing: normal;
+  animation: explainFadeIn 0.15s ease-out;
+  pointer-events: auto;
+}
+
+@keyframes explainFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .explain-anchor {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
 }
 
 /* A label with an explanation beside it. The two sit on one line so the label

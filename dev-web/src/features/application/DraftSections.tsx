@@ -12,6 +12,35 @@
  * section still shows its answers; it just cannot be changed.
  */
 import { memo } from 'react'
+import {
+  AlertTriangle,
+  Award,
+  Ban,
+  Briefcase,
+  Building,
+  Building2,
+  Calendar,
+  CheckCircle2,
+  Coins,
+  Compass,
+  FileCode,
+  FileSignature,
+  FileText,
+  HelpCircle,
+  IndianRupee,
+  Landmark,
+  Layers,
+  Mail,
+  Mailbox,
+  MapPin,
+  Phone,
+  Receipt,
+  ShieldCheck,
+  User,
+  Users,
+  Wallet,
+  XCircle,
+} from 'lucide-react'
 import { Explain } from '#/features/guide/Explain'
 import type { ApplicationDraftInput } from '#/graphql/generated/operations'
 import type {
@@ -25,6 +54,7 @@ import type {
 } from '#/graphql/generated/schema'
 import { formatMoney, humanize } from '#/lib/format'
 import { FIELD_LABELS, paiseToRupees, rupeesToPaise } from './draft'
+import styles from './DraftSections.module.css'
 
 const REGISTRATION_TYPES: RegistrationType[] = ['NONE', 'CIN', 'UDYAM']
 const CATEGORIES: ApplicationCategory[] = ['CATEGORY_A', 'CATEGORY_B']
@@ -53,6 +83,8 @@ const orNull = (value: string): string | null => (value.trim() === '' ? null : v
 function Field({
   id,
   label,
+  icon,
+  required,
   hint,
   issue,
   explain,
@@ -60,6 +92,8 @@ function Field({
 }: {
   id: string
   label: string
+  icon?: React.ReactNode
+  required?: boolean
   hint?: string
   issue?: string
   /** Why this question is asked, for the few where the name does not say. */
@@ -67,45 +101,109 @@ function Field({
   children: React.ReactNode
 }) {
   return (
-    <div>
-      {/*
-        The explanation sits beside the label, not inside it. A control inside a
-        <label> becomes part of the field's accessible name — the select would
-        have announced as "Category ?".
-      */}
-      {explain ? (
-        <span className="label-row">
-          <label className="field-label" htmlFor={id}>
-            {label}
-          </label>
-          <Explain label={label}>{explain}</Explain>
-        </span>
-      ) : (
-        <label className="field-label" htmlFor={id}>
-          {label}
+    <div className={styles.fieldGroup}>
+      <div className={styles.fieldLabelRow}>
+        <label className={styles.fieldLabel} htmlFor={id}>
+          {icon ? <span className={styles.fieldIcon}>{icon}</span> : null}
+          <span>{label}</span>
+          {required ? <span className={styles.requiredAsterisk}>*</span> : null}
         </label>
-      )}
+        {explain ? <Explain label={label}>{explain}</Explain> : null}
+      </div>
       {children}
       {issue ? (
-        <span className="field-error" id={`${id}-error`}>
+        <span className={styles.fieldError} id={`${id}-error`}>
+          <AlertTriangle size={13} aria-hidden="true" />
           {issue}
         </span>
       ) : hint ? (
-        <span className="field-hint">{hint}</span>
+        <span className={styles.fieldHint}>{hint}</span>
       ) : null}
     </div>
   )
 }
 
-/**
- * A required yes/no question.
- *
- * Deliberately not a checkbox. A checkbox has two states and this question has
- * three: yes, no, and not answered yet — and the API tells them apart, treating
- * an unanswered question as a validation issue while "no" is a complete answer.
- * An unticked box looks answered and is not, which is how somebody reaches the
- * submit screen and is told a question they never saw is missing.
- */
+/** Segmented radio card buttons for choice fields. */
+function RadioCardsField<TValue extends string>({
+  id,
+  label,
+  icon,
+  required,
+  issue,
+  hint,
+  explain,
+  options,
+  value,
+  disabled,
+  onChange,
+}: {
+  id: string
+  label: string
+  icon?: React.ReactNode
+  required?: boolean
+  issue?: string
+  hint?: string
+  explain?: string
+  options: Array<{ label: string; value: TValue; icon?: React.ReactNode }>
+  value: TValue | null | undefined
+  disabled: boolean
+  onChange: (value: TValue) => void
+}) {
+  return (
+    <div className={styles.fieldGroup} id={id}>
+      <div className={styles.fieldLabelRow}>
+        <span className={styles.fieldLabel}>
+          {icon ? <span className={styles.fieldIcon}>{icon}</span> : null}
+          <span>{label}</span>
+          {required ? <span className={styles.requiredAsterisk}>*</span> : null}
+        </span>
+        {explain ? <Explain label={label}>{explain}</Explain> : null}
+      </div>
+      <div className={styles.radioCardsRow}>
+        {options.map((option) => {
+          const selected = (value ?? '') === option.value
+          return (
+            <label
+              key={option.value || 'empty'}
+              className={`${styles.radioCard} ${selected ? styles.radioCardSelected : ''}`}
+              data-disabled={disabled ? 'true' : undefined}
+            >
+              <input
+                type="radio"
+                name={id}
+                value={option.value}
+                checked={selected}
+                disabled={disabled}
+                onChange={() => onChange(option.value)}
+                className="visually-hidden"
+                {...(issue ? { 'aria-describedby': `${id}-error` } : {})}
+              />
+              <span
+                className={`${styles.radioDot} ${selected ? styles.radioDotSelected : ''}`}
+              >
+                {selected ? <span className={styles.radioInnerDot} /> : null}
+              </span>
+              {option.icon ? (
+                <span className={styles.radioOptionIcon}>{option.icon}</span>
+              ) : null}
+              <span className={styles.radioCardLabel}>{option.label}</span>
+            </label>
+          )
+        })}
+      </div>
+      {issue ? (
+        <span className={styles.fieldError} id={`${id}-error`}>
+          <AlertTriangle size={13} aria-hidden="true" />
+          {issue}
+        </span>
+      ) : hint ? (
+        <span className={styles.fieldHint}>{hint}</span>
+      ) : null}
+    </div>
+  )
+}
+
+/** A required yes/no question using segmented radio cards. */
 function YesNoField({
   name,
   question,
@@ -124,78 +222,101 @@ function YesNoField({
   onAnswer: (answer: boolean) => void
 }) {
   return (
-    /*
-     * The id and tabIndex are what let the review report link to this control.
-     * Every issue there addresses `#<field>`, and a fieldset carries no id of
-     * its own — so before this, "take me to the answer that is wrong" silently
-     * did nothing for every yes/no question on the form. tabIndex makes it
-     * focusable as well as scrollable, so arriving here also moves the caret.
-     */
-    <fieldset className="choice-field" id={name} tabIndex={-1} disabled={disabled}>
-      <legend className="field-label">{question}</legend>
-      <div className="choice-row">
-        {ANSWERS.map((answer) => (
-          <label className="choice" key={answer.label}>
-            <input
-              type="radio"
-              name={name}
-              checked={value === answer.value}
-              onChange={() => onAnswer(answer.value)}
-              {...(issue ? { 'aria-describedby': `${name}-error` } : {})}
-            />
-            {answer.label}
-          </label>
-        ))}
+    <fieldset
+      className={styles.fieldGroup}
+      id={name}
+      tabIndex={-1}
+      disabled={disabled}
+      style={{ border: 0, padding: 0, margin: 0 }}
+    >
+      <legend className={styles.fieldLabel}>{question}</legend>
+      <div className={styles.radioCardsRow}>
+        {ANSWERS.map((answer) => {
+          const selected = value === answer.value
+          return (
+            <label
+              className={`${styles.radioCard} ${selected ? styles.radioCardSelected : ''}`}
+              key={answer.label}
+              data-disabled={disabled ? 'true' : undefined}
+            >
+              <input
+                type="radio"
+                name={name}
+                checked={selected}
+                disabled={disabled}
+                onChange={() => onAnswer(answer.value)}
+                className="visually-hidden"
+                {...(issue ? { 'aria-describedby': `${name}-error` } : {})}
+              />
+              <span
+                className={`${styles.radioDot} ${selected ? styles.radioDotSelected : ''}`}
+              >
+                {selected ? <span className={styles.radioInnerDot} /> : null}
+              </span>
+              <span className={styles.radioOptionIcon}>
+                {answer.value ? <CheckCircle2 size={15} /> : <XCircle size={15} />}
+              </span>
+              <span className={styles.radioCardLabel}>{answer.label}</span>
+            </label>
+          )
+        })}
       </div>
       {issue ? (
-        <span className="field-error" id={`${name}-error`}>
+        <span className={styles.fieldError} id={`${name}-error`}>
+          <AlertTriangle size={13} aria-hidden="true" />
           {issue}
         </span>
       ) : hint ? (
-        <span className="field-hint">{hint}</span>
+        <span className={styles.fieldHint}>{hint}</span>
       ) : null}
     </fieldset>
   )
 }
 
-/**
- * A single statement the applicant confirms.
- *
- * Unlike a yes/no question there is only one acceptable answer, so a checkbox
- * is the honest control: the API's rule is "must be confirmed", not "must be
- * answered". The refusal to confirm is expressed by leaving it unticked, and
- * the API's own message says what that costs.
- */
+/** A single statement the applicant confirms. */
 function Attestation({
   id,
   statement,
+  icon,
   issue,
   checked,
   disabled,
   onChange,
+  highlight = false,
 }: {
   id: string
   statement: string
+  icon?: React.ReactNode
   issue?: string
   checked: boolean
   disabled: boolean
   onChange: (checked: boolean) => void
+  highlight?: boolean
 }) {
   return (
-    <div>
-      <div className="checkbox-row">
+    <div
+      className={
+        highlight
+          ? `${styles.attestationCard} ${checked ? styles.attestationCardChecked : ''}`
+          : styles.attestationPlain
+      }
+    >
+      <label className={styles.attestationLabel} htmlFor={id}>
         <input
           id={id}
           type="checkbox"
           disabled={disabled}
           checked={checked}
           onChange={(event) => onChange(event.target.checked)}
+          className={styles.checkboxInput}
           {...(issue ? { 'aria-invalid': true, 'aria-describedby': `${id}-error` } : {})}
         />
-        <label htmlFor={id}>{statement}</label>
-      </div>
+        {icon ? <span className={styles.attestationIcon}>{icon}</span> : null}
+        <span className={styles.statementText}>{statement}</span>
+      </label>
       {issue ? (
-        <span className="field-error" id={`${id}-error`}>
+        <span className={styles.attestationError} id={`${id}-error`}>
+          <AlertTriangle size={13} aria-hidden="true" />
           {issue}
         </span>
       ) : null}
@@ -235,16 +356,18 @@ export const EnterpriseSection = memo(function EnterpriseSection({
   ) => onChange({ ...value, [key]: next })
 
   return (
-    <div className="stack">
-      <div className="detail-grid">
+    <div className={styles.sectionStack}>
+      <div className={styles.fieldGrid}>
         <Field
           id="businessName"
           label={FIELD_LABELS.businessName}
+          icon={<Building2 size={15} />}
           issue={issues.businessName}
         >
           <input
             id="businessName"
-            className="input"
+            className={styles.input}
+            placeholder="Enter business name"
             disabled={disabled}
             value={value.businessName ?? ''}
             onChange={(event) => set('businessName', orNull(event.target.value))}
@@ -255,12 +378,14 @@ export const EnterpriseSection = memo(function EnterpriseSection({
         <Field
           id="establishmentDate"
           label={FIELD_LABELS.establishmentDate}
+          icon={<Calendar size={15} />}
           issue={issues.establishmentDate}
         >
           <input
             id="establishmentDate"
-            className="input"
+            className={styles.input}
             type="date"
+            placeholder="Select date"
             disabled={disabled}
             value={value.establishmentDate ?? ''}
             onChange={(event) => set('establishmentDate', orNull(event.target.value))}
@@ -268,71 +393,63 @@ export const EnterpriseSection = memo(function EnterpriseSection({
           />
         </Field>
 
-        <Field
+        <RadioCardsField
           id="applicationCategory"
-          label={FIELD_LABELS.applicationCategory}
+          label="Category?"
+          icon={<Award size={15} />}
+          required
           issue={issues.applicationCategory}
           explain="Category decides how much seed funding this enterprise may ask for and how long it must have been trading. The programme cycle sets both, and the desk review checks the enterprise against them."
-        >
-          <select
-            id="applicationCategory"
-            className="select"
-            disabled={disabled}
-            value={value.applicationCategory ?? ''}
-            onChange={(event) =>
-              set(
-                'applicationCategory',
-                orNull(event.target.value) as ApplicationCategory | null,
-              )
-            }
-            {...invalid(issues, 'applicationCategory')}
-          >
-            <option value="">Not stated</option>
-            {CATEGORIES.map((category) => (
-              <option key={category} value={category}>
-                {humanize(category)}
-              </option>
-            ))}
-          </select>
-        </Field>
+          options={[
+            { label: 'Not stated', value: '', icon: <HelpCircle size={15} /> },
+            { label: 'Category A', value: 'CATEGORY_A', icon: <Layers size={15} /> },
+            { label: 'Category B', value: 'CATEGORY_B', icon: <Award size={15} /> },
+          ]}
+          value={value.applicationCategory ?? ''}
+          disabled={disabled}
+          onChange={(val) =>
+            set(
+              'applicationCategory',
+              (val ? val : null) as ApplicationCategory | null,
+            )
+          }
+        />
 
-        <Field
+        <RadioCardsField
           id="registrationType"
-          label={FIELD_LABELS.registrationType}
+          label="Registration"
+          icon={<FileCode size={15} />}
+          required
           issue={issues.registrationType}
-        >
-          <select
-            id="registrationType"
-            className="select"
-            disabled={disabled}
-            value={value.registrationType ?? 'NONE'}
-            onChange={(event) => {
-              const next = event.target.value as RegistrationType
-              // An unregistered enterprise must not carry a number.
-              onChange({
-                ...value,
-                registrationType: next,
-                registrationNumber: next === 'NONE' ? null : value.registrationNumber,
-              })
-            }}
-          >
-            {REGISTRATION_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type === 'NONE' ? 'Not registered' : type}
-              </option>
-            ))}
-          </select>
-        </Field>
+          options={[
+            { label: 'Not registered', value: 'NONE', icon: <Ban size={15} /> },
+            { label: 'CIN', value: 'CIN', icon: <FileCode size={15} /> },
+            { label: 'UDYAM', value: 'UDYAM', icon: <Award size={15} /> },
+          ]}
+          value={value.registrationType ?? 'NONE'}
+          disabled={disabled}
+          onChange={(next) => {
+            const nextType = next as RegistrationType
+            onChange({
+              ...value,
+              registrationType: nextType,
+              registrationNumber: nextType === 'NONE' ? null : value.registrationNumber,
+            })
+          }}
+        />
 
         {value.registrationType && value.registrationType !== 'NONE' ? (
           <Field
             id="registrationNumber"
             label={`${value.registrationType} number`}
+            icon={<Receipt size={15} />}
             issue={issues.registrationNumber}
+            required
           >
             <input
               id="registrationNumber"
-              className="input"
+              className={styles.input}
+              placeholder={`Enter ${value.registrationType} number`}
               disabled={disabled}
               value={value.registrationNumber ?? ''}
               onChange={(event) => set('registrationNumber', orNull(event.target.value))}
@@ -341,10 +458,16 @@ export const EnterpriseSection = memo(function EnterpriseSection({
           </Field>
         ) : null}
 
-        <Field id="gstin" label={FIELD_LABELS.gstin} issue={issues.gstin}>
+        <Field
+          id="gstin"
+          label={FIELD_LABELS.gstin}
+          icon={<Receipt size={15} />}
+          issue={issues.gstin}
+        >
           <input
             id="gstin"
-            className="input"
+            className={styles.input}
+            placeholder="Enter GSTIN (if any)"
             disabled={disabled}
             value={value.gstin ?? ''}
             onChange={(event) => set('gstin', orNull(event.target.value))}
@@ -355,11 +478,13 @@ export const EnterpriseSection = memo(function EnterpriseSection({
         <Field
           id="businessSector"
           label={FIELD_LABELS.businessSector}
+          icon={<Briefcase size={15} />}
           issue={issues.businessSector}
+          required
         >
           <select
             id="businessSector"
-            className="select"
+            className={styles.select}
             disabled={disabled}
             value={value.businessSector ?? ''}
             onChange={(event) => {
@@ -372,7 +497,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
             }}
             {...invalid(issues, 'businessSector')}
           >
-            <option value="">Not stated</option>
+            <option value="">Select sector</option>
             {SECTORS.map((sector) => (
               <option key={sector} value={sector}>
                 {humanize(sector)}
@@ -385,11 +510,14 @@ export const EnterpriseSection = memo(function EnterpriseSection({
           <Field
             id="otherBusinessSector"
             label={FIELD_LABELS.otherBusinessSector}
+            icon={<FileText size={15} />}
             issue={issues.otherBusinessSector}
+            required
           >
             <input
               id="otherBusinessSector"
-              className="input"
+              className={styles.input}
+              placeholder="Enter description"
               disabled={disabled}
               value={value.otherBusinessSector ?? ''}
               onChange={(event) => set('otherBusinessSector', orNull(event.target.value))}
@@ -402,10 +530,12 @@ export const EnterpriseSection = memo(function EnterpriseSection({
       <Attestation
         id="majorityOwnershipConfirmed"
         statement={FIELD_LABELS.majorityOwnershipConfirmed}
+        icon={<ShieldCheck size={18} />}
         issue={issues.majorityOwnershipConfirmed}
         checked={value.majorityOwnershipConfirmed ?? false}
         disabled={disabled}
         onChange={(checked) => set('majorityOwnershipConfirmed', checked)}
+        highlight
       />
     </div>
   )
@@ -423,150 +553,188 @@ export const ApplicantSection = memo(function ApplicantSection({
   ) => onChange({ ...value, [key]: next })
 
   return (
-    <div className="detail-grid">
-      <Field
-        id="primaryApplicantName"
-        label={FIELD_LABELS.primaryApplicantName}
-        issue={issues.primaryApplicantName}
-      >
-        <input
+    <div className={styles.sectionStack}>
+      <div className={styles.twoColGrid}>
+        <Field
           id="primaryApplicantName"
-          className="input"
-          disabled={disabled}
-          value={value.primaryApplicantName ?? ''}
-          onChange={(event) => set('primaryApplicantName', orNull(event.target.value))}
-          {...invalid(issues, 'primaryApplicantName')}
-        />
-      </Field>
+          label={FIELD_LABELS.primaryApplicantName}
+          icon={<User size={15} />}
+          issue={issues.primaryApplicantName}
+          required
+        >
+          <input
+            id="primaryApplicantName"
+            className={styles.input}
+            placeholder="Enter full name"
+            disabled={disabled}
+            value={value.primaryApplicantName ?? ''}
+            onChange={(event) => set('primaryApplicantName', orNull(event.target.value))}
+            {...invalid(issues, 'primaryApplicantName')}
+          />
+        </Field>
 
-      <Field id="designation" label={FIELD_LABELS.designation} issue={issues.designation}>
-        <select
+        <Field
           id="designation"
-          className="select"
-          disabled={disabled}
-          value={value.designation ?? ''}
-          onChange={(event) =>
-            set('designation', orNull(event.target.value) as ApplicantDesignation | null)
-          }
-          {...invalid(issues, 'designation')}
+          label={FIELD_LABELS.designation}
+          icon={<Briefcase size={15} />}
+          issue={issues.designation}
+          required
         >
-          <option value="">Not stated</option>
-          {DESIGNATIONS.map((designation) => (
-            <option key={designation} value={designation}>
-              {humanize(designation)}
-            </option>
-          ))}
-        </select>
-      </Field>
+          <select
+            id="designation"
+            className={styles.select}
+            disabled={disabled}
+            value={value.designation ?? ''}
+            onChange={(event) =>
+              set('designation', orNull(event.target.value) as ApplicantDesignation | null)
+            }
+            {...invalid(issues, 'designation')}
+          >
+            <option value="">Select role / designation</option>
+            {DESIGNATIONS.map((designation) => (
+              <option key={designation} value={designation}>
+                {humanize(designation)}
+              </option>
+            ))}
+          </select>
+        </Field>
 
-      <Field id="dateOfBirth" label={FIELD_LABELS.dateOfBirth} issue={issues.dateOfBirth}>
-        <input
+        <Field
           id="dateOfBirth"
-          className="input"
-          type="date"
-          disabled={disabled}
-          value={value.dateOfBirth ?? ''}
-          onChange={(event) => set('dateOfBirth', orNull(event.target.value))}
-          {...invalid(issues, 'dateOfBirth')}
-        />
-      </Field>
-
-      <Field id="gender" label={FIELD_LABELS.gender} issue={issues.gender}>
-        <select
-          id="gender"
-          className="select"
-          disabled={disabled}
-          value={value.gender ?? ''}
-          onChange={(event) => set('gender', orNull(event.target.value) as Gender | null)}
-          {...invalid(issues, 'gender')}
+          label={FIELD_LABELS.dateOfBirth}
+          icon={<Calendar size={15} />}
+          issue={issues.dateOfBirth}
+          required
         >
-          <option value="">Not stated</option>
-          {GENDERS.map((gender) => (
-            <option key={gender} value={gender}>
-              {humanize(gender)}
-            </option>
-          ))}
-        </select>
-      </Field>
+          <input
+            id="dateOfBirth"
+            className={styles.input}
+            type="date"
+            disabled={disabled}
+            value={value.dateOfBirth ?? ''}
+            onChange={(event) => set('dateOfBirth', orNull(event.target.value))}
+            {...invalid(issues, 'dateOfBirth')}
+          />
+        </Field>
 
-      <Field
-        id="businessBlockOrVillage"
-        label={FIELD_LABELS.businessBlockOrVillage}
-        issue={issues.businessBlockOrVillage}
-      >
-        <input
+        <Field
+          id="gender"
+          label={FIELD_LABELS.gender}
+          icon={<Users size={15} />}
+          issue={issues.gender}
+          required
+        >
+          <select
+            id="gender"
+            className={styles.select}
+            disabled={disabled}
+            value={value.gender ?? ''}
+            onChange={(event) => set('gender', orNull(event.target.value) as Gender | null)}
+            {...invalid(issues, 'gender')}
+          >
+            <option value="">Select gender</option>
+            {GENDERS.map((gender) => (
+              <option key={gender} value={gender}>
+                {humanize(gender)}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field
           id="businessBlockOrVillage"
-          className="input"
-          disabled={disabled}
-          value={value.businessBlockOrVillage ?? ''}
-          onChange={(event) => set('businessBlockOrVillage', orNull(event.target.value))}
-          {...invalid(issues, 'businessBlockOrVillage')}
-        />
-      </Field>
+          label={FIELD_LABELS.businessBlockOrVillage}
+          icon={<MapPin size={15} />}
+          issue={issues.businessBlockOrVillage}
+          required
+        >
+          <input
+            id="businessBlockOrVillage"
+            className={styles.input}
+            placeholder="Enter block or village"
+            disabled={disabled}
+            value={value.businessBlockOrVillage ?? ''}
+            onChange={(event) => set('businessBlockOrVillage', orNull(event.target.value))}
+            {...invalid(issues, 'businessBlockOrVillage')}
+          />
+        </Field>
 
-      <Field
-        id="businessDistrict"
-        label={FIELD_LABELS.businessDistrict}
-        issue={issues.businessDistrict}
-      >
-        <input
+        <Field
           id="businessDistrict"
-          className="input"
-          disabled={disabled}
-          value={value.businessDistrict ?? ''}
-          onChange={(event) => set('businessDistrict', orNull(event.target.value))}
-          {...invalid(issues, 'businessDistrict')}
-        />
-      </Field>
+          label={FIELD_LABELS.businessDistrict}
+          icon={<Compass size={15} />}
+          issue={issues.businessDistrict}
+          required
+        >
+          <input
+            id="businessDistrict"
+            className={styles.input}
+            placeholder="Enter district"
+            disabled={disabled}
+            value={value.businessDistrict ?? ''}
+            onChange={(event) => set('businessDistrict', orNull(event.target.value))}
+            {...invalid(issues, 'businessDistrict')}
+          />
+        </Field>
 
-      <Field
-        id="businessPinCode"
-        label={FIELD_LABELS.businessPinCode}
-        issue={issues.businessPinCode}
-      >
-        <input
+        <Field
           id="businessPinCode"
-          className="input tabular"
-          inputMode="numeric"
-          maxLength={6}
-          disabled={disabled}
-          value={value.businessPinCode ?? ''}
-          onChange={(event) => set('businessPinCode', orNull(event.target.value))}
-          {...invalid(issues, 'businessPinCode')}
-        />
-      </Field>
+          label={FIELD_LABELS.businessPinCode}
+          icon={<Mailbox size={15} />}
+          issue={issues.businessPinCode}
+          required
+        >
+          <input
+            id="businessPinCode"
+            className={styles.input}
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="Enter 6-digit PIN code"
+            disabled={disabled}
+            value={value.businessPinCode ?? ''}
+            onChange={(event) => set('businessPinCode', orNull(event.target.value))}
+            {...invalid(issues, 'businessPinCode')}
+          />
+        </Field>
 
-      <Field
-        id="contactNumber"
-        label={FIELD_LABELS.contactNumber}
-        issue={issues.contactNumber}
-      >
-        <input
+        <Field
           id="contactNumber"
-          className="input"
-          type="tel"
-          disabled={disabled}
-          value={value.contactNumber ?? ''}
-          onChange={(event) => set('contactNumber', orNull(event.target.value))}
-          {...invalid(issues, 'contactNumber')}
-        />
-      </Field>
+          label={FIELD_LABELS.contactNumber}
+          icon={<Phone size={15} />}
+          issue={issues.contactNumber}
+          required
+        >
+          <input
+            id="contactNumber"
+            className={styles.input}
+            type="tel"
+            placeholder="Enter 10-digit mobile number"
+            disabled={disabled}
+            value={value.contactNumber ?? ''}
+            onChange={(event) => set('contactNumber', orNull(event.target.value))}
+            {...invalid(issues, 'contactNumber')}
+          />
+        </Field>
 
-      <Field
-        id="contactEmail"
-        label={FIELD_LABELS.contactEmail}
-        issue={issues.contactEmail}
-      >
-        <input
+        <Field
           id="contactEmail"
-          className="input"
-          type="email"
-          disabled={disabled}
-          value={value.contactEmail ?? ''}
-          onChange={(event) => set('contactEmail', orNull(event.target.value))}
-          {...invalid(issues, 'contactEmail')}
-        />
-      </Field>
+          label={FIELD_LABELS.contactEmail}
+          icon={<Mail size={15} />}
+          issue={issues.contactEmail}
+          required
+        >
+          <input
+            id="contactEmail"
+            className={styles.input}
+            type="email"
+            placeholder="Enter contact email address"
+            disabled={disabled}
+            value={value.contactEmail ?? ''}
+            onChange={(event) => set('contactEmail', orNull(event.target.value))}
+            {...invalid(issues, 'contactEmail')}
+          />
+        </Field>
+      </div>
     </div>
   )
 })
@@ -582,26 +750,27 @@ export const FinancialSection = memo(function FinancialSection({
     next: ApplicationDraftInput['financial'][TKey],
   ) => onChange({ ...value, [key]: next })
 
-  /**
-   * Every amount is entered in rupees and sent in paise.
-   *
-   * The typed value is read back beneath the field in Indian grouping, because
-   * a bare "1000000" in a number input is genuinely hard to check and these are
-   * the figures the whole application turns on.
-   */
-  const money = (id: keyof ApplicationDraftInput['financial'], label: string) => (
+  const money = (
+    id: keyof ApplicationDraftInput['financial'],
+    label: string,
+    icon: React.ReactNode,
+    required?: boolean,
+  ) => (
     <Field
       id={id}
       label={label}
+      icon={icon}
+      required={required}
       hint={value[id] ? formatMoney(value[id]) : undefined}
       issue={issues[id]}
     >
       <input
         id={id}
-        className="input tabular"
+        className={styles.input}
         type="number"
         min={0}
         step="0.01"
+        placeholder="0.00"
         disabled={disabled}
         value={paiseToRupees(value[id])}
         onChange={(event) => set(id, rupeesToPaise(event.target.value))}
@@ -611,14 +780,32 @@ export const FinancialSection = memo(function FinancialSection({
   )
 
   return (
-    <div className="stack">
-      <div className="detail-grid">
-        {money('totalProjectCostPaise', FIELD_LABELS.totalProjectCostPaise)}
-        {money('seedFundRequestedPaise', FIELD_LABELS.seedFundRequestedPaise)}
-        {money('bankLoanProposedPaise', FIELD_LABELS.bankLoanProposedPaise)}
-        {money('promoterContributionPaise', FIELD_LABELS.promoterContributionPaise)}
+    <div className={styles.sectionStack}>
+      <div className={styles.twoColGrid}>
+        {money(
+          'totalProjectCostPaise',
+          FIELD_LABELS.totalProjectCostPaise,
+          <IndianRupee size={15} />,
+          true,
+        )}
+        {money(
+          'seedFundRequestedPaise',
+          FIELD_LABELS.seedFundRequestedPaise,
+          <Coins size={15} />,
+          true,
+        )}
+        {money(
+          'bankLoanProposedPaise',
+          FIELD_LABELS.bankLoanProposedPaise,
+          <Landmark size={15} />,
+        )}
+        {money(
+          'promoterContributionPaise',
+          FIELD_LABELS.promoterContributionPaise,
+          <Wallet size={15} />,
+        )}
       </div>
-      <p className="field-hint">
+      <p className={styles.fieldHint}>
         Enter each source that applies. These amounts do not have to add up to the total
         project cost.
       </p>
@@ -638,7 +825,7 @@ export const PriorFundingSection = memo(function PriorFundingSection({
   ) => onChange({ ...value, [key]: next })
 
   return (
-    <div className="stack">
+    <div className={styles.sectionStack}>
       <YesNoField
         name="receivedGovernmentFunding"
         question={FIELD_LABELS.receivedGovernmentFunding}
@@ -646,8 +833,6 @@ export const PriorFundingSection = memo(function PriorFundingSection({
         value={value.receivedGovernmentFunding}
         disabled={disabled}
         onAnswer={(answer) =>
-          // Clearing the details when the answer turns to "no" keeps the draft
-          // consistent instead of carrying orphaned values.
           onChange(
             answer
               ? { ...value, receivedGovernmentFunding: true }
@@ -663,15 +848,18 @@ export const PriorFundingSection = memo(function PriorFundingSection({
       />
 
       {value.receivedGovernmentFunding ? (
-        <div className="detail-grid">
+        <div className={styles.twoColGrid}>
           <Field
             id="governmentSchemeName"
             label={FIELD_LABELS.governmentSchemeName}
+            icon={<Building size={15} />}
             issue={issues.governmentSchemeName}
+            required
           >
             <input
               id="governmentSchemeName"
-              className="input"
+              className={styles.input}
+              placeholder="Enter scheme name"
               disabled={disabled}
               value={value.governmentSchemeName ?? ''}
               onChange={(event) =>
@@ -683,14 +871,17 @@ export const PriorFundingSection = memo(function PriorFundingSection({
           <Field
             id="governmentFundingAmountPaise"
             label={FIELD_LABELS.governmentFundingAmountPaise}
+            icon={<IndianRupee size={15} />}
             issue={issues.governmentFundingAmountPaise}
+            required
           >
             <input
               id="governmentFundingAmountPaise"
-              className="input tabular"
+              className={styles.input}
               type="number"
               min={0}
               step="0.01"
+              placeholder="0.00"
               disabled={disabled}
               value={paiseToRupees(value.governmentFundingAmountPaise)}
               onChange={(event) =>
@@ -702,12 +893,15 @@ export const PriorFundingSection = memo(function PriorFundingSection({
           <Field
             id="governmentFundingSanctionYear"
             label={FIELD_LABELS.governmentFundingSanctionYear}
+            icon={<Calendar size={15} />}
             issue={issues.governmentFundingSanctionYear}
+            required
           >
             <input
               id="governmentFundingSanctionYear"
-              className="input tabular"
+              className={styles.input}
               type="number"
+              placeholder="e.g. 2024"
               disabled={disabled}
               value={value.governmentFundingSanctionYear ?? ''}
               onChange={(event) =>
@@ -744,15 +938,18 @@ export const PriorFundingSection = memo(function PriorFundingSection({
       />
 
       {value.hasExistingBankCredit ? (
-        <div className="detail-grid">
+        <div className={styles.twoColGrid}>
           <Field
             id="existingBankName"
             label={FIELD_LABELS.existingBankName}
+            icon={<Landmark size={15} />}
             issue={issues.existingBankName}
+            required
           >
             <input
               id="existingBankName"
-              className="input"
+              className={styles.input}
+              placeholder="Enter bank name"
               disabled={disabled}
               value={value.existingBankName ?? ''}
               onChange={(event) => set('existingBankName', orNull(event.target.value))}
@@ -762,14 +959,17 @@ export const PriorFundingSection = memo(function PriorFundingSection({
           <Field
             id="existingCreditAmountPaise"
             label={FIELD_LABELS.existingCreditAmountPaise}
+            icon={<IndianRupee size={15} />}
             issue={issues.existingCreditAmountPaise}
+            required
           >
             <input
               id="existingCreditAmountPaise"
-              className="input tabular"
+              className={styles.input}
               type="number"
               min={0}
               step="0.01"
+              placeholder="0.00"
               disabled={disabled}
               value={paiseToRupees(value.existingCreditAmountPaise)}
               onChange={(event) =>
@@ -778,32 +978,29 @@ export const PriorFundingSection = memo(function PriorFundingSection({
               {...invalid(issues, 'existingCreditAmountPaise')}
             />
           </Field>
-          <Field
+          <RadioCardsField
             id="existingCreditStatus"
             label={FIELD_LABELS.existingCreditStatus}
+            icon={<ShieldCheck size={15} />}
             issue={issues.existingCreditStatus}
-          >
-            <select
-              id="existingCreditStatus"
-              className="select"
-              disabled={disabled}
-              value={value.existingCreditStatus ?? ''}
-              onChange={(event) =>
-                set(
-                  'existingCreditStatus',
-                  orNull(event.target.value) as CreditStatus | null,
-                )
-              }
-              {...invalid(issues, 'existingCreditStatus')}
-            >
-              <option value="">Not stated</option>
-              {CREDIT_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {status === 'NPA' ? 'Non-performing (NPA)' : 'Standard'}
-                </option>
-              ))}
-            </select>
-          </Field>
+            required
+            options={[
+              { label: 'Standard', value: 'STANDARD', icon: <CheckCircle2 size={15} /> },
+              {
+                label: 'Non-performing (NPA)',
+                value: 'NPA',
+                icon: <AlertTriangle size={15} />,
+              },
+            ]}
+            value={value.existingCreditStatus ?? ''}
+            disabled={disabled}
+            onChange={(next) =>
+              set(
+                'existingCreditStatus',
+                orNull(next) as CreditStatus | null,
+              )
+            }
+          />
         </div>
       ) : null}
     </div>
@@ -817,7 +1014,7 @@ export const DocumentsSection = memo(function DocumentsSection({
   onChange,
 }: SectionProps<ApplicationDraftInput['documents']>) {
   return (
-    <div className="stack">
+    <div className={styles.sectionStack}>
       <YesNoField
         name="nocRequired"
         question={FIELD_LABELS.nocRequired}
@@ -843,16 +1040,18 @@ export const DeclarationSection = memo(function DeclarationSection({
   ) => onChange({ ...value, [key]: next })
 
   return (
-    <div className="stack">
-      <div className="detail-grid">
+    <div className={styles.sectionStack}>
+      <div className={styles.twoColGrid}>
         <Field
           id="relationshipType"
           label={FIELD_LABELS.relationshipType}
+          icon={<Users size={15} />}
           issue={issues.relationshipType}
+          required
         >
           <select
             id="relationshipType"
-            className="select"
+            className={styles.select}
             disabled={disabled}
             value={value.relationshipType ?? ''}
             onChange={(event) =>
@@ -863,7 +1062,7 @@ export const DeclarationSection = memo(function DeclarationSection({
             }
             {...invalid(issues, 'relationshipType')}
           >
-            <option value="">Not stated</option>
+            <option value="">Select relationship</option>
             {RELATIONSHIPS.map((relationship) => (
               <option key={relationship} value={relationship}>
                 {humanize(relationship)}
@@ -875,11 +1074,14 @@ export const DeclarationSection = memo(function DeclarationSection({
         <Field
           id="relatedPersonName"
           label={FIELD_LABELS.relatedPersonName}
+          icon={<User size={15} />}
           issue={issues.relatedPersonName}
+          required
         >
           <input
             id="relatedPersonName"
-            className="input"
+            className={styles.input}
+            placeholder="Enter parent or spouse name"
             disabled={disabled}
             value={value.relatedPersonName ?? ''}
             onChange={(event) => set('relatedPersonName', orNull(event.target.value))}
@@ -890,11 +1092,14 @@ export const DeclarationSection = memo(function DeclarationSection({
         <Field
           id="declarationPlace"
           label={FIELD_LABELS.declarationPlace}
+          icon={<MapPin size={15} />}
           issue={issues.declarationPlace}
+          required
         >
           <input
             id="declarationPlace"
-            className="input"
+            className={styles.input}
+            placeholder="Enter place (e.g. Agartala)"
             disabled={disabled}
             value={value.declarationPlace ?? ''}
             onChange={(event) => set('declarationPlace', orNull(event.target.value))}
@@ -906,10 +1111,12 @@ export const DeclarationSection = memo(function DeclarationSection({
       <Attestation
         id="declarationAccepted"
         statement={FIELD_LABELS.declarationAccepted}
+        icon={<FileSignature size={18} />}
         issue={issues.declarationAccepted}
         checked={value.declarationAccepted ?? false}
         disabled={disabled}
         onChange={(checked) => set('declarationAccepted', checked)}
+        highlight
       />
     </div>
   )

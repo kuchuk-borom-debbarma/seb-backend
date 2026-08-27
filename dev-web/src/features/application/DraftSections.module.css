@@ -1,0 +1,315 @@
+/* ==========================================================================
+   Draft Sections & Form Controls - Minimalist & Muted Styling
+   ========================================================================== */
+
+.sectionStack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.fieldGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.twoColGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 22px;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fieldLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fieldLabel {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #1e293b;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: -0.005em;
+}
+
+.fieldIcon {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.requiredAsterisk {
+  color: #dc2626;
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+/* ==========================================================================
+   Input Controls (Minimalist & Muted)
+   ========================================================================== */
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: #94a3b8;
+}
+
+.input:hover:not(:disabled),
+.select:hover:not(:disabled),
+.textarea:hover:not(:disabled) {
+  border-color: #94a3b8;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: #0f172a;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
+}
+
+.input[aria-invalid='true'],
+.select[aria-invalid='true'],
+.textarea[aria-invalid='true'] {
+  border-color: #dc2626;
+  background: #ffffff;
+}
+
+.input[aria-invalid='true']:focus,
+.select[aria-invalid='true']:focus,
+.textarea[aria-invalid='true']:focus {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.08);
+}
+
+.input:disabled,
+.select:disabled,
+.textarea:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+  cursor: not-allowed;
+  border-color: #e2e8f0;
+}
+
+.fieldError {
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 400;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fieldHint {
+  color: #64748b;
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+/* ==========================================================================
+   Segmented Choice Radio Cards - Minimalist & Muted
+   ========================================================================== */
+
+.radioCardsRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.radioCard {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 13px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.radioCard:hover:not([data-disabled='true']) {
+  border-color: #94a3b8;
+}
+
+.radioCardSelected {
+  border: 1.5px solid #0f172a;
+  background: #ffffff;
+}
+
+.radioCardSelected:hover {
+  border-color: #0f172a;
+}
+
+.radioCard[data-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.radioOptionIcon {
+  color: #64748b;
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.radioCardSelected .radioOptionIcon {
+  color: #0f172a;
+}
+
+.radioDot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: #ffffff;
+  transition: all 0.15s ease;
+}
+
+.radioCard:hover:not([data-disabled='true']) .radioDot {
+  border-color: #94a3b8;
+}
+
+.radioDotSelected {
+  border-color: #0f172a;
+  border-width: 1.5px;
+}
+
+.radioInnerDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0f172a;
+}
+
+.radioCardLabel {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #475569;
+  transition: color 0.15s ease;
+}
+
+.radioCardSelected .radioCardLabel {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+/* ==========================================================================
+   Attestation Card - Minimalist & Muted
+   ========================================================================== */
+
+.attestationCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  transition: all 0.15s ease;
+}
+
+.attestationCard:hover {
+  border-color: #94a3b8;
+}
+
+.attestationCardChecked {
+  border: 1.5px solid #0f172a;
+}
+
+.attestationPlain {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.attestationLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.attestationIcon {
+  color: #475569;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.checkboxInput {
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  border: 1px solid #94a3b8;
+  accent-color: #0f172a;
+  margin-top: 1px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.checkboxInput:focus-visible {
+  outline: 2px solid #0f172a;
+  outline-offset: 2px;
+}
+
+.statementText {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #0f172a;
+  line-height: 1.45;
+}
+
+.attestationError {
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 28px;
+}
+
+@media (max-width: 48rem) {
+  .twoColGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .radioCardsRow {
+    grid-template-columns: 1fr;
+  }
+}

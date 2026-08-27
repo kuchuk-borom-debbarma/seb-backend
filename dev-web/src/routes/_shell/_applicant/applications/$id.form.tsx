@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useLocation, useRouter } from '@tanstack/react-router'
+import { ArrowLeft, ArrowRight, LogOut } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { PageHeader } from '#/components/PageHeader'
 import { ClosingNotice } from '#/features/application/ClosingNotice'
 import {
   APPLICATION_JOURNEY_STEPS,
@@ -31,6 +31,7 @@ import type { ApplicationSection } from '#/graphql/generated/schema'
 import { formatDateTime } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import styles from './DraftForm.module.css'
 
 /** Long enough that typing a sentence is one save, short enough to feel safe. */
 const AUTOSAVE_DELAY_MS = 900
@@ -369,17 +370,26 @@ function DraftFormPage() {
   }
 
   return (
-    <main className="page">
-      <PageHeader
-        title="Application form"
-        description={
-          readOnly
+    <main className={styles.pageShell}>
+      <div className={styles.headerWrap}>
+        <div className={styles.titleRow}>
+          <Link
+            to="/applications"
+            className={styles.backBtn}
+            aria-label="Back to applications"
+          >
+            <ArrowLeft size={18} aria-hidden="true" />
+          </Link>
+          <h1 className={styles.pageTitle}>Application form</h1>
+        </div>
+        <p className={styles.pageDescription}>
+          {readOnly
             ? 'This application can no longer be edited.'
             : application.status === 'REVISION_REQUIRED'
               ? 'Only the sections the programme office asked you to correct can be changed.'
-              : 'Your answers are saved as you type.'
-        }
-      />
+              : 'Your answers are saved as you type.'}
+        </p>
+      </div>
 
       {saveError ? (
         <p
@@ -395,9 +405,7 @@ function DraftFormPage() {
       {/* Only while the application can still be sent. Telling somebody a
           closed application is closing would be noise. */}
       {!readOnly ? (
-        <div style={{ marginBottom: '1rem' }}>
-          <ClosingNotice programmeCycleId={application.programmeCycleId} />
-        </div>
+        <ClosingNotice programmeCycleId={application.programmeCycleId} />
       ) : null}
 
       <ApplicationJourney
@@ -405,35 +413,43 @@ function DraftFormPage() {
         activeStep={activeSection}
         issues={validation?.issues ?? []}
         editableSections={application.editableSections}
-        footerStatus={<SaveIndicator state={saveState} savedAt={savedAt} />}
-        footer={
-          <>
+        footerLeft={
+          <div className={styles.footerLeftGroup}>
             {activeIndex > 0 ? (
               <button
                 type="button"
-                className="button"
+                className={styles.backButton}
                 disabled={save.isPending}
                 onClick={() =>
                   moveTo(APPLICATION_JOURNEY_STEPS[activeIndex - 1] ?? 'ENTERPRISE')
                 }
               >
-                Back
+                <ArrowLeft size={16} aria-hidden="true" />
+                <span>Back</span>
               </button>
             ) : (
-              <Link to="/applications/$id" params={{ id }} className="button">
-                Exit form
+              <Link
+                to="/applications/$id"
+                params={{ id }}
+                className={styles.exitButton}
+              >
+                <LogOut size={15} aria-hidden="true" />
+                <span>Exit form</span>
               </Link>
             )}
-            <button
-              type="button"
-              className="button"
-              data-variant="primary"
-              disabled={save.isPending}
-              onClick={advance}
-            >
-              {save.isPending ? 'Saving…' : 'Next'}
-            </button>
-          </>
+            <SaveIndicator state={saveState} savedAt={savedAt} />
+          </div>
+        }
+        footerRight={
+          <button
+            type="button"
+            className={styles.nextButton}
+            disabled={save.isPending}
+            onClick={advance}
+          >
+            <span>{save.isPending ? 'Saving…' : 'Next'}</span>
+            <ArrowRight size={16} aria-hidden="true" />
+          </button>
         }
       >
         {locked && application.status === 'REVISION_REQUIRED' ? (
@@ -555,22 +571,25 @@ function SectionFields({
 function SaveIndicator({ state, savedAt }: { state: SaveState; savedAt: string | null }) {
   if (state === 'saving') {
     return (
-      <span className="badge" aria-live="polite">
-        Saving…
+      <span className={styles.saveStatus} data-tone="saving" aria-live="polite">
+        <span className={styles.spinnerIcon} aria-hidden="true" />
+        <span>Saving…</span>
       </span>
     )
   }
   if (state === 'failed') {
     return (
-      <span className="badge" data-tone="error" aria-live="assertive">
-        Could not save
+      <span className={styles.saveStatus} data-tone="error" aria-live="assertive">
+        <span className={styles.statusDot} aria-hidden="true" />
+        <span>Could not save</span>
       </span>
     )
   }
   if (state === 'saved' && savedAt) {
     return (
-      <span className="badge" data-tone="ok" aria-live="polite">
-        Saved {formatDateTime(savedAt)}
+      <span className={styles.saveStatus} data-tone="ok" aria-live="polite">
+        <span className={styles.statusDot} aria-hidden="true" />
+        <span>Saved {formatDateTime(savedAt)}</span>
       </span>
     )
   }

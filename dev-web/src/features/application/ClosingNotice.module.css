@@ -1,0 +1,87 @@
+/* ==========================================================================
+   Closing Notice - Minimalist & Muted Banner
+   ========================================================================== */
+
+.noticeCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 22px;
+}
+
+.noticeCard[data-tone='action'] {
+  border-color: #cbd5e1;
+}
+
+.noticeCard[data-tone='error'] {
+  border-color: #fca5a5;
+}
+
+.iconBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+}
+
+.noticeCard[data-tone='error'] .iconBadge {
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+
+.iconBadge svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2;
+}
+
+.noticeContent {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.noticeTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.noticeCard[data-tone='error'] .noticeTitle {
+  color: #b91c1c;
+}
+
+.noticeText {
+  color: #475569;
+  font-size: 13.5px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.noticeHighlight {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.noticeSubtext {
+  color: #64748b;
+  font-size: 12.5px;
+  line-height: 1.4;
+  margin: 2px 0 0;
+}

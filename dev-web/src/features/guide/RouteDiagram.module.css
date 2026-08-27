@@ -1,173 +1,866 @@
-/*
- * Four desks across, the route down.
- *
- * A stop sits in the column of the desk that holds it, and a continuous rule
- * runs down the middle of the whole thing — the file passing from hand to hand.
- * The horizontal position is the information: a reader sees the work crossing
- * from the applicant to the office and out to a bank without reading a word.
- */
-.diagram {
-  --stop-gap: var(--space-5);
-}
+/* ==========================================================================
+   How Mission SEP Works - Route Diagram & Swimlane Styles
+   ========================================================================== */
 
-.desks {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--hairline-strong);
-  position: sticky;
-  top: 0;
-  background: var(--paper);
-  z-index: 1;
-}
-
-.deskName {
-  font-family: var(--font-display);
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--ink-muted);
-}
-
-.route {
-  list-style: none;
-  margin: 0;
-  padding: var(--stop-gap) 0 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
-  align-items: start;
-}
-
-.stop {
-  grid-column: var(--column);
+.diagramWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
   position: relative;
-  display: flex;
-  gap: var(--space-3);
 }
 
-.stop[data-column='1'] {
-  --column: 1;
-}
-.stop[data-column='2'] {
-  --column: 2;
-}
-.stop[data-column='3'] {
-  --column: 3;
-}
-.stop[data-column='4'] {
-  --column: 4;
+.mainCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 30px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
-/* The stop number, set in the utility face like a file's serial. It is what
-   carries the order across four columns. */
-.marker {
-  flex: none;
+.cardTopHeader {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.cardTitleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 680px;
+}
+
+.cardSectionTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.cardSectionDesc {
+  font-size: 13.5px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.learnButton {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 1.375rem;
-  height: 1.375rem;
-  margin-top: 0.05rem;
-  border-radius: 50%;
-  border: 1px solid var(--green);
-  background: var(--surface);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--green);
+  gap: 7px;
+  padding: 8px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 20px;
+  background: #ffffff;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.card {
+.learnButton:hover {
+  border-color: #2563eb;
+  background: #f8fafc;
+}
+
+/* ==========================================================================
+   Swimlanes 4-Column Grid
+   ========================================================================== */
+
+.swimlanesContainer {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+  position: relative;
   min-width: 0;
 }
 
-.deskTag {
-  font-size: 0.625rem;
+.svgConnectorLayer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.swimlaneColumn {
+  display: flex;
+  flex-direction: column;
+  background: #fafbfc;
+  border: 1px solid #f1f5f9;
+  border-radius: 14px;
+  padding: 14px;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.swimlaneColumn[data-desk='Applicant'] {
+  background: #fafbfc;
+  border-color: #f1f5f9;
+}
+
+.swimlaneColumn[data-desk='Programme office'] {
+  background: #fafbfc;
+  border-color: #f1f5f9;
+}
+
+.swimlaneColumn[data-desk='Partner bank'] {
+  background: #f4fbf7;
+  border-color: #e2f7ea;
+}
+
+.swimlaneColumn[data-desk='Committee'] {
+  background: #faf7fd;
+  border-color: #f3e8ff;
+}
+
+.columnHeader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  color: #334155;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.columnHeader[data-desk='Applicant'] {
+  color: #1e40af;
+  border-color: #dbeafe;
+}
+
+.columnHeader[data-desk='Programme office'] {
+  color: #0f172a;
+  border-color: #e2e8f0;
+}
+
+.columnHeader[data-desk='Partner bank'] {
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+
+.columnHeader[data-desk='Committee'] {
+  color: #7e22ce;
+  border-color: #e9d5ff;
+}
+
+.columnHeaderIcon {
+  display: flex;
+  align-items: center;
+}
+
+/* Stage Cards */
+.stageCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  min-height: 102px;
+  box-sizing: border-box;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: left;
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  flex-shrink: 0;
+}
+
+.stageCardCompact {
+  min-height: 96px;
+}
+
+.stageCard:hover {
+  border-color: #94a3b8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.stageCard[data-active='true'] {
+  border: 1.5px solid #2563eb;
+  background: #f0f7ff;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2), 0 4px 14px rgba(37, 99, 235, 0.1);
+  z-index: 10;
+}
+
+.stageCardTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.stageNumBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  background: #1e3a8a;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.stageCard[data-stage-type='bank'] .stageNumBadge {
+  background: #16a34a;
+}
+
+.stageCard[data-stage-type='committee'] .stageNumBadge {
+  background: #7c3aed;
+}
+
+.stageNumBadge[data-ending='true'] {
+  background: #dc2626;
+}
+
+.stageIconTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stageCardIcon {
+  color: #475569;
+  flex-shrink: 0;
+}
+
+.stageCard[data-stage-type='bank'] .stageCardIcon {
+  color: #16a34a;
+}
+
+.stageCard[data-stage-type='committee'] .stageCardIcon {
+  color: #7c3aed;
+}
+
+.stageCardTitle {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.stageCard[data-stage-type='bank'] .stageCardTitle {
+  color: #15803d;
+}
+
+.stageCard[data-stage-type='committee'] .stageCardTitle {
+  color: #6d28d9;
+}
+
+.stageCardDesc {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.45;
+  overflow: visible;
+}
+
+/* Spacers to align rows */
+.rowSpacer {
+  height: 102px;
+  min-height: 102px;
+  max-height: 102px;
+  flex-shrink: 0;
+}
+
+.gapCorrectionRow {
+  height: 84px;
+  min-height: 84px;
+  max-height: 84px;
+  flex-shrink: 0;
+}
+
+/* In-column connector arrow */
+.verticalArrowWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Bottom Split: Alternative Endings + Guided Routes
+   ========================================================================== */
+
+.bottomRow {
+  display: grid;
+  grid-template-columns: 4fr 5fr;
+  gap: 20px;
+  align-items: stretch;
+}
+
+/* Alternative Endings Card */
+.alternativeEndingsCard {
+  background: #ffffff;
+  border: 1px solid #fee2e2;
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.altHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.altTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.altDesc {
+  font-size: 12.5px;
+  color: #64748b;
+  margin: 0;
+}
+
+.altCardsList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.altCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fffafa;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.altCard:hover {
+  border-color: #f87171;
+  background: #ffffff;
+}
+
+/* Guided Routes Card */
+.guidedRoutesCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.guidedHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.guidedTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.guidedTitleIcon {
+  color: #2563eb;
+}
+
+.guidedDesc {
+  font-size: 12.5px;
+  color: #64748b;
+  margin: 0;
+}
+
+.tourItemCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fafbfc;
+  flex-wrap: wrap;
+}
+
+.tourItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tourAvatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  background: #edf5ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tourAvatarIcon {
+  color: #1e3a8a;
+}
+
+.tourInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tourItemTitle {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.tourItemPromise {
+  font-size: 12.5px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.tourItemMeta {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.metaIcon {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.metaDot {
+  color: #94a3b8;
+}
+
+.walkButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid #0f172a;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.walkButton:hover {
+  background: #1e293b;
+}
+
+.withheldNotice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* ==========================================================================
+   Interactive Stage Details Drawer (Mockup 2)
+   ========================================================================== */
+
+.drawerBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.06);
+  backdrop-filter: none;
+  z-index: 998;
+  animation: fadeInBackdrop 0.15s ease-out;
+}
+
+@keyframes fadeInBackdrop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.stageDrawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(460px, 100vw);
+  background: #ffffff;
+  box-shadow: -6px 0 25px rgba(0, 0, 0, 0.08), -2px 0 8px rgba(0, 0, 0, 0.03);
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  animation: slideDrawer 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDrawer {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.drawerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.drawerStageCountPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 14px;
+  background: #f1f5f9;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.drawerCloseBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.drawerCloseBtn:hover {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+.drawerBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.drawerTitleGroup {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.drawerStageBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #1e3a8a;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.drawerStageBadge[data-ending='true'] {
+  background: #dc2626;
+}
+
+.drawerTitleTexts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.drawerStageTitle {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.drawerStageDesk {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #64748b;
+  margin: 0;
+}
+
+.drawerFullDesc {
+  font-size: 14px;
+  color: #334155;
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* Quote card: What the applicant sees */
+.applicantQuoteCard {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quoteCardTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1e3a8a;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  margin: 0;
 }
 
-.label {
-  font-family: var(--font-display);
-  font-size: 1rem;
-  margin-top: 0.125rem;
+.quoteContent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
 }
 
-.explanation {
-  margin-top: var(--space-1);
-  font-size: 0.8125rem;
+.quoteGlyph {
+  font-size: 24px;
+  line-height: 1;
+  color: #3b82f6;
+  font-family: Georgia, serif;
+}
+
+.quoteText {
+  font-size: 13.5px;
+  color: #1e293b;
   line-height: 1.5;
-  color: var(--ink-muted);
+  margin: 0;
 }
 
-.actor {
-  margin-top: var(--space-2);
-  font-size: 0.75rem;
-  color: var(--clay);
+.waitingOnRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #64748b;
+  padding-top: 8px;
+  border-top: 1px solid #f1f5f9;
 }
 
-/* Where a file stops. The marker is filled rather than outlined, and the whole
-   stop is set back — these are outcomes, not stages on the way somewhere. */
-/* Where a file stops rather than passes through. */
-.stop[data-ending] .marker {
-  border-color: var(--ink-faint);
-  color: var(--ink-faint);
+.waitingOnBadge {
+  font-weight: 600;
+  color: #0f172a;
 }
 
-.stop[data-ending] .label,
-.stop[data-ending] .explanation {
-  color: var(--ink-muted);
+/* About this stage Checklist */
+.drawerSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.stop[data-ending] .actor {
-  color: var(--ink-faint);
+.drawerSectionTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
 }
 
-/*
- * Narrow: the four columns collapse to one and the desk headings go with them,
- * because a column position that no longer varies carries no information. Each
- * stop keeps its own desk tag, which is where that information moves to.
- */
-@media (max-width: 60rem) {
-  .desks {
+.aboutList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aboutItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.45;
+}
+
+.aboutIcon {
+  color: #059669;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* Key screens list */
+.screensList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.screenItem {
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.4;
+}
+
+/* Drawer Footer Navigation */
+.drawerFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-top: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.drawerNavBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.drawerNavBtn:hover:not(:disabled) {
+  border-color: #0f172a;
+  color: #0f172a;
+}
+
+.drawerNavBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.drawerNavBtn[data-primary='true'] {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff !important;
+}
+
+.drawerNavBtn[data-primary='true'] span,
+.drawerNavBtn[data-primary='true'] svg {
+  color: #ffffff !important;
+}
+
+.drawerNavBtn[data-primary='true']:hover:not(:disabled) {
+  background: #1e293b;
+  border-color: #1e293b;
+  color: #ffffff !important;
+}
+
+.drawerNavCount {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* ==========================================================================
+   Responsive Adjustments
+   ========================================================================== */
+
+@media (max-width: 64rem) {
+  .swimlanesContainer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .svgConnectorLayer {
     display: none;
   }
 
-  .route {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-4);
-    padding-top: 0;
-  }
-
-  .stop {
-    grid-column: 1;
+  .bottomRow {
+    grid-template-columns: 1fr;
   }
 }
 
-/* The applicant's own wording, set apart from the guide's. Attribution matters:
-   one of these is what the programme promises somebody, and the other is a
-   description written for whoever is being shown the system. */
-.told {
-  margin-top: var(--space-3);
-  padding-left: var(--space-3);
-  border-left: 2px solid var(--clay);
-  font-size: 0.75rem;
-  line-height: 1.5;
-  color: var(--ink-muted);
-}
+@media (max-width: 40rem) {
+  .mainCard {
+    padding: 18px 14px;
+  }
 
-.toldLabel {
-  display: block;
-  font-size: 0.625rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--clay);
-  margin-bottom: 0.125rem;
-}
+  .swimlanesContainer {
+    grid-template-columns: 1fr;
+  }
 
-.told .actor {
-  color: var(--ink-faint);
+  .altCardsList {
+    grid-template-columns: 1fr;
+  }
 }

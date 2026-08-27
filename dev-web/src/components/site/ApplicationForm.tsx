@@ -220,7 +220,7 @@ SECTION 7: APPLICANT UNDERTAKING
             </div>
             <div className="flex items-center gap-3">
               <span className="rounded-full bg-[#1d4ed8]/10 px-3.5 py-1.5 text-xs font-bold text-[#1d4ed8] flex items-center gap-1.5 border border-[#1d4ed8]/20">
-                <Sparkles className="size-3.5" /> Direct Seed Support: Up to ₹5,00,000
+                Direct Seed Support: Up to ₹5,00,000
               </span>
             </div>
           </div>

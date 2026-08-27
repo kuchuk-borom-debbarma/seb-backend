@@ -10,8 +10,10 @@
  * that — so the wording changes as well as the tone.
  */
 import { useQuery } from '@tanstack/react-query'
+import { AlertTriangle, Clock, Hourglass } from 'lucide-react'
 import { cyclesQuery } from '#/features/application/queries'
 import { formatDateTime, formatRelative } from '#/lib/format'
+import styles from './ClosingNotice.module.css'
 
 /** Inside this many days, closing is worth saying loudly. */
 const SOON_DAYS = 7
@@ -30,24 +32,54 @@ export function ClosingNotice({ programmeCycleId }: { programmeCycleId: string }
   const msLeft = new Date(cycle.closesAt).getTime() - Date.now()
   if (msLeft <= 0) {
     return (
-      <p className="notice" data-tone="error">
-        <span className="notice-title">This cycle has closed</span>
-        Applications closed on {formatDateTime(cycle.closesAt)}. Anything not submitted by
-        then cannot be submitted now.
-      </p>
+      <div className={styles.noticeCard} data-tone="error" role="alert">
+        <div className={styles.iconBadge}>
+          <AlertTriangle aria-hidden="true" />
+        </div>
+        <div className={styles.noticeContent}>
+          <h3 className={styles.noticeTitle}>This cycle has closed</h3>
+          <p className={styles.noticeText}>
+            Applications closed on{' '}
+            <span className={styles.noticeHighlight}>
+              {formatDateTime(cycle.closesAt)}
+            </span>
+            .
+          </p>
+          <p className={styles.noticeSubtext}>
+            Anything not submitted by then cannot be submitted now.
+          </p>
+        </div>
+      </div>
     )
   }
 
   const soon = msLeft < SOON_DAYS * 24 * 60 * 60 * 1000
 
   return (
-    <p className="notice" data-tone={soon ? 'action' : undefined}>
-      <span className="notice-title">
-        {soon ? 'Closing soon' : 'When applications close'}
-      </span>
-      {cycle.displayName} closes {formatRelative(cycle.closesAt)}, on{' '}
-      {formatDateTime(cycle.closesAt)}. An application that has not been submitted by then
-      cannot be submitted at all.
-    </p>
+    <div
+      className={styles.noticeCard}
+      data-tone={soon ? 'action' : 'normal'}
+      role="region"
+      aria-label="Cycle closing notice"
+    >
+      <div className={styles.iconBadge}>
+        {soon ? <Hourglass aria-hidden="true" /> : <Clock aria-hidden="true" />}
+      </div>
+      <div className={styles.noticeContent}>
+        <h3 className={styles.noticeTitle}>
+          {soon ? 'Closing soon' : 'When applications close'}
+        </h3>
+        <p className={styles.noticeText}>
+          {cycle.displayName} closes{' '}
+          <span className={styles.noticeHighlight}>
+            {formatRelative(cycle.closesAt)}, on {formatDateTime(cycle.closesAt)}
+          </span>
+          .
+        </p>
+        <p className={styles.noticeSubtext}>
+          An application that has not been submitted by then cannot be submitted at all.
+        </p>
+      </div>
+    </div>
   )
 }

@@ -2,9 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   ArrowRight,
-  Briefcase,
   Building2,
-  Calendar,
   CalendarDays,
   Check,
   ChevronRight,
@@ -123,48 +121,6 @@ function ApplicantDashboard() {
       />
 
       <div className={styles.dashboard}>
-        {/* Top 3 Summary Metric Cards */}
-        <section className={styles.metrics} aria-label="Account summary">
-          <Link to="/applications" className={styles.metricCard}>
-            <div className={styles.metricLeft}>
-              <div className={styles.metricIconBadge} data-color="blue">
-                <FileText aria-hidden="true" />
-              </div>
-              <div className={styles.metricInfo}>
-                <span className={styles.metricLabel}>Applications</span>
-                <strong className={styles.metricValue}>{applications}</strong>
-              </div>
-            </div>
-            <ChevronRight className={styles.metricChevron} size={18} aria-hidden="true" />
-          </Link>
-
-          <Link to="/enterprises" className={styles.metricCard}>
-            <div className={styles.metricLeft}>
-              <div className={styles.metricIconBadge} data-color="green">
-                <Briefcase aria-hidden="true" />
-              </div>
-              <div className={styles.metricInfo}>
-                <span className={styles.metricLabel}>Enterprises</span>
-                <strong className={styles.metricValue}>{enterprises}</strong>
-              </div>
-            </div>
-            <ChevronRight className={styles.metricChevron} size={18} aria-hidden="true" />
-          </Link>
-
-          <Link to="/cycles" className={styles.metricCard}>
-            <div className={styles.metricLeft}>
-              <div className={styles.metricIconBadge} data-color="purple">
-                <Calendar aria-hidden="true" />
-              </div>
-              <div className={styles.metricInfo}>
-                <span className={styles.metricLabel}>Open cycles</span>
-                <strong className={styles.metricValue}>{cycles.length}</strong>
-              </div>
-            </div>
-            <ChevronRight className={styles.metricChevron} size={18} aria-hidden="true" />
-          </Link>
-        </section>
-
         {/* Middle Section: Active Cycle Hero + Needs Your Attention */}
         <div className={styles.middleGrid}>
           {firstCycle ? (
@@ -268,37 +224,67 @@ function ApplicantDashboard() {
 
         {/* Readiness Checklist Banners for Empty Data */}
         {enterprises === 0 || applications === 0 || cycles.length === 0 ? (
-          <section className={styles.emptyStates} aria-label="Account readiness">
-            {enterprises === 0 ? (
-              <div className={styles.emptyState}>
-                <Building2 aria-hidden="true" />
-                <span>
-                  <strong>No enterprises yet</strong>
-                  <small>Register an enterprise before starting an application.</small>
-                </span>
-                <Link to="/enterprises/new">Register enterprise</Link>
-              </div>
-            ) : null}
-            {applications === 0 ? (
-              <div className={styles.emptyState}>
-                <FileText aria-hidden="true" />
-                <span>
-                  <strong>No applications yet</strong>
-                  <small>Your saved and submitted applications will appear here.</small>
-                </span>
-                <Link to="/applications/new">Start application</Link>
-              </div>
-            ) : null}
-            {cycles.length === 0 ? (
-              <div className={styles.emptyState}>
-                <CalendarDays aria-hidden="true" />
-                <span>
-                  <strong>No open programme cycles</strong>
-                  <small>No cycle is accepting applications right now.</small>
-                </span>
-                <Link to="/cycles">View cycles</Link>
-              </div>
-            ) : null}
+          <section className={styles.emptyStatesCard} aria-label="Account readiness">
+            <div className={styles.cardHeader}>
+              <h2 className={styles.cardTitle}>Account readiness</h2>
+            </div>
+            <div className={styles.emptyStatesList}>
+              {enterprises === 0 ? (
+                <div className={styles.emptyStateItem}>
+                  <div className={styles.emptyStateLeft}>
+                    <div className={styles.emptyStateIconBadge} data-color="green">
+                      <Building2 aria-hidden="true" />
+                    </div>
+                    <div className={styles.emptyStateText}>
+                      <strong>No enterprises yet</strong>
+                      <small>
+                        Register an enterprise before starting an application.
+                      </small>
+                    </div>
+                  </div>
+                  <Link to="/enterprises/new" className={styles.emptyStateAction}>
+                    Register enterprise
+                    <ChevronRight size={15} aria-hidden="true" />
+                  </Link>
+                </div>
+              ) : null}
+              {applications === 0 ? (
+                <div className={styles.emptyStateItem}>
+                  <div className={styles.emptyStateLeft}>
+                    <div className={styles.emptyStateIconBadge} data-color="blue">
+                      <FileText aria-hidden="true" />
+                    </div>
+                    <div className={styles.emptyStateText}>
+                      <strong>No applications yet</strong>
+                      <small>
+                        Your saved and submitted applications will appear here.
+                      </small>
+                    </div>
+                  </div>
+                  <Link to="/applications/new" className={styles.emptyStateAction}>
+                    Start application
+                    <ChevronRight size={15} aria-hidden="true" />
+                  </Link>
+                </div>
+              ) : null}
+              {cycles.length === 0 ? (
+                <div className={styles.emptyStateItem}>
+                  <div className={styles.emptyStateLeft}>
+                    <div className={styles.emptyStateIconBadge} data-color="purple">
+                      <CalendarDays aria-hidden="true" />
+                    </div>
+                    <div className={styles.emptyStateText}>
+                      <strong>No open programme cycles</strong>
+                      <small>No cycle is accepting applications right now.</small>
+                    </div>
+                  </div>
+                  <Link to="/cycles" className={styles.emptyStateAction}>
+                    View cycles
+                    <ChevronRight size={15} aria-hidden="true" />
+                  </Link>
+                </div>
+              ) : null}
+            </div>
           </section>
         ) : null}
 

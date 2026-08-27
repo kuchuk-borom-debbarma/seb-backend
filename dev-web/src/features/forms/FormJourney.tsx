@@ -5,7 +5,19 @@
  * what makes a step complete, which steps may be opened, and what Back or Next
  * actually does, so no business rule is duplicated into the design system.
  */
-import { AlertCircle, Check, Circle, LockKeyhole } from 'lucide-react'
+import {
+  Building2,
+  Check,
+  CheckCircle2,
+  FileCheck,
+  FileSignature,
+  FileText,
+  History,
+  IndianRupee,
+  LockKeyhole,
+  Paperclip,
+  User,
+} from 'lucide-react'
 import styles from './FormJourney.module.css'
 
 export type JourneyStepStatus = 'available' | 'blocked' | 'complete' | 'error' | 'locked'
@@ -18,11 +30,36 @@ export type JourneyStep<TId extends string = string> = {
   issueCount?: number
 }
 
+function CategoryIcon({ id, size = 20 }: { id: string; size?: number }) {
+  switch (id) {
+    case 'ENTERPRISE':
+      return <Building2 size={size} className={styles.formTitleIcon} aria-hidden="true" />
+    case 'APPLICANT_PROFILE':
+      return <User size={size} className={styles.formTitleIcon} aria-hidden="true" />
+    case 'FINANCIAL':
+      return <IndianRupee size={size} className={styles.formTitleIcon} aria-hidden="true" />
+    case 'PRIOR_FUNDING':
+      return <History size={size} className={styles.formTitleIcon} aria-hidden="true" />
+    case 'DOCUMENTS':
+      return <FileText size={size} className={styles.formTitleIcon} aria-hidden="true" />
+    case 'DECLARATION':
+      return <FileSignature size={size} className={styles.formTitleIcon} aria-hidden="true" />
+    case 'ATTACH_EVIDENCE':
+      return <Paperclip size={size} className={styles.formTitleIcon} aria-hidden="true" />
+    case 'REVIEW':
+      return <CheckCircle2 size={size} className={styles.formTitleIcon} aria-hidden="true" />
+    default:
+      return null
+  }
+}
+
 export function FormJourney<TId extends string>({
   steps,
   activeStepId,
   onStepSelect,
   children,
+  footerLeft,
+  footerRight,
   footer,
   footerStatus,
 }: {
@@ -30,7 +67,9 @@ export function FormJourney<TId extends string>({
   activeStepId: TId
   onStepSelect?: (step: TId) => void
   children: React.ReactNode
-  footer: React.ReactNode
+  footerLeft?: React.ReactNode
+  footerRight?: React.ReactNode
+  footer?: React.ReactNode
   footerStatus?: React.ReactNode
 }) {
   const activeIndex = Math.max(
@@ -81,65 +120,94 @@ export function FormJourney<TId extends string>({
       </div>
 
       <div className={styles.body}>
-        <nav className={styles.rail} aria-label="Form categories">
-          <ol>
+        <nav className={styles.railCard} aria-label="Form categories">
+          <ol className={styles.stepList}>
             {steps.map((step, index) => {
               const current = step.id === activeStepId
               const interactive = canOpen(step) && Boolean(onStepSelect)
+              const isLocked = step.status === 'blocked' || step.status === 'locked'
               return (
-                <li key={step.id} data-current={current ? 'true' : undefined}>
+                <li
+                  key={step.id}
+                  className={styles.stepItem}
+                  data-current={current ? 'true' : undefined}
+                >
                   <button
                     type="button"
-                    className={styles.step}
+                    className={styles.stepButton}
                     disabled={!interactive}
+                    data-current={current ? 'true' : undefined}
                     aria-current={current ? 'step' : undefined}
                     onClick={() => onStepSelect?.(step.id)}
                   >
-                    <span className={styles.marker} data-status={step.status}>
-                      <StepIcon status={step.status} />
+                    <span className={styles.stepCircle} data-status={step.status}>
+                      {step.status === 'complete' ? (
+                        <Check size={14} strokeWidth={2.8} aria-hidden="true" />
+                      ) : (
+                        index + 1
+                      )}
                     </span>
-                    <span className={styles.stepCopy}>
-                      <span className={styles.stepLabel}>
-                        <span className={styles.stepNumber}>{index + 1}.</span>{' '}
-                        {step.label}
-                      </span>
-                      <span className={styles.stepState}>
-                        {stateLabel(step, current)}
-                      </span>
-                    </span>
+                    <div className={styles.stepCopy}>
+                      <span className={styles.stepLabel}>{step.label}</span>
+                      {current && step.issueCount ? (
+                        <span className={styles.stepIssues}>
+                          {step.issueCount}{' '}
+                          {step.issueCount === 1 ? 'item' : 'items'} to fix
+                        </span>
+                      ) : (
+                        <span
+                          className={
+                            step.status === 'complete'
+                              ? styles.stepSubComplete
+                              : styles.stepSub
+                          }
+                        >
+                          {stateLabel(step, current)}
+                        </span>
+                      )}
+                    </div>
+                    <div className={styles.stepRightSlot}>
+                      {isLocked ? (
+                        <LockKeyhole
+                          size={14}
+                          className={styles.lockIcon}
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                    </div>
                   </button>
                 </li>
               )
             })}
           </ol>
+          <div className={styles.railFooter}>
+            Category {activeIndex + 1} of {steps.length}
+          </div>
         </nav>
 
-        <div className={styles.workspace}>
-          <header className={styles.sectionHeader} aria-live="polite">
-            <p className="eyebrow">
-              Category {activeIndex + 1} of {steps.length}
-            </p>
-            <h2 id="journey-section-title">{active.label}</h2>
-            <p>{active.description}</p>
-          </header>
+        <div className={styles.formCard}>
+          <div className={styles.formHeader} aria-live="polite">
+            <h2 id="journey-section-title" className={styles.formTitle}>
+              <CategoryIcon id={active.id} />
+              <span>{active.label}</span>
+            </h2>
+            <p className={styles.formDesc}>{active.description}</p>
+          </div>
 
-          <div className={styles.content}>{children}</div>
+          <div className={styles.formContent}>{children}</div>
+
+          <div className={styles.formFooter}>
+            <div className={styles.footerLeft}>
+              {footerLeft ?? footerStatus}
+            </div>
+            <div className={styles.footerRight}>
+              {footerRight ?? footer}
+            </div>
+          </div>
         </div>
       </div>
-
-      <footer className={styles.footer}>
-        <div className={styles.footerStatus}>{footerStatus}</div>
-        <div className={styles.footerActions}>{footer}</div>
-      </footer>
     </section>
   )
-}
-
-function StepIcon({ status }: { status: JourneyStepStatus }) {
-  if (status === 'complete') return <Check aria-hidden="true" />
-  if (status === 'locked') return <LockKeyhole aria-hidden="true" />
-  if (status === 'error') return <AlertCircle aria-hidden="true" />
-  return <Circle aria-hidden="true" />
 }
 
 function stateLabel<TId extends string>(

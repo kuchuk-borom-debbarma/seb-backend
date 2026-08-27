@@ -58,14 +58,18 @@ export function ApplicationJourney({
   children,
   footer,
   footerStatus,
+  footerLeft,
+  footerRight,
 }: {
   applicationId: string
   activeStep: ApplicationJourneyStep
   issues: Issue[]
   editableSections: ApplicationSection[]
   children: React.ReactNode
-  footer: React.ReactNode
+  footer?: React.ReactNode
   footerStatus?: React.ReactNode
+  footerLeft?: React.ReactNode
+  footerRight?: React.ReactNode
 }) {
   const router = useRouter()
   const readOnly = editableSections.length === 0
@@ -99,6 +103,8 @@ export function ApplicationJourney({
           })
         }
       }}
+      footerLeft={footerLeft}
+      footerRight={footerRight}
       footer={footer}
       footerStatus={footerStatus}
     >
