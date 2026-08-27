@@ -205,6 +205,21 @@ function CyclesPage() {
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Open for new applications</h2>
 
+          {/*
+            The one rule that surprises people, said before they meet it as a
+            refusal: windows run in parallel, but an enterprise applies in one.
+          */}
+          {available.length > 1 ? (
+            <p className="notice" data-tone="action">
+              <span className="notice-title">
+                {available.length} windows are open — your enterprise applies in one
+              </span>
+              The programme funds an enterprise one phase at a time, so one live
+              application, whichever cycle you choose. Compare their closing dates and
+              guidance, then apply in the one that suits your enterprise.
+            </p>
+          ) : null}
+
           {available.length === 0 ? (
             <div className={styles.emptyCard}>
               <h3 className={styles.emptyTitle}>No cycle is open</h3>

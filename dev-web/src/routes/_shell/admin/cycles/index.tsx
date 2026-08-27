@@ -257,8 +257,12 @@ function AdminCyclesPage() {
         <div className={styles.headerTitleGroup}>
           <h1 className={styles.pageTitle}>Programme cycles</h1>
           <p className={`${styles.pageSubtitle} page-header-description`}>
-            A cycle is the policy an application is judged by. Its rules are frozen into
-            every draft started while it is open.
+            A cycle is one application window: it opens, takes applications, closes,
+            and keeps its rules frozen for every application it hosted. Several may
+            run in parallel, each with its own form and policy. An enterprise holds
+            one live application per funding phase, whichever open cycle it chose —
+            a rejected or cancelled attempt frees a retry, and a funded enterprise
+            returns later for its expansion phase.
           </p>
         </div>
         <Link
