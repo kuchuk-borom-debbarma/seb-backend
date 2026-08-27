@@ -32,6 +32,11 @@ function CycleFormAuthoringPage() {
           title="The form editor"
           description="Changing what a cycle asks is a change to the programme itself, so it is reserved for a super administrator."
         />
+      <p style={{ margin: 0 }}>
+        <Link className="button" to="/admin/cycles/$id/preview" params={{ id }}>
+          View as an applicant
+        </Link>
+      </p>
         <p className="notice" data-tone="error" role="alert">
           You do not have permission to change a cycle’s questions.
         </p>

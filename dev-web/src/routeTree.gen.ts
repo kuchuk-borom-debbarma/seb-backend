@@ -51,6 +51,7 @@ import { Route as ShellApplicantApplicationsIdSubmittedRouteImport } from './rou
 import { Route as ShellAdminApplicationsIdIndexRouteImport } from './routes/_shell/admin/applications/$id.index'
 import { Route as ShellAdminApplicationsIdFundingRouteImport } from './routes/_shell/admin/applications/$id.funding'
 import { Route as ShellAdminCyclesIdFormRouteImport } from './routes/_shell/admin/cycles/$id_.form'
+import { Route as ShellAdminCyclesIdPreviewRouteImport } from './routes/_shell/admin/cycles/$id_.preview'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -273,6 +274,12 @@ const ShellAdminCyclesIdFormRoute = ShellAdminCyclesIdFormRouteImport.update({
   path: '/cycles/$id/form',
   getParentRoute: () => ShellAdminRouteRoute,
 } as any)
+const ShellAdminCyclesIdPreviewRoute =
+  ShellAdminCyclesIdPreviewRouteImport.update({
+    id: '/cycles/$id_/preview',
+    path: '/cycles/$id/preview',
+    getParentRoute: () => ShellAdminRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -313,6 +320,7 @@ export interface FileRoutesByFullPath {
   '/applications/$id/submitted': typeof ShellApplicantApplicationsIdSubmittedRoute
   '/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
   '/admin/cycles/$id/form': typeof ShellAdminCyclesIdFormRoute
+  '/admin/cycles/$id/preview': typeof ShellAdminCyclesIdPreviewRoute
   '/applications/$id/': typeof ShellApplicantApplicationsIdIndexRoute
   '/admin/applications/$id/': typeof ShellAdminApplicationsIdIndexRoute
 }
@@ -353,6 +361,7 @@ export interface FileRoutesByTo {
   '/applications/$id/submitted': typeof ShellApplicantApplicationsIdSubmittedRoute
   '/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
   '/admin/cycles/$id/form': typeof ShellAdminCyclesIdFormRoute
+  '/admin/cycles/$id/preview': typeof ShellAdminCyclesIdPreviewRoute
   '/applications/$id': typeof ShellApplicantApplicationsIdIndexRoute
   '/admin/applications/$id': typeof ShellAdminApplicationsIdIndexRoute
 }
@@ -398,6 +407,7 @@ export interface FileRoutesById {
   '/_shell/_applicant/applications/$id/submitted': typeof ShellApplicantApplicationsIdSubmittedRoute
   '/_shell/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
   '/_shell/admin/cycles/$id_/form': typeof ShellAdminCyclesIdFormRoute
+  '/_shell/admin/cycles/$id_/preview': typeof ShellAdminCyclesIdPreviewRoute
   '/_shell/_applicant/applications/$id/': typeof ShellApplicantApplicationsIdIndexRoute
   '/_shell/admin/applications/$id/': typeof ShellAdminApplicationsIdIndexRoute
 }
@@ -442,6 +452,7 @@ export interface FileRouteTypes {
     | '/applications/$id/submitted'
     | '/admin/applications/$id/funding'
     | '/admin/cycles/$id/form'
+    | '/admin/cycles/$id/preview'
     | '/applications/$id/'
     | '/admin/applications/$id/'
   fileRoutesByTo: FileRoutesByTo
@@ -482,6 +493,7 @@ export interface FileRouteTypes {
     | '/applications/$id/submitted'
     | '/admin/applications/$id/funding'
     | '/admin/cycles/$id/form'
+    | '/admin/cycles/$id/preview'
     | '/applications/$id'
     | '/admin/applications/$id'
   id:
@@ -526,6 +538,7 @@ export interface FileRouteTypes {
     | '/_shell/_applicant/applications/$id/submitted'
     | '/_shell/admin/applications/$id/funding'
     | '/_shell/admin/cycles/$id_/form'
+    | '/_shell/admin/cycles/$id_/preview'
     | '/_shell/_applicant/applications/$id/'
     | '/_shell/admin/applications/$id/'
   fileRoutesById: FileRoutesById
@@ -837,6 +850,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAdminCyclesIdFormRouteImport
       parentRoute: typeof ShellAdminRouteRoute
     }
+    '/_shell/admin/cycles/$id_/preview': {
+      id: '/_shell/admin/cycles/$id_/preview'
+      path: '/cycles/$id/preview'
+      fullPath: '/admin/cycles/$id/preview'
+      preLoaderRoute: typeof ShellAdminCyclesIdPreviewRouteImport
+      parentRoute: typeof ShellAdminRouteRoute
+    }
   }
 }
 
@@ -851,6 +871,7 @@ interface ShellAdminRouteRouteChildren {
   ShellAdminCyclesIndexRoute: typeof ShellAdminCyclesIndexRoute
   ShellAdminApplicationsIdFundingRoute: typeof ShellAdminApplicationsIdFundingRoute
   ShellAdminCyclesIdFormRoute: typeof ShellAdminCyclesIdFormRoute
+  ShellAdminCyclesIdPreviewRoute: typeof ShellAdminCyclesIdPreviewRoute
   ShellAdminApplicationsIdIndexRoute: typeof ShellAdminApplicationsIdIndexRoute
 }
 
@@ -865,6 +886,7 @@ const ShellAdminRouteRouteChildren: ShellAdminRouteRouteChildren = {
   ShellAdminCyclesIndexRoute: ShellAdminCyclesIndexRoute,
   ShellAdminApplicationsIdFundingRoute: ShellAdminApplicationsIdFundingRoute,
   ShellAdminCyclesIdFormRoute: ShellAdminCyclesIdFormRoute,
+  ShellAdminCyclesIdPreviewRoute: ShellAdminCyclesIdPreviewRoute,
   ShellAdminApplicationsIdIndexRoute: ShellAdminApplicationsIdIndexRoute,
 }
 
@@ -963,12 +985,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

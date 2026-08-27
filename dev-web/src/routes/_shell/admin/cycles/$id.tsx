@@ -177,7 +177,12 @@ function AdminCyclePage() {
       const result = await gql(ArchiveCycleDocument, { input })
       return unwrap(result.admin.programmeCycle.archive)
     },
-    onSuccess: refresh,
+    // The closing modal is the feedback: the page behind it now says the new
+    // state. Leaving it open read as "nothing happened".
+    onSuccess: async () => {
+      await refresh()
+      setTransitionAction(null)
+    },
     // A refusal usually means the version moved — an edit on the form screen
     // is a revision too. Refetch so the next attempt quotes the fresh one.
     onError: refresh,
@@ -910,6 +915,15 @@ function AdminCyclePage() {
         <div className={styles.card} {...mark('cycle-questions')}>
           <div className={styles.cardHeader}>
             <h2 className={styles.cardTitle}>Questions this cycle asks</h2>
+            {/* Any officer may look; the preview renders with the applicant's
+                own components, so what it shows is what they get. */}
+            <Link
+              to="/admin/cycles/$id/preview"
+              params={{ id }}
+              className={styles.outlineActionButton}
+            >
+              View as an applicant
+            </Link>
             {can(user, 'CYCLE_ADMIN') ? (
               isDraft ? (
                 <Link
