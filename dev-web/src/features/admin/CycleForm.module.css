@@ -252,6 +252,12 @@
   background: #f1f5f9;
 }
 
+.optionalHint {
+  font-weight: 400;
+  color: #64748b;
+  font-size: 0.8125rem;
+}
+
 .fieldHint {
   font-size: 12px;
   color: #64748b;

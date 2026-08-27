@@ -289,7 +289,7 @@ export function CycleForm({
           <h2 className={styles.infoTitle}>A cycle is created as a draft</h2>
           <p className={styles.infoText}>
             Nothing here reaches applicants until you open it — and it can only be opened
-            once the policy reference, applicant guidance, both dates, every eligibility
+            once the policy reference, applicant guidance, the opening date, every eligibility
             field, at least one assessment, and a reason for every administrative action
             are all present.
           </p>
@@ -430,16 +430,20 @@ export function CycleForm({
 
               <div className={styles.fieldGroup}>
                 <label className={styles.fieldLabel} htmlFor="closesAt">
-                  Applications close
+                  Applications close{' '}
+                  <span className={styles.optionalHint}>(optional)</span>
                 </label>
                 <input
                   id="closesAt"
                   className={styles.inputField}
                   type="datetime-local"
-                  required
                   value={toLocalInput(values.closesAt)}
                   onChange={(event) => set('closesAt', toInstant(event.target.value))}
                 />
+                <p className={styles.fieldHint}>
+                  Leave it blank and the cycle takes applications until the office closes
+                  it. It can be set or removed later from the cycle&rsquo;s page.
+                </p>
               </div>
             </div>
 
