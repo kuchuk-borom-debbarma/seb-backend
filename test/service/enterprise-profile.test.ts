@@ -228,3 +228,4 @@ describe('reading a date that is only a date', () => {
     expect(parseDateOnly(given)).toBeNull()
   })
 })
+

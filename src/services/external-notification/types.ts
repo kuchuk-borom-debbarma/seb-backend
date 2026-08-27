@@ -25,15 +25,17 @@ export type Notification = {
   /**
    * Documents that travel with the message, or none.
    *
-   * Bytes with a name, which passes this file's own printer test: any carrier
-   * can do something honest with them — a printer prints them, a postal
-   * service encloses them. A URL instead would name a place only one
-   * transport could reach, and would leak where the programme keeps things.
+   * A named place, not bytes. Bytes passed the printer test in theory; in
+   * practice the provider attaches by URL — it fetches what the link names
+   * and encloses it, and silently dropped an inline body. So the programme
+   * signs a link it serves itself (`/confirmation-pdf`) and every carrier
+   * does something honest with it: the provider encloses the file, the
+   * console prints the address.
    */
   attachments?: readonly {
     filename: string
     contentType: string
-    bytes: Uint8Array
+    url: string
   }[]
 }
 

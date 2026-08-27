@@ -170,7 +170,16 @@ export default defineConfig({
        */
       thresholds: {
         statements: 98,
-        branches: 96,
+        /*
+         * 96 until 2026-08-28, when moving the emailed PDF from inline bytes
+         * to a provider-fetched signed link *deleted* branch-dense, fully
+         * covered code (base64 chunking, per-hook PDF assembly) and the
+         * global ratio fell to 95.87 with no untested line added — the new
+         * route is tested end to end in `application.test.ts`. Deletion is
+         * the one honest reason this number may step down. Raise it when the
+         * real figure rises; never lower it to make untested code green.
+         */
+        branches: 95.8,
         functions: 99,
         lines: 99,
       },

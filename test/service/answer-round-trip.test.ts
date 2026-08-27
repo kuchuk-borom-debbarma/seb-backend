@@ -280,3 +280,22 @@ describe('a repeated group', () => {
     expect(new Set(names.map((row) => row.entryIndex)).size).toBe(2)
   })
 })
+
+
+describe('a stored row no engine should have written', () => {
+  it('reads a row addressed to a statement as nothing', () => {
+    // The engine refuses answers to a STATEMENT, so such a row is corruption.
+    // Reading it as null invents nothing — the display shows an unanswered
+    // question rather than resurrecting whatever was smuggled in.
+    const template = templateOf([
+      field('NOTICE', 'STATEMENT', 1, { requirement: 'OPTIONAL' }),
+      field('NAME', 'TEXT', 2),
+    ])
+    const after = answersFromRows(template, 'av1', [
+      { applicationVersionId: 'av1', fieldKey: 'NOTICE', entryIndex: 0, valueOrdinal: 0, valueText: 'smuggled' },
+      { applicationVersionId: 'av1', fieldKey: 'NAME', entryIndex: 0, valueOrdinal: 0, valueText: 'Kuku' },
+    ])
+    expect(after.NOTICE ?? null).toBeNull()
+    expect(after.NAME).toBe('Kuku')
+  })
+})

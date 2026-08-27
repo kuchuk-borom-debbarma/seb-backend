@@ -35,9 +35,9 @@ export const consoleTransport = (): NotificationTransport => ({
         subject: notification.subject,
         text: notification.body,
         /*
-         * Names and byte counts only, and only when something is attached.
-         * The content never reaches a log — logs are readable in CI on a
-         * public repository — and the key is absent rather than empty so a
+         * Names and links only, and only when something is attached. The
+         * link is signed and expiring but logs live longer than links; the
+         * key is absent rather than empty so a
          * message without attachments prints exactly the line it always has.
          * The harness parses the line as JSON, so an extra key is tolerated.
          */
@@ -45,7 +45,7 @@ export const consoleTransport = (): NotificationTransport => ({
           ? {
               attachments: notification.attachments.map((attachment) => ({
                 filename: attachment.filename,
-                bytes: attachment.bytes.byteLength,
+                url: attachment.url,
               })),
             }
           : {}),

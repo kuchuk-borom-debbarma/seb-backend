@@ -177,6 +177,22 @@ const applicationBase = (head: ApplicationHeadRecord) => ({
   deletedAt: head.deletedAt,
 })
 
+/**
+ * The head alone, by id, for the signed confirmation link — which carries no
+ * session and no owner, only a signature over this exact id.
+ */
+export const findApplicationHeadById = async (
+  db: Database,
+  applicationId: string,
+): Promise<ApplicationHeadRecord | null> => {
+  const [head] = await db
+    .select()
+    .from(sebApplication)
+    .where(and(eq(sebApplication.id, applicationId), isNull(sebApplication.deletedAt)))
+    .limit(1)
+  return head ?? null
+}
+
 export const findOwnedApplicationHead = async (
   db: Database,
   userId: string,

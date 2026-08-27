@@ -277,3 +277,20 @@ describe('a template the engine cannot make sense of', () => {
       .toEqual([])
   })
 })
+
+
+describe('answers no applicant may write', () => {
+  it('refuses an answer addressed to a server-derived question', () => {
+    const template = templateOf([
+      field('PRIOR_AWARD_PAISE', 'MONEY_PAISE', 1, { source: 'SERVER_DERIVED' }),
+    ])
+    const issues = normalizeAnswers(
+      template,
+      { ...answersFor(template, {}), PRIOR_AWARD_PAISE: '100' },
+      NOW,
+    ).issues
+    // The office computes it from the award; an applicant asserting it would
+    // be asserting their own prior funding.
+    expect(issues.map((each) => each.code)).toContain('UNKNOWN_FIELD')
+  })
+})

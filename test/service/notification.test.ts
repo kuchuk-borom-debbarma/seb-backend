@@ -116,29 +116,29 @@ describe('the console transport', () => {
     expect(delivery.reference).toBeNull()
   })
 
-  it('logs attachment names and sizes, and never the bytes', async () => {
+  it('logs attachment names and links', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
-    // Bytes above 0x7f, so "the payload is absent" is shown on real binary.
-    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x00, 0xff, 0xfe])
     await notificationTransport(bindings()).send({
       ...message,
-      attachments: [
-        { filename: 'application-SEP-2026-ABCDEFGH.pdf', contentType: 'application/pdf', bytes },
-      ],
+      attachments: [{
+        filename: 'application-SEP-2026-ABCDEFGH.pdf',
+        contentType: 'application/pdf',
+        url: 'http://localhost:9999/confirmation-pdf?application=a&expires=1&signature=s',
+      }],
     })
 
     const line = log.mock.calls[0]![0] as string
     expect(line.startsWith(`${DEV_EMAIL_PREFIX} `)).toBe(true)
-    /*
-     * Names and byte counts only. A developer reading the log learns that a
-     * PDF of the right size went along; the document itself never reaches a
-     * log, for the same reason the pingram refusal never repeats a request.
-     */
+    // The name and the signed place it can be fetched from — which is what a
+    // developer needs to open the same document the provider would enclose.
     expect(JSON.parse(line.slice(DEV_EMAIL_PREFIX.length + 1))).toEqual({
       to: message.to,
       subject: message.subject,
       text: message.body,
-      attachments: [{ filename: 'application-SEP-2026-ABCDEFGH.pdf', bytes: 7 }],
+      attachments: [{
+        filename: 'application-SEP-2026-ABCDEFGH.pdf',
+        url: 'http://localhost:9999/confirmation-pdf?application=a&expires=1&signature=s',
+      }],
     })
   })
 })
@@ -183,27 +183,28 @@ describe('the provider adapter', () => {
     expect(body.html).not.toContain('<b>')
   })
 
-  it('carries attachments as base64 on the same request', async () => {
+  it('carries attachments as filename and URL, in the provider\u2019s own shape', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ trackingId: 'trk_2' }), { status: 200 }),
     )
-    // Includes bytes above 0x7f: a base64 built through a text codec would
-    // mangle exactly these, so the expectation is computed from the raw bytes.
-    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x00, 0x80, 0xff, 0x0a])
     await transport.send({
       ...message,
-      attachments: [
-        { filename: 'application-SEP-2026-ABCDEFGH.pdf', contentType: 'application/pdf', bytes },
-      ],
+      attachments: [{
+        filename: 'application-SEP-2026-ABCDEFGH.pdf',
+        contentType: 'application/pdf',
+        url: 'https://api.example/confirmation-pdf?application=a&expires=1&signature=s',
+      }],
     })
 
     const body = JSON.parse(
       fetchSpy.mock.calls[0]![1]?.body as string,
     ) as { attachments: unknown }
+    // `{filename, url}` and nothing else: the provider fetches the link and
+    // encloses what it finds. An inline base64 body was silently dropped —
+    // the email arrived promising an attachment that never did.
     expect(body.attachments).toEqual([{
       filename: 'application-SEP-2026-ABCDEFGH.pdf',
-      contentType: 'application/pdf',
-      content: btoa(String.fromCharCode(...bytes)),
+      url: 'https://api.example/confirmation-pdf?application=a&expires=1&signature=s',
     }])
   })
 
@@ -216,7 +217,7 @@ describe('the provider adapter', () => {
       attachments: [{
         filename: 'application-SEP-2026-ABCDEFGH.pdf',
         contentType: 'application/pdf',
-        bytes: new Uint8Array([1, 2, 3]),
+        url: 'https://api.example/confirmation-pdf?application=a&expires=1&signature=s',
       }],
     }).catch((error: Error) => error.message)
     expect(thrown).toContain('(413)')

@@ -92,7 +92,7 @@ import {
   findPinnedRulesForApplication,
 } from '../queries/form-template'
 import { ROLE_CANONICAL_KEY } from '../../../db/schema'
-import { buildApplicationPdf } from '../confirmation'
+import { confirmationPdfUrl } from '../confirmation-link'
 import { sendNotification } from '../../external-notification'
 import { createAuditEvent } from '../../auth/queries/auth'
 
@@ -564,15 +564,11 @@ const sendSubmissionConfirmation = async (
       findProgrammeCycleIdentity(context.db, application.programmeCycleId),
     ])
     if (!email || !cycle) throw new Error('The confirmation cannot be addressed.')
-    const bytes = await buildApplicationPdf({
-      referenceNumber: application.referenceNumber,
-      cycleCode: cycle.cycleCode,
-      cycleDisplayName: cycle.displayName,
-      submittedAt: application.firstSubmittedAt,
-      template,
-      answers: application.answers,
-      heading: 'Application submitted',
-    })
+    // The provider attaches by URL: it fetches this signed link and encloses
+    // the PDF the route rebuilds from the frozen submission.
+    const url = await confirmationPdfUrl(
+      context.env, context.requestUrl, application.id, new Date(),
+    )
     await sendNotification({
       to: email,
       subject: 'Your Mission SEP application has been submitted',
@@ -586,7 +582,7 @@ const sendSubmissionConfirmation = async (
       attachments: [{
         filename: `application-${application.referenceNumber ?? application.id}.pdf`,
         contentType: 'application/pdf',
-        bytes,
+        url,
       }],
     }, context.env)
   } catch {

@@ -3669,7 +3669,7 @@ describe('the approval and sanction notification emails', () => {
     to: string
     subject: string
     text: string
-    attachments?: { filename: string; bytes: number; content?: unknown }[]
+    attachments?: { filename: string; url: string; content?: unknown }[]
   }
 
   /** Runs one act with the console watched, and returns the mail it printed. */
@@ -3717,7 +3717,8 @@ describe('the approval and sanction notification emails', () => {
     expect(mail?.attachments).toHaveLength(1)
     const attachment = mail!.attachments![0]!
     expect(attachment.filename).toMatch(/^application-SEP-\d{4}-[0-9A-HJKMNP-TV-Z]{8}\.pdf$/u)
-    expect(attachment.bytes).toBeGreaterThan(0)
+    // A signed link the provider fetches; the document never rides the log.
+    expect(attachment.url).toContain('/confirmation-pdf?')
     expect(attachment).not.toHaveProperty('content')
   })
 
@@ -3744,7 +3745,7 @@ describe('the approval and sanction notification emails', () => {
     // The order number is what the applicant will be asked for at the bank.
     expect(mail?.text).toContain('SANCTION-ORDER-77')
     expect(mail?.attachments).toHaveLength(1)
-    expect(mail!.attachments![0]!.bytes).toBeGreaterThan(0)
+    expect(mail!.attachments![0]!.url).toContain('/confirmation-pdf?')
   })
 
   const undelivered = async <T>(act: () => Promise<T>): Promise<T> => {

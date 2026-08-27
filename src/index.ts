@@ -11,6 +11,7 @@ import {
 } from './services/auth'
 import { cleanupExpiredDocumentUploads } from './services/application'
 import { handleLocalStorageRequest } from './services/storage/route'
+import { confirmationPdfResponse } from './services/application/confirmation-link'
 import { drainMemoryQueue, usesLocalQueue, type QueueMessage } from './services/queue'
 import { scanDocumentVersion } from './services/document-scanner/consume'
 import {
@@ -347,6 +348,23 @@ app.on(['GET', 'PUT'], '/internal/storage/*', async (c) => {
   applyCorsHeaders(headers, c.req.header('Origin') ?? null, c.env, c.req.url)
   return new Response(response.body, { status: response.status, headers })
 })
+
+/**
+ * The emailed copy of a submitted application.
+ *
+ * The notification provider attaches by URL, so the confirmation email links
+ * here. The link authorizes itself — a signature over the application id and
+ * an expiry — and the module serves the same refusal for every way a link
+ * can be wrong. No session, deliberately: it is opened from an inbox.
+ */
+app.get('/confirmation-pdf', async (c) =>
+  withDatabase(connectionString(c.env), (db) =>
+    confirmationPdfResponse(db, c.env, {
+      application: c.req.query('application'),
+      expires: c.req.query('expires'),
+      signature: c.req.query('signature'),
+    }),
+  ))
 
 /**
  * Delivers whatever the in-process queue collected during this request.

@@ -90,6 +90,29 @@ export const verifyConfiguredSecret = async (
   return equalBytes(encoder.encode(expectedDigest), encoder.encode(submittedDigest))
 }
 
+/**
+ * Verifies a digest somebody presented against the value it should sign.
+ *
+ * Constant-time over fixed-length digests, like `verifyConfiguredSecret` —
+ * the submitted string is digested first so comparison work never depends on
+ * what was sent.
+ */
+export const verifySignedValue = async (
+  hmacSecret: string,
+  purpose: string,
+  value: string,
+  submittedDigest: string,
+): Promise<boolean> => {
+  const expected = await createDigest(hmacSecret, purpose, value)
+  // Both sides digested once more, so the comparison always runs over two
+  // fixed-length strings no matter what was submitted.
+  const [left, right] = await Promise.all([
+    createDigest(hmacSecret, purpose, expected),
+    createDigest(hmacSecret, purpose, submittedDigest),
+  ])
+  return equalBytes(encoder.encode(left), encoder.encode(right))
+}
+
 /** Returns true only for the accepted bearer-header-safe syntax and bounds. */
 export const isValidBootstrapSecret = (value: string): boolean =>
   value.length >= BOOTSTRAP_SECRET_MIN_LENGTH &&
