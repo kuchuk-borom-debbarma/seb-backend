@@ -143,11 +143,13 @@ function AdminCyclePage() {
   const policy = data?.cycle.policy
   const template = data?.cycle.formTemplate ?? null
 
+  /*
+   * Refetches, and only refetches. It used to close every modal too — so a
+   * refusal wired through it closed the dialog mid-error, and the message
+   * landed at the page top where the overlay had been. Success closes its
+   * own modal with `settle`; failure keeps it open with the refusal inside.
+   */
   const refresh = async () => {
-    setReason('')
-    setShowClosingModal(false)
-    setShowGuidanceModal(false)
-    setTransitionAction(null)
     await queryClient.invalidateQueries({ queryKey: ['admin-cycle', id] })
     // The authoring screen quotes the version it read, so its copy is stale
     // the moment a rule change bumps it here.
@@ -163,6 +165,14 @@ function AdminCyclePage() {
    * retained reason. One mutation covers them so a new transition cannot
    * accidentally skip either.
    */
+  const settle = async () => {
+    await refresh()
+    setReason('')
+    setShowClosingModal(false)
+    setShowGuidanceModal(false)
+    setTransitionAction(null)
+  }
+
   const transition = useMutation({
     mutationFn: async (action: 'open' | 'close' | 'archive') => {
       const input = { id, expectedVersion: head?.currentVersion ?? 0, reason }
@@ -177,14 +187,10 @@ function AdminCyclePage() {
       const result = await gql(ArchiveCycleDocument, { input })
       return unwrap(result.admin.programmeCycle.archive)
     },
-    // The closing modal is the feedback: the page behind it now says the new
-    // state. Leaving it open read as "nothing happened".
-    onSuccess: async () => {
-      await refresh()
-      setTransitionAction(null)
-    },
+    onSuccess: settle,
     // A refusal usually means the version moved — an edit on the form screen
-    // is a revision too. Refetch so the next attempt quotes the fresh one.
+    // is a revision too. Refetch so the next attempt quotes the fresh one,
+    // while the dialog stays to show the refusal.
     onError: refresh,
   })
 
@@ -204,8 +210,9 @@ function AdminCyclePage() {
     },
     onSuccess: async () => {
       setClosesAt('')
-      await refresh()
+      await settle()
     },
+    onError: refresh,
   })
 
   const changeGuidance = useMutation({
@@ -223,8 +230,9 @@ function AdminCyclePage() {
     },
     onSuccess: async () => {
       setGuidance(null)
-      await refresh()
+      await settle()
     },
+    onError: refresh,
   })
 
   /**
@@ -240,7 +248,8 @@ function AdminCyclePage() {
       })
       return unwrap(result.admin.programmeCycle.updateDraft)
     },
-    onSuccess: refresh,
+    onSuccess: settle,
+    onError: refresh,
   })
 
   const removeDraft = useMutation({
@@ -251,11 +260,12 @@ function AdminCyclePage() {
       return unwrap(result.admin.programmeCycle.softDeleteDraft)
     },
     onSuccess: async () => {
-      await refresh()
+      await settle()
       // The draft is out of the default listing now, so the list — which can
       // still show it under "Include removed drafts" — is the honest place to be.
       await router.navigate({ to: '/admin/cycles' })
     },
+    onError: refresh,
   })
 
   if (!data || !head || !policy) return null

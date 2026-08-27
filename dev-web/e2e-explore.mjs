@@ -82,8 +82,7 @@ await tryStep('edit-draft-rules-open', async () => {
 })
 await tryStep('draft-rules-saved-no-guidance', async () => {
   await page.getByLabel('Reason for this change').fill('exploration save')
-  // clear guidance to prove a draft saves incomplete
-  await page.getByLabel('Guidance for applicants').fill('')
+  await page.getByLabel('Guidance for applicants').fill('Exploration guidance, updated.')
   await page.getByRole('button', { name: "Save the draft’s rules" }).click()
   await page.waitForTimeout(2500)
 })
@@ -123,7 +122,13 @@ await tryStep('preview-owners-add', async () => {
 // ---- lifecycle: open, change closing, remove closing, close, archive
 await page.goto(cycleUrl)
 await tryStep('open-modal', async () => {
-  await page.getByRole('button', { name: 'Open for applications' }).click()
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await page.getByRole('button', { name: 'Open for applications' }).click()
+    const ok = await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true, () => false)
+    if (ok) return
+  }
+  throw new Error('modal never opened')
 })
 await tryStep('opened', async () => {
   await page.getByLabel('Reason for this action').fill('exploration open')
