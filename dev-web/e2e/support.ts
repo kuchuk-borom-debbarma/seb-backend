@@ -121,15 +121,14 @@ export const signIn = async (
   password = PASSWORD,
 ): Promise<void> => {
   /*
-   * Always through the applicant panel: the login screen's role switcher only
-   * changes the copy and the landing page, not what the API accepts, and the
-   * redirect sends a staff account to the office either way. The button name
-   * is exact because "Switch to Applicant Sign In" also contains "Sign In".
+   * One door for everyone: the API decides by the roles the account holds,
+   * and the redirect sends a staff account to the office either way. Exact,
+   * because "Remembered it? Sign in" also contains the words.
    */
   await page.goto('/login')
   await page.getByLabel('Email address').fill(email)
   await page.getByLabel('Password', { exact: true }).fill(password)
-  await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/login'))
 }
 

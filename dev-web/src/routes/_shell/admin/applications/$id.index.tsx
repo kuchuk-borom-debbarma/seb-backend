@@ -49,6 +49,9 @@ import { messageFor, unwrap } from '#/lib/result'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
+import { AnswerSummary } from '#/features/application/AnswerSummary'
+import { resolveTemplate } from '#/features/application/formTemplate'
+import type { AnswerMap } from '#/features/application/answers'
 
 /** The statuses in which a sanction order can exist. */
 const FUNDED_STATUSES = new Set<string>(['APPROVED', 'SANCTIONED', 'DISBURSED'])
@@ -95,6 +98,26 @@ function WorkspacePage() {
     (revision) => !revision.resolvedAt && !revision.cancelledAt,
   )
   const latestSubmission = workspace.submissions.at(-1)
+
+  /*
+   * The submitted form, resolved once for the review dialog: the snapshot the
+   * latest submission froze, read against the same pinned template. Null when
+   * either is missing, and the dialog simply shows no read-back.
+   */
+  const submittedView = (() => {
+    if (!workspace.formTemplate || !latestSubmission) return null
+    const snapshot = workspace.snapshots.find(
+      (each) => each.version === latestSubmission.applicationVersion,
+    )
+    if (!snapshot) return null
+    const resolved = resolveTemplate(workspace.formTemplate)
+    return (
+      <AnswerSummary
+        template={resolved}
+        answers={snapshot.answers as AnswerMap}
+      />
+    )
+  })()
 
   return (
     <main className={styles.pageWrap}>
@@ -155,6 +178,7 @@ function WorkspacePage() {
 
           {mayWrite ? (
             <NextStep
+              submitted={submittedView}
               applicationId={id}
               status={application.status}
               statusVersion={application.statusVersion}
@@ -399,6 +423,7 @@ function NextStep({
   reviewingOwnApplication,
   hasReview,
   onChanged,
+  submitted,
 }: {
   applicationId: string
   status: string
@@ -410,6 +435,8 @@ function NextStep({
   reviewingOwnApplication: boolean
   hasReview: boolean
   onChanged: () => Promise<unknown>
+  /** The submitted application, shown inside the review dialog. */
+  submitted?: React.ReactNode
 }) {
   /*
    * Marked on every branch. Only one renders, so the "exactly one bracket on
@@ -531,6 +558,7 @@ function NextStep({
           open={modalOpen}
           onClose={() => setModalOpen(false)}
           hasReview={hasReview}
+          submitted={submitted}
           reasons={reasons}
           stages={stages}
           rules={rules}

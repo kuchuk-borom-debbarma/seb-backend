@@ -26,7 +26,7 @@ test.describe('signing in', () => {
     await page.goto('/login')
     await page.getByLabel('Email address').fill(SUPER_ADMIN_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill('not the right password')
-    await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
 
     // The Worker deliberately returns one message for both an unknown address
     // and a wrong password, so this must not leak which it was.
@@ -38,7 +38,7 @@ test.describe('signing in', () => {
     await page.goto('/login')
     await page.getByLabel('Email address').fill(uniqueEmail('nobody'))
     await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
-    await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
     await expect(page.getByRole('alert')).toContainText('Invalid email or password')
   })
 
@@ -57,7 +57,7 @@ test.describe('signing in', () => {
     await page.goto('/login')
     await page.getByLabel('Email address').fill(SUPER_ADMIN_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
-    await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
 
     // The bootstrap revoked this account's applicant grant, so the applicant
     // portal would only refuse it. Sign-in sends it to the office instead.
@@ -71,7 +71,7 @@ test.describe('signing in', () => {
 
     await page.getByLabel('Email address').fill(SUPER_ADMIN_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
-    await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
 
     // The old sessions address forwards to its new home in settings.
     await expect(page).toHaveURL(/\/settings\/security$/u)

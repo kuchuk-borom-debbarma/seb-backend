@@ -957,11 +957,14 @@ export function DeskReviewModal({
   open,
   onClose,
   hasReview,
+  submitted,
   ...formProps
 }: {
   open: boolean
   onClose: () => void
   hasReview: boolean
+  /** The submitted application, readable beside the checks it is judged by. */
+  submitted?: React.ReactNode
 } & Parameters<typeof DeskReviewForm>[0]) {
   if (!open) return null
 
@@ -1006,6 +1009,20 @@ export function DeskReviewModal({
             review cannot be left half-saved. Closing this leaves the application exactly
             where it is.
           </p>
+
+          {/*
+            What is being judged, readable where it is judged. A review form
+            without the application in view asked the reviewer to attest to
+            documents from memory.
+          */}
+          {submitted ? (
+            <details className={styles.submittedDetails} open>
+              <summary className={styles.submittedSummary}>
+                The submitted application
+              </summary>
+              <div className={styles.submittedScroll}>{submitted}</div>
+            </details>
+          ) : null}
 
           <DeskReviewForm {...formProps} onCancel={onClose} />
         </div>

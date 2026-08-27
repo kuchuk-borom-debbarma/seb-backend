@@ -645,3 +645,28 @@
     width: auto;
   }
 }
+
+
+/* The application under review, folded into the same dialog. */
+.submittedDetails {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.submittedSummary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0f2444;
+}
+
+.submittedScroll {
+  max-height: 42vh;
+  overflow-y: auto;
+  padding: 0 14px 12px;
+  border-top: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 0 0 10px 10px;
+}
