@@ -368,12 +368,20 @@ const validateAdvanceOutcome = async (
   if (input.reasonCategoryId || normalizeRequiredText(input.applicantMessage ?? '', 1_000)) {
     return 'Advancement to the bank carries no reason and no message to the applicant.'
   }
-  const hasNonPassingCheck = input.checks.some((check) =>
+  const nonPassing = input.checks.filter((check) =>
     check.checkType === 'EXPANSION_EVIDENCE' && applicationType === 'INITIAL'
       ? check.result !== 'NOT_APPLICABLE'
       : check.result !== 'PASS',
   )
-  if (hasNonPassingCheck) return 'Every applicable check must pass before bank evaluation.'
+  if (nonPassing.length > 0) {
+    // Named, or the officer re-reads nine rows hunting the one that blocks.
+    const blocking = nonPassing
+      .map((check) => check.checkType.replaceAll('_', ' ').toLowerCase())
+      .join(', ')
+    return 'A bank referral needs every check affirmatively passed — '
+      + `not yet: ${blocking}. N/A qualifies only for expansion evidence `
+      + 'on an initial application.'
+  }
   if (await unacceptedSubmissionDocumentCount(context.db, submissionId) > 0) {
     return 'Every submitted document must pass malware scanning first.'
   }

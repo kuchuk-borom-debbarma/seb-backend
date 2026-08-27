@@ -232,6 +232,65 @@ function WorkspacePage() {
 
         {/* Right Column: Submissions + Documents + Desk Reviews */}
         <div className={styles.colStack}>
+          {/*
+            Where this attempt sits in the enterprise's journey. The programme
+            funds an enterprise one phase at a time, and a reviewer placing a
+            file needs to see at a glance whether it is a first try, a retry
+            after a rejection, or a later phase after funding.
+          */}
+          <section className={styles.card}>
+            <div className={styles.cardHeader}>
+              <h2 className={styles.cardTitle}>Enterprise journey</h2>
+              <span className={styles.headerMeta}>
+                {workspace.caseHistory.length}{' '}
+                {workspace.caseHistory.length === 1 ? 'attempt' : 'attempts'}
+              </span>
+            </div>
+            <div className="stack" style={{ gap: '0.5rem' }}>
+              {workspace.caseHistory.map((attempt) => {
+                const current = attempt.id === application.id
+                return (
+                  <div
+                    key={attempt.id}
+                    className="row"
+                    style={{
+                      justifyContent: 'space-between',
+                      alignItems: 'baseline',
+                      padding: '0.4rem 0.6rem',
+                      borderRadius: '8px',
+                      border: current ? '1px solid #b7cdea' : '1px solid transparent',
+                      background: current ? '#eef4fc' : 'transparent',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <span>
+                      <strong>
+                        Phase {attempt.phaseNumber} ·{' '}
+                        {attempt.applicationType === 'INITIAL'
+                          ? 'Initial'
+                          : 'Expansion'}
+                      </strong>{' '}
+                      <span className="muted">
+                        {attempt.referenceNumber ?? 'unsubmitted draft'} · cycle{' '}
+                        {attempt.cycleCode}
+                        {current ? ' · this file' : ''}
+                      </span>
+                    </span>
+                    <span className="badge" data-tone={
+                      attempt.status === 'REJECTED' || attempt.status === 'CANCELLED'
+                        ? 'error'
+                        : ['APPROVED', 'SANCTIONED', 'DISBURSED'].includes(attempt.status)
+                          ? 'ok'
+                          : 'action'
+                    }>
+                      {humanize(attempt.status)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+
           <section className={styles.card}>
             <div className={styles.cardHeader}>
               <h2 className={styles.cardTitle}>Submissions</h2>

@@ -669,8 +669,36 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
         }
       })
     : []
+  /*
+   * The whole journey of this funding case, oldest first. Lean on purpose —
+   * a reviewer needs to place the attempt, not to open its siblings here.
+   */
+  const caseHistory = await db
+    .select({
+      id: sebApplication.id,
+      referenceNumber: sebApplication.referenceNumber,
+      applicationType: sebApplication.applicationType,
+      phaseNumber: sebApplication.phaseNumber,
+      status: sebApplication.status,
+      cycleCode: sebProgrammeCycle.cycleCode,
+      createdAt: sebApplication.createdAt,
+    })
+    .from(sebApplication)
+    .innerJoin(
+      sebProgrammeCycle,
+      eq(sebProgrammeCycle.id, sebApplication.programmeCycleId),
+    )
+    .where(
+      and(
+        eq(sebApplication.fundingCaseId, head.application.fundingCaseId),
+        isNull(sebApplication.deletedAt),
+      ),
+    )
+    .orderBy(asc(sebApplication.createdAt))
+
   return {
     ...head,
+    caseHistory,
     submissions,
     /*
      * Each frozen version, carrying what was answered against it. Without the

@@ -272,7 +272,13 @@ const startApplication = async (
       }),
     }),
   )
-  if (!inserted) return failure('Another application already exists for this phase.')
+  if (!inserted) {
+    return failure(
+      'This enterprise already has a live application for this funding phase. '
+      + 'One live application per phase, whichever cycle it is in — a new '
+      + 'attempt becomes possible if that one is rejected or cancelled.',
+    )
+  }
   return success(requireInvariant(
     await loadOwnedApplication(context.db, applicant.id, applicationId),
     'Created application could not be read.',

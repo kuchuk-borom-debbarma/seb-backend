@@ -15,7 +15,7 @@ query ApplicantDashboard {
         success
         message
         response {
-          nodes { id programmeCycleId enterpriseId status }
+          nodes { id programmeCycleId enterpriseId status referenceNumber }
           pageInfo { totalCount }
         }
       }

@@ -1289,12 +1289,17 @@ const expansionEvidenceStillCurrent = (input: {
               AND reversal.entry_type = 'REVERSAL'
           ), 0) > 0
       )
+      /*
+       * One live attempt per phase, across every cycle: parallel applications
+       * would chase the same funding twice. A rejected or cancelled attempt
+       * is over, so a later cycle may take a retry.
+       */
       AND NOT EXISTS (
         SELECT 1 FROM ${sebApplication} AS competing_application
         WHERE competing_application.funding_case_id = ${input.head.fundingCaseId}
           AND competing_application.phase_number = ${input.head.phaseNumber}
           AND competing_application.id <> ${input.head.id}
-          AND competing_application.status <> 'REJECTED'
+          AND competing_application.status NOT IN ('REJECTED', 'CANCELLED')
           AND competing_application.deleted_at IS NULL
       )
   )`
@@ -1469,7 +1474,7 @@ export const insertApplicationAggregate = async (
         SELECT 1 FROM ${sebApplication}
         WHERE ${sebApplication.fundingCaseId} = ${input.fundingCaseId}
           AND ${sebApplication.phaseNumber} = ${input.phaseNumber}
-          AND ${sebApplication.status} <> 'REJECTED'
+          AND ${sebApplication.status} NOT IN ('REJECTED', 'CANCELLED')
           AND ${sebApplication.deletedAt} IS NULL
       )
       AND EXISTS (
@@ -1765,7 +1770,7 @@ export const setApplicationDeleted = async (
         WHERE competing_application.funding_case_id = ${input.head.fundingCaseId}
           AND competing_application.phase_number = ${input.head.phaseNumber}
           AND competing_application.id <> ${input.head.id}
-          AND competing_application.status <> 'REJECTED'
+          AND competing_application.status NOT IN ('REJECTED', 'CANCELLED')
           AND competing_application.deleted_at IS NULL
       )`
     : undefined
@@ -1835,7 +1840,7 @@ export const setApplicationDeleted = async (
               WHERE competing_application.funding_case_id = ${input.head.fundingCaseId}
                 AND competing_application.phase_number = ${input.head.phaseNumber}
                 AND competing_application.id <> ${input.head.id}
-                AND competing_application.status <> 'REJECTED'
+                AND competing_application.status NOT IN ('REJECTED', 'CANCELLED')
                 AND competing_application.deleted_at IS NULL
             )
         )`

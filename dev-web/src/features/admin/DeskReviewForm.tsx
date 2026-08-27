@@ -851,6 +851,31 @@ export function DeskReviewForm({
               </div>
             ) : null}
 
+            {outcome === 'ADVANCE_TO_BANK'
+              ? (() => {
+                  const blocking = CHECKS.filter((check) =>
+                    check.type === 'EXPANSION_EVIDENCE'
+                      ? false
+                      : results[check.type] !== 'PASS',
+                  )
+                  return blocking.length > 0 ? (
+                    <p
+                      className="notice"
+                      data-tone="error"
+                      role="alert"
+                      style={{ marginTop: '1rem' }}
+                    >
+                      <span className="notice-title">
+                        A bank referral needs every check affirmatively passed
+                      </span>
+                      Not yet: {blocking.map((check) => check.title).join(', ')}. N/A
+                      qualifies only for expansion evidence on an initial application —
+                      go back to the checks and settle these first.
+                    </p>
+                  ) : null
+                })()
+              : null}
+
             {outcome && outcome !== 'ADVANCE_TO_BANK' ? (
               <div style={{ marginTop: '1rem' }}>
                 <label className="field-label" htmlFor="applicant-message">
