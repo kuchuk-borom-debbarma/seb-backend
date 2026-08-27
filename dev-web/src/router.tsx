@@ -15,7 +15,14 @@ export function getRouter() {
          */
         staleTime: 30_000,
         retry: 1,
-        refetchOnWindowFocus: false,
+        /*
+         * On, deliberately. A lifecycle change made in a modal, another tab,
+         * or by a colleague must show the moment the officer looks back at
+         * the screen — with this off, a tab that missed one refetch showed a
+         * cycle as Closed after it had been archived, until a full reload.
+         * `staleTime` above still keeps quick tab-switches quiet.
+         */
+        refetchOnWindowFocus: true,
       },
     },
   })
