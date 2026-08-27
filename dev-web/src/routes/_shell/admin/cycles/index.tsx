@@ -256,7 +256,7 @@ function AdminCyclesPage() {
       <div className={styles.headerRow}>
         <div className={styles.headerTitleGroup}>
           <h1 className={styles.pageTitle}>Programme cycles</h1>
-          <p className={styles.pageSubtitle}>
+          <p className={`${styles.pageSubtitle} page-header-description`}>
             A cycle is the policy an application is judged by. Its rules are frozen into
             every draft started while it is open.
           </p>

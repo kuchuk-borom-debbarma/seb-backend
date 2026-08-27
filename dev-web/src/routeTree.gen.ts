@@ -15,6 +15,7 @@ import { Route as FaqRouteImport } from './routes/faq'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as InviteRouteImport } from './routes/invite'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as ShellApplicantRouteImport } from './routes/_shell/_applicant'
 import { Route as ShellAdminRouteRouteImport } from './routes/_shell/admin/route'
@@ -49,7 +50,7 @@ import { Route as ShellApplicantApplicationsIdReviewRouteImport } from './routes
 import { Route as ShellApplicantApplicationsIdSubmittedRouteImport } from './routes/_shell/_applicant/applications/$id.submitted'
 import { Route as ShellAdminApplicationsIdIndexRouteImport } from './routes/_shell/admin/applications/$id.index'
 import { Route as ShellAdminApplicationsIdFundingRouteImport } from './routes/_shell/admin/applications/$id.funding'
-import { Route as ShellAdminCyclesIdFormRouteImport } from './routes/_shell/admin/cycles/$id.form'
+import { Route as ShellAdminCyclesIdFormRouteImport } from './routes/_shell/admin/cycles/$id_.form'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -78,6 +79,11 @@ const InviteRoute = InviteRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignInRoute = SignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignUpRoute = SignUpRouteImport.update({
@@ -263,9 +269,9 @@ const ShellAdminApplicationsIdFundingRoute =
     getParentRoute: () => ShellAdminRouteRoute,
   } as any)
 const ShellAdminCyclesIdFormRoute = ShellAdminCyclesIdFormRouteImport.update({
-  id: '/form',
-  path: '/form',
-  getParentRoute: () => ShellAdminCyclesIdRoute,
+  id: '/cycles/$id_/form',
+  path: '/cycles/$id/form',
+  getParentRoute: () => ShellAdminRouteRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -274,6 +280,7 @@ export interface FileRoutesByFullPath {
   '/forgot-password': typeof ForgotPasswordRoute
   '/invite': typeof InviteRoute
   '/login': typeof LoginRoute
+  '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/admin': typeof ShellAdminRouteRouteWithChildren
   '/settings': typeof ShellSettingsRouteRouteWithChildren
@@ -293,7 +300,7 @@ export interface FileRoutesByFullPath {
   '/applications/new': typeof ShellApplicantApplicationsNewRoute
   '/enterprises/$id': typeof ShellApplicantEnterprisesIdRoute
   '/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
-  '/admin/cycles/$id': typeof ShellAdminCyclesIdRouteWithChildren
+  '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
   '/applications/': typeof ShellApplicantApplicationsIndexRoute
   '/enterprises/': typeof ShellApplicantEnterprisesIndexRoute
@@ -315,6 +322,7 @@ export interface FileRoutesByTo {
   '/forgot-password': typeof ForgotPasswordRoute
   '/invite': typeof InviteRoute
   '/login': typeof LoginRoute
+  '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/guide': typeof ShellGuideRoute
   '/cycles': typeof ShellApplicantCyclesRoute
@@ -332,7 +340,7 @@ export interface FileRoutesByTo {
   '/applications/new': typeof ShellApplicantApplicationsNewRoute
   '/enterprises/$id': typeof ShellApplicantEnterprisesIdRoute
   '/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
-  '/admin/cycles/$id': typeof ShellAdminCyclesIdRouteWithChildren
+  '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
   '/applications': typeof ShellApplicantApplicationsIndexRoute
   '/enterprises': typeof ShellApplicantEnterprisesIndexRoute
@@ -356,6 +364,7 @@ export interface FileRoutesById {
   '/forgot-password': typeof ForgotPasswordRoute
   '/invite': typeof InviteRoute
   '/login': typeof LoginRoute
+  '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/_shell/admin': typeof ShellAdminRouteRouteWithChildren
   '/_shell/settings': typeof ShellSettingsRouteRouteWithChildren
@@ -376,7 +385,7 @@ export interface FileRoutesById {
   '/_shell/_applicant/applications/new': typeof ShellApplicantApplicationsNewRoute
   '/_shell/_applicant/enterprises/$id': typeof ShellApplicantEnterprisesIdRoute
   '/_shell/_applicant/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
-  '/_shell/admin/cycles/$id': typeof ShellAdminCyclesIdRouteWithChildren
+  '/_shell/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/_shell/admin/cycles/new': typeof ShellAdminCyclesNewRoute
   '/_shell/_applicant/applications/': typeof ShellApplicantApplicationsIndexRoute
   '/_shell/_applicant/enterprises/': typeof ShellApplicantEnterprisesIndexRoute
@@ -388,7 +397,7 @@ export interface FileRoutesById {
   '/_shell/_applicant/applications/$id/review': typeof ShellApplicantApplicationsIdReviewRoute
   '/_shell/_applicant/applications/$id/submitted': typeof ShellApplicantApplicationsIdSubmittedRoute
   '/_shell/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
-  '/_shell/admin/cycles/$id/form': typeof ShellAdminCyclesIdFormRoute
+  '/_shell/admin/cycles/$id_/form': typeof ShellAdminCyclesIdFormRoute
   '/_shell/_applicant/applications/$id/': typeof ShellApplicantApplicationsIdIndexRoute
   '/_shell/admin/applications/$id/': typeof ShellAdminApplicationsIdIndexRoute
 }
@@ -400,6 +409,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/invite'
     | '/login'
+    | '/sign-in'
     | '/sign-up'
     | '/admin'
     | '/settings'
@@ -441,6 +451,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/invite'
     | '/login'
+    | '/sign-in'
     | '/sign-up'
     | '/guide'
     | '/cycles'
@@ -481,6 +492,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/invite'
     | '/login'
+    | '/sign-in'
     | '/sign-up'
     | '/_shell/admin'
     | '/_shell/settings'
@@ -513,7 +525,7 @@ export interface FileRouteTypes {
     | '/_shell/_applicant/applications/$id/review'
     | '/_shell/_applicant/applications/$id/submitted'
     | '/_shell/admin/applications/$id/funding'
-    | '/_shell/admin/cycles/$id/form'
+    | '/_shell/admin/cycles/$id_/form'
     | '/_shell/_applicant/applications/$id/'
     | '/_shell/admin/applications/$id/'
   fileRoutesById: FileRoutesById
@@ -525,6 +537,7 @@ export interface RootRouteChildren {
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   InviteRoute: typeof InviteRoute
   LoginRoute: typeof LoginRoute
+  SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
 }
 
@@ -570,6 +583,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-in': {
+      id: '/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-up': {
@@ -810,37 +830,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAdminApplicationsIdFundingRouteImport
       parentRoute: typeof ShellAdminRouteRoute
     }
-    '/_shell/admin/cycles/$id/form': {
-      id: '/_shell/admin/cycles/$id/form'
-      path: '/form'
+    '/_shell/admin/cycles/$id_/form': {
+      id: '/_shell/admin/cycles/$id_/form'
+      path: '/cycles/$id/form'
       fullPath: '/admin/cycles/$id/form'
       preLoaderRoute: typeof ShellAdminCyclesIdFormRouteImport
-      parentRoute: typeof ShellAdminCyclesIdRoute
+      parentRoute: typeof ShellAdminRouteRoute
     }
   }
 }
-
-interface ShellAdminCyclesIdRouteChildren {
-  ShellAdminCyclesIdFormRoute: typeof ShellAdminCyclesIdFormRoute
-}
-
-const ShellAdminCyclesIdRouteChildren: ShellAdminCyclesIdRouteChildren = {
-  ShellAdminCyclesIdFormRoute: ShellAdminCyclesIdFormRoute,
-}
-
-const ShellAdminCyclesIdRouteWithChildren =
-  ShellAdminCyclesIdRoute._addFileChildren(ShellAdminCyclesIdRouteChildren)
 
 interface ShellAdminRouteRouteChildren {
   ShellAdminAuditRoute: typeof ShellAdminAuditRoute
   ShellAdminInviteRoute: typeof ShellAdminInviteRoute
   ShellAdminQueueRoute: typeof ShellAdminQueueRoute
   ShellAdminIndexRoute: typeof ShellAdminIndexRoute
-  ShellAdminCyclesIdRoute: typeof ShellAdminCyclesIdRouteWithChildren
+  ShellAdminCyclesIdRoute: typeof ShellAdminCyclesIdRoute
   ShellAdminCyclesNewRoute: typeof ShellAdminCyclesNewRoute
   ShellAdminAccessIndexRoute: typeof ShellAdminAccessIndexRoute
   ShellAdminCyclesIndexRoute: typeof ShellAdminCyclesIndexRoute
   ShellAdminApplicationsIdFundingRoute: typeof ShellAdminApplicationsIdFundingRoute
+  ShellAdminCyclesIdFormRoute: typeof ShellAdminCyclesIdFormRoute
   ShellAdminApplicationsIdIndexRoute: typeof ShellAdminApplicationsIdIndexRoute
 }
 
@@ -849,11 +859,12 @@ const ShellAdminRouteRouteChildren: ShellAdminRouteRouteChildren = {
   ShellAdminInviteRoute: ShellAdminInviteRoute,
   ShellAdminQueueRoute: ShellAdminQueueRoute,
   ShellAdminIndexRoute: ShellAdminIndexRoute,
-  ShellAdminCyclesIdRoute: ShellAdminCyclesIdRouteWithChildren,
+  ShellAdminCyclesIdRoute: ShellAdminCyclesIdRoute,
   ShellAdminCyclesNewRoute: ShellAdminCyclesNewRoute,
   ShellAdminAccessIndexRoute: ShellAdminAccessIndexRoute,
   ShellAdminCyclesIndexRoute: ShellAdminCyclesIndexRoute,
   ShellAdminApplicationsIdFundingRoute: ShellAdminApplicationsIdFundingRoute,
+  ShellAdminCyclesIdFormRoute: ShellAdminCyclesIdFormRoute,
   ShellAdminApplicationsIdIndexRoute: ShellAdminApplicationsIdIndexRoute,
 }
 
@@ -946,6 +957,7 @@ const rootRouteChildren: RootRouteChildren = {
   ForgotPasswordRoute: ForgotPasswordRoute,
   InviteRoute: InviteRoute,
   LoginRoute: LoginRoute,
+  SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
 }
 export const routeTree = rootRouteImport

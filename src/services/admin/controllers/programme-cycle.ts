@@ -166,22 +166,35 @@ const validateCycleInput = (input: ProgrammeCycleInput): string | null =>
   validatePolicyNumbers(input) ??
   validateFundingCeiling(input)
 
+const listOf = (items: readonly string[]): string =>
+  items.length === 1
+    ? items[0]!
+    : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]!}`
+
 const openingProblem = (cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>): string | null => {
   if (!cycle) return 'The programme cycle was not found.'
   const version = cycle.version
-  if (
-    !version.policyReference?.trim() ||
-    !version.applicantGuidance?.trim() ||
-    !version.opensAt ||
-    !version.closesAt ||
-    version.minimumApplicantAge === null ||
-    version.maximumApplicantAge === null ||
-    version.categoryAMaximumMonths === null ||
-    version.expansionWaitMonths === null ||
-    version.majorityOwnershipRequired === null ||
-    version.jurisdiction === null ||
-    version.fundingCeilingState === null
-  ) return 'Complete every cycle policy field before opening the cycle.'
+  /*
+   * Named, not counted. The officer who reads "complete every field" reopens
+   * the whole form hunting for the blank one; the refusal exists to say which
+   * it is.
+   */
+  const missing = [
+    !version.policyReference?.trim() ? 'the policy reference' : null,
+    !version.applicantGuidance?.trim() ? 'the guidance for applicants' : null,
+    !version.opensAt ? 'the opening date' : null,
+    !version.closesAt ? 'the closing date' : null,
+    version.minimumApplicantAge === null ? 'the minimum applicant age' : null,
+    version.maximumApplicantAge === null ? 'the maximum applicant age' : null,
+    version.categoryAMaximumMonths === null ? 'the category threshold' : null,
+    version.expansionWaitMonths === null ? 'the expansion wait' : null,
+    version.majorityOwnershipRequired === null ? 'the ownership rule' : null,
+    version.jurisdiction === null ? 'the jurisdiction' : null,
+    version.fundingCeilingState === null ? 'the funding ceiling' : null,
+  ].filter((field): field is string => field !== null)
+  if (missing.length > 0) {
+    return `Before this cycle can open, fill in ${listOf(missing)}.`
+  }
   /*
    * Every role bound before a cycle can open.
    *

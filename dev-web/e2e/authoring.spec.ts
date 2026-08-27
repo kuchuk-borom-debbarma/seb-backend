@@ -91,6 +91,12 @@ test.describe('authoring a draft cycle’s form', () => {
     await page.getByRole('button', { name: 'Add a member' }).click()
     await page.getByLabel('Member key').fill('NAME')
     await page.getByLabel('Label the applicant reads').fill('Referee name')
+    /*
+     * Bounded, because the whole template must fit the 32 KB answer budget
+     * at every group's worst case. Twenty unbounded text entries are what
+     * the budget guard exists to refuse.
+     */
+    await page.getByLabel('Most characters').fill('120')
     await page.getByRole('button', { name: 'Save structure' }).click()
     await expect(page.getByText('REFEREE · 1 question · unused')).toBeVisible()
 
@@ -110,7 +116,11 @@ test.describe('authoring a draft cycle’s form', () => {
      * The expansion's output appears under the group — visibly derived, and
      * not individually editable: the definition is what is edited.
      */
-    const derived = page.locator('[class*="derived"]').filter({ hasText: 'Referee name' })
+    // The row, not the tag inside it — both carry a "derived" class.
+    const derived = page
+      .locator('[class*="derived"]')
+      .filter({ hasText: 'Referee name' })
+      .first()
     await expect(derived.getByText('from structure Referee')).toBeVisible()
     await expect(derived.getByRole('button', { name: 'Edit' })).toHaveCount(0)
     await expect(derived.getByRole('button', { name: 'Remove' })).toHaveCount(0)

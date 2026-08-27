@@ -31,8 +31,9 @@ const createOpenCycle = async (page: Page, name: string) => {
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
 
-  await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
   await page.getByRole('button', { name: 'Open for applications' }).click()
+  await page.getByLabel('Reason for this action').fill('Opening for the programme year.')
+  await page.getByRole('button', { name: 'Confirm' }).click()
   await expect(
     page.getByRole('button', { name: 'Close to new applications' }),
   ).toBeVisible()
@@ -46,10 +47,11 @@ test.describe('cycle administration', () => {
 
     // Closing needs a reason too, and the offered actions follow the state.
     await expect(page.getByRole('button', { name: 'Open for applications' })).toBeHidden()
-    await page
-      .getByLabel('Reason for this change')
-      .fill('The application window has ended.')
     await page.getByRole('button', { name: 'Close to new applications' }).click()
+    await page
+      .getByLabel('Reason for this action')
+      .fill('The application window has ended.')
+    await page.getByRole('button', { name: 'Confirm' }).click()
     await expect(page.getByRole('button', { name: 'Archive' })).toBeVisible()
   })
 
@@ -71,11 +73,11 @@ test.describe('cycle administration', () => {
     await createOpenCycle(page, code)
 
     const questions = page.locator('[data-guide="cycle-questions"]')
-    await expect(questions.getByRole('heading', { name: 'The enterprise' })).toBeVisible()
+    await expect(questions.getByRole('heading', { name: 'Owners' })).toBeVisible()
     // A role-bound question says so: the programme reads it across cycles, and
     // an officer renaming one needs to know it is not theirs alone to move.
     await expect(
-      questions.getByText('read by the programme as Business Name'),
+      questions.getByText('read by the programme as Seed fund requested paise'),
     ).toBeVisible()
 
     const frozen = page.locator('[data-guide="cycle-frozen"]')
@@ -105,15 +107,12 @@ test.describe('cycle administration', () => {
     await page.getByRole('button', { name: 'Create draft cycle' }).click()
     await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
 
-    // Every transition retains a reason, so the action is not offered until
-    // one is written rather than failing after the click.
-    await expect(
-      page.getByRole('button', { name: 'Open for applications' }),
-    ).toBeDisabled()
-    await page.getByLabel('Reason for this change').fill('Ready.')
-    await expect(
-      page.getByRole('button', { name: 'Open for applications' }),
-    ).toBeEnabled()
+    // Every transition retains a reason, so the modal's confirmation is not
+    // offered until one is written rather than failing after the click.
+    await page.getByRole('button', { name: 'Open for applications' }).click()
+    await expect(page.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+    await page.getByLabel('Reason for this action').fill('Ready.')
+    await expect(page.getByRole('button', { name: 'Confirm' })).toBeEnabled()
   })
 
   test('an open cycle unblocks the applicant journey', async ({ page, browser }) => {
@@ -142,6 +141,8 @@ test.describe('cycle administration', () => {
     await applicantPage.goto('/applications/new')
     await applicantPage.getByLabel('Enterprise').selectOption({ label: 'Journey Works' })
     await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
+    await applicantPage.getByRole('button', { name: 'Next' }).click()
+    await applicantPage.getByRole('radio', { name: 'Initial application' }).check()
     await applicantPage
       .getByRole('button', { name: 'Start an initial application' })
       .click()
@@ -179,6 +180,7 @@ test.describe('cycle administration', () => {
     await applicantPage.goto('/applications/new')
     await applicantPage.getByLabel('Enterprise').selectOption({ label: 'Unfunded Works' })
     await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
+    await applicantPage.getByRole('button', { name: 'Next' }).click()
 
     // The API's own wording, not a message invented by the client.
     await expect(
@@ -186,8 +188,9 @@ test.describe('cycle administration', () => {
         'This enterprise has no sanctioned funding award to expand from.',
       ),
     ).toBeVisible()
+    // The expansion choice itself is withheld, not merely the submission.
     await expect(
-      applicantPage.getByRole('button', { name: /Start (an expansion|phase)/u }),
+      applicantPage.getByRole('radio', { name: 'Expansion application' }),
     ).toBeDisabled()
 
     await applicant.close()

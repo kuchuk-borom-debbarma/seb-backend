@@ -481,11 +481,11 @@ function AdminCyclePage() {
                 ))}
               </div>
             ) : (
-              /* Every cycle has at least the event that created it, so an empty
-                 history is a refused query rather than a quiet cycle. */
+              /* Events record lifecycle transitions — opening, closing, a
+                 guidance change — so a draft that has never moved has none. */
               <p className="muted" style={{ margin: 0, fontSize: '13px' }}>
-                No history has been recorded. That is unexpected — a cycle always carries
-                at least the event that created it.
+                No lifecycle events yet. The first appears when this cycle is opened;
+                every change after that is recorded here with its reason.
               </p>
             )}
           </div>

@@ -86,10 +86,10 @@ To avoid placing either credential directly in shell history, prompt for them
 and use `jq` to encode every valid password safely:
 
 ```sh
-read -rsp "Applicant password: " ADMIN_PASSWORD
-echo
-read -rsp "Bootstrap secret: " ADMIN_BOOTSTRAP_SECRET
-echo
+# `read -rs` + printf rather than bash's `read -rsp`: macOS defaults to zsh,
+# where `-p` reads from a coprocess and the prompt form silently sets nothing.
+printf 'Applicant password: ' && read -rs ADMIN_PASSWORD && echo
+printf 'Bootstrap secret: ' && read -rs ADMIN_BOOTSTRAP_SECRET && echo
 
 jq -n --arg currentPassword "$ADMIN_PASSWORD" '{currentPassword: $currentPassword}' \
   | curl --fail-with-body --silent --show-error \
@@ -234,3 +234,26 @@ these items locally and without printing secrets:
    512 bearer-safe ASCII characters.
 5. No `SUPER_ADMIN` grant has ever existed in the target database.
 6. The request uses JSON, a bearer header, no `Origin`, and the correct API URL.
+
+Items 1, 2, and 5 can be confirmed read-only against the target database,
+without touching the endpoint or any secret:
+
+```sh
+psql "$DATABASE_URL" -c "
+  SELECT email,
+         email_verified_at IS NOT NULL AS verified,
+         deleted_at IS NULL AS active
+  FROM core_user WHERE email = 'administrator@example.com';
+
+  SELECT role, revoked_at IS NULL AS active
+  FROM core_user_role_grant g JOIN core_user u ON u.id = g.user_id
+  WHERE u.email = 'administrator@example.com';
+
+  SELECT count(*) AS super_admin_grants_ever
+  FROM core_user_role_grant WHERE role = 'SUPER_ADMIN';
+"
+```
+
+The candidate should show `verified` and `active` as true with exactly one
+active `APPLICANT` grant, and the last count must be zero — any historical
+`SUPER_ADMIN` grant, revoked or not, means the route is permanently closed.

@@ -12,7 +12,7 @@ import { PageHeader } from '#/components/PageHeader'
 import { FormEditor, formEditorQuery } from '#/features/admin/FormEditor'
 import { can } from '#/lib/session'
 
-export const Route = createFileRoute('/_shell/admin/cycles/$id/form')({
+export const Route = createFileRoute('/_shell/admin/cycles/$id_/form')({
   loader: ({ context, params }) =>
     context.queryClient.ensureQueryData(formEditorQuery(params.id)),
   component: CycleFormAuthoringPage,

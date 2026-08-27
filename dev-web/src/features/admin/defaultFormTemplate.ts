@@ -124,6 +124,10 @@ export const defaultFormTemplate = (): Template => ({
       fieldType: 'MONEY_PAISE', role: 'SEED_FUND_REQUESTED_PAISE',
       label: 'Seed fund requested', requirement: 'REQUIRED', minValue: '1',
       prefixText: '₹',
+      // The one question on this form whose name does not say why it is
+      // asked; the answer decides how much seed funding can be sanctioned.
+      helpText: 'The programme reads this amount when deciding how much seed '
+        + 'funding can be sanctioned, so ask for what the project genuinely needs.',
     },
     {
       stageKey: 'FINANCIAL', fieldKey: 'BANK_LOAN_PROPOSED_PAISE',

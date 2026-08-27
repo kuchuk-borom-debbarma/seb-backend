@@ -164,9 +164,9 @@ test.describe('changing the address you sign in with', () => {
 
     // The address it moved off no longer names anybody.
     await signOut(page)
-    await page.goto('/sign-in')
+    await page.goto('/login')
     await page.getByLabel('Email address').fill(email)
-    await page.getByLabel('Password').fill(PASSWORD)
+    await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()
     await expect(page.getByRole('alert')).toBeVisible()
   })

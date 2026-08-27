@@ -885,7 +885,8 @@ describe('Mission SEP administration', () => {
       admin { programmeCycle { open(input: $input) { success message } } }
     }`, { input: { id: head.id, expectedVersion: 1, reason: 'Publish' } }, administrator.cookie)
     expect(incomplete.data.admin.programmeCycle.open).toMatchObject({
-      success: false, message: 'Complete every cycle policy field before opening the cycle.',
+      success: false,
+      message: 'Before this cycle can open, fill in the policy reference, the guidance for applicants, the opening date, the closing date, the minimum applicant age, the maximum applicant age, the category threshold, the expansion wait, the ownership rule, the jurisdiction and the funding ceiling.',
     })
 
     const deleted = await graphql<any>(`mutation($input: CycleTransitionInput!) {
