@@ -402,7 +402,6 @@ export function CycleForm({
                 id="policyReference"
                 className={styles.inputField}
                 placeholder="Enter policy reference"
-                required
                 value={values.policyReference ?? ''}
                 onChange={(event) => set('policyReference', event.target.value || null)}
               />
@@ -422,7 +421,6 @@ export function CycleForm({
                   id="opensAt"
                   className={styles.inputField}
                   type="datetime-local"
-                  required
                   value={toLocalInput(values.opensAt)}
                   onChange={(event) => set('opensAt', toInstant(event.target.value))}
                 />
@@ -457,7 +455,6 @@ export function CycleForm({
                 className={styles.textareaField}
                 rows={3}
                 placeholder="Enter guidance for applicants"
-                required
                 value={values.applicantGuidance ?? ''}
                 onChange={(event) => set('applicantGuidance', event.target.value || null)}
               />
