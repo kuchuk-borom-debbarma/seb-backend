@@ -137,11 +137,23 @@
    * administrator keeps reading as an administrator until the entry expires.
    * Do not turn this on to make the console feel faster.
    */
+  /*
+   * **Caching must be disabled ON THE HYPERDRIVE RESOURCE, not here.** A
+   * `caching` field in this file is silently ignored by wrangler — it was
+   * here once, looked reassuring, and the real config cached every read for
+   * up to a minute: archived cycles rendered as closed, and a revoked
+   * administrator would have kept reading as one. After creating or
+   * recreating the config, run
+   *
+   *   npx wrangler hyperdrive update <id> --caching-disabled
+   *
+   * and verify with `npx wrangler hyperdrive get <id>` that
+   * `caching.disabled` is true.
+   */
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "6874f5c7d25a4d588c8b656c762043bc",
-      "caching": { "disabled": true }
+      "id": "6874f5c7d25a4d588c8b656c762043bc"
     }
   ],
   // No `r2_buckets` here. R2 is not enabled on this account, and `wrangler
