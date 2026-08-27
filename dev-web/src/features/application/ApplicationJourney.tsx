@@ -26,8 +26,6 @@ const DESCRIPTIONS: Record<ApplicationJourneyStep, string> = {
     'Describe earlier government support and any existing bank credit for the enterprise.',
   DOCUMENTS:
     'Answer the question that decides whether a no-objection certificate applies.',
-  DECLARATION:
-    'Complete the relationship details and confirm that the application is true and complete.',
   EXPANSION:
     'Review the earlier award facts supplied by programme records for this expansion.',
   ATTACH_EVIDENCE:
@@ -44,10 +42,10 @@ export const APPLICATION_JOURNEY_STEPS: ApplicationJourneyStep[] = [
 const LABELS: Record<ApplicationJourneyStep, string> = {
   ...SECTION_TITLES,
   ENTERPRISE: 'Enterprise details',
-  APPLICANT_PROFILE: 'About you',
+  APPLICANT_PROFILE: 'Owners',
   DOCUMENTS: 'Evidence requirements',
   ATTACH_EVIDENCE: 'Attach evidence',
-  REVIEW: 'Review and submit',
+  REVIEW: 'Review',
 }
 
 export function ApplicationJourney({
@@ -242,11 +240,5 @@ const FIELDS_BY_SECTION: Record<ApplicationSection, string[]> = {
     'existingCreditStatus',
   ],
   DOCUMENTS: ['nocRequired'],
-  DECLARATION: [
-    'relationshipType',
-    'relatedPersonName',
-    'declarationAccepted',
-    'declarationPlace',
-  ],
   EXPANSION: [],
 }

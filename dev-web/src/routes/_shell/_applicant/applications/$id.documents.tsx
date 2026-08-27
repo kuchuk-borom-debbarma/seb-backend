@@ -9,7 +9,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useLocation, useRouter } from '@tanstack/react-router'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import {
   ApplicationJourney,
@@ -56,6 +56,16 @@ function DocumentsPage() {
   const { data: application } = useQuery(applicationQuery(id))
   const { data: validation } = useQuery(validationQuery(id))
   const hash = useLocation({ select: (location) => location.hash })
+  const [busyDocuments, setBusyDocuments] = useState<Set<DocumentType>>(new Set())
+
+  const setDocumentBusy = useCallback((documentType: DocumentType, busy: boolean) => {
+    setBusyDocuments((current) => {
+      const next = new Set(current)
+      if (busy) next.add(documentType)
+      else next.delete(documentType)
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     if (!hash || !application) return
@@ -101,10 +111,14 @@ function DocumentsPage() {
 
   const editable = application.editableSections.includes('DOCUMENTS')
   const documentIssues = issuesForStep(validation?.issues ?? [], 'ATTACH_EVIDENCE')
+  const uploadsPending = busyDocuments.size > 0
 
   const continueToReview = async () => {
-    if (documentIssues.length > 0) {
-      const row = document.getElementById(documentIssues[0]?.field ?? '')
+    if (uploadsPending) return
+    const currentValidation = await queryClient.fetchQuery(validationQuery(id))
+    const outstanding = issuesForStep(currentValidation.issues, 'ATTACH_EVIDENCE')
+    if (outstanding.length > 0) {
+      const row = document.getElementById(outstanding[0]?.field ?? '')
       row?.focus()
       row?.scrollIntoView({ block: 'center' })
       return
@@ -148,7 +162,7 @@ function DocumentsPage() {
             <Link
               to="/applications/$id/form"
               params={{ id }}
-              search={{ section: 'DECLARATION' }}
+              search={{ section: 'DOCUMENTS' }}
               className="button"
             >
               Back
@@ -157,9 +171,10 @@ function DocumentsPage() {
               type="button"
               className="button"
               data-variant="primary"
+              disabled={uploadsPending}
               onClick={continueToReview}
             >
-              Check and submit
+              {uploadsPending ? 'Saving…' : 'Save & Next'}
             </button>
           </>
         }
@@ -174,6 +189,7 @@ function DocumentsPage() {
               requirement={requirements[documentType]}
               editable={editable}
               onChanged={refresh}
+              onBusyChange={setDocumentBusy}
             />
           ))}
         </div>
@@ -197,6 +213,7 @@ function DocumentRow({
   requirement,
   editable,
   onChanged,
+  onBusyChange,
 }: {
   applicationId: string
   documentType: DocumentType
@@ -204,6 +221,7 @@ function DocumentRow({
   requirement: string | undefined
   editable: boolean
   onChanged: () => Promise<void>
+  onBusyChange: (documentType: DocumentType, busy: boolean) => void
 }) {
   const picker = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
@@ -272,6 +290,11 @@ function DocumentRow({
   })
 
   const busy = upload.isPending || remove.isPending || restore.isPending
+
+  useEffect(() => {
+    onBusyChange(documentType, busy)
+    return () => onBusyChange(documentType, false)
+  }, [busy, documentType, onBusyChange])
 
   const choose = (file: File | undefined) => {
     setError(null)

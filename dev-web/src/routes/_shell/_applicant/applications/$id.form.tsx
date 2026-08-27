@@ -12,7 +12,6 @@ import {
 } from '#/features/application/ApplicationJourney'
 import {
   ApplicantSection,
-  DeclarationSection,
   DocumentsSection,
   EnterpriseSection,
   FinancialSection,
@@ -306,7 +305,7 @@ function DraftFormPage() {
    * own route rather than a form `section`. Once the six answer categories are
    * complete, rendering a plain `/form` address would otherwise fall through
    * to Enterprise details even though the next reachable work is attaching
-   * files. That makes a declaration-to-evidence continuation appear stuck.
+   * files. That makes the evidence continuation appear stuck.
    *
    * Field bookmarks, revision work and read-only browsing retain their normal
    * form behavior; only an ordinary draft resume is redirected.
@@ -428,11 +427,7 @@ function DraftFormPage() {
                 <span>Back</span>
               </button>
             ) : (
-              <Link
-                to="/applications/$id"
-                params={{ id }}
-                className={styles.exitButton}
-              >
+              <Link to="/applications/$id" params={{ id }} className={styles.exitButton}>
                 <LogOut size={15} aria-hidden="true" />
                 <span>Exit form</span>
               </Link>
@@ -447,7 +442,7 @@ function DraftFormPage() {
             disabled={save.isPending}
             onClick={advance}
           >
-            <span>{save.isPending ? 'Saving…' : 'Next'}</span>
+            <span>{save.isPending ? 'Saving…' : 'Save & Next'}</span>
             <ArrowRight size={16} aria-hidden="true" />
           </button>
         }
@@ -552,14 +547,7 @@ function SectionFields({
       />
     )
   }
-  return (
-    <DeclarationSection
-      value={draft.declaration}
-      issues={issues}
-      disabled={disabled}
-      onChange={(value) => onChange({ ...draft, declaration: value })}
-    />
-  )
+  return null
 }
 
 /**

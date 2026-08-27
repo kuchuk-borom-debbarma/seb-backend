@@ -12,6 +12,7 @@ import {
   loadApplication,
   validationQuery,
 } from '#/features/application/applicationQueries'
+import { ApplicationSummary } from '#/features/application/ApplicationSummary'
 import { DOCUMENT_TITLES, isDocumentIssue } from '#/features/application/documents'
 import { SECTION_TITLES, fieldLabel } from '#/features/application/draft'
 import {
@@ -41,6 +42,7 @@ function ReviewPage() {
 
   // Resubmission answers a revision request; a first submission does not.
   const resubmission = application?.status === 'REVISION_REQUIRED'
+  const canSubmit = application?.status === 'DRAFT' || resubmission
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -78,9 +80,11 @@ function ReviewPage() {
       <PageHeader
         title="Application form"
         description={
-          resubmission
-            ? 'Your corrections are checked against the whole application, not just the sections you changed.'
-            : 'Submission freezes a copy of your answers and the documents attached to them.'
+          !canSubmit
+            ? 'This is the read-only copy of the application and its attached documents.'
+            : resubmission
+              ? 'Your corrections are checked against the whole application, not just the sections you changed.'
+              : 'Submission freezes a copy of your answers and the documents attached to them.'
         }
       />
 
@@ -90,7 +94,9 @@ function ReviewPage() {
         issues={validation.issues}
         editableSections={application.editableSections}
         footerStatus={
-          validation.valid ? (
+          !canSubmit ? (
+            <span className="badge">Read only</span>
+          ) : validation.valid ? (
             <span className="badge" data-tone="ok">
               Ready to submit
             </span>
@@ -105,24 +111,28 @@ function ReviewPage() {
             <Link to="/applications/$id/documents" params={{ id }} className="button">
               Back
             </Link>
-            <button
-              type="button"
-              className="button"
-              data-variant="primary"
-              disabled={!validation.valid || submit.isPending}
-              onClick={() => submit.mutate()}
-            >
-              {submit.isPending
-                ? 'Submitting…'
-                : resubmission
-                  ? 'Resubmit application'
-                  : 'Submit application'}
-            </button>
+            {canSubmit ? (
+              <button
+                type="button"
+                className="button"
+                data-variant="primary"
+                disabled={!validation.valid || submit.isPending}
+                onClick={() => submit.mutate()}
+              >
+                {submit.isPending
+                  ? 'Submitting…'
+                  : resubmission
+                    ? 'Resubmit application'
+                    : 'Submit application'}
+              </button>
+            ) : null}
           </>
         }
       >
         <div className="stack">
-          <ClosingNotice programmeCycleId={application.programmeCycleId} />
+          {canSubmit ? (
+            <ClosingNotice programmeCycleId={application.programmeCycleId} />
+          ) : null}
 
           {validation.valid ? (
             <p className="notice" data-tone="ok">
@@ -212,6 +222,8 @@ function ReviewPage() {
               </div>
             </div>
           )}
+
+          <ApplicationSummary application={application} showEditLinks={canSubmit} />
 
           {/*
           Before resubmitting, the applicant sees exactly which sections their

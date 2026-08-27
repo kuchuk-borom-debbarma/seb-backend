@@ -12,7 +12,7 @@ import {
   creditStatuses,
   genders,
   registrationTypes,
-  relationshipTypes,
+  tripuraDistricts,
 } from '../../db/schema'
 import type {
   ApplicationDraftInput,
@@ -52,12 +52,14 @@ const DEFAULT_SUBMISSION_POLICY: SubmissionPolicy = {
 
 const MAX_MONEY_PAISE = Number.MAX_SAFE_INTEGER
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
-const PHONE_PATTERN = /^\+?[1-9]\d{7,14}$/u
+const PHONE_PATTERN = /^\d{10}$/u
 const PIN_PATTERN = /^\d{6}$/u
 const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/u
 const MAX_SHORT_TEXT = 200
 const MAX_ADDRESS_TEXT = 500
 const MAX_EMAIL_LENGTH = 254
+const MIN_PRIOR_SUPPORT_YEAR = 1900
+const MAX_PRIOR_SUPPORT_YEAR = 2026
 
 const requiredKeys = {
   enterprise: [
@@ -99,12 +101,6 @@ const requiredKeys = {
     'existingCreditStatus',
   ],
   documents: ['nocRequired'],
-  declaration: [
-    'relationshipType',
-    'relatedPersonName',
-    'declarationAccepted',
-    'declarationPlace',
-  ],
 } as const
 
 /**
@@ -206,7 +202,6 @@ const hasAllSnapshotKeys = (input: ApplicationDraftInput): ValidationIssue[] => 
     'financial',
     'priorFunding',
     'documents',
-    'declaration',
   ]
   for (const section of sections) {
     const value = input[section] as unknown
@@ -257,7 +252,7 @@ const validateTextLength = (
 
 const validateEnums = (input: ApplicationDraftInput): ValidationIssue[] => {
   const issues: ValidationIssue[] = []
-  const { enterprise, applicantProfile, priorFunding, declaration } = input
+  const { enterprise, applicantProfile, priorFunding } = input
   if (!validEnum(enterprise.registrationType, registrationTypes)) {
     issues.push(issue('ENTERPRISE', 'registrationType', 'INVALID_ENUM', 'Select a valid registration type.'))
   }
@@ -275,9 +270,6 @@ const validateEnums = (input: ApplicationDraftInput): ValidationIssue[] => {
   }
   if (!validEnum(priorFunding.existingCreditStatus, creditStatuses)) {
     issues.push(issue('PRIOR_FUNDING', 'existingCreditStatus', 'INVALID_ENUM', 'Select a valid credit status.'))
-  }
-  if (!validEnum(declaration.relationshipType, relationshipTypes)) {
-    issues.push(issue('DECLARATION', 'relationshipType', 'INVALID_ENUM', 'Select a valid relationship.'))
   }
   return issues
 }
@@ -314,7 +306,13 @@ const validateDatesAndContacts = (input: ApplicationDraftInput): ValidationIssue
     applicantProfile.contactNumber !== null &&
     !PHONE_PATTERN.test(applicantProfile.contactNumber)
   ) {
-    issues.push(issue('APPLICANT_PROFILE', 'contactNumber', 'INVALID_PHONE', 'Enter a valid phone number.'))
+    issues.push(issue('APPLICANT_PROFILE', 'contactNumber', 'INVALID_PHONE', 'Enter a 10-digit contact number.'))
+  }
+  if (
+    applicantProfile.businessDistrict !== null &&
+    !tripuraDistricts.includes(applicantProfile.businessDistrict as (typeof tripuraDistricts)[number])
+  ) {
+    issues.push(issue('APPLICANT_PROFILE', 'businessDistrict', 'INVALID_DISTRICT', 'Select a Tripura district.'))
   }
   if (
     applicantProfile.businessPinCode !== null &&
@@ -344,9 +342,14 @@ const validateMoneyAndFlags = (input: ApplicationDraftInput): ValidationIssue[] 
     priorFunding.governmentFundingSanctionYear !== null &&
     (!Number.isInteger(priorFunding.governmentFundingSanctionYear) ||
       priorFunding.governmentFundingSanctionYear < 1900 ||
-      priorFunding.governmentFundingSanctionYear > 9999)
+      priorFunding.governmentFundingSanctionYear > MAX_PRIOR_SUPPORT_YEAR)
   ) {
-    issues.push(issue('PRIOR_FUNDING', 'governmentFundingSanctionYear', 'INVALID_YEAR', 'Enter a valid four-digit year.'))
+    issues.push(issue(
+      'PRIOR_FUNDING',
+      'governmentFundingSanctionYear',
+      'INVALID_YEAR',
+      `Select a sanction year from ${MIN_PRIOR_SUPPORT_YEAR} through ${MAX_PRIOR_SUPPORT_YEAR}.`,
+    ))
   }
   if (documents.nocRequired !== null && typeof documents.nocRequired !== 'boolean') {
     issues.push(issue('DOCUMENTS', 'nocRequired', 'INVALID_BOOLEAN', 'NOC applicability must be true or false.'))
@@ -356,7 +359,7 @@ const validateMoneyAndFlags = (input: ApplicationDraftInput): ValidationIssue[] 
 
 const validateTextFields = (input: ApplicationDraftInput): ValidationIssue[] => {
   const issues: ValidationIssue[] = []
-  const { enterprise, applicantProfile, priorFunding, declaration } = input
+  const { enterprise, applicantProfile, priorFunding } = input
   for (const [section, field, value, maximum] of [
     ['ENTERPRISE', 'businessName', enterprise.businessName, MAX_SHORT_TEXT],
     ['ENTERPRISE', 'registrationNumber', enterprise.registrationNumber, MAX_SHORT_TEXT],
@@ -367,8 +370,6 @@ const validateTextFields = (input: ApplicationDraftInput): ValidationIssue[] => 
     ['APPLICANT_PROFILE', 'contactEmail', applicantProfile.contactEmail, MAX_EMAIL_LENGTH],
     ['PRIOR_FUNDING', 'governmentSchemeName', priorFunding.governmentSchemeName, MAX_SHORT_TEXT],
     ['PRIOR_FUNDING', 'existingBankName', priorFunding.existingBankName, MAX_SHORT_TEXT],
-    ['DECLARATION', 'relatedPersonName', declaration.relatedPersonName, MAX_SHORT_TEXT],
-    ['DECLARATION', 'declarationPlace', declaration.declarationPlace, MAX_SHORT_TEXT],
   ] as const) validateTextLength(issues, section, field, value, maximum)
   return issues
 }
@@ -412,11 +413,6 @@ export const normalizeDraftInput = (
       existingBankName: cleanText(input.priorFunding.existingBankName),
     },
     documents: { ...input.documents },
-    declaration: {
-      ...input.declaration,
-      relatedPersonName: cleanText(input.declaration.relatedPersonName),
-      declarationPlace: cleanText(input.declaration.declarationPlace),
-    },
   }
   return { value, issues: validateOptionalFormats(value) }
 }
@@ -466,8 +462,14 @@ export const normalizeEnterpriseProfile = (
   if (value.businessPinCode !== null && !PIN_PATTERN.test(value.businessPinCode)) {
     return { value: null, message: 'Enter a six-digit PIN code.' }
   }
+  if (
+    value.businessDistrict !== null &&
+    !tripuraDistricts.includes(value.businessDistrict as (typeof tripuraDistricts)[number])
+  ) {
+    return { value: null, message: 'Select a valid Tripura district.' }
+  }
   if (value.contactNumber !== null && !PHONE_PATTERN.test(value.contactNumber)) {
-    return { value: null, message: 'Enter a valid phone number.' }
+    return { value: null, message: 'Enter a 10-digit contact number.' }
   }
   if (value.contactEmail !== null && !EMAIL_PATTERN.test(value.contactEmail)) {
     return { value: null, message: 'Enter a valid email address.' }
@@ -714,20 +716,6 @@ const validateDocumentSubmission = (
   }
 }
 
-const validateDeclarationSubmission = (
-  snapshot: ApplicationSnapshot,
-  issues: ValidationIssue[],
-) => {
-  for (const [field, value] of [
-    ['relationshipType', snapshot.declaration.relationshipType],
-    ['relatedPersonName', snapshot.declaration.relatedPersonName],
-    ['declarationPlace', snapshot.declaration.declarationPlace],
-  ] as const) requireValue(issues, 'DECLARATION', field, value)
-  if (snapshot.declaration.declarationAccepted !== true) {
-    issues.push(issue('DECLARATION', 'declarationAccepted', 'MUST_ACCEPT', 'Accept the declaration before submission.'))
-  }
-}
-
 /** Validates one normalized snapshot for formal submission. */
 export const validateSubmissionSnapshot = (
   snapshot: ApplicationSnapshot,
@@ -742,6 +730,5 @@ export const validateSubmissionSnapshot = (
   validateFinancialSubmission(snapshot, issues, policy)
   validatePriorFundingSubmission(snapshot, issues)
   validateDocumentSubmission(snapshot, activeDocumentTypes, issues, policy)
-  validateDeclarationSubmission(snapshot, issues)
   return { valid: issues.length === 0, issues }
 }

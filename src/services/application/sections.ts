@@ -41,13 +41,6 @@ const sectionFields: Record<ApplicationSection, readonly SnapshotField[]> = {
     'continuousOperationMonths',
   ],
   DOCUMENTS: ['nocRequired'],
-  // `declarationAcceptedAt` is deliberately absent. The server re-stamps it on
-  // every save that carries an accepted declaration, so including it would
-  // report the declaration as changed each time an applicant edits an unrelated
-  // section. The applicant's actual answer is `declarationAccepted`.
-  DECLARATION: [
-    'relationshipType', 'relatedPersonName', 'declarationAccepted', 'declarationPlace',
-  ],
 }
 
 /**

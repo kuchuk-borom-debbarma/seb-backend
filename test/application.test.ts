@@ -62,6 +62,7 @@ const graphql = async <T>(
 
 const applicantSession = async () => {
   const userId = crypto.randomUUID()
+  const email = `${userId}@example.test`
   const token = crypto.randomUUID()
   const now = Date.now()
   const digest = await sessionTokenDigest(env.AUTH_SECRET, token)
@@ -70,7 +71,7 @@ const applicantSession = async () => {
       `INSERT INTO core_user (
         id, email, password_hash, email_verified_at, row_version, created_at, updated_at
       ) VALUES (?, ?, 'unused', ?, 1, ?, ?)`,
-    ).bind(userId, `${userId}@example.test`, now, now, now),
+    ).bind(userId, email, now, now, now),
     env.DB.prepare(
       `INSERT INTO core_user_role_grant (
         id, user_id, role, grant_reason, granted_at
@@ -82,7 +83,7 @@ const applicantSession = async () => {
       ) VALUES (?, ?, ?, ?, ?, ?)`,
     ).bind(crypto.randomUUID(), userId, digest, now + 86_400_000, now, now),
   ])
-  return { userId, cookie: `seb_session=${token}` }
+  return { userId, email, cookie: `seb_session=${token}` }
 }
 
 const directContext = (cookie: string) => ({
@@ -130,7 +131,7 @@ const profile: EnterpriseProfileInput = {
   businessBlockOrVillage: 'Khumulwng',
   businessDistrict: 'West Tripura',
   businessPinCode: '799045',
-  contactNumber: '+919876543210',
+  contactNumber: '9876543210',
   contactEmail: 'OWNER@EXAMPLE.TEST',
 }
 
@@ -156,12 +157,15 @@ const createEnterprise = async (
 
 const startInitial = async (cookie: string, enterpriseId: string, programmeCycleId: string) => {
   const response = await graphql<{
-    seb: { application: { startInitial: { success: boolean; message: string | null; response: { id: string; currentVersion: number; statusVersion: number; snapshot: { enterprise: { businessName: string } } } | null } } }
+    seb: { application: { startInitial: { success: boolean; message: string | null; response: { id: string; currentVersion: number; statusVersion: number; snapshot: { enterprise: { businessName: string }; applicantProfile: { contactEmail: string } } } | null } } }
   }>(
     `mutation Start($input: StartApplicationInput!) {
       seb { application { startInitial(input: $input) {
         success message response {
-          id currentVersion statusVersion snapshot { enterprise { businessName } }
+          id currentVersion statusVersion snapshot {
+            enterprise { businessName }
+            applicantProfile { contactEmail }
+          }
         }
       } } }
     }`,
@@ -173,7 +177,7 @@ const startInitial = async (cookie: string, enterpriseId: string, programmeCycle
   return result.response
 }
 
-const completeDraft = {
+const completeDraft = (contactEmail = 'rina@example.test') => ({
   enterprise: {
     businessName: 'Example Tribal Foods',
     establishmentDate: '2026-01-15',
@@ -193,8 +197,8 @@ const completeDraft = {
     businessBlockOrVillage: 'Khumulwng',
     businessDistrict: 'West Tripura',
     businessPinCode: '799045',
-    contactNumber: '+919876543210',
-    contactEmail: 'rina@example.test',
+    contactNumber: '9876543210',
+    contactEmail,
   },
   financial: {
     totalProjectCostPaise: '50000000',
@@ -213,17 +217,11 @@ const completeDraft = {
     existingCreditStatus: null,
   },
   documents: { nocRequired: false },
-  declaration: {
-    relationshipType: 'DAUGHTER_OF',
-    relatedPersonName: 'Maya Debbarma',
-    declarationAccepted: true,
-    declarationPlace: 'Agartala',
-  },
-}
+})
 
 /** The GraphQL money scalar accepts strings, while persistence uses exact numbers. */
-const persistenceDraft = (): ApplicationDraftInput => {
-  const draft = structuredClone(completeDraft) as unknown as ApplicationDraftInput
+const persistenceDraft = (contactEmail?: string): ApplicationDraftInput => {
+  const draft = structuredClone(completeDraft(contactEmail)) as unknown as ApplicationDraftInput
   draft.financial = {
     totalProjectCostPaise: 50_000_000,
     seedFundRequestedPaise: 10_000_000,
@@ -236,9 +234,13 @@ const persistenceDraft = (): ApplicationDraftInput => {
 const saveCompleteDraft = async (
   cookie: string,
   applicationId: string,
+  contactEmail: string,
+  copiedEnterprise: Partial<ReturnType<typeof completeDraft>['enterprise']> = {},
   expectedVersion = 1,
   expectedStatusVersion = 1,
 ) => {
+  const draft = completeDraft(contactEmail)
+  draft.enterprise = { ...draft.enterprise, ...copiedEnterprise }
   const response = await graphql<{
     seb: { application: { saveDraft: { success: boolean; message: string | null; response: { currentVersion: number; statusVersion: number } | null } } }
   }>(
@@ -252,7 +254,7 @@ const saveCompleteDraft = async (
         applicationId,
         expectedVersion,
         expectedStatusVersion,
-        draft: completeDraft,
+        draft,
       },
     },
     cookie,
@@ -351,6 +353,32 @@ const insertActiveAward = async (
 }
 
 describe('applicant application business service', () => {
+  it('does not expose the removed declaration contract', async () => {
+    const response = await graphql<{
+      section: { enumValues: Array<{ name: string }> } | null
+      draft: { inputFields: Array<{ name: string }> } | null
+      snapshot: { fields: Array<{ name: string }> } | null
+      relationship: unknown
+      declarationInput: unknown
+    }>(`query {
+      section: __type(name: "ApplicationSection") { enumValues { name } }
+      draft: __type(name: "ApplicationDraftInput") { inputFields { name } }
+      snapshot: __type(name: "ApplicationSnapshot") { fields { name } }
+      relationship: __type(name: "RelationshipType") { name }
+      declarationInput: __type(name: "DeclarationInput") { name }
+    }`)
+
+    expect(response.errors).toBeUndefined()
+    expect(response.data?.section?.enumValues.map(({ name }) => name))
+      .not.toContain('DECLARATION')
+    expect(response.data?.draft?.inputFields.map(({ name }) => name))
+      .not.toContain('declaration')
+    expect(response.data?.snapshot?.fields.map(({ name }) => name))
+      .not.toContain('declaration')
+    expect(response.data?.relationship).toBeNull()
+    expect(response.data?.declarationInput).toBeNull()
+  })
+
   it('requires authentication for every enterprise, application, and document operation', async () => {
     const operations: Array<[string, Record<string, unknown>?]> = [
       ['query { seb { enterprise { mine { success } } } }'],
@@ -382,7 +410,7 @@ describe('applicant application business service', () => {
         applicationId: 'missing',
         expectedVersion: 1,
         expectedStatusVersion: 1,
-        draft: completeDraft,
+        draft: completeDraft(),
       } }],
       ['mutation { seb { application { softDeleteDraft(input: { applicationId: "missing", expectedVersion: 1, expectedStatusVersion: 1 }) { success } } } }'],
       ['mutation { seb { application { restoreDraft(input: { applicationId: "missing", expectedVersion: 1, expectedStatusVersion: 1 }) { success } } } }'],
@@ -576,7 +604,7 @@ describe('applicant application business service', () => {
       applicationId: application.id,
       expectedVersion: 0,
       expectedStatusVersion: 1,
-      draft: completeDraft,
+      draft: completeDraft(applicant.email),
     } }, applicant.cookie)
     expect(invalidSave.data?.seb.application.saveDraft).toEqual({ success: false, response: null })
 
@@ -588,7 +616,7 @@ describe('applicant application business service', () => {
       applicationId: 'missing',
       expectedVersion: 1,
       expectedStatusVersion: 1,
-      draft: completeDraft,
+      draft: completeDraft(applicant.email),
     } }, applicant.cookie)
     expect(missingSave.data?.seb.application.saveDraft).toEqual({ success: false, response: null })
 
@@ -608,9 +636,11 @@ describe('applicant application business service', () => {
     } }`, {}, applicant.cookie)
     expect(JSON.stringify(invalidEnterpriseDelete.data)).toContain('"success":false')
 
-    const malformedDraft = structuredClone(completeDraft)
-    malformedDraft.applicantProfile.contactEmail = 'invalid-email'
-    const malformedSave = await graphql<{
+    expect(application.snapshot.applicantProfile.contactEmail).toBe(applicant.email)
+
+    const changedIdentityDraft = structuredClone(completeDraft(applicant.email))
+    changedIdentityDraft.applicantProfile.contactEmail = 'someone-else@example.test'
+    const changedIdentitySave = await graphql<{
       seb: { application: { saveDraft: { success: boolean; response: unknown } } }
     }>(`mutation Save($input: SaveApplicationDraftInput!) {
       seb { application { saveDraft(input: $input) { success response { id } } }
@@ -618,9 +648,25 @@ describe('applicant application business service', () => {
       applicationId: application.id,
       expectedVersion: 1,
       expectedStatusVersion: 1,
-      draft: malformedDraft,
+      draft: changedIdentityDraft,
     } }, applicant.cookie)
-    expect(malformedSave.data?.seb.application.saveDraft).toEqual({ success: false, response: null })
+    expect(changedIdentitySave.data?.seb.application.saveDraft)
+      .toEqual({ success: false, response: null })
+
+    const changedEnterpriseDraft = structuredClone(completeDraft(applicant.email))
+    changedEnterpriseDraft.enterprise.businessName = 'Changed in application'
+    const changedEnterpriseSave = await graphql<{
+      seb: { application: { saveDraft: { success: boolean; response: unknown } } }
+    }>(`mutation Save($input: SaveApplicationDraftInput!) {
+      seb { application { saveDraft(input: $input) { success response { id } } }
+    } }`, { input: {
+      applicationId: application.id,
+      expectedVersion: 1,
+      expectedStatusVersion: 1,
+      draft: changedEnterpriseDraft,
+    } }, applicant.cookie)
+    expect(changedEnterpriseSave.data?.seb.application.saveDraft)
+      .toEqual({ success: false, response: null })
 
     const noAwardCycle = await insertOpenCycle(applicant.userId)
     const noAwardExpansion = await graphql<{
@@ -919,13 +965,19 @@ describe('applicant application business service', () => {
     ).bind(staleApplicationId).first()).toBeNull()
 
     const cycleId = await insertOpenCycle(applicant.userId)
+    const registrationNumber = `UDYAM-${crypto.randomUUID()}`
     const enterprise = await createEnterprise(applicant.cookie, {
       ...profile,
       name: 'Document Race Enterprise',
-      registrationNumber: `UDYAM-${crypto.randomUUID()}`,
+      registrationNumber,
     })
     const application = await startInitial(applicant.cookie, enterprise.id, cycleId)
-    const saved = await saveCompleteDraft(applicant.cookie, application.id)
+    const saved = await saveCompleteDraft(
+      applicant.cookie,
+      application.id,
+      applicant.email,
+      { businessName: 'Document Race Enterprise', registrationNumber },
+    )
     await insertRequiredEvidence(application.id, applicant.userId)
     const loaded = await loadOwnedApplication(db, applicant.userId, application.id)
     const currentVersion = await findApplicationVersion(db, application.id, saved.currentVersion)
@@ -1308,7 +1360,7 @@ describe('applicant application business service', () => {
           applicationId: application.id,
           expectedVersion: 1,
           expectedStatusVersion: 1,
-          draft: completeDraft,
+          draft: completeDraft(applicant.email),
         },
       },
       applicant.cookie,
@@ -1325,7 +1377,7 @@ describe('applicant application business service', () => {
       applicationId: application.id,
       expectedVersion: 2,
       expectedStatusVersion: 1,
-      draft: completeDraft,
+      draft: completeDraft(applicant.email),
     } }, applicant.cookie)
     expect(noOp.data?.seb.application.saveDraft.response).toEqual({ currentVersion: 2 })
     const stale = await graphql<{
@@ -1339,7 +1391,7 @@ describe('applicant application business service', () => {
           applicationId: application.id,
           expectedVersion: 1,
           expectedStatusVersion: 1,
-          draft: completeDraft,
+          draft: completeDraft(applicant.email),
         },
       },
       applicant.cookie,
@@ -1474,7 +1526,7 @@ describe('applicant application business service', () => {
     ).bind(cycleId).run()
     const enterprise = await createEnterprise(applicant.cookie)
     const application = await startInitial(applicant.cookie, enterprise.id, cycleId)
-    const saved = await saveCompleteDraft(applicant.cookie, application.id)
+    const saved = await saveCompleteDraft(applicant.cookie, application.id, applicant.email)
     await insertRequiredEvidence(application.id, applicant.userId)
     const pendingUpload = await graphql<{
       seb: { application: { issueDocumentUpload: { response: { uploadId: string } | null } } }
@@ -1515,7 +1567,6 @@ describe('applicant application business service', () => {
 
     const state = await env.DB.prepare(
       `SELECT a.status, v.change_type AS changeType,
-        v.declaration_accepted_at AS acceptedAt,
         (SELECT COUNT(*) FROM seb_application_submission s WHERE s.application_id = a.id) AS submissions,
         (SELECT COUNT(*) FROM seb_application_event e WHERE e.application_id = a.id) AS events
        FROM seb_application a
@@ -1525,14 +1576,12 @@ describe('applicant application business service', () => {
     ).bind(application.id).first<{
       status: string
       changeType: string
-      acceptedAt: number | null
       submissions: number
       events: number
     }>()
     expect(state).toMatchObject({
       status: 'SUBMITTED',
       changeType: 'SUBMISSION',
-      acceptedAt: expect.any(Number),
       submissions: 1,
       events: 3,
     })
@@ -1561,7 +1610,7 @@ describe('applicant application business service', () => {
         applicationId: application.id,
         expectedVersion: 3,
         expectedStatusVersion: 2,
-        draft: completeDraft,
+        draft: completeDraft(applicant.email),
       } } : {}
       const response = await graphql<Record<string, unknown>>(query, variables, applicant.cookie)
       expect(JSON.stringify(response.data)).toContain('"success":false')
@@ -2069,7 +2118,7 @@ describe('applicant application business service', () => {
     const cycleId = await insertOpenCycle(applicant.userId)
     const enterprise = await createEnterprise(applicant.cookie)
     const application = await startInitial(applicant.cookie, enterprise.id, cycleId)
-    const saved = await saveCompleteDraft(applicant.cookie, application.id)
+    const saved = await saveCompleteDraft(applicant.cookie, application.id, applicant.email)
     await insertRequiredEvidence(application.id, applicant.userId)
     const submitted = await graphql<{
       seb: { application: { submit: { success: boolean; response: { currentVersion: number; statusVersion: number } | null } } }
@@ -2110,7 +2159,7 @@ describe('applicant application business service', () => {
       applicationId: application.id,
       expectedVersion: 3,
       expectedStatusVersion: 3,
-      draft: completeDraft,
+      draft: completeDraft(applicant.email),
     } }, applicant.cookie)
     expect(saveWithoutRequests.data?.seb.application.saveDraft)
       .toEqual({ success: false, response: null })
@@ -2176,7 +2225,7 @@ describe('applicant application business service', () => {
       checksumSha256: 'A'.repeat(43) + '=',
     }, directContext(applicant.cookie))).toMatchObject({ success: true })
 
-    const forbiddenDraft = structuredClone(completeDraft)
+    const forbiddenDraft = structuredClone(completeDraft(applicant.email))
     forbiddenDraft.enterprise.businessName = 'Unauthorized name edit'
     const forbidden = await graphql<{
       seb: { application: { saveDraft: { success: boolean; response: unknown } } }
@@ -2202,7 +2251,7 @@ describe('applicant application business service', () => {
     expect(locked.data?.seb.application.byId.response?.editableSections)
       .toEqual(['APPLICANT_PROFILE', 'FINANCIAL', 'DOCUMENTS'])
 
-    const revisedDraft = structuredClone(completeDraft)
+    const revisedDraft = structuredClone(completeDraft(applicant.email))
     revisedDraft.financial.totalProjectCostPaise = '51000000'
     const revised = await graphql<{
       seb: { application: { saveDraft: { success: boolean; response: { currentVersion: number } | null } } }
@@ -2574,7 +2623,11 @@ describe('applicant application business service', () => {
       'SELECT status, current_funding_award_id AS awardId FROM seb_application_qualifying_award WHERE application_id = ?',
     ).bind(expansion.id).first()).toEqual({ status: 'ACTIVE', awardId })
 
-    const savedExpansion = await saveCompleteDraft(applicant.cookie, expansion.id)
+    const savedExpansion = await saveCompleteDraft(
+      applicant.cookie,
+      expansion.id,
+      applicant.email,
+    )
     await insertRequiredEvidence(expansion.id, applicant.userId)
 
     // An administrator may change the authoritative award after the applicant
@@ -2724,7 +2777,7 @@ describe('applicant application business service', () => {
       applicationId: retryId,
       expectedVersion: 1,
       expectedStatusVersion: 1,
-      draft: completeDraft,
+      draft: completeDraft(applicant.email),
     } }, applicant.cookie)
     expect(saveWithoutAward.data?.seb.application.saveDraft)
       .toEqual({ success: false, response: null })
@@ -2906,7 +2959,7 @@ describe('applicant application business service', () => {
     // allows for a DRAFT application.
     expect(application.editableSections).toEqual([
       'ENTERPRISE', 'APPLICANT_PROFILE', 'FINANCIAL', 'PRIOR_FUNDING',
-      'EXPANSION', 'DOCUMENTS', 'DECLARATION',
+      'EXPANSION', 'DOCUMENTS',
     ])
 
     // Nothing has been submitted, so there is no baseline to compare against.

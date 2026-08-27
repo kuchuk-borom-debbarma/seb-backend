@@ -28,7 +28,6 @@ import type {
   genders,
   programmeCycleStatuses,
   registrationTypes,
-  relationshipTypes,
 } from '../../db/schema'
 
 export type ApplicationOperationContext = {
@@ -52,7 +51,6 @@ export type ApplicationCategory = (typeof applicationCategories)[number]
 export type ApplicantDesignation = (typeof applicantDesignations)[number]
 export type Gender = (typeof genders)[number]
 export type CreditStatus = (typeof creditStatuses)[number]
-export type RelationshipType = (typeof relationshipTypes)[number]
 export type DocumentType = (typeof documentTypes)[number]
 export type ApplicationSection = (typeof applicationSections)[number]
 export type ProgrammeCycleStatus = (typeof programmeCycleStatuses)[number]
@@ -144,13 +142,6 @@ export type DocumentRequirementsInput = {
   nocRequired: boolean | null
 }
 
-export type DeclarationInput = {
-  relationshipType: RelationshipType | null
-  relatedPersonName: string | null
-  declarationAccepted: boolean | null
-  declarationPlace: string | null
-}
-
 /**
  * A draft save is a replacement snapshot rather than a JSON merge. GraphQL
  * requires each section object; controllers additionally verify every nullable
@@ -162,7 +153,6 @@ export type ApplicationDraftInput = {
   financial: FinancialInput
   priorFunding: PriorFundingInput
   documents: DocumentRequirementsInput
-  declaration: DeclarationInput
 }
 
 export type ExpansionClaim = {
@@ -179,7 +169,6 @@ export type ApplicationSnapshot = ApplicationDraftInput &
     applicationType: ApplicationType
     phaseNumber: number
     changeType: string
-    declarationAcceptedAt: Date | null
     createdAt: Date
   }
 

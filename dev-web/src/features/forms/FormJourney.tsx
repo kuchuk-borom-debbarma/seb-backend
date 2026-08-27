@@ -9,8 +9,6 @@ import {
   Building2,
   Check,
   CheckCircle2,
-  FileCheck,
-  FileSignature,
   FileText,
   History,
   IndianRupee,
@@ -42,8 +40,6 @@ function CategoryIcon({ id, size = 20 }: { id: string; size?: number }) {
       return <History size={size} className={styles.formTitleIcon} aria-hidden="true" />
     case 'DOCUMENTS':
       return <FileText size={size} className={styles.formTitleIcon} aria-hidden="true" />
-    case 'DECLARATION':
-      return <FileSignature size={size} className={styles.formTitleIcon} aria-hidden="true" />
     case 'ATTACH_EVIDENCE':
       return <Paperclip size={size} className={styles.formTitleIcon} aria-hidden="true" />
     case 'REVIEW':

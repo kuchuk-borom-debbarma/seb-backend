@@ -1171,7 +1171,7 @@ describe('authentication', () => {
               businessBlockOrVillage: "Khumulwng"
               businessDistrict: "West Tripura"
               businessPinCode: "799045"
-              contactNumber: "+919876543210"
+              contactNumber: "9876543210"
               contactEmail: "owner@example.test"
             }) {
               success

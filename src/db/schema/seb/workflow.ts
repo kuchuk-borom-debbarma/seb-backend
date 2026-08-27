@@ -24,7 +24,6 @@ export const applicationSections = [
   'PRIOR_FUNDING',
   'EXPANSION',
   'DOCUMENTS',
-  'DECLARATION',
 ] as const
 
 /** Section-specific correction request; notes are never edited after creation. */
@@ -73,7 +72,7 @@ export const sebRevisionRequest = sqliteTable(
     }).onDelete('restrict'),
     check(
       'seb_revision_request_section_check',
-      sql`${table.section} IN ('ENTERPRISE', 'APPLICANT_PROFILE', 'FINANCIAL', 'PRIOR_FUNDING', 'EXPANSION', 'DOCUMENTS', 'DECLARATION')`,
+      sql`${table.section} IN ('ENTERPRISE', 'APPLICANT_PROFILE', 'FINANCIAL', 'PRIOR_FUNDING', 'EXPANSION', 'DOCUMENTS')`,
     ),
     // Resolution and cancellation are terminal, mutually exclusive states.
     // Their metadata is stored as a complete group so timeline consumers never
@@ -153,7 +152,7 @@ export const sebApplicationEvent = sqliteTable(
     }).onDelete('restrict'),
     check(
       'seb_application_event_section_check',
-      sql`${table.section} IS NULL OR ${table.section} IN ('ENTERPRISE', 'APPLICANT_PROFILE', 'FINANCIAL', 'PRIOR_FUNDING', 'EXPANSION', 'DOCUMENTS', 'DECLARATION')`,
+      sql`${table.section} IS NULL OR ${table.section} IN ('ENTERPRISE', 'APPLICANT_PROFILE', 'FINANCIAL', 'PRIOR_FUNDING', 'EXPANSION', 'DOCUMENTS')`,
     ),
     // Drizzle enums are compile-time only, so D1 checks remain the authoritative
     // protection for dynamic inputs and administrative SQL.

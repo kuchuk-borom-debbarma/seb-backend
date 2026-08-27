@@ -1,5 +1,5 @@
 /**
- * The six sections of the application form.
+ * The five answer sections of the application form.
  *
  * Each section is memoised on its own slice of the draft, so typing in one
  * bounds the re-render to that section — at most nine fields — rather than the
@@ -24,7 +24,6 @@ import {
   Coins,
   Compass,
   FileCode,
-  FileSignature,
   FileText,
   HelpCircle,
   IndianRupee,
@@ -50,14 +49,12 @@ import type {
   CreditStatus,
   Gender,
   RegistrationType,
-  RelationshipType,
 } from '#/graphql/generated/schema'
 import { formatMoney, humanize } from '#/lib/format'
+import { GOVERNMENT_SUPPORT_YEARS, TRIPURA_DISTRICTS } from '#/lib/businessRules'
 import { FIELD_LABELS, paiseToRupees, rupeesToPaise } from './draft'
 import styles from './DraftSections.module.css'
 
-const REGISTRATION_TYPES: RegistrationType[] = ['NONE', 'CIN', 'UDYAM']
-const CATEGORIES: ApplicationCategory[] = ['CATEGORY_A', 'CATEGORY_B']
 const DESIGNATIONS: ApplicantDesignation[] = [
   'PROPRIETOR',
   'MANAGING_PARTNER',
@@ -65,8 +62,6 @@ const DESIGNATIONS: ApplicantDesignation[] = [
   'AUTHORIZED_SIGNATORY',
 ]
 const GENDERS: Gender[] = ['MALE', 'FEMALE', 'OTHER']
-const CREDIT_STATUSES: CreditStatus[] = ['STANDARD', 'NPA']
-const RELATIONSHIPS: RelationshipType[] = ['SON_OF', 'DAUGHTER_OF', 'WIFE_OF']
 const SECTORS: BusinessSector[] = [
   'AGRICULTURE_AND_ALLIED',
   'HANDLOOM_TEXTILE_AND_HANDICRAFTS',
@@ -368,7 +363,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
             id="businessName"
             className={styles.input}
             placeholder="Enter business name"
-            disabled={disabled}
+            disabled
             value={value.businessName ?? ''}
             onChange={(event) => set('businessName', orNull(event.target.value))}
             {...invalid(issues, 'businessName')}
@@ -386,7 +381,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
             className={styles.input}
             type="date"
             placeholder="Select date"
-            disabled={disabled}
+            disabled
             value={value.establishmentDate ?? ''}
             onChange={(event) => set('establishmentDate', orNull(event.target.value))}
             {...invalid(issues, 'establishmentDate')}
@@ -408,10 +403,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
           value={value.applicationCategory ?? ''}
           disabled={disabled}
           onChange={(val) =>
-            set(
-              'applicationCategory',
-              (val ? val : null) as ApplicationCategory | null,
-            )
+            set('applicationCategory', (val ? val : null) as ApplicationCategory | null)
           }
         />
 
@@ -427,7 +419,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
             { label: 'UDYAM', value: 'UDYAM', icon: <Award size={15} /> },
           ]}
           value={value.registrationType ?? 'NONE'}
-          disabled={disabled}
+          disabled
           onChange={(next) => {
             const nextType = next as RegistrationType
             onChange({
@@ -450,7 +442,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
               id="registrationNumber"
               className={styles.input}
               placeholder={`Enter ${value.registrationType} number`}
-              disabled={disabled}
+              disabled
               value={value.registrationNumber ?? ''}
               onChange={(event) => set('registrationNumber', orNull(event.target.value))}
               {...invalid(issues, 'registrationNumber')}
@@ -468,7 +460,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
             id="gstin"
             className={styles.input}
             placeholder="Enter GSTIN (if any)"
-            disabled={disabled}
+            disabled
             value={value.gstin ?? ''}
             onChange={(event) => set('gstin', orNull(event.target.value))}
             {...invalid(issues, 'gstin')}
@@ -485,7 +477,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
           <select
             id="businessSector"
             className={styles.select}
-            disabled={disabled}
+            disabled
             value={value.businessSector ?? ''}
             onChange={(event) => {
               const next = orNull(event.target.value) as BusinessSector | null
@@ -518,7 +510,7 @@ export const EnterpriseSection = memo(function EnterpriseSection({
               id="otherBusinessSector"
               className={styles.input}
               placeholder="Enter description"
-              disabled={disabled}
+              disabled
               value={value.otherBusinessSector ?? ''}
               onChange={(event) => set('otherBusinessSector', orNull(event.target.value))}
               {...invalid(issues, 'otherBusinessSector')}
@@ -586,7 +578,10 @@ export const ApplicantSection = memo(function ApplicantSection({
             disabled={disabled}
             value={value.designation ?? ''}
             onChange={(event) =>
-              set('designation', orNull(event.target.value) as ApplicantDesignation | null)
+              set(
+                'designation',
+                orNull(event.target.value) as ApplicantDesignation | null,
+              )
             }
             {...invalid(issues, 'designation')}
           >
@@ -629,7 +624,9 @@ export const ApplicantSection = memo(function ApplicantSection({
             className={styles.select}
             disabled={disabled}
             value={value.gender ?? ''}
-            onChange={(event) => set('gender', orNull(event.target.value) as Gender | null)}
+            onChange={(event) =>
+              set('gender', orNull(event.target.value) as Gender | null)
+            }
             {...invalid(issues, 'gender')}
           >
             <option value="">Select gender</option>
@@ -647,14 +644,17 @@ export const ApplicantSection = memo(function ApplicantSection({
           icon={<MapPin size={15} />}
           issue={issues.businessBlockOrVillage}
           required
+          hint="Enter the address shown on business documents, not a personal or residential address."
         >
           <input
             id="businessBlockOrVillage"
             className={styles.input}
-            placeholder="Enter block or village"
+            placeholder="Enter the address from your business documents"
             disabled={disabled}
             value={value.businessBlockOrVillage ?? ''}
-            onChange={(event) => set('businessBlockOrVillage', orNull(event.target.value))}
+            onChange={(event) =>
+              set('businessBlockOrVillage', orNull(event.target.value))
+            }
             {...invalid(issues, 'businessBlockOrVillage')}
           />
         </Field>
@@ -666,15 +666,21 @@ export const ApplicantSection = memo(function ApplicantSection({
           issue={issues.businessDistrict}
           required
         >
-          <input
+          <select
             id="businessDistrict"
-            className={styles.input}
-            placeholder="Enter district"
+            className={styles.select}
             disabled={disabled}
             value={value.businessDistrict ?? ''}
             onChange={(event) => set('businessDistrict', orNull(event.target.value))}
             {...invalid(issues, 'businessDistrict')}
-          />
+          >
+            <option value="">Select district</option>
+            {TRIPURA_DISTRICTS.map((district) => (
+              <option key={district} value={district}>
+                {district}
+              </option>
+            ))}
+          </select>
         </Field>
 
         <Field
@@ -708,6 +714,10 @@ export const ApplicantSection = memo(function ApplicantSection({
             id="contactNumber"
             className={styles.input}
             type="tel"
+            inputMode="numeric"
+            pattern="[0-9]{10}"
+            title="Enter exactly 10 digits without a country prefix."
+            maxLength={10}
             placeholder="Enter 10-digit mobile number"
             disabled={disabled}
             value={value.contactNumber ?? ''}
@@ -727,10 +737,8 @@ export const ApplicantSection = memo(function ApplicantSection({
             id="contactEmail"
             className={styles.input}
             type="email"
-            placeholder="Enter contact email address"
-            disabled={disabled}
+            disabled
             value={value.contactEmail ?? ''}
-            onChange={(event) => set('contactEmail', orNull(event.target.value))}
             {...invalid(issues, 'contactEmail')}
           />
         </Field>
@@ -897,11 +905,9 @@ export const PriorFundingSection = memo(function PriorFundingSection({
             issue={issues.governmentFundingSanctionYear}
             required
           >
-            <input
+            <select
               id="governmentFundingSanctionYear"
-              className={styles.input}
-              type="number"
-              placeholder="e.g. 2024"
+              className={styles.select}
               disabled={disabled}
               value={value.governmentFundingSanctionYear ?? ''}
               onChange={(event) =>
@@ -911,7 +917,14 @@ export const PriorFundingSection = memo(function PriorFundingSection({
                 )
               }
               {...invalid(issues, 'governmentFundingSanctionYear')}
-            />
+            >
+              <option value="">Select year</option>
+              {GOVERNMENT_SUPPORT_YEARS.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
           </Field>
         </div>
       ) : null}
@@ -995,10 +1008,7 @@ export const PriorFundingSection = memo(function PriorFundingSection({
             value={value.existingCreditStatus ?? ''}
             disabled={disabled}
             onChange={(next) =>
-              set(
-                'existingCreditStatus',
-                orNull(next) as CreditStatus | null,
-              )
+              set('existingCreditStatus', orNull(next) as CreditStatus | null)
             }
           />
         </div>
@@ -1023,100 +1033,6 @@ export const DocumentsSection = memo(function DocumentsSection({
         value={value.nocRequired}
         disabled={disabled}
         onAnswer={(answer) => onChange({ ...value, nocRequired: answer })}
-      />
-    </div>
-  )
-})
-
-export const DeclarationSection = memo(function DeclarationSection({
-  value,
-  issues,
-  disabled,
-  onChange,
-}: SectionProps<ApplicationDraftInput['declaration']>) {
-  const set = <TKey extends keyof ApplicationDraftInput['declaration']>(
-    key: TKey,
-    next: ApplicationDraftInput['declaration'][TKey],
-  ) => onChange({ ...value, [key]: next })
-
-  return (
-    <div className={styles.sectionStack}>
-      <div className={styles.twoColGrid}>
-        <Field
-          id="relationshipType"
-          label={FIELD_LABELS.relationshipType}
-          icon={<Users size={15} />}
-          issue={issues.relationshipType}
-          required
-        >
-          <select
-            id="relationshipType"
-            className={styles.select}
-            disabled={disabled}
-            value={value.relationshipType ?? ''}
-            onChange={(event) =>
-              set(
-                'relationshipType',
-                orNull(event.target.value) as RelationshipType | null,
-              )
-            }
-            {...invalid(issues, 'relationshipType')}
-          >
-            <option value="">Select relationship</option>
-            {RELATIONSHIPS.map((relationship) => (
-              <option key={relationship} value={relationship}>
-                {humanize(relationship)}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field
-          id="relatedPersonName"
-          label={FIELD_LABELS.relatedPersonName}
-          icon={<User size={15} />}
-          issue={issues.relatedPersonName}
-          required
-        >
-          <input
-            id="relatedPersonName"
-            className={styles.input}
-            placeholder="Enter parent or spouse name"
-            disabled={disabled}
-            value={value.relatedPersonName ?? ''}
-            onChange={(event) => set('relatedPersonName', orNull(event.target.value))}
-            {...invalid(issues, 'relatedPersonName')}
-          />
-        </Field>
-
-        <Field
-          id="declarationPlace"
-          label={FIELD_LABELS.declarationPlace}
-          icon={<MapPin size={15} />}
-          issue={issues.declarationPlace}
-          required
-        >
-          <input
-            id="declarationPlace"
-            className={styles.input}
-            placeholder="Enter place (e.g. Agartala)"
-            disabled={disabled}
-            value={value.declarationPlace ?? ''}
-            onChange={(event) => set('declarationPlace', orNull(event.target.value))}
-            {...invalid(issues, 'declarationPlace')}
-          />
-        </Field>
-      </div>
-
-      <Attestation
-        id="declarationAccepted"
-        statement={FIELD_LABELS.declarationAccepted}
-        icon={<FileSignature size={18} />}
-        issue={issues.declarationAccepted}
-        checked={value.declarationAccepted ?? false}
-        disabled={disabled}
-        onChange={(checked) => set('declarationAccepted', checked)}
-        highlight
       />
     </div>
   )

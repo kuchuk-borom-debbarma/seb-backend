@@ -79,7 +79,6 @@ const REVISABLE: ApplicationSection[] = [
   'FINANCIAL',
   'PRIOR_FUNDING',
   'DOCUMENTS',
-  'DECLARATION',
 ]
 
 export function CommitteeStage({

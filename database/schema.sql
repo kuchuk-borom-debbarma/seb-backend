@@ -233,11 +233,6 @@ CREATE TABLE IF NOT EXISTS `seb_application_version` (
 	`prior_net_disbursed_amount_paise` integer,
 	`continuous_operation_months` integer,
 	`noc_required` integer,
-	`relationship_type` text,
-	`related_person_name` text,
-	`declaration_accepted` integer,
-	`declaration_accepted_at` integer,
-	`declaration_place` text,
 	FOREIGN KEY (`changed_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`application_id`,`programme_cycle_id`) REFERENCES `seb_application`(`id`,`programme_cycle_id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`programme_cycle_id`,`programme_cycle_version`) REFERENCES `seb_programme_cycle_version`(`programme_cycle_id`,`version`) ON UPDATE no action ON DELETE restrict,
@@ -252,7 +247,8 @@ CREATE TABLE IF NOT EXISTS `seb_application_version` (
 	CONSTRAINT "seb_application_version_designation_check" CHECK("seb_application_version"."designation" IS NULL OR "seb_application_version"."designation" IN ('PROPRIETOR', 'MANAGING_PARTNER', 'DIRECTOR', 'AUTHORIZED_SIGNATORY')),
 	CONSTRAINT "seb_application_version_gender_check" CHECK("seb_application_version"."gender" IS NULL OR "seb_application_version"."gender" IN ('MALE', 'FEMALE', 'OTHER')),
 	CONSTRAINT "seb_application_version_credit_status_check" CHECK("seb_application_version"."existing_credit_status" IS NULL OR "seb_application_version"."existing_credit_status" IN ('STANDARD', 'NPA')),
-	CONSTRAINT "seb_application_version_relationship_check" CHECK("seb_application_version"."relationship_type" IS NULL OR "seb_application_version"."relationship_type" IN ('SON_OF', 'DAUGHTER_OF', 'WIFE_OF')),
+	CONSTRAINT "seb_application_version_district_check" CHECK("seb_application_version"."business_district" IS NULL OR "seb_application_version"."business_district" IN ('Dhalai', 'Gomati', 'Khowai', 'North Tripura', 'Sepahijala', 'South Tripura', 'Unakoti', 'West Tripura')),
+	CONSTRAINT "seb_application_version_support_year_check" CHECK("seb_application_version"."government_funding_sanction_year" IS NULL OR "seb_application_version"."government_funding_sanction_year" BETWEEN 1900 AND 2026),
 	CONSTRAINT "seb_application_version_money_check" CHECK(("seb_application_version"."total_project_cost_paise" IS NULL OR "seb_application_version"."total_project_cost_paise" >= 0)
         AND ("seb_application_version"."seed_fund_requested_paise" IS NULL OR "seb_application_version"."seed_fund_requested_paise" >= 0)
         AND ("seb_application_version"."bank_loan_proposed_paise" IS NULL OR "seb_application_version"."bank_loan_proposed_paise" >= 0)
@@ -263,8 +259,7 @@ CREATE TABLE IF NOT EXISTS `seb_application_version` (
 	CONSTRAINT "seb_application_version_boolean_check" CHECK(("seb_application_version"."majority_ownership_confirmed" IS NULL OR "seb_application_version"."majority_ownership_confirmed" IN (0, 1))
         AND ("seb_application_version"."received_government_funding" IS NULL OR "seb_application_version"."received_government_funding" IN (0, 1))
         AND ("seb_application_version"."has_existing_bank_credit" IS NULL OR "seb_application_version"."has_existing_bank_credit" IN (0, 1))
-        AND ("seb_application_version"."noc_required" IS NULL OR "seb_application_version"."noc_required" IN (0, 1))
-        AND ("seb_application_version"."declaration_accepted" IS NULL OR "seb_application_version"."declaration_accepted" IN (0, 1))),
+        AND ("seb_application_version"."noc_required" IS NULL OR "seb_application_version"."noc_required" IN (0, 1))),
 	CONSTRAINT "seb_application_version_operation_months_check" CHECK("seb_application_version"."continuous_operation_months" IS NULL OR "seb_application_version"."continuous_operation_months" >= 0)
 );
 
@@ -686,7 +681,8 @@ CREATE TABLE IF NOT EXISTS `seb_enterprise_version` (
 	CONSTRAINT "seb_enterprise_version_status_check" CHECK("seb_enterprise_version"."status" IN ('PROPOSED', 'ACTIVE', 'INACTIVE')),
 	CONSTRAINT "seb_enterprise_version_registration_check" CHECK(("seb_enterprise_version"."registration_type" = 'NONE' AND "seb_enterprise_version"."registration_number" IS NULL)
         OR ("seb_enterprise_version"."registration_type" IN ('CIN', 'UDYAM') AND "seb_enterprise_version"."registration_number" IS NOT NULL)),
-	CONSTRAINT "seb_enterprise_version_sector_check" CHECK("seb_enterprise_version"."business_sector" IS NULL OR "seb_enterprise_version"."business_sector" IN ('AGRICULTURE_AND_ALLIED', 'HANDLOOM_TEXTILE_AND_HANDICRAFTS', 'FOOD_PROCESSING', 'TOURISM_AND_HOSPITALITY', 'INFORMATION_TECHNOLOGY', 'MANUFACTURING_AND_SERVICES', 'OTHER'))
+	CONSTRAINT "seb_enterprise_version_sector_check" CHECK("seb_enterprise_version"."business_sector" IS NULL OR "seb_enterprise_version"."business_sector" IN ('AGRICULTURE_AND_ALLIED', 'HANDLOOM_TEXTILE_AND_HANDICRAFTS', 'FOOD_PROCESSING', 'TOURISM_AND_HOSPITALITY', 'INFORMATION_TECHNOLOGY', 'MANUFACTURING_AND_SERVICES', 'OTHER')),
+	CONSTRAINT "seb_enterprise_version_district_check" CHECK("seb_enterprise_version"."business_district" IS NULL OR "seb_enterprise_version"."business_district" IN ('Dhalai', 'Gomati', 'Khowai', 'North Tripura', 'Sepahijala', 'South Tripura', 'Unakoti', 'West Tripura'))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS `seb_enterprise_version_number_uq` ON `seb_enterprise_version` (`enterprise_id`,`version`);
@@ -1259,7 +1255,7 @@ CREATE TABLE IF NOT EXISTS `seb_application_event` (
 	FOREIGN KEY (`application_id`,`application_version`) REFERENCES `seb_application_version`(`application_id`,`version`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`application_id`,`submission_id`) REFERENCES `seb_application_submission`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`application_id`,`revision_request_id`) REFERENCES `seb_revision_request`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
-	CONSTRAINT "seb_application_event_section_check" CHECK("seb_application_event"."section" IS NULL OR "seb_application_event"."section" IN ('ENTERPRISE', 'APPLICANT_PROFILE', 'FINANCIAL', 'PRIOR_FUNDING', 'EXPANSION', 'DOCUMENTS', 'DECLARATION')),
+	CONSTRAINT "seb_application_event_section_check" CHECK("seb_application_event"."section" IS NULL OR "seb_application_event"."section" IN ('ENTERPRISE', 'APPLICANT_PROFILE', 'FINANCIAL', 'PRIOR_FUNDING', 'EXPANSION', 'DOCUMENTS')),
 	CONSTRAINT "seb_application_event_from_status_check" CHECK("seb_application_event"."from_status" IS NULL OR "seb_application_event"."from_status" IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED')),
 	CONSTRAINT "seb_application_event_to_status_check" CHECK("seb_application_event"."to_status" IS NULL OR "seb_application_event"."to_status" IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED'))
 );
@@ -1285,7 +1281,7 @@ CREATE TABLE IF NOT EXISTS `seb_revision_request` (
 	FOREIGN KEY (`cancelled_by_user_id`) REFERENCES `core_user`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`application_id`,`submission_id`) REFERENCES `seb_application_submission`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`application_id`,`resolved_by_submission_id`) REFERENCES `seb_application_submission`(`application_id`,`id`) ON UPDATE no action ON DELETE restrict,
-	CONSTRAINT "seb_revision_request_section_check" CHECK("seb_revision_request"."section" IN ('ENTERPRISE', 'APPLICANT_PROFILE', 'FINANCIAL', 'PRIOR_FUNDING', 'EXPANSION', 'DOCUMENTS', 'DECLARATION')),
+	CONSTRAINT "seb_revision_request_section_check" CHECK("seb_revision_request"."section" IN ('ENTERPRISE', 'APPLICANT_PROFILE', 'FINANCIAL', 'PRIOR_FUNDING', 'EXPANSION', 'DOCUMENTS')),
 	CONSTRAINT "seb_revision_request_resolution_fields_check" CHECK(("seb_revision_request"."resolved_by_submission_id" IS NULL AND "seb_revision_request"."resolved_at" IS NULL)
         OR ("seb_revision_request"."resolved_by_submission_id" IS NOT NULL AND "seb_revision_request"."resolved_at" IS NOT NULL)),
 	CONSTRAINT "seb_revision_request_cancellation_fields_check" CHECK(("seb_revision_request"."cancelled_at" IS NULL AND "seb_revision_request"."cancelled_by_user_id" IS NULL AND "seb_revision_request"."cancellation_reason" IS NULL)

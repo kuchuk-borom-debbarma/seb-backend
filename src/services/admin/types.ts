@@ -139,7 +139,7 @@ export type DeskReviewIdentifierInput = {
 }
 
 export type RevisionRequestInput = {
-  section: 'ENTERPRISE' | 'APPLICANT_PROFILE' | 'FINANCIAL' | 'PRIOR_FUNDING' | 'DOCUMENTS' | 'DECLARATION'
+  section: 'ENTERPRISE' | 'APPLICANT_PROFILE' | 'FINANCIAL' | 'PRIOR_FUNDING' | 'DOCUMENTS'
   reasonCategoryId: string
   note: string
 }

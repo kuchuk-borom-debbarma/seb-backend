@@ -31,7 +31,7 @@ import {
   X,
 } from 'lucide-react'
 import { statusGuideQuery } from '#/features/application/queries'
-import type { ApplicationStatus } from '#/graphql/generated/schema'
+import type { ApplicationStatus, UserRole } from '#/graphql/generated/schema'
 import { useGuide } from './GuideContext'
 import { STAGE_DETAILS, type StageDetail } from './stageDetails'
 import { DESKS, TOURS, canWalk, type Desk } from './tours'
@@ -106,7 +106,7 @@ function TourIllustration() {
   )
 }
 
-export function RouteDiagram({ user }: { user?: unknown }) {
+export function RouteDiagram({ user }: { user?: { roles: readonly UserRole[] } }) {
   const { data: guide } = useQuery(statusGuideQuery)
   const { start, tour: running } = useGuide()
   const [selectedStageIndex, setSelectedStageIndex] = useState<number | null>(null)

@@ -118,7 +118,6 @@ const REVISABLE: ApplicationSection[] = [
   'FINANCIAL',
   'PRIOR_FUNDING',
   'DOCUMENTS',
-  'DECLARATION',
 ]
 
 export type DeskReviewDraft = {

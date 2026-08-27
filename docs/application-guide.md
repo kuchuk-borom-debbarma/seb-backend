@@ -5,6 +5,9 @@ Drizzle schema, D1 transactions, and private R2 document storage. The TTAADC
 policy and application form are authoritative; the UI/UX guide influences
 presentation only.
 
+The breaking application-form contract and baseline-schema change are recorded
+in [Application form backend changes](application-form-backend-changes.md).
+
 ## Applicant journey
 
 An applicant creates a portal account, records one or more enterprises, and
@@ -14,6 +17,13 @@ present, submission freezes a new formal snapshot and reference number for
 review. A reviewer may later request revisions to named sections. Resubmission
 may change only those sections and is allowed even if the original cycle has
 closed.
+
+The application itself has seven stages: Enterprise details, Owners, Project
+cost and funding, Previous support and credit, Evidence requirements, Attach
+evidence, and Review. Every editable answer stage and Attach evidence uses
+`Save & Next`: pending answers or uploads finish first, fresh server validation
+must pass for that stage, and only then does the journey advance. Review shows
+all answers and attached files before the applicant submits.
 
 If a phase receives an active award and retains a positive released amount for
 12 calendar months, the next expansion phase may become available. Expansion
@@ -159,27 +169,24 @@ status says who holds the work, never when they will finish it.
 ### Knowing what may be edited
 
 `Application.editableSections` lists the sections the applicant may change right
-now — every section while the application is a draft, only the sections named by
+now — every answer section while the application is a draft, only the sections named by
 unresolved revision requests while revision is required, and none otherwise. It
 is derived from the same rule the draft-save path enforces, so it can never
 invite an edit the write would refuse.
 
 Before resubmitting, `seb.application.draftChanges` names the sections the
 current draft changes relative to the last submission, using the same comparison
-the administrative workspace shows a reviewer. The server-stamped declaration
-acceptance time is excluded, so an edit to one section never reports the
-declaration as changed too.
+the administrative workspace shows a reviewer.
 
 ## Form-to-schema mapping
 
 | Form section | GraphQL draft object | `seb_application_version` columns |
 | --- | --- | --- |
 | Enterprise | `enterprise` | `business_name`, establishment, registration, GSTIN, sector, category, majority ownership |
-| Promoter/applicant | `applicantProfile` | name, designation, birth date, gender, address, PIN, phone, email |
+| Owners | `applicantProfile` | name, designation, birth date, gender, office address, district, PIN, phone, registered email |
 | Financial proposal | `financial` | total cost, seed request, bank loan, promoter contribution (all paise) |
 | Prior support/credit | `priorFunding` | declared scheme/amount/year and bank/credit/status |
 | Evidence applicability | `documents` | `noc_required`; actual files use document tables |
-| Declaration | `declaration` | relationship, related person, acceptance, server acceptance time, place |
 | Expansion history | server-derived | prior sanction/date, net disbursement, operation months |
 
 There is no ST certificate number field. The certificate itself remains a
@@ -187,8 +194,8 @@ required document.
 
 ## Validation and evidence
 
-Always required at submission: enterprise classification, promoter identity and
-contact, address, financial values, prior-funding answers, declaration, identity
+Always required at submission: enterprise classification, owner identity and
+contact, address, financial values, prior-funding answers, identity
 / age proof, ST certificate, address proof, DPR, and bank details.
 
 Conditional rules:
@@ -207,9 +214,18 @@ more than 24 calendar months established; Category B means older than 24
 months. Category A/B describes enterprise maturity and is independent of
 `INITIAL`/`EXPANSION`, which describes funding phase.
 
+Application name, establishment date, registration, GSTIN, sector, and verified
+registered email are copied when the draft starts and cannot be changed through
+a draft save. The address question is labelled `Office address (as per your
+business documents)` and explicitly excludes a personal or residential address.
+District is one of Tripura's eight districts. Contact numbers normalize spaces,
+hyphens, and parentheses to exactly ten digits; country prefixes are refused.
+Government-support sanction year is from 1900 through 2026 inclusive. There is
+no bank-credit year question.
+
 Money is exact integer paise and never floating point. Dates are real ISO
 `YYYY-MM-DD` calendar dates. Email is trimmed/lowercased, GSTIN and registration
-identifiers are uppercased, and phone formatting characters are removed.
+identifiers are uppercased, and permitted phone formatting characters are removed.
 Financing components do not have to sum to project cost. No contradictory
 seed-fund ceiling from the source documents is hard-coded.
 
@@ -373,7 +389,10 @@ local D1, `npm test` for Worker integration tests, `npm run test:coverage` for
 the application coverage gate, and `npm run check` for the complete gate.
 
 The base schema is replaceable because no production database exists; no
-incremental migration is added. Programme-cycle administration, intake, desk
+incremental migration is added. This form change removes columns, so an existing
+workspace-local database must be recreated with `rm -rf .wrangler` followed by
+`npm run db:setup:local`; reapplying the guarded baseline cannot alter an
+existing table. Programme-cycle administration, intake, desk
 review, bank evidence, TTM decisions, awards, payments, assessments, and
 recovery now exist under the administrator namespace, and role administration
 under the `access` namespace. Notifications, idempotency, rate limiting, a

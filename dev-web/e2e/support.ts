@@ -157,7 +157,7 @@ export const openProgrammeCycle = async (
   await page
     .getByLabel('Applications close')
     .fill(local(new Date(Date.now() + 2_592_000_000)))
-  await page.getByRole('button', { name: 'Create draft cycle' }).click()
+  await page.getByRole('button', { name: 'Save draft' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
   await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
   await page.getByRole('button', { name: 'Open for applications' }).click()
@@ -198,6 +198,7 @@ export const startApplication = async (
 export const registerEnterprise = async (page: Page, name: string): Promise<string> => {
   await page.goto('/enterprises/new')
   await page.getByLabel('Registered or trading name').fill(name)
+  await page.getByLabel('Sector').selectOption('FOOD_PROCESSING')
   for (const category of [
     'Registration and tax',
     'Business location',
@@ -280,6 +281,26 @@ export const submitApplication = async (
 
   await page.goto(`/applications/${id}/review`)
   await expect(page.getByText('Everything needed is present')).toBeVisible()
+  for (const section of [
+    'Enterprise details',
+    'Owners',
+    'Project cost and funding',
+    'Previous support and credit',
+    'Evidence requirements',
+    'Documents',
+  ]) {
+    await expect(page.getByRole('heading', { name: section, exact: true })).toBeVisible()
+  }
+  await expect(page.getByText(businessName, { exact: true })).toBeVisible()
+  await expect(page.getByText('Bethel Debbarma', { exact: true })).toBeVisible()
+  await expect(page.getByText('Declaration')).toHaveCount(0)
+
+  const owners = page
+    .locator('section.card')
+    .filter({ has: page.getByRole('heading', { name: 'Owners', exact: true }) })
+  await owners.getByRole('link', { name: 'Edit' }).click()
+  await expect(page).toHaveURL(/section=APPLICANT_PROFILE/u)
+  await page.goto(`/applications/${id}/review`)
   await page.getByRole('button', { name: 'Submit application' }).click()
   await expect(page).toHaveURL(new RegExp(`/applications/${id}/submitted$`, 'u'))
 
@@ -319,7 +340,7 @@ const openCycleWithoutDocuments = async (
 
   if (configureIdentifiers) await configureIdentifiers(page)
 
-  await page.getByRole('button', { name: 'Create draft cycle' }).click()
+  await page.getByRole('button', { name: 'Save draft' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
   await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
   await page.getByRole('button', { name: 'Open for applications' }).click()
@@ -336,24 +357,25 @@ export const fillEveryAnswer = async (
   businessName: string,
 ): Promise<void> => {
   await page.goto(`/applications/${id}/form`)
-  await page.getByLabel('Business name').fill(businessName)
-  await page.getByLabel('Date established').fill('2025-03-10')
-  await page.getByLabel('Category', { exact: true }).selectOption({ index: 1 })
-  await page.getByLabel('Sector').selectOption({ label: 'Food processing' })
+  await expect(page.getByLabel('Business name')).toBeDisabled()
+  await expect(page.getByLabel('Business name')).toHaveValue(businessName)
+  await page.getByLabel('Category A').check()
   await page.getByLabel('Majority ownership is held by Scheduled Tribe members').check()
-  await page.getByRole('button', { name: 'Next' }).click()
-  await expect(page.getByRole('heading', { name: 'About you' })).toBeVisible()
+  await page.getByRole('button', { name: 'Save & Next' }).click()
+  await expect(page.getByRole('heading', { name: 'Owners' })).toBeVisible()
 
   await page.getByLabel('Your full name').fill('Bethel Debbarma')
   await page.getByLabel('Your role in the enterprise').selectOption({ index: 1 })
   await page.getByLabel('Date of birth').fill('1996-07-14')
   await page.getByLabel('Gender').selectOption({ index: 2 })
-  await page.getByLabel('Block or village').fill('Khumulwng')
-  await page.getByLabel('District').fill('West Tripura')
+  await page
+    .getByLabel('Office address (as per your business documents)')
+    .fill('Khumulwng')
+  await page.getByLabel('District').selectOption('West Tripura')
   await page.getByLabel('PIN code').fill('799045')
-  await page.getByLabel('Contact number').fill('+919876543210')
-  await page.getByLabel('Contact email').fill('bethel@example.test')
-  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByLabel('Contact number').fill('9876543210')
+  await expect(page.getByLabel('Registered email address')).toBeDisabled()
+  await page.getByRole('button', { name: 'Save & Next' }).click()
   await expect(
     page.getByRole('heading', { name: 'Project cost and funding' }),
   ).toBeVisible()
@@ -362,7 +384,7 @@ export const fillEveryAnswer = async (
   await page.getByLabel('Seed fund requested (₹)').fill('250000')
   await page.getByLabel('Bank loan proposed (₹)').fill('600000')
   await page.getByLabel('Your own contribution (₹)').fill('150000')
-  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Save & Next' }).click()
   await expect(
     page.getByRole('heading', { name: 'Previous support and credit' }),
   ).toBeVisible()
@@ -377,7 +399,7 @@ export const fillEveryAnswer = async (
     .getByRole('group', { name: 'Does this enterprise have existing bank credit?' })
     .getByLabel('No')
     .check()
-  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Save & Next' }).click()
   await expect(page.getByRole('heading', { name: 'Evidence requirements' })).toBeVisible()
 
   await page
@@ -386,18 +408,8 @@ export const fillEveryAnswer = async (
     })
     .getByLabel('No')
     .check()
-  await page.getByRole('button', { name: 'Next' }).click()
-  await expect(page.getByRole('heading', { name: 'Declaration' })).toBeVisible()
-
-  await page.getByLabel('Relationship').selectOption({ index: 1 })
-  await page.getByLabel('Of (name)').fill('Sanjoy Debbarma')
-  await page.getByLabel('Place').fill('Khumulwng')
-  await page
-    .getByLabel('I declare that everything in this application is true and complete.')
-    .check()
-
-  // Next flushes the last pending autosave before leaving for evidence.
-  await page.getByRole('button', { name: 'Next' }).click()
+  // Save & Next flushes the last pending autosave before leaving for evidence.
+  await page.getByRole('button', { name: 'Save & Next' }).click()
   await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
 }
 

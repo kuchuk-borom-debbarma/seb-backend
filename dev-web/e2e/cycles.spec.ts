@@ -29,7 +29,7 @@ const createOpenCycle = async (page: Page, name: string) => {
   await page.getByLabel('Applications open').fill(local(opens))
   await page.getByLabel('Applications close').fill(local(closes))
 
-  await page.getByRole('button', { name: 'Create draft cycle' }).click()
+  await page.getByRole('button', { name: 'Save draft' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
 
   await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
@@ -67,7 +67,7 @@ test.describe('cycle administration', () => {
     await page
       .getByLabel('Applications close')
       .fill(new Date(Date.now() + 86_400_000).toISOString().slice(0, 16))
-    await page.getByRole('button', { name: 'Create draft cycle' }).click()
+    await page.getByRole('button', { name: 'Save draft' }).click()
     await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
 
     // Every transition retains a reason, so the action is not offered until
@@ -110,6 +110,7 @@ test.describe('cycle administration', () => {
     await applicantPage
       .getByLabel('Registered or trading name')
       .fill('Contextual Journey Works')
+    await applicantPage.getByLabel('Sector').selectOption('FOOD_PROCESSING')
     for (const category of [
       'Registration and tax',
       'Business location',

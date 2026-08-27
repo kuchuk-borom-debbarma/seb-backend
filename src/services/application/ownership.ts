@@ -47,13 +47,13 @@ export const ownedApplication = async <T>(
 export const applicantForVersionedWrite = async <T>(
   input: { expectedVersion: number; expectedStatusVersion: number },
   context: ApplicationOperationContext,
-): Promise<{ applicantId: string } | { refusal: SebResult<T> }> => {
+): Promise<{ applicantId: string; applicantEmail: string } | { refusal: SebResult<T> }> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return { refusal: failure(AUTH_REQUIRED_MESSAGE) }
   if (!validExpectedVersions(input.expectedVersion, input.expectedStatusVersion)) {
     return { refusal: failure('Expected versions must be positive integers.') }
   }
-  return { applicantId: applicant.id }
+  return { applicantId: applicant.id, applicantEmail: applicant.email }
 }
 
 /** Both versions are positive integers, the contract every guarded write uses. */
@@ -75,7 +75,7 @@ export const ownedApplicationAtVersion = async (
   input: { applicationId: string; expectedVersion: number; expectedStatusVersion: number },
   context: ApplicationOperationContext,
 ): Promise<
-  | { applicantId: string; application: Application }
+  | { applicantId: string; applicantEmail: string; application: Application }
   | { refusal: SebResult<Application> }
 > => {
   const authorized = await applicantForVersionedWrite<Application>(input, context)
@@ -88,5 +88,9 @@ export const ownedApplicationAtVersion = async (
     application.currentVersion !== input.expectedVersion ||
     application.statusVersion !== input.expectedStatusVersion
   ) return { refusal: failure(STALE_APPLICATION_MESSAGE) }
-  return { applicantId: authorized.applicantId, application }
+  return {
+    applicantId: authorized.applicantId,
+    applicantEmail: authorized.applicantEmail,
+    application,
+  }
 }

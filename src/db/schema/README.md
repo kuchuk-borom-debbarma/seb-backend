@@ -207,8 +207,8 @@ legal/business record. Its nullable draft fields are grouped as follows:
   phase number. These remain historical even if the current heads are corrected.
 - Enterprise: business name, establishment date, CIN/Udyam details, GSTIN,
   sector, Category A/B, and majority-ownership confirmation.
-- Applicant/promoter: name, designation, birth date, gender, business address,
-  phone, and email.
+- Owners: name, designation, birth date, gender, business-document office
+  address, Tripura district, PIN, ten-digit phone, and registered identity email.
 - Financial proposal: project cost, requested seed fund, proposed bank loan,
   and promoter contribution.
 - Prior funding and credit: applicant-declared government funding and bank
@@ -216,12 +216,12 @@ legal/business record. Its nullable draft fields are grouped as follows:
 - Expansion facts: prior sanction order/date, net retained disbursement, and
   continuous-operation months are derived by the backend from the qualifying
   award and append-only ledger, then frozen into the submitted snapshot.
-- Declaration: relationship, related person, acceptance time, and place.
 - Evidence: documents live in their own versioned tables rather than inside the
   form snapshot.
 
 There is deliberately no ST certificate number column. ST evidence remains a
-supported document type. There is also no `is_phase_two` or
+supported document type. The paper-form declaration columns are also
+deliberately absent as a user-approved portal policy divergence. There is no `is_phase_two` or
 `is_expansion_funding` Boolean: `application_type`, `phase_number`, the funding
 case, and the qualifying award express the relationship without contradictory
 state.
@@ -340,6 +340,10 @@ byte-exact schema check would reject.
 - JSON text is limited to safe audit/event metadata, not form fields or files.
 - SQLite enum declarations are compile-time help only, so explicit `CHECK`
   constraints protect runtime writes.
+- Enterprise and application snapshots accept only Tripura's eight official
+  districts. Government-support sanction years are limited to 1900–2026;
+  application and enterprise services additionally normalize and enforce exact
+  ten-digit contact numbers.
 - Race-sensitive service operations use guarded statements and D1 batches. A
   batch must remain comfortably below D1's statement limit; large maintenance
   work is paginated rather than placed in one unbounded batch.
@@ -370,6 +374,10 @@ byte-exact schema check would reject.
   deployed, so a change to an existing table is made in the Drizzle files and
   regenerated; `database/migrations/` is empty until a database exists that
   cannot be recreated.
+- Removing the declaration columns changes an existing table definition.
+  Existing local databases must therefore be recreated; the guarded baseline
+  cannot retrofit the new shape. See the
+  [backend-change record](../../../docs/application-form-backend-changes.md).
 - `core_user_role_grant.role` accepts five values: `APPLICANT`, `REVIEWER`,
   `APPROVER`, `ADMIN`, `SUPER_ADMIN`. The vocabulary is fixed in TypeScript and
   enforced by a `CHECK`, so adding a role is a schema change rather than a

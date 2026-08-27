@@ -28,7 +28,6 @@ export const FORM_SECTIONS: ApplicationSection[] = [
   'FINANCIAL',
   'PRIOR_FUNDING',
   'DOCUMENTS',
-  'DECLARATION',
 ]
 
 /**
@@ -38,12 +37,11 @@ export const FORM_SECTIONS: ApplicationSection[] = [
  * section to the API fails the build here instead of rendering a blank heading.
  */
 export const SECTION_TITLES: Record<ApplicationSection, string> = {
-  ENTERPRISE: 'The enterprise',
-  APPLICANT_PROFILE: 'About you',
+  ENTERPRISE: 'Enterprise details',
+  APPLICANT_PROFILE: 'Owners',
   FINANCIAL: 'Project cost and funding',
   PRIOR_FUNDING: 'Previous support and credit',
-  DOCUMENTS: 'Evidence',
-  DECLARATION: 'Declaration',
+  DOCUMENTS: 'Evidence requirements',
   EXPANSION: 'Expansion evidence',
 }
 
@@ -95,12 +93,6 @@ export const draftFromSnapshot = (application: Application): ApplicationDraftInp
       existingCreditStatus: snapshot.priorFunding.existingCreditStatus,
     },
     documents: { nocRequired: snapshot.documents.nocRequired },
-    declaration: {
-      relationshipType: snapshot.declaration.relationshipType,
-      relatedPersonName: snapshot.declaration.relatedPersonName,
-      declarationAccepted: snapshot.declaration.declarationAccepted,
-      declarationPlace: snapshot.declaration.declarationPlace,
-    },
   }
 }
 
@@ -156,16 +148,16 @@ export const FIELD_LABELS = {
   otherBusinessSector: 'Describe the sector',
   majorityOwnershipConfirmed: 'Majority ownership is held by Scheduled Tribe members',
 
-  // About you
+  // Owners
   primaryApplicantName: 'Your full name',
   designation: 'Your role in the enterprise',
   dateOfBirth: 'Date of birth',
   gender: 'Gender',
-  businessBlockOrVillage: 'Block or village',
+  businessBlockOrVillage: 'Office address (as per your business documents)',
   businessDistrict: 'District',
   businessPinCode: 'PIN code',
   contactNumber: 'Contact number',
-  contactEmail: 'Contact email',
+  contactEmail: 'Registered email address',
 
   // Project cost and funding
   totalProjectCostPaise: 'Total project cost (₹)',
@@ -185,13 +177,6 @@ export const FIELD_LABELS = {
 
   // Evidence
   nocRequired: 'Is a no-objection certificate needed for these premises?',
-
-  // Declaration
-  relationshipType: 'Relationship',
-  relatedPersonName: 'Of (name)',
-  declarationAccepted:
-    'I declare that everything in this application is true and complete.',
-  declarationPlace: 'Place',
 } as const satisfies Record<string, string>
 
 /**

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import {
-  FileCheck2,
   Building,
   User,
   IndianRupee,
@@ -10,7 +9,6 @@ import {
   CheckCircle,
   Download,
   Send,
-  Sparkles,
 } from 'lucide-react'
 import { Reveal } from './Reveal'
 
@@ -100,10 +98,6 @@ export function ApplicationForm() {
       bank_proof: true,
       noc: false,
     } as Record<string, boolean>,
-    // Section 7
-    declarationName: '',
-    parentName: '',
-    declarationAgreed: false,
   })
 
   const handleChange = (
@@ -125,10 +119,6 @@ export function ApplicationForm() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formData.declarationAgreed) {
-      alert('Please check and accept the solemn declaration to proceed.')
-      return
-    }
     setSubmitted(true)
   }
 
@@ -174,11 +164,6 @@ SECTION 5: SECOND-TRANCHE / EXPANSION DETAILS
 
 SECTION 6: ATTACHMENTS VERIFIED
 ${attachmentsList.map((a) => `- [${formData.attachments[a.id] ? 'X' : ' '}] ${a.label}`).join('\n')}
-
-SECTION 7: APPLICANT UNDERTAKING
-- Declarant: ${formData.declarationName || formData.applicantName}
-- Relation (Son/Daughter/Spouse of): ${formData.parentName}
-- Status: Solemn Declaration Verified & Signed Digitally
 ================================================================================`
 
     const blob = new Blob([draftText], { type: 'text/plain;charset=utf-8' })
@@ -194,12 +179,11 @@ SECTION 7: APPLICANT UNDERTAKING
 
   const sectionsNav = [
     { num: 1, label: 'Enterprise Details', icon: Building },
-    { num: 2, label: 'Promoter Profile', icon: User },
+    { num: 2, label: 'Owners', icon: User },
     { num: 3, label: 'Financials & Cost', icon: IndianRupee },
     { num: 4, label: 'Prior Disclosure', icon: Landmark },
     { num: 5, label: 'Expansion Track', icon: Layers },
     { num: 6, label: 'Attachments', icon: Paperclip },
-    { num: 7, label: 'Declaration', icon: FileCheck2 },
   ]
 
   return (
@@ -453,7 +437,7 @@ SECTION 7: APPLICANT UNDERTAKING
                         Section 2
                       </span>
                       <h3 className="text-xl font-bold text-primary">
-                        Point of Contact (PoC) & Promoter Profile
+                        Owners
                       </h3>
                     </div>
 
@@ -543,17 +527,21 @@ SECTION 7: APPLICANT UNDERTAKING
 
                       <div className="sm:col-span-2">
                         <label className="block text-sm font-semibold text-foreground/90">
-                          2.6 Business Address within TTAADC *
+                          Office address (as per your business documents) *
                         </label>
                         <textarea
                           name="address"
                           value={formData.address}
                           onChange={handleChange}
                           rows={2}
-                          placeholder="Village, Block, Gram Panchayat inside TTAADC area"
+                          placeholder="Address shown on your business documents"
                           required
                           className="mt-1.5 w-full rounded-lg border border-line bg-background px-4 py-2.5 text-sm focus:border-primary focus:outline-none"
                         />
+                        <p className="mt-1 text-xs text-foreground/60">
+                          Enter business-document details, not a personal or residential
+                          address.
+                        </p>
                       </div>
 
                       <div>
@@ -566,20 +554,14 @@ SECTION 7: APPLICANT UNDERTAKING
                           onChange={handleChange}
                           className="mt-1.5 w-full rounded-lg border border-line bg-background px-4 py-2.5 text-sm focus:border-primary focus:outline-none"
                         >
-                          <option value="West Tripura">
-                            West Tripura (Khumulwng HQ)
-                          </option>
-                          <option value="North Tripura">
-                            North Tripura (Kanchanpur)
-                          </option>
-                          <option value="Dhalai">Dhalai (Ambassa)</option>
-                          <option value="Sipahijala">Sipahijala (Bishramganj)</option>
-                          <option value="Gomati">Gomati (Killa/Amarpur)</option>
-                          <option value="Khowai">Khowai (Padmabil)</option>
-                          <option value="South Tripura">
-                            South Tripura (Birchandra Manu)
-                          </option>
-                          <option value="Unokoti">Unokoti (Kumarghat)</option>
+                          <option value="Dhalai">Dhalai</option>
+                          <option value="Gomati">Gomati</option>
+                          <option value="Khowai">Khowai</option>
+                          <option value="North Tripura">North Tripura</option>
+                          <option value="Sepahijala">Sepahijala</option>
+                          <option value="South Tripura">South Tripura</option>
+                          <option value="Unakoti">Unakoti</option>
+                          <option value="West Tripura">West Tripura</option>
                         </select>
                       </div>
 
@@ -589,10 +571,14 @@ SECTION 7: APPLICANT UNDERTAKING
                         </label>
                         <input
                           type="tel"
+                          inputMode="numeric"
+                          pattern="[0-9]{10}"
+                          maxLength={10}
+                          title="Enter exactly 10 digits without a country prefix."
                           name="phone"
                           value={formData.phone}
                           onChange={handleChange}
-                          placeholder="+91 98765 43210"
+                          placeholder="9876543210"
                           required
                           className="mt-1.5 w-full rounded-lg border border-line bg-background px-4 py-2.5 text-sm focus:border-primary focus:outline-none"
                         />
@@ -926,87 +912,6 @@ SECTION 7: APPLICANT UNDERTAKING
                   </div>
                 )}
 
-                {/* SECTION 7 */}
-                {currentSection === 7 && (
-                  <div className="space-y-6">
-                    <div className="border-b border-line pb-4">
-                      <span className="text-xs font-bold uppercase tracking-wider text-primary">
-                        Section 7
-                      </span>
-                      <h3 className="text-xl font-bold text-primary">
-                        Applicant Declaration & Undertaking
-                      </h3>
-                    </div>
-
-                    <div className="rounded-xl border border-line bg-secondary/30 p-5 text-[13.5px] leading-relaxed text-foreground/85">
-                      <p>
-                        I hereby solemnly declare that all statements and documents
-                        submitted in this application under{' '}
-                        <strong>Mission SEP (TTAADC)</strong> are true, complete, and
-                        accurate to the best of my knowledge.
-                      </p>
-                      <p className="mt-2">
-                        I understand that if any information is found to be false or
-                        misleading, my application will be canceled immediately, and any
-                        seed funds disbursed will be subject to recovery under law. I
-                        authorize TTAADC to verify these details and forward my profile to
-                        partner banking institutions for credit evaluation.
-                      </p>
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label className="block text-sm font-semibold text-foreground/90">
-                          Full Name of Declarant *
-                        </label>
-                        <input
-                          type="text"
-                          name="declarationName"
-                          value={formData.declarationName || formData.applicantName}
-                          onChange={handleChange}
-                          placeholder="Your Full Name"
-                          required
-                          className="mt-1.5 w-full rounded-lg border border-line bg-background px-4 py-2.5 text-sm focus:border-primary focus:outline-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-semibold text-foreground/90">
-                          Son / Daughter / Spouse of *
-                        </label>
-                        <input
-                          type="text"
-                          name="parentName"
-                          value={formData.parentName}
-                          onChange={handleChange}
-                          placeholder="Parent or Spouse Name"
-                          required
-                          className="mt-1.5 w-full rounded-lg border border-line bg-background px-4 py-2.5 text-sm focus:border-primary focus:outline-none"
-                        />
-                      </div>
-                    </div>
-
-                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
-                      <input
-                        type="checkbox"
-                        checked={formData.declarationAgreed}
-                        onChange={(e) =>
-                          setFormData((p) => ({
-                            ...p,
-                            declarationAgreed: e.target.checked,
-                          }))
-                        }
-                        required
-                        className="mt-1 size-4 rounded text-primary"
-                      />
-                      <span className="text-sm font-semibold text-primary">
-                        I solemnly accept the terms, recovery obligations, and data
-                        verification conditions of TTAADC Mission SEP 2026.
-                      </span>
-                    </label>
-                  </div>
-                )}
-
                 {/* Form Navigation Buttons */}
                 <div className="mt-8 flex items-center justify-between border-t border-line pt-6">
                   {currentSection > 1 ? (
@@ -1021,13 +926,13 @@ SECTION 7: APPLICANT UNDERTAKING
                     <div />
                   )}
 
-                  {currentSection < 7 ? (
+                  {currentSection < 6 ? (
                     <button
                       type="button"
                       onClick={() => setCurrentSection((c) => c + 1)}
                       className="rounded-full bg-primary px-7 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-primary/90"
                     >
-                      Next Section →
+                      Save &amp; Next →
                     </button>
                   ) : (
                     <button

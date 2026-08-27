@@ -193,23 +193,6 @@ enum CreditStatus {
 }
 
 """
-How the applicant is related to somebody, for the declaration.
-
-Disclosed rather than disqualifying — the declaration exists so a relationship
-is on the record, not so it can be refused.
-"""
-enum RelationshipType {
-  """Son of the named person."""
-  SON_OF
-
-  """Daughter of the named person."""
-  DAUGHTER_OF
-
-  """Wife of the named person."""
-  WIFE_OF
-}
-
-"""
 One slot of evidence an application can carry.
 
 Which of these are required is the programme cycle's decision, not a fixed
@@ -266,8 +249,6 @@ enum ApplicationSection {
   """The attached evidence."""
   DOCUMENTS
 
-  """What the applicant is signing."""
-  DECLARATION
 }
 
 """The applicant's two subjects: their businesses, and their applications."""
@@ -881,24 +862,6 @@ type DocumentRequirementsSnapshot {
   nocRequired: Boolean
 }
 
-"""What the applicant signed, and any interest they disclosed."""
-type DeclarationSnapshot {
-  """Any relationship to a programme official that was declared."""
-  relationshipType: RelationshipType
-
-  """Who that person is."""
-  relatedPersonName: String
-
-  """
-  Whether the applicant accepted the declaration. This is their signature, and
-  submission refuses without it.
-  """
-  declarationAccepted: Boolean
-
-  """Where the declaration was made."""
-  declarationPlace: String
-}
-
 """
 One complete copy of the form.
 
@@ -927,9 +890,6 @@ type ApplicationSnapshot {
   """When this version was written."""
   createdAt: DateTime!
 
-  """When the declaration was accepted. Null until it is."""
-  declarationAcceptedAt: DateTime
-
   """The business, as this version asserts it."""
   enterprise: EnterpriseSnapshot!
 
@@ -944,9 +904,6 @@ type ApplicationSnapshot {
 
   """Answers that decide which documents are required."""
   documents: DocumentRequirementsSnapshot!
-
-  """What the applicant signed."""
-  declaration: DeclarationSnapshot!
 
   """
   The earlier award's sanction order, on a later-phase application. Null on a

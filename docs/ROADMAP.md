@@ -48,6 +48,9 @@ These rules are already agreed and must remain true throughout the roadmap.
   withdrawn.
 - [x] The application does not ask for an ST certificate number.
 - [x] An ST certificate file remains mandatory when submitting an application.
+- [x] The portal does not reproduce the paper form's declaration section. This
+  is an explicit user-approved portal policy divergence recorded in the policy
+  crosswalk.
 - [x] The system does not enforce a seed-fund ceiling until the contradictory
   figures in the source documents are resolved by the policy owner.
 - [x] Financing components are not required to add up to the total project cost.
@@ -139,6 +142,12 @@ without altering older submitted applications.
 - [x] Enterprise registration and editing present one category at a time:
   enterprise details, registration and tax, business location, then contact
   details. Earlier categories remain available while later ones stay blocked.
+- [x] Enterprise location asks for `Office address (as per your business
+  documents)`, warns against a personal or residential address, and limits
+  district selection to Tripura's eight districts.
+- [x] Enterprise contact numbers contain exactly ten digits. Common separators
+  are normalized by the service, while country prefixes and other lengths are
+  refused.
 - [x] Enterprise answers remain local while moving between categories and the
   complete profile is created or updated only from the final category. Leaving
   through Cancel after making a change asks before discarding the answers.
@@ -181,7 +190,7 @@ submitted in an older cycle.
   closing times, policy reference, and lifecycle status.
 - [x] Show a countdown or explicit closing date in the applicant journey; do not
   rely on colour alone to communicate urgency. The cycles screen, the draft form
-  and the check-and-submit screen all state the closing date and the time
+  and the Review screen all state the closing date and the time
   remaining, and the wording changes as well as the tone when it is near.
 - [x] Cycles the applicant has work in are listed separately from cycles a new
   application may start in, so closed cycles render read-only and can never
@@ -206,6 +215,11 @@ submitted in an older cycle.
   to the new enterprise profile.
 - [x] Starting an initial application creates phase 1 and copies the
   enterprise's current profile into the first draft.
+- [x] Name, establishment date, registration, GSTIN, and sector copied into an
+  application are read-only and cannot be changed by a draft save. A later
+  enterprise-profile edit does not rewrite the application snapshot.
+- [x] A new draft takes its registered email from the applicant's verified
+  portal identity, and draft saves cannot replace it.
 - [x] The application remains attached to the selected enterprise and its
   funding case for its entire life.
 - [x] Only one non-rejected attempt for the same phase may remain active across
@@ -254,15 +268,14 @@ submitted in an older cycle.
 ### 5.1 Draft behaviour
 
 - [x] The applicant can save an incomplete form as a draft.
-- [x] The applicant completes one ordered category at a time: enterprise
-  details, about you, project cost and funding, previous support and credit,
-  evidence requirements, declaration, attached evidence, then review and
-  submission. The application shell and business rules remain the same across
-  the journey.
+- [x] The applicant completes seven ordered stages: Enterprise details, Owners,
+  Project cost and funding, Previous support and credit, Evidence requirements,
+  Attach evidence, and Review.
 - [x] The active answer category is held in a validated `section` address
   parameter. An address without it opens the earliest incomplete category,
   while existing field bookmarks still open and focus the exact question.
-- [x] Next immediately saves pending answers and requests fresh server
+- [x] `Save & Next` appears on every editable answer stage and Attach evidence.
+  It immediately saves pending answers or uploads and requests fresh server
   validation. It advances only when the current category has no issues, reports
   how many remain, and focuses the first question to fix. Completed categories
   remain available and future categories stay blocked.
@@ -316,8 +329,11 @@ submitted in an older cycle.
 - [x] Reject a category that conflicts with the establishment date.
 - [x] Require confirmation of the programme's majority-ownership condition at
   submission.
+- [x] Display copied name, establishment date, registration, GSTIN, and sector
+  as greyed, disabled values; Category A/B and majority ownership remain
+  editable.
 
-### 5.3 Applicant/promoter section
+### 5.3 Owners section
 
 - [x] Record name, designation, birth date, gender, business address, PIN code,
   phone, and email.
@@ -325,6 +341,12 @@ submitted in an older cycle.
   of formal submission.
 - [x] Accept real calendar dates only, including correct leap-day handling.
 - [x] Validate the email, phone, and PIN formats before submission.
+- [x] Label the office address `Office address (as per your business documents)`
+  and warn that it must not be a personal or residential address.
+- [x] Offer only Dhalai, Gomati, Khowai, North Tripura, Sepahijala, South
+  Tripura, Unakoti, and West Tripura for the district.
+- [x] Show the verified portal identity as a disabled `Registered email address`
+  and require exactly ten digits for the contact number.
 - [x] Do not collect an ST certificate number.
 
 ### 5.4 Financial section
@@ -345,19 +367,21 @@ submitted in an older cycle.
 - [x] If yes, require scheme, positive amount, and sanction year.
 - [x] If no, allow the dependent scheme, amount, and year fields to remain
   empty.
+- [x] Offer government-scheme sanction years from 2026 down to 1900 and reject
+  years outside that inclusive range. Existing bank credit has no year field.
 - [x] Ask whether the enterprise has existing bank credit.
 - [x] If yes, require the bank, positive sanctioned amount, and `STANDARD` or
   `NPA` status.
 - [x] If no, allow dependent bank-credit fields to remain empty.
 
-### 5.6 Declaration section
+### 5.6 Review
 
-- [x] Record whether the applicant has a declared relationship, the related
-  person's details when applicable, and the declaration place.
-- [x] Require the applicant to affirm the declaration on every submission and
-  resubmission.
-- [x] Record a new official acceptance time on every formal submission; the
-  applicant cannot choose that time.
+- [x] Before submission, show every enterprise, owner, financial,
+  previous-support, evidence-applicability, expansion, and attached-document
+  value in sectioned read-only summaries.
+- [x] Each summary links to the reachable stage that can edit it. Review retains
+  Back and Submit application while editable and hides submission actions once
+  the application is read-only.
 
 ---
 
@@ -415,7 +439,7 @@ submitted in an older cycle.
 - [x] Validation groups issues by form section and identifies the exact field
   and correction needed.
 - [x] Validation checks required and conditional answers, dates, age, category,
-  contact formats, money, declarations, and documents.
+  contact formats, districts, sanction years, money, and documents.
 - [x] An invalid validation result does not change the draft or application
   status.
 - [x] Submission repeats validation so an earlier successful check cannot bypass
@@ -702,7 +726,7 @@ with no recovery path.
 
 - [x] Starting desk review changes `SUBMITTED` to `DESK_REVIEW` and records the
   reviewer and time.
-- [x] A reviewer checks completeness, eligibility declarations, required
+- [x] A reviewer checks completeness, eligibility confirmations, required
   evidence, and consistency between answers and documents.
 - [x] The reviewer records one outcome: request revision, advance to
   partner-bank evaluation, or reject.

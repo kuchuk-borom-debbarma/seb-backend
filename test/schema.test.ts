@@ -172,6 +172,28 @@ const insertAward = async (
 }
 
 describe('core and Mission SEP schema', () => {
+  it('contains no declaration columns or workflow section value', async () => {
+    const columns = await env.DB.prepare(
+      "PRAGMA table_info('seb_application_version')",
+    ).all<{ name: string }>()
+    expect(columns.results.map(({ name }) => name)).not.toEqual(
+      expect.arrayContaining([
+        'relationship_type',
+        'related_person_name',
+        'declaration_accepted',
+        'declaration_accepted_at',
+        'declaration_place',
+      ]),
+    )
+
+    for (const table of ['seb_revision_request', 'seb_application_event']) {
+      const definition = await env.DB.prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+      ).bind(table).first<{ sql: string }>()
+      expect(definition?.sql).not.toContain('DECLARATION')
+    }
+  })
+
   it('creates all domain tables with restricted foreign keys and lookup indexes', async () => {
     const tables = await env.DB.prepare(
       `SELECT name FROM sqlite_master

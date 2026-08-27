@@ -73,7 +73,7 @@ test.describe('evidence', () => {
       page.getByText('Not attached. This one is optional.').first(),
     ).toBeVisible()
 
-    await page.getByRole('button', { name: 'Check and submit' }).click()
+    await page.getByRole('button', { name: 'Save & Next' }).click()
     await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
     await expect(page.locator('section[tabindex="-1"]:focus')).toHaveCount(1)
   })
@@ -176,6 +176,13 @@ test.describe('evidence', () => {
      */
     await expect(card.getByText('dpr.pdf')).toBeVisible({ timeout: 15_000 })
     await expect(card.getByText('Upload the detailed project report.')).toBeHidden()
+
+    await page.goto(`/applications/${id}/review`)
+    const documents = page
+      .locator('section.card')
+      .filter({ has: page.getByRole('heading', { name: 'Documents', exact: true }) })
+    await expect(documents.getByText('dpr.pdf', { exact: true })).toBeVisible()
+    await expect(documents.getByText('Detailed project report')).toBeVisible()
   })
 
   test('each issue in the report links to the screen that fixes it', async ({ page }) => {
@@ -199,7 +206,7 @@ test.describe('evidence', () => {
     await page.goto(`/applications/${id}/review`)
     const formIssue = page
       .getByRole('row')
-      .filter({ hasText: 'About you' })
+      .filter({ hasText: 'Owners' })
       .first()
       .getByRole('link')
     await formIssue.click()
@@ -254,7 +261,7 @@ test.describe('evidence', () => {
     await expect(
       page
         .getByRole('navigation', { name: 'Form categories' })
-        .getByRole('button', { name: 'Review and submit' }),
+        .getByRole('button', { name: 'Review' }),
     ).toBeAttached()
   })
 })

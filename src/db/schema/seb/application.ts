@@ -58,7 +58,6 @@ export const applicantDesignations = [
 ] as const
 export const genders = ['MALE', 'FEMALE', 'OTHER'] as const
 export const creditStatuses = ['STANDARD', 'NPA'] as const
-export const relationshipTypes = ['SON_OF', 'DAUGHTER_OF', 'WIFE_OF'] as const
 
 /** Stable application identity and the indexed head of its current state. */
 export const sebApplication = sqliteTable(
@@ -251,12 +250,6 @@ export const sebApplicationVersion = sqliteTable(
     // deterministic when an old submission is reviewed.
     nocRequired: integer('noc_required', { mode: 'boolean' }),
 
-    // Section 7: applicant declaration. The files themselves live separately.
-    relationshipType: text('relationship_type', { enum: relationshipTypes }),
-    relatedPersonName: text('related_person_name'),
-    declarationAccepted: integer('declaration_accepted', { mode: 'boolean' }),
-    declarationAcceptedAt: integer('declaration_accepted_at', { mode: 'timestamp_ms' }),
-    declarationPlace: text('declaration_place'),
   },
   (table) => [
     foreignKey({
@@ -312,8 +305,12 @@ export const sebApplicationVersion = sqliteTable(
       sql`${table.existingCreditStatus} IS NULL OR ${table.existingCreditStatus} IN ('STANDARD', 'NPA')`,
     ),
     check(
-      'seb_application_version_relationship_check',
-      sql`${table.relationshipType} IS NULL OR ${table.relationshipType} IN ('SON_OF', 'DAUGHTER_OF', 'WIFE_OF')`,
+      'seb_application_version_district_check',
+      sql`${table.businessDistrict} IS NULL OR ${table.businessDistrict} IN ('Dhalai', 'Gomati', 'Khowai', 'North Tripura', 'Sepahijala', 'South Tripura', 'Unakoti', 'West Tripura')`,
+    ),
+    check(
+      'seb_application_version_support_year_check',
+      sql`${table.governmentFundingSanctionYear} IS NULL OR ${table.governmentFundingSanctionYear} BETWEEN 1900 AND 2026`,
     ),
     check(
       'seb_application_version_money_check',
@@ -332,8 +329,7 @@ export const sebApplicationVersion = sqliteTable(
       sql`(${table.majorityOwnershipConfirmed} IS NULL OR ${table.majorityOwnershipConfirmed} IN (0, 1))
         AND (${table.receivedGovernmentFunding} IS NULL OR ${table.receivedGovernmentFunding} IN (0, 1))
         AND (${table.hasExistingBankCredit} IS NULL OR ${table.hasExistingBankCredit} IN (0, 1))
-        AND (${table.nocRequired} IS NULL OR ${table.nocRequired} IN (0, 1))
-        AND (${table.declarationAccepted} IS NULL OR ${table.declarationAccepted} IN (0, 1))`,
+        AND (${table.nocRequired} IS NULL OR ${table.nocRequired} IN (0, 1))`,
     ),
     check(
       'seb_application_version_operation_months_check',

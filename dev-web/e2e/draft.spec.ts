@@ -23,13 +23,15 @@ test.describe('the application form', () => {
     })
     await page.goto(`/applications/${id}/form`)
 
-    await page.getByLabel('Business name').fill('Draft Works Foods')
+    await page.getByLabel('Majority ownership is held by Scheduled Tribe members').check()
     // Autosave is debounced, so the indicator is the honest signal that the
     // server has the answer — not the keystroke.
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
 
     await page.reload()
-    await expect(page.getByLabel('Business name')).toHaveValue('Draft Works Foods')
+    await expect(
+      page.getByLabel('Majority ownership is held by Scheduled Tribe members'),
+    ).toBeChecked()
   })
 
   test('requires each category before moving to the next one', async ({ page }) => {
@@ -45,17 +47,14 @@ test.describe('the application form', () => {
     )
     await expect(page.getByLabel('Your full name')).toBeHidden()
 
-    await page.getByRole('button', { name: 'Next' }).click()
-    await expect(page.getByLabel('Sector')).toBeFocused()
+    await page.getByRole('button', { name: 'Save & Next' }).click()
     await expect(page.getByLabel('Your full name')).toBeHidden()
 
-    await page.getByLabel('Date established').fill('2025-03-10')
-    await page.getByLabel('Category', { exact: true }).selectOption({ index: 1 })
-    await page.getByLabel('Sector').selectOption({ label: 'Food processing' })
+    await page.getByLabel('Category A').check()
     await page.getByLabel('Majority ownership is held by Scheduled Tribe members').check()
-    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: 'Save & Next' }).click()
 
-    await expect(page.getByRole('heading', { name: 'About you' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Owners' })).toBeVisible()
     await expect(page).toHaveURL(/section=APPLICANT_PROFILE/u)
     await expect(page.getByLabel('Business name')).toBeHidden()
   })
@@ -70,19 +69,124 @@ test.describe('the application form', () => {
     const categories = page.getByRole('navigation', { name: 'Form categories' })
     for (const title of [
       'Enterprise details',
-      'About you',
+      'Owners',
       'Project cost and funding',
       'Previous support and credit',
       'Evidence requirements',
-      'Declaration',
       'Attach evidence',
-      'Review and submit',
+      'Review',
     ]) {
       await expect(categories.getByRole('button', { name: title })).toBeAttached()
     }
+    await expect(categories.getByRole('button')).toHaveCount(7)
+    await expect(categories.getByText('Declaration')).toHaveCount(0)
   })
 
-  test('moves from the declaration to evidence and resumes there while files are missing', async ({
+  test('locks copied identity data and offers only the approved address values', async ({
+    page,
+  }) => {
+    const id = await startApplication(page, {
+      prefix: 'locked-details',
+      businessName: 'Locked Details Works',
+    })
+    await page.goto(`/applications/${id}/form`)
+
+    for (const label of [
+      'Business name',
+      'Date established',
+      'Registration',
+      'GSTIN',
+      'Sector',
+    ]) {
+      await expect(page.getByLabel(label, { exact: true })).toBeDisabled()
+    }
+    await expect(page.getByLabel('Category A')).toBeEnabled()
+    await expect(
+      page.getByLabel('Majority ownership is held by Scheduled Tribe members'),
+    ).toBeEnabled()
+
+    await page.getByLabel('Category A').check()
+    await page.getByLabel('Majority ownership is held by Scheduled Tribe members').check()
+    await page.getByRole('button', { name: 'Save & Next' }).click()
+
+    await expect(page.getByLabel('Registered email address')).toBeDisabled()
+    await expect(page.getByText(/not a personal or residential address/u)).toBeVisible()
+    expect(await page.getByLabel('District').locator('option').allTextContents()).toEqual(
+      [
+        'Select district',
+        'Dhalai',
+        'Gomati',
+        'Khowai',
+        'North Tripura',
+        'Sepahijala',
+        'South Tripura',
+        'Unakoti',
+        'West Tripura',
+      ],
+    )
+  })
+
+  test('blocks invalid contact numbers and government-support years', async ({
+    page,
+  }) => {
+    const id = await startApplication(page, {
+      prefix: 'field-bounds',
+      businessName: 'Field Bounds Works',
+    })
+    await page.goto(`/applications/${id}/form`)
+    await page.getByLabel('Category A').check()
+    await page.getByLabel('Majority ownership is held by Scheduled Tribe members').check()
+    await page.getByRole('button', { name: 'Save & Next' }).click()
+
+    await page.getByLabel('Your full name').fill('Bethel Debbarma')
+    await page.getByLabel('Your role in the enterprise').selectOption('PROPRIETOR')
+    await page.getByLabel('Date of birth').fill('1996-07-14')
+    await page.getByLabel('Gender').selectOption('FEMALE')
+    await page
+      .getByLabel('Office address (as per your business documents)')
+      .fill('Khumulwng')
+    await page.getByLabel('District').selectOption('West Tripura')
+    await page.getByLabel('PIN code').fill('799045')
+    await page.getByLabel('Contact number').fill('123456789')
+    await page.getByRole('button', { name: 'Save & Next' }).click()
+    await expect(page.getByText('Enter a 10-digit contact number.')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Owners' })).toBeVisible()
+
+    await page.getByLabel('Contact number').fill('9876543210')
+    await page.getByRole('button', { name: 'Save & Next' }).click()
+    await page.getByLabel('Total project cost (₹)').fill('1000000')
+    await page.getByLabel('Seed fund requested (₹)').fill('250000')
+    await page.getByLabel('Bank loan proposed (₹)').fill('0')
+    await page.getByLabel('Your own contribution (₹)').fill('0')
+    await page.getByRole('button', { name: 'Save & Next' }).click()
+
+    await page
+      .getByRole('group', {
+        name: 'Has this enterprise received government funding before?',
+      })
+      .getByLabel('Yes')
+      .check()
+    await page.getByLabel('Scheme').fill('Earlier scheme')
+    await page.getByLabel('Amount received (₹)').fill('1000')
+    const year = page.getByLabel('Year sanctioned')
+    await year.evaluate((select) => {
+      select.append(new Option('2027', '2027'))
+    })
+    await year.selectOption('2027')
+    await page
+      .getByRole('group', { name: 'Does this enterprise have existing bank credit?' })
+      .getByLabel('No')
+      .check()
+    await page.getByRole('button', { name: 'Save & Next' }).click()
+    await expect(
+      page.getByText('Select a sanction year from 1900 through 2026.'),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'Previous support and credit' }),
+    ).toBeVisible()
+  })
+
+  test('moves from evidence requirements to attachments and resumes there while files are missing', async ({
     page,
   }) => {
     const id = await startApplication(page, {
@@ -112,11 +216,11 @@ test.describe('the application form', () => {
     await fillEveryAnswer(page, id, 'Evidence Navigation Works')
 
     const categories = page.getByRole('navigation', { name: 'Form categories' })
-    await categories.getByRole('button', { name: 'About you' }).click()
+    await categories.getByRole('button', { name: 'Owners' }).click()
     await expect(page).toHaveURL(
       new RegExp(`/applications/${id}/form\\?section=APPLICANT_PROFILE$`, 'u'),
     )
-    await expect(page.getByRole('heading', { name: 'About you' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Owners' })).toBeVisible()
 
     await categories.getByRole('button', { name: 'Evidence requirements' }).click()
     await expect(page).toHaveURL(
@@ -281,7 +385,7 @@ test.describe('locked application categories', () => {
     }
     await page.locator('input[name="EXPANSION_EVIDENCE"]').last().check()
     await page.getByRole('radio', { name: 'Ask the applicant to correct it' }).check()
-    await page.getByLabel('About you').check()
+    await page.getByLabel('Owners').check()
     await page.getByLabel('Reason', { exact: true }).selectOption({ index: 1 })
     await page
       .getByLabel('What the applicant must do')
@@ -297,7 +401,7 @@ test.describe('locked application categories', () => {
     await page.context().clearCookies()
     await signIn(page, email)
     await page.goto(`/applications/${id}/form`)
-    await expect(page.getByRole('heading', { name: 'About you' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Owners' })).toBeVisible()
     await expect(page.getByLabel('Your full name')).toBeEnabled()
 
     await page.getByRole('button').filter({ hasText: 'Enterprise details' }).click()
@@ -316,12 +420,14 @@ test.describe('locked application categories', () => {
 
     await page.goto(`/applications/${id}/form`)
     await expect(page.getByLabel('Business name')).toBeDisabled()
-    await page.getByRole('button').filter({ hasText: 'About you' }).click()
+    await page.getByRole('button').filter({ hasText: 'Owners' }).click()
     await expect(page.getByLabel('Your full name')).toBeDisabled()
     await page.getByRole('button').filter({ hasText: 'Attach evidence' }).click()
     await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
     await expect(page.getByRole('heading', { name: 'Attach evidence' })).toBeVisible()
-    await page.getByRole('button').filter({ hasText: 'Review and submit' }).click()
+    await page.getByRole('button').filter({ hasText: 'Review' }).click()
     await expect(page).toHaveURL(new RegExp(`/applications/${id}/review$`, 'u'))
+    await expect(page.getByRole('button', { name: /Submit application/u })).toHaveCount(0)
+    await expect(page.getByText('Read only', { exact: true })).toBeVisible()
   })
 })

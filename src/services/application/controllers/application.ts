@@ -79,7 +79,6 @@ const currentDraft = (application: Application): ApplicationDraftInput => ({
   financial: application.snapshot.financial,
   priorFunding: application.snapshot.priorFunding,
   documents: application.snapshot.documents,
-  declaration: application.snapshot.declaration,
 })
 
 const sourceDraft = (
@@ -107,7 +106,7 @@ const sourceDraft = (
       businessDistrict: source.version.businessDistrict,
       businessPinCode: source.version.businessPinCode,
       contactNumber: source.version.contactNumber,
-      contactEmail: source.version.contactEmail ?? applicantEmail,
+      contactEmail: applicantEmail,
     },
     financial: {
       totalProjectCostPaise: null,
@@ -126,12 +125,6 @@ const sourceDraft = (
       existingCreditStatus: null,
     },
     documents: { nocRequired: null },
-    declaration: {
-      relationshipType: null,
-      relatedPersonName: null,
-      declarationAccepted: null,
-      declarationPlace: null,
-    },
   }
 }
 
@@ -313,7 +306,6 @@ const sectionKeys: Record<EditableApplicationSection, keyof ApplicationDraftInpu
   FINANCIAL: 'financial',
   PRIOR_FUNDING: 'priorFunding',
   DOCUMENTS: 'documents',
-  DECLARATION: 'declaration',
 }
 
 const sectionValue = (
@@ -338,7 +330,6 @@ const revisionChangesAreAllowed = async (
     'FINANCIAL',
     'PRIOR_FUNDING',
     'DOCUMENTS',
-    'DECLARATION',
   ]
   return sections.every(
     (section) =>
@@ -398,6 +389,23 @@ export const saveApplicationDraft = async (
     ))
   }
   const draft = normalized.value
+  if (draft.applicantProfile.contactEmail !== authorized.applicantEmail) {
+    return failure('The registered email address cannot be changed in an application.')
+  }
+  const copiedEnterpriseFields = [
+    'businessName',
+    'establishmentDate',
+    'registrationType',
+    'registrationNumber',
+    'gstin',
+    'businessSector',
+    'otherBusinessSector',
+  ] as const
+  if (copiedEnterpriseFields.some(
+    (field) => draft.enterprise[field] !== application.snapshot.enterprise[field],
+  )) {
+    return failure('Enterprise details copied into an application cannot be changed.')
+  }
   const revisionSections = application.status === 'REVISION_REQUIRED'
     ? await revisionChangesAreAllowed(context, application.id, draft)
     : undefined
@@ -601,7 +609,6 @@ const submit = async (
     financial: draft.financial,
     priorFunding: draft.priorFunding,
     documents: draft.documents,
-    declaration: draft.declaration,
   }
   // Resolved once: the validator and the write must agree about which
   // documents this cycle requires, and they only do so by asking the same

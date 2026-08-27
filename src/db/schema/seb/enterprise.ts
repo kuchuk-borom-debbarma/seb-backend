@@ -13,6 +13,16 @@ import { versionedSoftDeleteColumns } from '../shared'
 export const enterpriseStatuses = ['PROPOSED', 'ACTIVE', 'INACTIVE'] as const
 export const enterpriseChangeTypes = ['CREATED', 'UPDATED', 'CORRECTED'] as const
 export const registrationTypes = ['NONE', 'CIN', 'UDYAM'] as const
+export const tripuraDistricts = [
+  'Dhalai',
+  'Gomati',
+  'Khowai',
+  'North Tripura',
+  'Sepahijala',
+  'South Tripura',
+  'Unakoti',
+  'West Tripura',
+] as const
 export const businessSectors = [
   'AGRICULTURE_AND_ALLIED',
   'HANDLOOM_TEXTILE_AND_HANDICRAFTS',
@@ -121,6 +131,10 @@ export const sebEnterpriseVersion = sqliteTable(
     check(
       'seb_enterprise_version_sector_check',
       sql`${table.businessSector} IS NULL OR ${table.businessSector} IN ('AGRICULTURE_AND_ALLIED', 'HANDLOOM_TEXTILE_AND_HANDICRAFTS', 'FOOD_PROCESSING', 'TOURISM_AND_HOSPITALITY', 'INFORMATION_TECHNOLOGY', 'MANUFACTURING_AND_SERVICES', 'OTHER')`,
+    ),
+    check(
+      'seb_enterprise_version_district_check',
+      sql`${table.businessDistrict} IS NULL OR ${table.businessDistrict} IN ('Dhalai', 'Gomati', 'Khowai', 'North Tripura', 'Sepahijala', 'South Tripura', 'Unakoti', 'West Tripura')`,
     ),
   ],
 )

@@ -14,6 +14,7 @@ import type {
   EnterpriseProfileInput,
   RegistrationType,
 } from '#/graphql/generated/schema'
+import { TRIPURA_DISTRICTS } from '#/lib/businessRules'
 import { humanize } from '#/lib/format'
 import styles from './EnterpriseWizard.module.css'
 
@@ -338,6 +339,7 @@ function EnterpriseDetails({
         <select
           id="businessSector"
           className={styles.selectInput}
+          required
           value={values.businessSector ?? ''}
           onChange={(event) => {
             const nextVal = orNull(event.target.value) as BusinessSector | null
@@ -447,7 +449,7 @@ function LocationDetails({ values, set }: { values: EnterpriseFormValues; set: S
     <div className={styles.fieldGrid}>
       <div className={styles.fieldGroup}>
         <label className={styles.fieldLabel} htmlFor="businessBlockOrVillage">
-          Block or village
+          Office address (as per your business documents)
         </label>
         <input
           id="businessBlockOrVillage"
@@ -456,18 +458,27 @@ function LocationDetails({ values, set }: { values: EnterpriseFormValues; set: S
           value={values.businessBlockOrVillage ?? ''}
           onChange={(event) => set('businessBlockOrVillage', orNull(event.target.value))}
         />
+        <span className={styles.fieldHint}>
+          Enter business-document details, not a personal or residential address.
+        </span>
       </div>
       <div className={styles.fieldGroup}>
         <label className={styles.fieldLabel} htmlFor="businessDistrict">
           District
         </label>
-        <input
+        <select
           id="businessDistrict"
-          className={styles.textInput}
-          maxLength={200}
+          className={styles.selectInput}
           value={values.businessDistrict ?? ''}
           onChange={(event) => set('businessDistrict', orNull(event.target.value))}
-        />
+        >
+          <option value="">Select district</option>
+          {TRIPURA_DISTRICTS.map((district) => (
+            <option key={district} value={district}>
+              {district}
+            </option>
+          ))}
+        </select>
       </div>
       <div className={styles.fieldGroup}>
         <label className={styles.fieldLabel} htmlFor="businessPinCode">
@@ -499,9 +510,10 @@ function ContactDetails({ values, set }: { values: EnterpriseFormValues; set: Se
           id="contactNumber"
           className={styles.textInput}
           type="tel"
-          pattern="[+]?[1-9][0-9]{7,14}"
-          title="Enter a valid phone number with 8 to 15 digits."
-          maxLength={16}
+          inputMode="numeric"
+          pattern="[0-9]{10}"
+          title="Enter exactly 10 digits without a country prefix."
+          maxLength={10}
           value={values.contactNumber ?? ''}
           onChange={(event) => set('contactNumber', orNull(event.target.value))}
         />

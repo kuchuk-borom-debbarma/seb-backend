@@ -121,7 +121,6 @@ const snapshotFromRecord = (record: ApplicationVersionRecord): ApplicationSnapsh
   phaseNumber: record.phaseNumber,
   changeType: record.changeType,
   createdAt: record.createdAt,
-  declarationAcceptedAt: record.declarationAcceptedAt,
   enterprise: {
     businessName: record.businessName,
     establishmentDate: record.establishmentDate,
@@ -161,12 +160,6 @@ const snapshotFromRecord = (record: ApplicationVersionRecord): ApplicationSnapsh
     existingCreditStatus: record.existingCreditStatus,
   },
   documents: { nocRequired: record.nocRequired },
-  declaration: {
-    relationshipType: record.relationshipType,
-    relatedPersonName: record.relatedPersonName,
-    declarationAccepted: record.declarationAccepted,
-    declarationPlace: record.declarationPlace,
-  },
   priorSanctionOrderNumber: record.priorSanctionOrderNumber,
   priorSanctionDate: record.priorSanctionDate,
   priorNetDisbursedAmountPaise: record.priorNetDisbursedAmountPaise,
@@ -979,7 +972,6 @@ const versionValues = (input: {
   createdAt: Date
   draft: ApplicationDraftInput
   expansionClaim: ExpansionClaim
-  declarationAcceptedAt: Date | null
 }): typeof sebApplicationVersion.$inferInsert => ({
   id: input.id ?? crypto.randomUUID(),
   applicationId: input.applicationId,
@@ -998,8 +990,6 @@ const versionValues = (input: {
   ...input.draft.priorFunding,
   ...input.expansionClaim,
   nocRequired: input.draft.documents.nocRequired,
-  ...input.draft.declaration,
-  declarationAcceptedAt: input.declarationAcceptedAt,
 })
 
 const insertVersionWhere = (
@@ -1028,11 +1018,7 @@ const insertVersionWhere = (
     ${sqlNullable(value.existingBankName)}, ${sqlNullable(value.existingCreditAmountPaise)},
     ${sqlNullable(value.existingCreditStatus)}, ${sqlNullable(value.priorSanctionOrderNumber)},
     ${sqlNullable(value.priorSanctionDate)}, ${sqlNullable(value.priorNetDisbursedAmountPaise)},
-    ${sqlNullable(value.continuousOperationMonths)}, ${sqlNullable(value.nocRequired)},
-    ${sqlNullable(value.relationshipType)}, ${sqlNullable(value.relatedPersonName)},
-    ${sqlNullable(value.declarationAccepted)},
-    ${sqlDateMilliseconds(value.declarationAcceptedAt as Date | null | undefined)},
-    ${sqlNullable(value.declarationPlace)}
+    ${sqlNullable(value.continuousOperationMonths)}, ${sqlNullable(value.nocRequired)}
   FROM ${sebApplication}
   WHERE ${predicate}
 `)
@@ -1340,9 +1326,7 @@ export const insertApplicationAggregate = async (
       ${input.expansionClaim.priorSanctionDate},
       ${input.expansionClaim.priorNetDisbursedAmountPaise},
       ${input.expansionClaim.continuousOperationMonths},
-      ${input.draft.documents.nocRequired}, ${input.draft.declaration.relationshipType},
-      ${input.draft.declaration.relatedPersonName}, ${input.draft.declaration.declarationAccepted},
-      NULL, ${input.draft.declaration.declarationPlace}
+      ${input.draft.documents.nocRequired}
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplication} WHERE ${sebApplication.id} = ${input.applicationId}
     )
@@ -1485,7 +1469,6 @@ export const saveApplicationSnapshot = async (
       createdAt: input.now,
       draft: input.draft,
       expansionClaim: input.expansionClaim,
-      declarationAcceptedAt: null,
     }),
     sql`${sebApplication.id} = ${input.head.id}
       AND ${sebApplication.currentVersion} = ${nextVersion}
@@ -1908,7 +1891,6 @@ export const submitApplicationSnapshot = async (
       createdAt: input.now,
       draft: input.draft,
       expansionClaim: input.expansionClaim,
-      declarationAcceptedAt: input.now,
     }),
     sql`${sebApplication.id} = ${input.head.id}
       AND ${sebApplication.currentVersion} = ${nextVersion}

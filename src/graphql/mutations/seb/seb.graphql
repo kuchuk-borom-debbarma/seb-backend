@@ -344,27 +344,6 @@ input DocumentRequirementsInput {
   nocRequired: Boolean
 }
 
-"""What the applicant is signing, and any interest they must disclose."""
-input DeclarationInput {
-  """
-  Any relationship to a programme official that has to be declared. A
-  relationship is disclosed, not disqualifying.
-  """
-  relationshipType: RelationshipType
-
-  """Who that person is. Expected whenever a relationship is declared."""
-  relatedPersonName: String
-
-  """
-  Whether the applicant accepts the declaration. Submission refuses without
-  it — this is the applicant's signature.
-  """
-  declarationAccepted: Boolean
-
-  """Where the declaration was made, as it would be written on a form."""
-  declarationPlace: String
-}
-
 """
 The whole application form, sent complete on every save.
 
@@ -389,8 +368,6 @@ input ApplicationDraftInput {
   """Answers that decide which documents are required."""
   documents: DocumentRequirementsInput!
 
-  """What the applicant is signing."""
-  declaration: DeclarationInput!
 }
 
 """

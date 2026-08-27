@@ -58,8 +58,11 @@ test.describe('enterprises', () => {
     await page.getByLabel('Sector').selectOption('FOOD_PROCESSING')
     await page.getByRole('button', { name: 'Next' }).click()
     await page.getByRole('button', { name: 'Next' }).click()
-    await page.getByLabel('Block or village').fill('Khumulwng')
-    await page.getByLabel('District').fill('West Tripura')
+    await page
+      .getByLabel('Office address (as per your business documents)')
+      .fill('Khumulwng')
+    await expect(page.getByText(/not a personal or residential address/u)).toBeVisible()
+    await page.getByLabel('District').selectOption('West Tripura')
     await page.getByLabel('PIN code').fill('799045')
     await page.getByRole('button', { name: 'Next' }).click()
     await page.getByRole('button', { name: 'Register enterprise' }).click()
@@ -146,11 +149,11 @@ test.describe('enterprises', () => {
     await page.getByRole('button', { name: 'Next' }).click()
     await page.getByRole('button', { name: 'Next' }).click()
     await page.getByRole('button', { name: 'Next' }).click()
-    await page.getByLabel('Contact number').fill('+919876543210')
+    await page.getByLabel('Contact number').fill('9876543210')
     await page.getByRole('button', { name: 'Save changes' }).click()
 
     await expect(page.getByRole('heading', { name: 'Corrected Name' })).toBeVisible()
-    await expect(page.getByText('+919876543210')).toBeVisible()
+    await expect(page.getByText('9876543210')).toBeVisible()
 
     await page.reload()
     await expect(page.getByRole('heading', { name: 'Corrected Name' })).toBeVisible()

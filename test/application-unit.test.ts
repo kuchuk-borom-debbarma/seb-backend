@@ -40,7 +40,6 @@ const completeSnapshot = (): ApplicationSnapshot => ({
   phaseNumber: 1,
   changeType: 'SAVE',
   createdAt: new Date('2026-01-01T00:00:00Z'),
-  declarationAcceptedAt: null,
   enterprise: {
     businessName: 'Example Foods',
     establishmentDate: '2026-01-15',
@@ -60,7 +59,7 @@ const completeSnapshot = (): ApplicationSnapshot => ({
     businessBlockOrVillage: 'Khumulwng',
     businessDistrict: 'West Tripura',
     businessPinCode: '799045',
-    contactNumber: '+919876543210',
+    contactNumber: '9876543210',
     contactEmail: 'rina@example.test',
   },
   financial: {
@@ -80,12 +79,6 @@ const completeSnapshot = (): ApplicationSnapshot => ({
     existingCreditStatus: null,
   },
   documents: { nocRequired: false },
-  declaration: {
-    relationshipType: 'DAUGHTER_OF',
-    relatedPersonName: 'Maya Debbarma',
-    declarationAccepted: true,
-    declarationPlace: 'Agartala',
-  },
   priorSanctionOrderNumber: null,
   priorSanctionDate: null,
   priorNetDisbursedAmountPaise: null,
@@ -238,7 +231,6 @@ describe('application pure business rules', () => {
       ['applicantProfile', 'designation', 'APPLICANT_PROFILE'],
       ['priorFunding', 'existingBankName', 'PRIOR_FUNDING'],
       ['documents', 'nocRequired', 'DOCUMENTS'],
-      ['declaration', 'declarationPlace', 'DECLARATION'],
     ] as const) {
       const draft = completeSnapshot() as unknown as Record<string, Record<string, unknown>>
       delete draft[section][key]
@@ -254,7 +246,6 @@ describe('application pure business rules', () => {
     draft.applicantProfile.designation = 'INVALID' as never
     draft.applicantProfile.gender = 'INVALID' as never
     draft.priorFunding.existingCreditStatus = 'INVALID' as never
-    draft.declaration.relationshipType = 'INVALID' as never
     draft.documents.nocRequired = 'yes' as never
     draft.enterprise.businessName = 'x'.repeat(201)
     expect(normalizeDraftInput(draft).issues.map((item) => item.code)).toEqual(
@@ -274,12 +265,13 @@ describe('application pure business rules', () => {
       businessBlockOrVillage: ' Khumulwng ',
       businessDistrict: ' West Tripura ',
       businessPinCode: '799045',
-      contactNumber: '+91 (98765) 43210',
+      contactNumber: '98765-43210',
       contactEmail: ' OWNER@EXAMPLE.TEST ',
     }
     expect(normalizeEnterpriseProfile(profile).value).toMatchObject({
       name: 'Example Foods',
       registrationNumber: 'UDYAM-1',
+      contactNumber: '9876543210',
       contactEmail: 'owner@example.test',
     })
     expect(normalizeEnterpriseProfile({
@@ -301,7 +293,7 @@ describe('application pure business rules', () => {
       .toMatch(/real establishment date/u)
     expect(normalizeEnterpriseProfile({ ...profile, gstin: 'bad' }).message).toMatch(/GSTIN/u)
     expect(normalizeEnterpriseProfile({ ...profile, businessPinCode: '1' }).message).toMatch(/PIN/u)
-    expect(normalizeEnterpriseProfile({ ...profile, contactNumber: '1' }).message).toMatch(/phone/u)
+    expect(normalizeEnterpriseProfile({ ...profile, contactNumber: '1' }).message).toMatch(/10-digit/u)
     expect(normalizeEnterpriseProfile({
       ...profile,
       registrationNumber: 'x'.repeat(201),
@@ -314,6 +306,78 @@ describe('application pure business rules', () => {
       ...profile,
       businessSector: 'INVALID' as never,
     }).message).toMatch(/business sector/u)
+  })
+
+  it('enforces Tripura districts and ten-digit contact numbers in every applicant form', () => {
+    const profile: EnterpriseProfileInput = {
+      name: 'Validation Works',
+      establishmentDate: '2026-01-15',
+      registrationType: 'NONE',
+      registrationNumber: null,
+      gstin: null,
+      businessSector: 'FOOD_PROCESSING',
+      otherBusinessSector: null,
+      businessBlockOrVillage: 'Khumulwng',
+      businessDistrict: 'West Tripura',
+      businessPinCode: '799045',
+      contactNumber: '9876543210',
+      contactEmail: 'owner@example.test',
+    }
+    for (const district of [
+      'Dhalai',
+      'Gomati',
+      'Khowai',
+      'North Tripura',
+      'Sepahijala',
+      'South Tripura',
+      'Unakoti',
+      'West Tripura',
+    ]) {
+      expect(normalizeEnterpriseProfile({ ...profile, businessDistrict: district }).value)
+        .not.toBeNull()
+    }
+    expect(normalizeEnterpriseProfile({ ...profile, businessDistrict: 'Outside Tripura' }).message)
+      .toMatch(/district/u)
+    expect(normalizeEnterpriseProfile({ ...profile, contactNumber: '123456789' }).message)
+      .toMatch(/10-digit/u)
+    expect(normalizeEnterpriseProfile({ ...profile, contactNumber: '12345678901' }).message)
+      .toMatch(/10-digit/u)
+    expect(normalizeEnterpriseProfile({ ...profile, contactNumber: '+919876543210' }).message)
+      .toMatch(/10-digit/u)
+
+    const draft = completeSnapshot()
+    draft.applicantProfile.contactNumber = '9876543210'
+    draft.applicantProfile.businessDistrict = 'Outside Tripura'
+    expect(normalizeDraftInput(draft).issues).toContainEqual(
+      expect.objectContaining({ field: 'businessDistrict', code: 'INVALID_DISTRICT' }),
+    )
+  })
+
+  it('accepts only sanction years from 1900 through 2026 inclusive', () => {
+    for (const year of [1900, 2026]) {
+      const draft = completeSnapshot()
+      draft.applicantProfile.contactNumber = '9876543210'
+      draft.priorFunding.governmentFundingSanctionYear = year
+      expect(normalizeDraftInput(draft).issues)
+        .not.toContainEqual(expect.objectContaining({ code: 'INVALID_YEAR' }))
+    }
+    for (const year of [1899, 2027]) {
+      const draft = completeSnapshot()
+      draft.applicantProfile.contactNumber = '9876543210'
+      draft.priorFunding.governmentFundingSanctionYear = year
+      expect(normalizeDraftInput(draft).issues).toContainEqual(
+        expect.objectContaining({ code: 'INVALID_YEAR' }),
+      )
+    }
+  })
+
+  it('does not require declaration answers for a complete submission', () => {
+    const snapshot = completeSnapshot()
+    expect(validateSubmissionSnapshot(
+      snapshot,
+      allEvidence,
+      new Date('2026-08-22T23:00:00Z'),
+    )).toEqual({ valid: true, issues: [] })
   })
 
   it('accepts a complete form without imposing a financing sum or seed ceiling', () => {
@@ -370,7 +434,7 @@ describe('application pure business rules', () => {
     ]))
   })
 
-  it('applies age, category, conditional-data, declaration, and document rules', () => {
+  it('applies age, category, conditional-data, and document rules', () => {
     const snapshot = completeSnapshot()
     snapshot.enterprise.applicationCategory = 'CATEGORY_B'
     snapshot.enterprise.establishmentDate = '2024-08-22'
@@ -384,7 +448,6 @@ describe('application pure business rules', () => {
     snapshot.priorFunding.hasExistingBankCredit = true
     snapshot.priorFunding.existingCreditAmountPaise = 1
     snapshot.documents.nocRequired = true
-    snapshot.declaration.declarationAccepted = false
     const report = validateSubmissionSnapshot(snapshot, new Set(), new Date('2026-08-22T23:00:00Z'))
     expect(report.valid).toBe(false)
     expect(report.issues.map((item) => item.code)).toEqual(expect.arrayContaining([
@@ -392,7 +455,6 @@ describe('application pure business rules', () => {
       'MUST_CONFIRM',
       'AGE_INELIGIBLE',
       'REQUIRED',
-      'MUST_ACCEPT',
       'DOCUMENT_REQUIRED',
     ]))
     expect(report.issues.filter((item) => item.code === 'DOCUMENT_REQUIRED')).toHaveLength(7)

@@ -277,7 +277,7 @@ const createSubmittedApplication = async (cookie: string, userId: string, cycleI
     registrationType: 'NONE', registrationNumber: null, gstin: null,
     businessSector: 'FOOD_PROCESSING', otherBusinessSector: null,
     businessBlockOrVillage: 'Khumulwng', businessDistrict: 'West Tripura',
-    businessPinCode: '799045', contactNumber: '+919876543210',
+    businessPinCode: '799045', contactNumber: '9876543210',
     contactEmail: 'rina@example.test',
   } }, cookie)
   const enterpriseId = enterprise.data.seb.enterprise.create.response.id as string
@@ -3009,7 +3009,7 @@ describe('Mission SEP administration', () => {
       registrationType: 'NONE', registrationNumber: null, gstin: null,
       businessSector: 'FOOD_PROCESSING', otherBusinessSector: null,
       businessBlockOrVillage: 'Khumulwng', businessDistrict: 'West Tripura',
-      businessPinCode: '799045', contactNumber: '+919876543210',
+      businessPinCode: '799045', contactNumber: '9876543210',
       contactEmail: 'draft@example.test',
     } }, administrator.cookie)
     const draft = await graphql<any>(`mutation($input: StartApplicationInput!) {

@@ -281,9 +281,9 @@ setup uses the validated `returnTo=application` context and an optional cycle
 id; arbitrary return addresses are never accepted.
 
 An application then shares one journey frame across its form, evidence and
-review routes. Its ordered categories are enterprise details, about you,
-project cost and funding, previous support and credit, evidence requirements,
-declaration, attach evidence, and review and submit. On desktop a sticky rail
+review routes. Its seven ordered stages are Enterprise details, Owners, Project
+cost and funding, Previous support and credit, Evidence requirements, Attach
+evidence, and Review. On desktop a sticky rail
 names the current, complete, blocked, error and read-only states with icons and
 text. At 52rem and below it becomes a Step X of Y selector. The sticky action
 footer has enough trailing clearance for 360–390 pixel screens, and the frame
@@ -298,13 +298,24 @@ scroll to the control and focus it. Validation-report links are the deliberate
 exception to normal forward gating: they include both `section` and the field
 hash so they can open the exact later question that needs work.
 
-Typing keeps the existing debounced autosave and stale-write protection. Next
-cancels the pending timer, flushes changed answers immediately, fetches a fresh
-server validation report, and advances only when the active category has no
-issues. Required missing files are assigned to Attach evidence, not to the NOC
-question category; they prevent moving to Review, while optional documents do
-not. Revision categories outside the request are readable and marked read only,
-and every category remains browsable when the whole application is read only.
+Typing keeps the existing debounced autosave and stale-write protection.
+`Save & Next` on every editable answer stage cancels the pending timer, flushes
+changed answers immediately, fetches a fresh server validation report, and
+advances only when the active stage has no issues. Attach evidence uses the same
+label, waits for uploads or removals, and refreshes validation before advancing.
+Required missing files are assigned to Attach evidence, not to the NOC question
+stage; they prevent moving to Review, while optional documents do not. Revision
+stages outside the request are readable and marked read only, and every stage
+remains browsable when the whole application is read only.
+
+Enterprise name, establishment date, registration, GSTIN, and sector are copied
+into the application as greyed, disabled values; Category A/B and majority
+ownership remain editable. Owners uses the business-document office-address
+label and disclaimer, an eight-value Tripura district select, a ten-digit
+contact number, and the disabled verified portal email labelled `Registered
+email address`. Government-support years descend from 2026 through 1900.
+Review shows every answer, expansion fact, and attached document with Edit links
+to reachable stages, and hides submission actions for a read-only application.
 
 The programme-office Dashboard retains the intake queue and reference lookup,
 adds an actionable total and a total across the named queues, and links every
