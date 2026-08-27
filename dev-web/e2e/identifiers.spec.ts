@@ -68,6 +68,7 @@ const openReview = async (page: Page, id: string) => {
     await page.locator(`input[name="${check}"]`).first().check()
   }
   await page.locator('input[name="EXPANSION_EVIDENCE"]').last().check()
+  await page.getByRole('button', { name: 'Next: What documents say' }).click()
 }
 
 test.describe('what one cycle asks for', () => {
@@ -104,6 +105,7 @@ test.describe('what one cycle asks for', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await openReview(page, id)
 
+    await page.getByRole('button', { name: 'Next: Outcome' }).click()
     await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
 
     /*
@@ -154,6 +156,7 @@ test.describe('what one cycle asks for', () => {
     await page.getByLabel('Identity document number').fill('771100001111')
     await page.getByLabel('Bank account number').fill('50010000771')
     await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
+    await page.getByRole('button', { name: 'Next: Outcome' }).click()
     await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
     await page.getByRole('button', { name: 'Complete the review' }).click()
     await expectStatus(page, 'Partner bank evaluation')
@@ -173,6 +176,7 @@ test.describe('what one cycle asks for', () => {
     await page.getByLabel('Identity document number').fill('772200002222')
     await page.getByLabel('Bank account number').fill('50010000772')
     await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
+    await page.getByRole('button', { name: 'Next: Outcome' }).click()
     await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
     await page.getByRole('button', { name: 'Complete the review' }).click()
 

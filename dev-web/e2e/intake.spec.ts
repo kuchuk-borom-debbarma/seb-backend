@@ -68,7 +68,7 @@ test.describe('the intake console', () => {
     // now; one chosen value appends its count to the label.
     await page.getByLabel('Categories').selectOption('CATEGORY_A')
     await expect(page).toHaveURL(/applicationType=EXPANSION/u)
-    await expect(page).toHaveURL(/categories=CATEGORY_A/u)
+    await expect(page).toHaveURL(/categories=.*CATEGORY_A/u)
 
     // And the page survives a reload with the same view.
     await page.reload()
@@ -275,6 +275,7 @@ test.describe('sending an application back for correction', () => {
       await page.locator(`input[name="${check}"]`).first().check()
     }
     await page.locator('input[name="EXPANSION_EVIDENCE"]').nth(2).check()
+    await page.getByRole('button', { name: 'Next: What documents say' }).click()
 
     // Passing the checks that gate them means the cycle demands these, exactly
     // as it would for a referral. Unique, so the duplicate check stays quiet.
@@ -284,6 +285,7 @@ test.describe('sending an application back for correction', () => {
     await page.getByLabel('Bank account number').fill(`5009${unique}`)
     await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
 
+    await page.getByRole('button', { name: 'Next: Outcome' }).click()
     await page.getByRole('radio', { name: /Ask the applicant to correct it/u }).check()
 
     // The reason the application is going back, distinct from each section's.

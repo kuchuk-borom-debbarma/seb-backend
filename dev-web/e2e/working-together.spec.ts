@@ -136,6 +136,7 @@ test.describe('working the same file', () => {
 
     const fill = async (target: typeof page, certificate: string, account: string) => {
       await target.goto(`/admin/applications/${id}`)
+      await target.getByRole('button', { name: 'Open desk review' }).click()
       for (const check of [
         'IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION',
         'FORM_COMPLETENESS', 'DOCUMENT_COMPLETENESS', 'ANSWER_DOCUMENT_CONSISTENCY',
@@ -144,10 +145,12 @@ test.describe('working the same file', () => {
         await target.locator(`input[name="${check}"]`).first().check()
       }
       await target.locator('input[name="EXPANSION_EVIDENCE"]').last().check()
+      await target.getByRole('button', { name: 'Next: What documents say' }).click()
       await target.getByLabel('Scheduled Tribe certificate number').fill(certificate)
       await target.getByLabel('Identity document number').fill(account)
       await target.getByLabel('Bank account number').fill('50010000660')
       await target.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
+      await target.getByRole('button', { name: 'Next: Outcome' }).click()
       await target.getByRole('radio', { name: /Refer to a partner bank/u }).check()
     }
 

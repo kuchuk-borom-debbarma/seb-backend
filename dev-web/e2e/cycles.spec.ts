@@ -13,6 +13,9 @@ import {
  */
 const createOpenCycle = async (page: Page, name: string) => {
   await page.goto('/admin/cycles/new')
+  // Filled only after hydration settles: a fill that lands before React
+  // takes the inputs over is wiped when it does.
+  await expect(page.getByLabel('Cycle code')).toHaveValue(/^SEP-\d{4}$/u)
   await page.getByLabel('Cycle code').fill(name)
   await page.getByLabel('Name', { exact: true }).fill(name)
   await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/01')

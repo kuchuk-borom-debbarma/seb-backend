@@ -11,7 +11,7 @@
  * sections unlock for them — so what is chosen here decides exactly what they
  * are allowed to change.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, ChevronLeft, ChevronRight, ClipboardCheck, X } from 'lucide-react'
 import { reasonsFor, type ReasonCategory } from '#/features/admin/workspaceQueries'
 import type {
@@ -262,6 +262,16 @@ export function DeskReviewForm({
    * refusal through the interface, so the two sides cannot drift apart quietly.
    */
   const flagged = Boolean(error?.includes('already recorded against'))
+
+  /*
+   * A duplicate refusal is answered on the documents tab — the reason field
+   * sits beside the number that raised it — but the refusal arrives on the
+   * outcome tab, where Complete was pressed. Take the reviewer to the field
+   * instead of leaving them with a message about a control they cannot see.
+   */
+  useEffect(() => {
+    if (flagged) setActiveTab('documents')
+  }, [flagged])
 
   const revisionReasons = useMemo(() => reasonsFor(reasons, 'REVISION'), [reasons])
   const rejectionReasons = useMemo(() => reasonsFor(reasons, 'REJECTION'), [reasons])

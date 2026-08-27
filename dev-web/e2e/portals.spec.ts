@@ -155,13 +155,24 @@ test.describe('an account holding both', () => {
     // Holding applicant, sign-in lands on the applicant portal.
     await expect(page).toHaveURL(/\/dashboard$/u)
 
-    // The crossing lives in the account menu now, so open it first each way.
-    await page.getByRole('button', { name: 'Account menu' }).click()
-    await page.getByRole('menuitem', { name: 'Programme office' }).click()
+    /*
+     * The crossing lives in the account menu. Opened with a retry, because a
+     * click that lands before the freshly navigated shell hydrates is
+     * swallowed, and the menu never appears for the menuitem wait below.
+     */
+    const cross = async (item: string) => {
+      await expect(async () => {
+        await page.getByRole('button', { name: 'Account menu' }).click()
+        await expect(
+          page.getByRole('menuitem', { name: item }),
+        ).toBeVisible({ timeout: 2_000 })
+      }).toPass()
+      await page.getByRole('menuitem', { name: item }).click()
+    }
+    await cross('Programme office')
     await expect(page).toHaveURL(/\/admin$/u)
 
-    await page.getByRole('button', { name: 'Account menu' }).click()
-    await page.getByRole('menuitem', { name: 'Applicant portal' }).click()
+    await cross('Applicant portal')
     await expect(page).toHaveURL(/\/dashboard$/u)
   })
 })

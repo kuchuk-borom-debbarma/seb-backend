@@ -733,6 +733,23 @@ function StagePane({
           <span className={styles.questionKey}>
             {field.key} · {humanize(field.type).toLowerCase()}
           </span>
+          {field.role ? (
+            /*
+             * Said on the row, not discovered through a refusal: the staff
+             * screens read this question across every cycle, so the form must
+             * always carry a holder for its role.
+             */
+            <span
+              className={styles.roleTag}
+              title={
+                'Every staff screen reads this question through the role '
+                + `${field.role}, across all cycles. It can be edited freely, `
+                + 'but the cycle must always carry a question bound to the role.'
+              }
+            >
+              read by the programme as {humanize(field.role).toLowerCase()}
+            </span>
+          ) : null}
           {derived ? (
             <span className={styles.derivedTag}>
               from structure {structure?.label ?? structureKey}
@@ -752,8 +769,15 @@ function StagePane({
                 type="button"
                 className="button"
                 data-variant="ghost"
-                disabled={!canAct}
-                title={canAct ? undefined : 'Write a change reason above first.'}
+                disabled={!canAct || field.role !== null}
+                title={
+                  field.role !== null
+                    ? 'The programme reads this question in every cycle — '
+                      + 'bind another question to its role before removing it.'
+                    : canAct
+                      ? undefined
+                      : 'Write a change reason above first.'
+                }
                 onClick={() => onRemoveQuestion(field.key)}
               >
                 Remove

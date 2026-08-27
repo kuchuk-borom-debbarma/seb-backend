@@ -202,6 +202,9 @@ export const openProgrammeCycle = async (
   // same millisecond with the same prefix would otherwise collide.
   const code = `${prefix}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`
   await page.goto('/admin/cycles/new')
+  // Filled only after hydration settles: a fill that lands before React
+  // takes the inputs over is wiped when it does.
+  await expect(page.getByLabel('Cycle code')).toHaveValue(/^SEP-\d{4}$/u)
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(name ?? code)
   await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/07')
@@ -381,6 +384,9 @@ const openCycleWithoutDocuments = async (
   // same millisecond with the same prefix would otherwise collide.
   const code = `${prefix}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`
   await page.goto('/admin/cycles/new')
+  // Filled only after hydration settles: a fill that lands before React
+  // takes the inputs over is wiped when it does.
+  await expect(page.getByLabel('Cycle code')).toHaveValue(/^SEP-\d{4}$/u)
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(code)
   await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/07')

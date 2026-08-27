@@ -73,8 +73,8 @@ test.describe('the enterprises list', () => {
     await page.goto('/enterprises')
     await page.getByLabel('Name starts with').fill('Nothing At All')
 
-    await expect(page.getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'No enterprises yet' })).toHaveCount(0)
+    await expect(page.getByText('Nothing matches')).toBeVisible()
+    await expect(page.getByText('No enterprises yet')).toHaveCount(0)
 
     // And offers the way out of it.
     await page.getByRole('button', { name: 'Clear the filters' }).click()
@@ -84,10 +84,10 @@ test.describe('the enterprises list', () => {
 
   test('reports how many results there are', async ({ page }) => {
     await page.goto('/enterprises')
-    await expect(page.getByText('3 results')).toBeVisible()
+    await expect(page.getByText('Showing 3 of 3 enterprises')).toBeVisible()
 
     await page.getByLabel('Name starts with').fill('Khumulwng')
-    await expect(page.getByText('2 results')).toBeVisible()
+    await expect(page.getByText('Showing 2 of 2 enterprises')).toBeVisible()
   })
 
   test('filters by sector and state', async ({ page }) => {
@@ -95,11 +95,11 @@ test.describe('the enterprises list', () => {
 
     // Registration makes an enterprise active; nothing is inactive yet.
     await page.getByLabel('State').selectOption('INACTIVE')
-    await expect(page.getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
+    await expect(page.getByText('Nothing matches')).toBeVisible()
 
     await page.getByLabel('State').selectOption('')
     await page.getByLabel('Sector').selectOption('TOURISM_AND_HOSPITALITY')
-    await expect(page.getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
+    await expect(page.getByText('Nothing matches')).toBeVisible()
   })
 })
 
@@ -114,7 +114,7 @@ test.describe('the intake queue', () => {
     await page.getByLabel('Reference or enterprise starts with').fill('nothing-like-this')
 
     // The heading now says which kind of empty this is, and offers the way out.
-    await expect(page.getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
+    await expect(page.getByText('Nothing matches')).toBeVisible()
     await expect(page.getByText(/No application matches these filters/u)).toBeVisible()
     await expect(page.getByRole('button', { name: 'Clear the filters' })).toBeVisible()
     await expect(page).toHaveURL(/search=nothing-like-this/u)
@@ -149,7 +149,7 @@ test.describe('the cycle list', () => {
 
     // An open cycle is not archived.
     await page.getByLabel('State').selectOption('ARCHIVED')
-    await expect(page.getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
+    await expect(page.getByText('Nothing matches')).toBeVisible()
 
     await page.getByLabel('State').selectOption('OPEN')
     await expect(page.getByRole('cell', { name: code })).toBeVisible()
@@ -159,7 +159,7 @@ test.describe('the cycle list', () => {
     await expect(page.getByRole('cell', { name: code })).toBeVisible()
 
     await page.getByLabel('Programme year').fill('2000')
-    await expect(page.getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
+    await expect(page.getByText('Nothing matches')).toBeVisible()
   })
 })
 

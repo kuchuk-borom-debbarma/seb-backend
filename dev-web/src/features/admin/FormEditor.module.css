@@ -101,6 +101,19 @@
   font-style: italic;
 }
 
+/* The two questions every staff screen reads; visibly not ordinary rows. */
+.roleTag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid #b7cdea;
+  background: #eef4fc;
+  color: #1c4a84;
+  white-space: nowrap;
+  cursor: help;
+}
+
 .editor {
   border: 1px solid var(--hairline);
   border-radius: 0.5rem;
