@@ -24,6 +24,7 @@ import {
   StartInitialApplicationDocument,
 } from '#/graphql/generated/operations'
 import { formatDate, formatRelative } from '#/lib/format'
+import { applicantDashboardQuery } from '#/features/dashboard/dashboardQueries'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import styles from '#/features/application/StartApplication.module.css'
@@ -92,8 +93,20 @@ function StartApplicationPage() {
 
   const { data: enterprises } = useQuery(liveEnterprisesQuery)
   const { data: cycles } = useQuery(cyclesQuery)
+  // The account's own applications, from the shared dashboard call: a cycle
+  // this enterprise has already applied in is not a choice, it is history.
+  const { data: mine } = useQuery(applicantDashboardQuery)
 
-  const open = cycles?.available ?? []
+  const allOpen = cycles?.available ?? []
+  const open = allOpen.filter(
+    (cycle) =>
+      !search.enterpriseId ||
+      !(mine?.applications.nodes ?? []).some(
+        (application) =>
+          application.programmeCycleId === cycle.id &&
+          application.enterpriseId === search.enterpriseId,
+      ),
+  )
 
   /*
    * A choice of one is not a choice. With a single enterprise or a single
@@ -180,14 +193,32 @@ function StartApplicationPage() {
           </div>
         ) : open.length === 0 ? (
           <div className={styles.emptyCard}>
-            <h3 className={styles.emptyTitle}>No cycle is open for new applications</h3>
-            <p className={styles.emptyText}>
-              A programme cycle must be open before an application can be started. Closed
-              cycles stay readable in your history.
-            </p>
-            <Link to="/cycles" className="button">
-              See programme cycles
-            </Link>
+            {allOpen.length > 0 ? (
+              <>
+                <h3 className={styles.emptyTitle}>
+                  This enterprise has already applied in every open cycle
+                </h3>
+                <p className={styles.emptyText}>
+                  One application per enterprise per cycle. Its progress is on the
+                  applications screen; a new application becomes possible when the
+                  office opens another cycle.
+                </p>
+                <Link to="/applications" className="button" data-variant="primary">
+                  See your applications
+                </Link>
+              </>
+            ) : (
+              <>
+                <h3 className={styles.emptyTitle}>No cycle is open for new applications</h3>
+                <p className={styles.emptyText}>
+                  A programme cycle must be open before an application can be started.
+                  Closed cycles stay readable in your history.
+                </p>
+                <Link to="/cycles" className="button">
+                  See programme cycles
+                </Link>
+              </>
+            )}
           </div>
         ) : (
           <>
