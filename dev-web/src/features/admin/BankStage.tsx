@@ -610,7 +610,23 @@ function OutcomeForm({
                     {stage.title}
                   </label>
                   {value ? (
-                    <div className="detail-grid">
+                    /*
+                     * Stacked, never a grid: this form lives in the narrow
+                     * workspace column, where a second grid column collapsed
+                     * the note into an unusable sliver. The border ties the
+                     * pair to the stage they belong to.
+                     */
+                    <div
+                      className="stack"
+                      style={{
+                        margin: '0.5rem 0 0.75rem 1.6rem',
+                        padding: '0.75rem',
+                        gap: '0.6rem',
+                        border: '1px solid var(--hairline, #e2e8f0)',
+                        borderRadius: '8px',
+                        background: '#f8fafc',
+                      }}
+                    >
                       <div>
                         <label className="field-label" htmlFor={`bank-${stage.key}-reason`}>
                           Reason
@@ -637,13 +653,14 @@ function OutcomeForm({
                           ))}
                         </select>
                       </div>
-                      <div style={{ gridColumn: '2 / -1' }}>
+                      <div>
                         <label className="field-label" htmlFor={`bank-${stage.key}-note`}>
                           What the applicant must do
                         </label>
                         <input
                           id={`bank-${stage.key}-note`}
                           className="input"
+                          placeholder="Shown to the applicant beside this stage"
                           value={value.note}
                           onChange={(event) =>
                             setRevisions((previous) => ({
@@ -700,6 +717,16 @@ function OutcomeForm({
         </p>
       ) : null}
 
+      {!ready ? (
+        <p className="field-hint" style={{ marginTop: '0.75rem' }}>
+          Recording needs the outcome, the bank&rsquo;s reference and date, and the
+          message the applicant is told
+          {outcome === 'MORE_INFORMATION_REQUIRED'
+            ? ' — and each ticked stage needs its reason and what to do'
+            : ''}
+          .
+        </p>
+      ) : null}
       <button
         type="submit"
         className="button"
