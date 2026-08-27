@@ -8,6 +8,7 @@
 import { queryOptions, type QueryClient } from '@tanstack/react-query'
 import {
   ApplicationByIdDocument,
+  ApplicationFormTemplateDocument,
   ApplicationFundingDocument,
   ApplicationTimelineDocument,
   DraftChangesDocument,
@@ -24,6 +25,24 @@ export const applicationQuery = (id: string) =>
       return unwrap(data.seb.application.byId)
     },
     staleTime: 0,
+  })
+
+/**
+ * The form this application is filled against.
+ *
+ * Cached hard, unlike the application beside it: the template is frozen with
+ * the cycle version an application pins, so it cannot change while the
+ * applicant is looking at it — and refetching it on every autosave would fetch
+ * the same bytes back for every keystroke.
+ */
+export const formTemplateQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['form-template', id],
+    queryFn: async () => {
+      const data = await gql(ApplicationFormTemplateDocument, { applicationId: id })
+      return unwrap(data.seb.application.formTemplate)
+    },
+    staleTime: Infinity,
   })
 
 export const timelineQuery = (id: string) =>
@@ -99,4 +118,5 @@ export const loadApplication = (queryClient: QueryClient, id: string) =>
   Promise.all([
     queryClient.fetchQuery(applicationQuery(id)),
     queryClient.fetchQuery(validationQuery(id)),
+    queryClient.fetchQuery(formTemplateQuery(id)),
   ])

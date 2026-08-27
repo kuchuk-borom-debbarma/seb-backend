@@ -20,8 +20,24 @@ const WEB_PORT = 9880
 
 export default defineConfig({
   testDir: './e2e',
-  // Serial by default: these tests share one database, and the funding and
-  // review journeys deliberately build on each other's state.
+  /*
+   * Serial, and measured rather than assumed.
+   *
+   * Four workers was tried and is **slower**: 5.4 minutes against 3.5, at 78%
+   * CPU on an eight-core machine. The browser was never the bottleneck. Every
+   * worker queues behind one API Worker process, where signing in is scrypt at
+   * `N=16384, r=16` and the database is a single-writer SQLite file — so
+   * concurrency adds contention and no throughput.
+   *
+   * Making the suite genuinely parallel means giving each worker its own Worker
+   * and its own database, not raising this number. Until then the number stays
+   * at one, because a slower suite that also flakes is the worst of both.
+   *
+   * The work done to make parallelism *safe* is kept regardless — it fixed real
+   * defects: the one-time code and the invitation link were found by position in
+   * a shared log rather than by recipient, and `startApplication` took the
+   * oldest open cycle in the database rather than its own.
+   */
   workers: 1,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
@@ -67,14 +83,16 @@ export default defineConfig({
        * server raced with the first navigation leaves the client entry
        * unfetchable and the page unhydrated. Testing the build removes that
        * class of flake entirely and exercises what would actually be deployed.
+       *
+       * Built only when it is stale, rather than on every run — see
+       * `scripts/build-if-stale.mjs` for what counts as an input. The artifact
+       * under test is unchanged; what goes is rebuilding it to discover it was
+       * identical.
        */
-      command: `SEP_E2E_BUILD_ROOT=.playwright npm run build && SEB_API_URL=http://localhost:${WORKER_PORT} PORT=${WEB_PORT} node .playwright/output/server/index.mjs`,
+      command: `node scripts/build-if-stale.mjs && SEB_API_URL=http://localhost:${WORKER_PORT} PORT=${WEB_PORT} node .output/server/index.mjs`,
       url: `http://localhost:${WEB_PORT}/login`,
       reuseExistingServer: false,
-      // A cold build includes route splitting and both client and SSR bundles.
-      // Leave headroom for slower development machines before treating it as
-      // a server failure; individual tests keep their much tighter timeout.
-      timeout: 300_000,
+      timeout: 180_000,
     },
   ],
 })

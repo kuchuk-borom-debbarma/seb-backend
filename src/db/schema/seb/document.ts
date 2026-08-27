@@ -4,24 +4,15 @@ import {
   foreignKey,
   index,
   integer,
-  sqliteTable,
+  pgTable,
   text,
+  unique,
   uniqueIndex,
-} from 'drizzle-orm/sqlite-core'
+} from 'drizzle-orm/pg-core'
 import { coreUser } from '../core/auth'
-import { versionedSoftDeleteColumns } from '../shared'
+import { instant, versionedSoftDeleteColumns } from '../shared'
 import { sebApplication, sebApplicationSubmission } from './application'
 
-export const documentTypes = [
-  'IDENTITY_AGE_PROOF',
-  'ST_CERTIFICATE',
-  'ADDRESS_PROOF',
-  'BUSINESS_REGISTRATION',
-  'GST_REGISTRATION',
-  'DPR',
-  'BANK_DETAILS',
-  'NOC',
-] as const
 export const documentVersionOperations = ['UPLOAD', 'REPLACE'] as const
 export const documentUploadIntentStatuses = [
   'ISSUED',
@@ -34,25 +25,25 @@ export const documentUploadCleanupTargetStatuses = ['REJECTED', 'EXPIRED'] as co
 export const documentScanStatuses = ['PENDING', 'ACCEPTED', 'REJECTED', 'ERROR'] as const
 
 /** Stable logical slot for one kind of application evidence. */
-export const sebApplicationDocument = sqliteTable(
+export const sebApplicationDocument = pgTable(
   'seb_application_document',
   {
     id: text('id').primaryKey(),
     applicationId: text('application_id')
       .notNull()
       .references(() => sebApplication.id, { onDelete: 'restrict' }),
-    documentType: text('document_type', { enum: documentTypes }).notNull(),
+    fieldKey: text('field_key').notNull(),
     ...versionedSoftDeleteColumns(() => coreUser.id),
   },
   (table) => [
-    uniqueIndex('seb_application_document_type_uq').on(
+    uniqueIndex('seb_application_document_field_key_uq').on(
       table.applicationId,
-      table.documentType,
+      table.fieldKey,
     ),
     check('seb_application_document_version_check', sql`${table.currentVersion} >= 1`),
     check(
-      'seb_application_document_type_check',
-      sql`${table.documentType} IN ('IDENTITY_AGE_PROOF', 'ST_CERTIFICATE', 'ADDRESS_PROOF', 'BUSINESS_REGISTRATION', 'GST_REGISTRATION', 'DPR', 'BANK_DETAILS', 'NOC')`,
+      'seb_application_document_field_key_check',
+      sql`${table.fieldKey} ~ '^[A-Z][A-Z0-9_]{1,63}$'`,
     ),
   ],
 )
@@ -61,7 +52,7 @@ export const sebApplicationDocument = sqliteTable(
  * Immutable file history. Every replacement receives a fresh R2 key; logical
  * deletion and restoration are recorded on the document head and in audit.
  */
-export const sebApplicationDocumentVersion = sqliteTable(
+export const sebApplicationDocumentVersion = pgTable(
   'seb_application_document_version',
   {
     id: text('id').primaryKey(),
@@ -78,10 +69,10 @@ export const sebApplicationDocumentVersion = sqliteTable(
     uploadedByUserId: text('uploaded_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
-    uniqueIndex('seb_application_document_version_number_uq').on(
+    unique('seb_application_document_version_number_uq').on(
       table.documentId,
       table.version,
     ),
@@ -100,7 +91,7 @@ export const sebApplicationDocumentVersion = sqliteTable(
  * The logical slot and immutable file version are both pinned. A later upload
  * can therefore never make an old submission appear to contain a newer file.
  */
-export const sebApplicationSubmissionDocument = sqliteTable(
+export const sebApplicationSubmissionDocument = pgTable(
   'seb_application_submission_document',
   {
     id: text('id').primaryKey(),
@@ -108,8 +99,8 @@ export const sebApplicationSubmissionDocument = sqliteTable(
     submissionId: text('submission_id').notNull(),
     documentId: text('document_id').notNull(),
     documentVersion: integer('document_version').notNull(),
-    documentType: text('document_type', { enum: documentTypes }).notNull(),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    fieldKey: text('field_key').notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     foreignKey({
@@ -125,21 +116,17 @@ export const sebApplicationSubmissionDocument = sqliteTable(
       ],
       name: 'seb_application_submission_document_version_fk',
     }).onDelete('restrict'),
-    uniqueIndex('seb_application_submission_document_type_uq').on(
+    uniqueIndex('seb_application_submission_document_field_key_uq').on(
       table.submissionId,
-      table.documentType,
+      table.fieldKey,
     ),
     check(
-      'seb_application_submission_document_type_check',
-      sql`${table.documentType} IN ('IDENTITY_AGE_PROOF', 'ST_CERTIFICATE', 'ADDRESS_PROOF', 'BUSINESS_REGISTRATION', 'GST_REGISTRATION', 'DPR', 'BANK_DETAILS', 'NOC')`,
+      'seb_application_submission_document_field_key_check',
+      sql`${table.fieldKey} ~ '^[A-Z][A-Z0-9_]{1,63}$'`,
     ),
     check(
       'seb_application_submission_document_version_check',
       sql`${table.documentVersion} >= 1`,
-    ),
-    index('seb_application_submission_document_submission_idx').on(
-      table.submissionId,
-      table.documentType,
     ),
   ],
 )
@@ -149,7 +136,7 @@ export const sebApplicationSubmissionDocument = sqliteTable(
  * The latest sequence is authoritative; administrators fail closed unless it
  * is ACCEPTED. No environment flag can bypass this evidence.
  */
-export const sebApplicationDocumentScan = sqliteTable(
+export const sebApplicationDocumentScan = pgTable(
   'seb_application_document_scan',
   {
     id: text('id').primaryKey(),
@@ -160,8 +147,8 @@ export const sebApplicationDocumentScan = sqliteTable(
     status: text('status', { enum: documentScanStatuses }).notNull(),
     scannerReference: text('scanner_reference'),
     safeMessage: text('safe_message'),
-    scannedAt: integer('scanned_at', { mode: 'timestamp_ms' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    scannedAt: instant('scanned_at'),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     uniqueIndex('seb_application_document_scan_sequence_uq').on(
@@ -178,10 +165,6 @@ export const sebApplicationDocumentScan = sqliteTable(
       sql`(${table.status} = 'PENDING' AND ${table.scannedAt} IS NULL)
         OR (${table.status} <> 'PENDING' AND ${table.scannedAt} IS NOT NULL)`,
     ),
-    index('seb_application_document_scan_latest_idx').on(
-      table.documentVersionId,
-      table.sequenceNumber,
-    ),
   ],
 )
 
@@ -193,7 +176,7 @@ export const sebApplicationDocumentScan = sqliteTable(
  * expiry. This makes the later GraphQL finalization race-safe and gives the
  * scheduled cleanup an exact object key without scanning the private bucket.
  */
-export const sebDocumentUploadIntent = sqliteTable(
+export const sebDocumentUploadIntent = pgTable(
   'seb_document_upload_intent',
   {
     id: text('id').primaryKey(),
@@ -203,7 +186,7 @@ export const sebDocumentUploadIntent = sqliteTable(
     applicantUserId: text('applicant_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    documentType: text('document_type', { enum: documentTypes }).notNull(),
+    fieldKey: text('field_key').notNull(),
     expectedDocumentVersion: integer('expected_document_version').notNull(),
     objectKey: text('object_key').notNull().unique(),
     originalFilename: text('original_filename').notNull(),
@@ -219,13 +202,13 @@ export const sebDocumentUploadIntent = sqliteTable(
     cleanupTargetStatus: text('cleanup_target_status', {
       enum: documentUploadCleanupTargetStatuses,
     }),
-    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    expiresAt: instant('expires_at').notNull(),
     finalizedDocumentVersionId: text('finalized_document_version_id').references(
       () => sebApplicationDocumentVersion.id,
       { onDelete: 'restrict' },
     ),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
+    updatedAt: instant('updated_at').notNull(),
   },
   (table) => [
     // The applicant/application pair proves ownership at the database boundary
@@ -236,8 +219,8 @@ export const sebDocumentUploadIntent = sqliteTable(
       name: 'seb_document_upload_intent_owner_application_fk',
     }).onDelete('restrict'),
     check(
-      'seb_document_upload_intent_type_check',
-      sql`${table.documentType} IN ('IDENTITY_AGE_PROOF', 'ST_CERTIFICATE', 'ADDRESS_PROOF', 'BUSINESS_REGISTRATION', 'GST_REGISTRATION', 'DPR', 'BANK_DETAILS', 'NOC')`,
+      'seb_document_upload_intent_field_key_check',
+      sql`${table.fieldKey} ~ '^[A-Z][A-Z0-9_]{1,63}$'`,
     ),
     check(
       'seb_document_upload_intent_status_check',

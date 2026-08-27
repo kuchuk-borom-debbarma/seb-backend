@@ -1,7 +1,7 @@
 /**
  * The money side of one application.
  *
- * A sanction order is issued against the committee's approval; payments are
+ * A sanction order is issued against the programme's approval; payments are
  * released against the sanction order; a payment that went wrong is reversed
  * rather than deleted; assessments record what the money was used for; and if
  * money has to come back, a recovery case pursues it.
@@ -18,11 +18,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
-import { PageHeader } from '#/components/PageHeader'
+import { ArrowLeft, Landmark } from 'lucide-react'
 import { AwardActions } from '#/features/admin/AwardActions'
 import { RecoveryCase } from '#/features/admin/RecoveryCase'
 import { fundingWorkspaceQuery, putFunding } from '#/features/admin/fundingQueries'
 import { cycleReasonsQuery, workspaceQuery } from '#/features/admin/workspaceQueries'
+import styles from '#/features/admin/Workspace.module.css'
 import { CreateAwardDocument } from '#/graphql/generated/operations'
 import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
@@ -46,7 +47,18 @@ function FundingPage() {
   const { data: reasons } = useQuery(cycleReasonsQuery(workspace?.cycleCode))
 
   const apply = (updated: NonNullable<typeof funding>['response']) => {
-    if (updated) putFunding(queryClient, id, updated)
+    if (!updated) return
+    putFunding(queryClient, id, updated)
+    /*
+     * The workspace too, not just the funding record.
+     *
+     * Creating an award moves the application's `statusVersion`, and that
+     * version is read from the workspace and sent as the concurrency token by
+     * the very next funding write. Leaving it cached meant awarding and then
+     * amending in one visit sent a version the server had already moved past,
+     * and the amendment was refused as stale — recoverable only by reloading.
+     */
+    void queryClient.invalidateQueries({ queryKey: ['workspace', id] })
   }
 
   if (!workspace?.application) return null
@@ -54,25 +66,39 @@ function FundingPage() {
   const award = funding?.response?.award
 
   return (
-    <main className="page">
-      <PageHeader
-        title="Funding"
-        meta={
-          award
-            ? `Sanction order ${award.sanctionOrderNumber}, issued ${formatDate(award.sanctionDate)}`
-            : undefined
-        }
-        /* The unsanctioned case is already said, once, by the "Not yet" notice
-           further down beside the control that would change it. */
-        description={OFFICE_LEDES.funding}
-        actions={
-          <Link to="/admin/applications/$id" params={{ id }} className="button">
+    <main className={styles.pageWrap}>
+      {/* Header Section */}
+      <div className={styles.headerWrap}>
+        <div className={styles.headerTopRow}>
+          <div className={styles.headerLeft}>
+            <div className={styles.headerIconBadge}>
+              <Landmark size={24} aria-hidden="true" />
+            </div>
+            <div className={styles.headerTextGroup}>
+              <h1 className={styles.refTitle}>Funding</h1>
+              {award ? (
+                <p className={styles.metaSubtitle}>
+                  Sanction order {award.sanctionOrderNumber}, issued{' '}
+                  {formatDate(award.sanctionDate)}
+                </p>
+              ) : null}
+              {/* The unsanctioned case is already said, once, by the "Not yet"
+                  notice further down beside the control that would change it. */}
+              <p className={styles.ledeDescription}>{OFFICE_LEDES.funding}</p>
+            </div>
+          </div>
+          <Link
+            to="/admin/applications/$id"
+            params={{ id }}
+            className={styles.backButton}
+          >
+            <ArrowLeft size={15} aria-hidden="true" />
             Back to the application
           </Link>
-        }
-      />
+        </div>
+      </div>
 
-      <div className="stack">
+      <div className={styles.colStack}>
         {!award ? (
           <CreateAward
             applicationId={id}
@@ -83,69 +109,65 @@ function FundingPage() {
           />
         ) : (
           <>
-            <section className="card">
-              <div className="card-header">
-                <div>
-                  <p className="eyebrow">The award</p>
-                  <h3 className="tabular">{award.sanctionOrderNumber}</h3>
+            <section className={styles.card}>
+              <div className={styles.cardHeader}>
+                <div className={styles.cardHeaderTitleGroup}>
+                  <h2 className={styles.cardTitle}>The award</h2>
+                  <span className="tabular">{award.sanctionOrderNumber}</span>
                 </div>
                 <span
-                  className="badge"
+                  className={styles.statusPill}
                   data-tone={award.status === 'ACTIVE' ? 'ok' : undefined}
                 >
                   {humanize(award.status)}
                 </span>
               </div>
-              <div className="card-body">
-                <div className="detail-grid">
-                  <div>
-                    <span className="field-label">Sanctioned</span>
-                    <span className="tabular">
-                      {formatMoney(award.sanctionedAmountPaise)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="field-label">Sanctioned on</span>
-                    <span>{formatDate(award.sanctionDate)}</span>
-                  </div>
-                  {award.closureDisposition ? (
-                    <div>
-                      <span className="field-label">How it closed</span>
-                      <span>{humanize(award.closureDisposition)}</span>
-                    </div>
-                  ) : null}
+              <div className="detail-grid">
+                <div>
+                  <span className="field-label">Sanctioned</span>
+                  <span className="tabular">
+                    {formatMoney(award.sanctionedAmountPaise)}
+                  </span>
                 </div>
-                {award.applicantConditions ? (
-                  <p className="notice" style={{ marginTop: '1rem' }}>
-                    <span className="notice-title">Conditions</span>
-                    {award.applicantConditions}
-                  </p>
+                <div>
+                  <span className="field-label">Sanctioned on</span>
+                  <span>{formatDate(award.sanctionDate)}</span>
+                </div>
+                {award.closureDisposition ? (
+                  <div>
+                    <span className="field-label">How it closed</span>
+                    <span>{humanize(award.closureDisposition)}</span>
+                  </div>
                 ) : null}
               </div>
+              {award.applicantConditions ? (
+                <p className="notice" style={{ marginTop: '1rem' }}>
+                  <span className="notice-title">Conditions</span>
+                  {award.applicantConditions}
+                </p>
+              ) : null}
             </section>
 
-            <section className="card" {...mark('ledger')}>
-              <div className="card-header">
-                <div className="label-row">
-                  <p className="eyebrow">Ledger</p>
+            <section className={styles.card} {...mark('ledger')}>
+              <div className={styles.cardHeader}>
+                <div className={styles.cardHeaderTitleGroup}>
+                  <h2 className={styles.cardTitle}>Ledger</h2>
                   <Explain label="the ledger" opener="How the money record works">
                     {OFFICE_HELP.ledger}
                   </Explain>
                 </div>
-                <span className="muted">
+                <span className={styles.headerMeta}>
                   {funding?.response?.ledger.length ?? 0} entries
                 </span>
               </div>
               {funding?.response?.ledger.length === 0 ? (
-                <div className="card-body">
-                  <p className="muted">
-                    No money has moved yet. Every release, and every correction to one,
-                    appears here in the order it happened.
-                  </p>
-                </div>
+                <p className="muted">
+                  No money has moved yet. Every release, and every correction to one,
+                  appears here in the order it happened.
+                </p>
               ) : (
-                <div className="table-wrap">
-                  <table className="table">
+                <div className={styles.tableWrap}>
+                  <table className={styles.table}>
                     <caption className="visually-hidden">
                       Every entry against this award
                     </caption>
@@ -164,7 +186,7 @@ function FundingPage() {
                     </thead>
                     <tbody>
                       {funding?.response?.ledger.map((entry) => (
-                        <tr key={entry.id}>
+                        <tr key={entry.id} className={styles.tableRow}>
                           <td data-numeric>{entry.sequenceNumber}</td>
                           <td>
                             {humanize(entry.entryType)}
@@ -217,7 +239,7 @@ function FundingPage() {
 /**
  * Issuing the sanction order.
  *
- * Only possible once the committee has approved, because the award is issued
+ * Only possible once the application has been approved, because the award is issued
  * against that decision and the API will not accept it without one.
  */
 function CreateAward({
@@ -261,87 +283,84 @@ function CreateAward({
     return (
       <p className="notice">
         <span className="notice-title">Not yet</span>A sanction order is issued against
-        the committee's approval. This application is {humanize(status).toLowerCase()}.
+        the programme's approval. This application is {humanize(status).toLowerCase()}.
       </p>
     )
   }
 
   return (
-    <section className="card">
-      <div className="card-header">
-        <p className="eyebrow">Issue the sanction order</p>
+    <section className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h2 className={styles.cardTitle}>Issue the sanction order</h2>
       </div>
-      <div className="card-body">
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            create.mutate()
-          }}
-        >
-          <div className="detail-grid">
-            <div>
-              <label className="field-label" htmlFor="sanction-number">
-                Sanction order number
-              </label>
-              <input
-                id="sanction-number"
-                className="input tabular"
-                value={sanctionOrderNumber}
-                onChange={(event) => setNumber(event.target.value)}
-              />
-            </div>
-            <div>
-              <label className="field-label" htmlFor="sanction-date">
-                Issued on
-              </label>
-              <input
-                id="sanction-date"
-                className="input"
-                type="date"
-                value={sanctionDate}
-                onChange={(event) => setDate(event.target.value)}
-              />
-            </div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label className="field-label" htmlFor="sanction-conditions">
-                Conditions
-              </label>
-              <textarea
-                id="sanction-conditions"
-                className="textarea"
-                rows={2}
-                value={applicantConditions}
-                onChange={(event) => setConditions(event.target.value)}
-              />
-              <span className="field-hint">
-                Shown to the applicant on their funding screen. The amount comes from the
-                committee's decision.
-              </span>
-            </div>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          create.mutate()
+        }}
+      >
+        <div className="detail-grid">
+          <div>
+            <label className="field-label" htmlFor="sanction-number">
+              Sanction order number
+            </label>
+            <input
+              id="sanction-number"
+              className="input tabular"
+              value={sanctionOrderNumber}
+              onChange={(event) => setNumber(event.target.value)}
+            />
           </div>
+          <div>
+            <label className="field-label" htmlFor="sanction-date">
+              Issued on
+            </label>
+            <input
+              id="sanction-date"
+              className="input"
+              type="date"
+              value={sanctionDate}
+              onChange={(event) => setDate(event.target.value)}
+            />
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label className="field-label" htmlFor="sanction-conditions">
+              Conditions
+            </label>
+            <textarea
+              id="sanction-conditions"
+              className="textarea"
+              rows={2}
+              value={applicantConditions}
+              onChange={(event) => setConditions(event.target.value)}
+            />
+            <span className="field-hint">
+              Shown to the applicant on their funding screen. The amount comes from the
+              programme's decision.
+            </span>
+          </div>
+        </div>
 
-          {error ? (
-            <p
-              className="notice"
-              data-tone="error"
-              role="alert"
-              style={{ marginTop: '0.75rem' }}
-            >
-              {error}
-            </p>
-          ) : null}
-
-          <button
-            type="submit"
-            className="button"
-            data-variant="primary"
+        {error ? (
+          <p
+            className="notice"
+            data-tone="error"
+            role="alert"
             style={{ marginTop: '0.75rem' }}
-            disabled={!sanctionOrderNumber.trim() || !sanctionDate || create.isPending}
           >
-            {create.isPending ? 'Issuing…' : 'Issue the sanction order'}
-          </button>
-        </form>
-      </div>
+            {error}
+          </p>
+        ) : null}
+
+        <button
+          type="submit"
+          className={styles.primaryActionButton}
+          style={{ marginTop: '0.75rem' }}
+          disabled={!sanctionOrderNumber.trim() || !sanctionDate || create.isPending}
+        >
+          {create.isPending ? 'Issuing…' : 'Issue the sanction order'}
+        </button>
+      </form>
     </section>
   )
 }

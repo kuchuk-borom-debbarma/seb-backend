@@ -1,9 +1,19 @@
+/**
+ * One work queue.
+ *
+ * Every filter here is one the API accepts, and the whole filter set lives in
+ * the URL — so a queue view can be bookmarked, sent to a colleague, or reached
+ * again by the back button with the same rows in it.
+ *
+ * Queue and status are mutually exclusive: two of the queues are subsets of a
+ * single status, and the API refuses both rather than silently intersecting
+ * them. The interface enforces that by offering one control, not two.
+ */
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   ArrowLeft,
-  Building2,
   CheckCircle2,
   ChevronDown,
   FileCheck,
@@ -12,11 +22,11 @@ import {
   List,
   type LucideIcon,
   RefreshCw,
+  Scale,
   Search as SearchIcon,
-  Users,
   XCircle,
 } from 'lucide-react'
-import { Pager } from '#/components/ListControls'
+import { Pager, SearchBox } from '#/components/ListControls'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
 import {
@@ -32,14 +42,19 @@ import {
   waitingFor,
 } from '#/features/admin/queues'
 import styles from '#/features/admin/Queue.module.css'
+import { rupeesToPaise } from '#/features/application/money'
+import { AdminCyclesDocument } from '#/graphql/generated/operations'
 import type {
   AdminIntakeOrder,
   AdminIntakeQueueKey,
   ApplicationCategory,
   ApplicationType,
   BusinessSector,
+  TripuraDistrict,
 } from '#/graphql/generated/schema'
 import { formatDate, humanize } from '#/lib/format'
+import { gql } from '#/lib/graphql'
+import { unwrap } from '#/lib/result'
 
 /** The sorts the API offers, named for what a person is trying to do. */
 const ORDERS: { value: AdminIntakeOrder; label: string }[] = [
@@ -58,6 +73,42 @@ const SECTORS: BusinessSector[] = [
   'OTHER',
 ]
 
+const CATEGORIES: ApplicationCategory[] = ['CATEGORY_A', 'CATEGORY_B']
+
+const DISTRICTS: TripuraDistrict[] = [
+  'DHALAI',
+  'GOMATI',
+  'KHOWAI',
+  'NORTH_TRIPURA',
+  'SEPAHIJALA',
+  'SOUTH_TRIPURA',
+  'UNAKOTI',
+  'WEST_TRIPURA',
+]
+
+/**
+ * The cycles the cycle filter offers.
+ *
+ * The first hundred covers years of a programme that opens a handful of
+ * cycles annually; a cycle beyond it is still filterable by URL.
+ */
+const cycleOptionsQuery = queryOptions({
+  queryKey: ['queue-cycle-options'],
+  queryFn: async () => {
+    const data = await gql(AdminCyclesDocument, {
+      first: 100,
+      after: null,
+      includeDeleted: false,
+      status: null,
+      cycleYear: null,
+      search: null,
+    })
+    return unwrap(data.admin.programmeCycle.list).nodes
+  },
+  staleTime: 60_000,
+})
+
+/** The queues waiting on the office get a tab each; the rest fold into More. */
 const PRIMARY_QUEUES: AdminIntakeQueueKey[] = [
   'NEW_SUBMISSIONS',
   'REVISION_RESPONSES',
@@ -66,7 +117,7 @@ const PRIMARY_QUEUES: AdminIntakeQueueKey[] = [
 
 const MORE_QUEUES: AdminIntakeQueueKey[] = [
   'PARTNER_BANK_EVALUATION',
-  'TTM_REVIEW',
+  'AWAITING_DECISION',
   'APPROVED',
   'REJECTED',
   'SANCTIONED',
@@ -77,8 +128,8 @@ const QUEUE_ICONS: Record<AdminIntakeQueueKey, LucideIcon> = {
   NEW_SUBMISSIONS: FileText,
   REVISION_RESPONSES: RefreshCw,
   DESK_REVIEW: SearchIcon,
-  PARTNER_BANK_EVALUATION: Building2,
-  TTM_REVIEW: Users,
+  PARTNER_BANK_EVALUATION: Landmark,
+  AWAITING_DECISION: Scale,
   APPROVED: CheckCircle2,
   REJECTED: XCircle,
   SANCTIONED: FileCheck,
@@ -89,8 +140,18 @@ type Search = {
   queue?: AdminIntakeQueueKey
   after?: string
   applicationType?: ApplicationType
-  category?: ApplicationCategory
-  sector?: BusinessSector
+  categories?: ApplicationCategory[]
+  sectors?: BusinessSector[]
+  districts?: TripuraDistrict[]
+  cycleId?: string
+  /** Rupees as typed; converted to paise at the API boundary. */
+  requestedMin?: string
+  requestedMax?: string
+  /** Calendar days; widened to whole-day instants at the API boundary. */
+  submittedFrom?: string
+  submittedTo?: string
+  decidedFrom?: string
+  decidedTo?: string
   order?: AdminIntakeOrder
   mine?: boolean
   search?: string
@@ -102,13 +163,47 @@ const oneOf = <TValue extends string>(
 ): TValue | undefined =>
   allowed.includes(value as TValue) ? (value as TValue) : undefined
 
+/**
+ * A multi-value key, kept only where it names real values.
+ *
+ * A single string is accepted too, so a bookmark from the single-select era
+ * (`?sector=OTHER`) still applies the filter it always did.
+ */
+const manyOf = <TValue extends string>(
+  allowed: readonly TValue[],
+  value: unknown,
+): TValue[] | undefined => {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+  const kept = raw.filter((entry): entry is TValue => allowed.includes(entry as TValue))
+  return kept.length > 0 ? kept : undefined
+}
+
+/** A calendar day, or nothing — never a partial date the API would refuse. */
+const dayOf = (value: unknown): string | undefined =>
+  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/u.test(value) ? value : undefined
+
+/** A rupee amount as typed, kept only while it still parses to paise. */
+const rupeesOf = (value: unknown): string | undefined =>
+  typeof value === 'string' && typeof rupeesToPaise(value) === 'number'
+    ? value
+    : undefined
+
 export const Route = createFileRoute('/_shell/admin/queue')({
   validateSearch: (search: Record<string, unknown>): Search => ({
     queue: oneOf(QUEUE_KEYS, search.queue),
     after: typeof search.after === 'string' ? search.after : undefined,
     applicationType: oneOf(['INITIAL', 'EXPANSION'] as const, search.applicationType),
-    category: oneOf(['CATEGORY_A', 'CATEGORY_B'] as const, search.category),
-    sector: oneOf(SECTORS, search.sector),
+    // The old single-value keys are folded in so bookmarks keep filtering.
+    categories: manyOf(CATEGORIES, search.categories) ?? manyOf(CATEGORIES, search.category),
+    sectors: manyOf(SECTORS, search.sectors) ?? manyOf(SECTORS, search.sector),
+    districts: manyOf(DISTRICTS, search.districts),
+    cycleId: typeof search.cycleId === 'string' && search.cycleId ? search.cycleId : undefined,
+    requestedMin: rupeesOf(search.requestedMin),
+    requestedMax: rupeesOf(search.requestedMax),
+    submittedFrom: dayOf(search.submittedFrom),
+    submittedTo: dayOf(search.submittedTo),
+    decidedFrom: dayOf(search.decidedFrom),
+    decidedTo: dayOf(search.decidedTo),
     order: oneOf(
       ORDERS.map((order) => order.value),
       search.order,
@@ -120,7 +215,12 @@ export const Route = createFileRoute('/_shell/admin/queue')({
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
     await Promise.all([
-      context.queryClient.ensureQueryData(queueQuery(inputFor(deps, null))),
+      // The signed-in account, so "only mine" prefetches the key the component
+      // then reads. Passing null here filled a different cache entry and the
+      // screen fetched again on arrival, with the loading flash that implies.
+      context.queryClient.ensureQueryData(
+        queueQuery(inputFor(deps, context.user?.id ?? null)),
+      ),
       context.queryClient.ensureQueryData(queueSummaryQuery()),
     ])
   },
@@ -130,17 +230,42 @@ export const Route = createFileRoute('/_shell/admin/queue')({
 /**
  * Turns the URL into the API's input.
  *
- * `assigneeUserId` is filled from the signed-in account when "only mine" is on,
- * which is why it is passed rather than read here — a query key built from a
- * value the loader does not have would miss the cache the component fills.
+ * `assigneeUserId` is filled from the signed-in account when "only mine" is on.
+ * It is passed rather than read here so both callers name it explicitly: the
+ * loader takes it from route context and the component from its own, and a
+ * mismatch between the two is what made the prefetch miss.
  */
+/** Rupees as typed, converted to the paise string the Money scalar takes. */
+const paiseOf = (rupees: string | undefined): string | null => {
+  if (!rupees) return null
+  const paise = rupeesToPaise(rupees)
+  return typeof paise === 'number' ? String(paise) : null
+}
+
+/*
+ * A day from the picker widens to the whole day in UTC, both bounds
+ * inclusive — asking for "to the 12th" must include the 12th's afternoon.
+ */
+const dayStart = (day: string | undefined): string | null =>
+  day ? `${day}T00:00:00.000Z` : null
+const dayEnd = (day: string | undefined): string | null =>
+  day ? `${day}T23:59:59.999Z` : null
+
 const inputFor = (search: Search, assigneeUserId: string | null) => ({
   first: QUEUE_PAGE_SIZE,
   after: search.after ?? null,
   queue: search.queue ?? null,
   applicationType: search.applicationType ?? null,
-  category: search.category ?? null,
-  sector: search.sector ?? null,
+  categories: search.categories ?? null,
+  sectors: search.sectors ?? null,
+  districts: search.districts ?? null,
+  cycleId: search.cycleId ?? null,
+  requestedMinPaise: paiseOf(search.requestedMin),
+  requestedMaxPaise: paiseOf(search.requestedMax),
+  submittedFrom: dayStart(search.submittedFrom),
+  submittedTo: dayEnd(search.submittedTo),
+  decidedFrom: dayStart(search.decidedFrom),
+  decidedTo: dayEnd(search.decidedTo),
   order: search.order ?? 'OLDEST_WAITING',
   assigneeUserId: search.mine ? assigneeUserId : null,
   search: search.search ?? null,
@@ -154,6 +279,7 @@ function QueuePage() {
     queueQuery(inputFor(search, user?.id ?? null)),
   )
   const { data: summary } = useQuery(queueSummaryQuery())
+  const { data: cycles } = useQuery(cycleOptionsQuery)
   const mark = useMarker()
   const [moreOpen, setMoreOpen] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
@@ -179,8 +305,7 @@ function QueuePage() {
   const countOf = (queue: AdminIntakeQueueKey) =>
     summary?.find((entry) => entry.queue === queue)?.count ?? 0
 
-  const totalAllCount =
-    summary?.reduce((total, entry) => total + entry.count, 0) ?? 0
+  const totalAllCount = summary?.reduce((total, entry) => total + entry.count, 0) ?? 0
 
   /** Resets paging: a filter change makes the old cursor meaningless. */
   const filter = (change: Partial<Search>) =>
@@ -198,8 +323,16 @@ function QueuePage() {
   const filtered = Boolean(
     search.search ||
     search.applicationType ||
-    search.category ||
-    search.sector ||
+    search.categories ||
+    search.sectors ||
+    search.districts ||
+    search.cycleId ||
+    search.requestedMin ||
+    search.requestedMax ||
+    search.submittedFrom ||
+    search.submittedTo ||
+    search.decidedFrom ||
+    search.decidedTo ||
     search.mine,
   )
 
@@ -222,7 +355,9 @@ function QueuePage() {
         }
       />
 
-      {/* Top Queue Filter / Tab Strip */}
+      {/* The queues, as tabs. Counts come from the summary rather than from
+          this page, so switching queues does not have to load one to know how
+          big the other is. */}
       <div className={styles.tabStripCard} role="tablist" aria-label="Queues">
         <Link
           to="/admin/queue"
@@ -293,9 +428,7 @@ function QueuePage() {
             aria-expanded={moreOpen}
           >
             <span>
-              {isMoreQueueActive && search.queue
-                ? QUEUE_TITLES[search.queue]
-                : 'More'}
+              {isMoreQueueActive && search.queue ? QUEUE_TITLES[search.queue] : 'More'}
             </span>
             <ChevronDown size={14} aria-hidden="true" />
           </button>
@@ -342,24 +475,15 @@ function QueuePage() {
       {/* Filters Card */}
       <div className={styles.filtersCard} {...mark('queue-filters')}>
         <div className={styles.filtersGrid}>
-          {/* Reference or Enterprise Input */}
+          {/* SearchBox debounces and mirrors the URL; only its shell is styled. */}
           <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="queue-search">
-              Reference or enterprise starts with
-            </label>
-            <div className={styles.searchFieldWrap}>
-              <input
-                id="queue-search"
-                type="search"
-                className={styles.searchInput}
-                placeholder="Enter reference or enterprise"
-                value={search.search ?? ''}
-                onChange={(event) =>
-                  filter({ search: event.target.value || undefined })
-                }
-              />
-              <SearchIcon className={styles.searchIcon} aria-hidden="true" />
-            </div>
+            <SearchBox
+              id="queue-search"
+              label="Reference or enterprise starts with"
+              placeholder="SEP-2026 or Khumulwng"
+              value={search.search}
+              onChange={(value) => filter({ search: value })}
+            />
           </div>
 
           {/* Order Dropdown */}
@@ -412,56 +536,24 @@ function QueuePage() {
             </div>
           </div>
 
-          {/* Category Dropdown */}
+          {/* Cycle Dropdown */}
           <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="category">
-              Category
+            <label className={styles.filterLabel} htmlFor="cycle">
+              Cycle
             </label>
             <div className={styles.selectWrap}>
               <select
-                id="category"
+                id="cycle"
                 className={styles.selectControl}
-                value={search.category ?? ''}
+                value={search.cycleId ?? ''}
                 onChange={(event) =>
-                  filter({
-                    category: (event.target.value || undefined) as
-                      | ApplicationCategory
-                      | undefined,
-                  })
+                  filter({ cycleId: event.target.value || undefined })
                 }
               >
-                <option value="">Any category</option>
-                <option value="CATEGORY_A">Category A</option>
-                <option value="CATEGORY_B">Category B</option>
-              </select>
-              <ChevronDown className={styles.selectChevron} aria-hidden="true" />
-            </div>
-          </div>
-        </div>
-
-        {/* Sector Filter Row */}
-        <div className={styles.sectorGrid}>
-          <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="sector">
-              Sector
-            </label>
-            <div className={styles.selectWrap}>
-              <select
-                id="sector"
-                className={styles.selectControl}
-                value={search.sector ?? ''}
-                onChange={(event) =>
-                  filter({
-                    sector: (event.target.value || undefined) as
-                      | BusinessSector
-                      | undefined,
-                  })
-                }
-              >
-                <option value="">Any sector</option>
-                {SECTORS.map((sector) => (
-                  <option key={sector} value={sector}>
-                    {humanize(sector)}
+                <option value="">Any cycle</option>
+                {(cycles ?? []).map((cycle) => (
+                  <option key={cycle.id} value={cycle.id}>
+                    {cycle.cycleCode}
                   </option>
                 ))}
               </select>
@@ -469,11 +561,143 @@ function QueuePage() {
             </div>
           </div>
         </div>
+
+        {/* Multi-value dimensions. Several values OR together; dimensions AND. */}
+        <div className={styles.sectorGrid}>
+          <MultiSelectFilter
+            id="categories"
+            label="Categories"
+            options={CATEGORIES}
+            selected={search.categories}
+            onChange={(categories) => filter({ categories })}
+          />
+          <MultiSelectFilter
+            id="sectors"
+            label="Sectors"
+            options={SECTORS}
+            selected={search.sectors}
+            onChange={(sectors) => filter({ sectors })}
+          />
+          <MultiSelectFilter
+            id="districts"
+            label="Districts"
+            options={DISTRICTS}
+            selected={search.districts}
+            onChange={(districts) => filter({ districts })}
+          />
+
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={search.mine ?? false}
+              onChange={(event) =>
+                filter({ mine: event.target.checked ? true : undefined })
+              }
+            />
+            Only what I have claimed
+          </label>
+        </div>
+
+        {/* Amounts are typed in rupees and land on blur, once they mean a number. */}
+        <div className={styles.sectorGrid}>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="requested-min">
+              Requested at least (₹)
+            </label>
+            <input
+              id="requested-min"
+              className={styles.textControl}
+              inputMode="decimal"
+              placeholder="Any amount"
+              key={`min-${search.requestedMin ?? ''}`}
+              defaultValue={search.requestedMin ?? ''}
+              onBlur={(event) =>
+                filter({ requestedMin: rupeesOf(event.target.value.trim()) })
+              }
+            />
+          </div>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="requested-max">
+              Requested at most (₹)
+            </label>
+            <input
+              id="requested-max"
+              className={styles.textControl}
+              inputMode="decimal"
+              placeholder="Any amount"
+              key={`max-${search.requestedMax ?? ''}`}
+              defaultValue={search.requestedMax ?? ''}
+              onBlur={(event) =>
+                filter({ requestedMax: rupeesOf(event.target.value.trim()) })
+              }
+            />
+          </div>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="submitted-from">
+              Submitted from
+            </label>
+            <input
+              id="submitted-from"
+              type="date"
+              className={styles.textControl}
+              value={search.submittedFrom ?? ''}
+              onChange={(event) =>
+                filter({ submittedFrom: event.target.value || undefined })
+              }
+            />
+          </div>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="submitted-to">
+              Submitted to
+            </label>
+            <input
+              id="submitted-to"
+              type="date"
+              className={styles.textControl}
+              value={search.submittedTo ?? ''}
+              onChange={(event) =>
+                filter({ submittedTo: event.target.value || undefined })
+              }
+            />
+          </div>
+        </div>
+
+        <div className={styles.sectorGrid}>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="decided-from">
+              Decided from
+            </label>
+            <input
+              id="decided-from"
+              type="date"
+              className={styles.textControl}
+              value={search.decidedFrom ?? ''}
+              onChange={(event) =>
+                filter({ decidedFrom: event.target.value || undefined })
+              }
+            />
+          </div>
+          <div className={styles.filterField}>
+            <label className={styles.filterLabel} htmlFor="decided-to">
+              Decided to
+            </label>
+            <input
+              id="decided-to"
+              type="date"
+              className={styles.textControl}
+              value={search.decidedTo ?? ''}
+              onChange={(event) =>
+                filter({ decidedTo: event.target.value || undefined })
+              }
+            />
+          </div>
+        </div>
       </div>
 
       {/* Applications Table Card */}
       {rows.length === 0 ? (
         <div className={styles.emptyCard}>
+          {/* Three different facts, and the heading has to say which one. */}
           <h3 className={styles.emptyTitle}>
             {filtered
               ? 'Nothing matches'
@@ -496,8 +720,16 @@ function QueuePage() {
                 filter({
                   search: undefined,
                   applicationType: undefined,
-                  category: undefined,
-                  sector: undefined,
+                  categories: undefined,
+                  sectors: undefined,
+                  districts: undefined,
+                  cycleId: undefined,
+                  requestedMin: undefined,
+                  requestedMax: undefined,
+                  submittedFrom: undefined,
+                  submittedTo: undefined,
+                  decidedFrom: undefined,
+                  decidedTo: undefined,
                   mine: undefined,
                 })
               }
@@ -540,15 +772,15 @@ function QueuePage() {
                       </Link>
                     </td>
                     <td>
-                      <span className={styles.enterpriseText}>
-                        {row.enterpriseName}
-                      </span>
+                      <span className={styles.enterpriseText}>{row.enterpriseName}</span>
                     </td>
                     <td className="tabular">{row.cycleCode}</td>
                     <td>
                       {row.applicationType === 'EXPANSION'
                         ? `Expansion · phase ${row.phaseNumber}`
                         : 'Initial'}
+                      {/* A resubmission is a different job from a first look,
+                          and the number says which this is. */}
                       {row.submissionNumber > 1 ? (
                         <span className="muted">
                           {' '}
@@ -576,6 +808,9 @@ function QueuePage() {
                     </td>
                     <td>
                       {row.assignedToUserId ? (
+                        // Who claimed it is an internal user id; the workspace
+                        // is where a name can be resolved, so this says only
+                        // that somebody has it.
                         <span className={styles.statusBadge}>Claimed</span>
                       ) : (
                         <span className="muted">Nobody</span>
@@ -616,3 +851,53 @@ function QueuePage() {
   )
 }
 
+/**
+ * One multi-value dimension as a native listbox.
+ *
+ * A native `<select multiple>` rather than a custom popover: it is keyboard
+ * and screen-reader complete for free, and the URL — not the control — is the
+ * record of what is selected. Clearing every option clears the key entirely,
+ * so "nothing selected" reads as "no filter", never as "match nothing".
+ */
+function MultiSelectFilter<TValue extends string>({
+  id,
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  id: string
+  label: string
+  options: readonly TValue[]
+  selected: TValue[] | undefined
+  onChange: (selected: TValue[] | undefined) => void
+}) {
+  return (
+    <div className={styles.filterField}>
+      <label className={styles.filterLabel} htmlFor={id}>
+        {label}
+        {selected?.length ? ` (${selected.length})` : ''}
+      </label>
+      <select
+        id={id}
+        multiple
+        size={4}
+        className={styles.multiSelect}
+        value={selected ?? []}
+        onChange={(event) => {
+          const chosen = Array.from(
+            event.target.selectedOptions,
+            (option) => option.value as TValue,
+          )
+          onChange(chosen.length > 0 ? chosen : undefined)
+        }}
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {humanize(option)}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}

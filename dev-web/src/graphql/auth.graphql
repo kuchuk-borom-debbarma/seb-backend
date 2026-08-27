@@ -61,3 +61,63 @@ mutation RevokeOtherSessions {
 mutation RevokeAllSessions {
   auth { revokeAllSessions { success message } }
 }
+
+mutation StartPasswordReset($email: String!) {
+  auth {
+    startPasswordReset(input: { email: $email }) {
+      success
+      message
+      response { challengeToken expiresAt }
+    }
+  }
+}
+
+mutation CompletePasswordReset($challengeToken: String!, $otp: String!, $newPassword: String!) {
+  auth {
+    completePasswordReset(
+      input: { challengeToken: $challengeToken, otp: $otp, newPassword: $newPassword }
+    ) {
+      success
+      message
+    }
+  }
+}
+
+mutation ChangePassword($currentPassword: String!, $newPassword: String!) {
+  auth {
+    changePassword(input: { currentPassword: $currentPassword, newPassword: $newPassword }) {
+      success
+      message
+    }
+  }
+}
+
+mutation StartEmailChange($newEmail: String!, $currentPassword: String!) {
+  auth {
+    startEmailChange(input: { newEmail: $newEmail, currentPassword: $currentPassword }) {
+      success
+      message
+      response { challengeToken expiresAt }
+    }
+  }
+}
+
+mutation CompleteEmailChange($challengeToken: String!, $otp: String!) {
+  auth {
+    completeEmailChange(input: { challengeToken: $challengeToken, otp: $otp }) {
+      success
+      message
+      response { id email emailVerified displayName }
+    }
+  }
+}
+
+mutation ChangeDisplayName($displayName: String!) {
+  auth {
+    changeDisplayName(input: { displayName: $displayName }) {
+      success
+      message
+      response { id email displayName }
+    }
+  }
+}

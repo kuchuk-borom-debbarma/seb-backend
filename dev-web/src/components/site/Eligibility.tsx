@@ -42,22 +42,22 @@ const criteria: Criterion[] = [
     number: '03',
     parameter: 'Applicant Enterprise Stage',
     oneLiner:
-      'Startups up to 24 months (Category A) or expanding operational units over 24 months (Category B).',
+      'Established enterprises trading 24+ months (Category A) or new ventures under 24 months (Category B).',
     fullDescription: (
       <div className="space-y-2">
         <p>
           <span className="font-semibold text-[#0c1a30]">
-            Category A (New Business Venture):
+            Category A (Established Enterprise):
           </span>{' '}
-          <span>Registered or proposed business entities up to 24 months old.</span>
+          <span>Entities operating continuously for 24 months or more.</span>
         </p>
         <p>
           <span className="font-semibold text-[#0c1a30]">
-            Category B (Existing Enterprise Expansion):
+            Category B (New Business Venture):
           </span>{' '}
           <span>
-            Entities operating continuously for over 24 months seeking scaling,
-            operational upgrade, or market expansion.
+            Registered or proposed business entities under 24 months old seeking
+            to establish or scale.
           </span>
         </p>
       </div>

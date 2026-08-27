@@ -3,44 +3,12 @@
  *
  * These are not free strings: each is an enum the database defines, and the
  * screens decide what to offer by comparing against them. Guessing one wrong —
- * a meeting is `DRAFT`, not `SCHEDULED`; a referral that has been answered is
- * `RESPONDED`, not closed — silently hides a control that should be there, and
- * nothing fails loudly. So they are written down once, from the schema, and
+ * a referral that has been answered is `RESPONDED`, not closed — silently hides
+ * a control that should be there, and nothing fails loudly. So they are written down once, from the schema, and
  * every screen reads them from here.
  *
  * Source: `src/db/schema/seb/decision.ts` and `src/db/schema/seb/recovery.ts`.
  */
-
-/** `ttmMeetingStatuses`. A meeting is built, held, then closed. */
-export const MEETING_STATES = {
-  /** Being planned. The agenda can still be changed. */
-  draft: 'DRAFT',
-  /** The committee is sitting. Decisions are recorded against the agenda. */
-  inSession: 'IN_SESSION',
-  /** Closed. Nothing moves. */
-  finalized: 'FINALIZED',
-  cancelled: 'CANCELLED',
-} as const
-
-export const MEETING_TITLES: Record<string, string> = {
-  DRAFT: 'Being planned',
-  IN_SESSION: 'In session',
-  FINALIZED: 'Finalized',
-  CANCELLED: 'Cancelled',
-}
-
-/** `ttmAgendaStatuses`. */
-export const AGENDA_STATES = {
-  active: 'ACTIVE',
-  removed: 'REMOVED',
-  decided: 'DECIDED',
-} as const
-
-export const AGENDA_TITLES: Record<string, string> = {
-  ACTIVE: 'Waiting',
-  REMOVED: 'Taken off',
-  DECIDED: 'Decided',
-}
 
 /** `bankReferralStatuses`. */
 export const REFERRAL_STATES = {

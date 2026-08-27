@@ -1,15 +1,15 @@
 /** Long-lived Mission SEP funding case shared by every phase for an enterprise. */
 import { sql } from 'drizzle-orm'
-import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { check, index, integer, pgTable, text, unique, uniqueIndex } from 'drizzle-orm/pg-core'
 import { coreUser } from '../core/auth'
-import { versionedSoftDeleteColumns } from '../shared'
+import { instant, versionedSoftDeleteColumns } from '../shared'
 import { sebEnterprise } from './enterprise'
 
 export const fundingCaseStatuses = ['OPEN', 'CLOSED', 'CANCELLED'] as const
 export const fundingCaseChangeTypes = ['CREATED', 'STATUS_CHANGED', 'CORRECTED'] as const
 
 /** One funding chain per enterprise across all Mission SEP programme cycles. */
-export const sebFundingCase = sqliteTable(
+export const sebFundingCase = pgTable(
   'seb_funding_case',
   {
     id: text('id').primaryKey(),
@@ -21,18 +21,20 @@ export const sebFundingCase = sqliteTable(
     ...versionedSoftDeleteColumns(() => coreUser.id),
   },
   (table) => [
-    uniqueIndex('seb_funding_case_enterprise_id_uq').on(table.enterpriseId, table.id),
+    unique('seb_funding_case_enterprise_id_uq').on(table.enterpriseId, table.id),
     check('seb_funding_case_current_version_check', sql`${table.currentVersion} >= 1`),
     check(
       'seb_funding_case_status_check',
       sql`${table.status} IN ('OPEN', 'CLOSED', 'CANCELLED')`,
     ),
-    index('seb_funding_case_status_idx').on(table.status, table.deletedAt, table.updatedAt),
+    index('seb_funding_case_status_idx')
+      .on(table.status, table.updatedAt)
+      .where(sql`${table.deletedAt} IS NULL`),
   ],
 )
 
 /** Immutable lifecycle snapshot for a funding case. */
-export const sebFundingCaseVersion = sqliteTable(
+export const sebFundingCaseVersion = pgTable(
   'seb_funding_case_version',
   {
     id: text('id').primaryKey(),
@@ -46,7 +48,7 @@ export const sebFundingCaseVersion = sqliteTable(
     changedByUserId: text('changed_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     uniqueIndex('seb_funding_case_version_number_uq').on(table.fundingCaseId, table.version),

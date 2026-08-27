@@ -10,7 +10,6 @@ import {
   Clock3,
   FilePenLine,
   FileText,
-  MoreHorizontal,
   Search as SearchIcon,
 } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
@@ -35,13 +34,25 @@ const STATUSES: ApplicationStatus[] = [
   'DESK_REVIEW',
   'REVISION_REQUIRED',
   'PARTNER_BANK_EVALUATION',
-  'TTM_REVIEW',
+  'AWAITING_DECISION',
   'APPROVED',
   'REJECTED',
   'SANCTIONED',
   'DISBURSED',
   'CANCELLED',
 ]
+
+/** The statuses the "Under review" metric card counts as in flight. */
+const UNDER_REVIEW_STATUSES: ApplicationStatus[] = [
+  'SUBMITTED',
+  'DESK_REVIEW',
+  'PARTNER_BANK_EVALUATION',
+  'AWAITING_DECISION',
+  'REVISION_REQUIRED',
+]
+
+/** The statuses the "Approved" metric card counts as won. */
+const APPROVED_STATUSES: ApplicationStatus[] = ['APPROVED', 'SANCTIONED', 'DISBURSED']
 
 type Search = {
   after?: string
@@ -74,11 +85,18 @@ const applicationsQuery = (search: Search) =>
     placeholderData: (previous) => previous,
   })
 
+/** Unfiltered list backing the metric cards, so they do not move with filters. */
 const allApplicationsQuery = queryOptions({
   queryKey: ['applications-counts-summary'],
   queryFn: async () => {
     const data = await gql(MyApplicationsDocument, {
       first: 100,
+      after: null,
+      enterpriseId: null,
+      status: null,
+      programmeCycleId: null,
+      applicationType: null,
+      search: null,
       includeDeleted: false,
     })
     return unwrap(data.seb.application.mine).nodes
@@ -119,6 +137,8 @@ export const Route = createFileRoute('/_shell/_applicant/applications/')({
     includeDeleted: search.includeDeleted === true ? true : undefined,
   }),
   loaderDeps: ({ search }) => search,
+  // All of these start together, so the screen costs one round of requests
+  // rather than a waterfall of list, then names, then guide.
   loader: async ({ context, deps }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(applicationsQuery(deps)),
@@ -157,27 +177,20 @@ function ApplicationsPage() {
   const filter = (change: Partial<Search>) =>
     navigate({ search: (previous) => ({ ...previous, ...change, after: undefined }) })
 
-  // Summary counts for 4 metric cards
+  // Summary counts for the metric cards.
   const totalCount = allApps.length
   const draftsCount = allApps.filter((a) => a.status === 'DRAFT').length
   const underReviewCount = allApps.filter((a) =>
-    [
-      'SUBMITTED',
-      'DESK_REVIEW',
-      'PARTNER_BANK_EVALUATION',
-      'TTM_REVIEW',
-      'REVISION_REQUIRED',
-    ].includes(a.status),
+    UNDER_REVIEW_STATUSES.includes(a.status),
   ).length
   const approvedCount = allApps.filter((a) =>
-    ['APPROVED', 'SANCTIONED', 'DISBURSED'].includes(a.status),
+    APPROVED_STATUSES.includes(a.status),
   ).length
 
-  // Quick lookup maps
+  // Quick lookup maps for the cycle and enterprise columns.
   const cycleMap = new Map((cycles?.mine ?? []).map((c) => [c.id, c]))
   const enterpriseMap = new Map((enterprises ?? []).map((e) => [e.id, e]))
 
-  // Sorted list
   const sortedApplications = [...applications].sort((a, b) => {
     if (sortOrder === 'oldest') {
       return new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime()
@@ -202,7 +215,6 @@ function ApplicationsPage() {
       />
 
       <div className={styles.pageContainer} {...mark('application-list')}>
-        {/* 4 Summary Metric Counter Cards */}
         <section className={styles.metrics} aria-label="Application summary metrics">
           <button
             type="button"
@@ -235,11 +247,7 @@ function ApplicationsPage() {
           <button
             type="button"
             className={`${styles.metricCard} ${
-              search.status === 'DESK_REVIEW' ||
-              search.status === 'SUBMITTED' ||
-              search.status === 'PARTNER_BANK_EVALUATION' ||
-              search.status === 'TTM_REVIEW' ||
-              search.status === 'REVISION_REQUIRED'
+              search.status && UNDER_REVIEW_STATUSES.includes(search.status)
                 ? styles.metricCardActive
                 : ''
             }`}
@@ -257,9 +265,7 @@ function ApplicationsPage() {
           <button
             type="button"
             className={`${styles.metricCard} ${
-              search.status === 'APPROVED' ||
-              search.status === 'SANCTIONED' ||
-              search.status === 'DISBURSED'
+              search.status && APPROVED_STATUSES.includes(search.status)
                 ? styles.metricCardActive
                 : ''
             }`}
@@ -275,16 +281,15 @@ function ApplicationsPage() {
           </button>
         </section>
 
-        {/* Search and Filter Controls Bar */}
         <div className={styles.controlsBar}>
           <div className={styles.searchWrap}>
             <SearchIcon className={styles.searchIcon} aria-hidden="true" />
             <input
               id="application-search"
-              aria-label="Search applications"
+              aria-label="Reference starts with"
               type="search"
               className={styles.searchInput}
-              placeholder="Search applications by title or cycle"
+              placeholder="Search by reference, e.g. SEP-2026"
               value={search.search ?? ''}
               onChange={(event) => filter({ search: event.target.value || undefined })}
             />
@@ -318,6 +323,9 @@ function ApplicationsPage() {
                 className={styles.filterSelect}
                 value={search.enterpriseId ?? ''}
                 onChange={(event) =>
+                  // The updater form inside `filter` reads the live search
+                  // rather than the value captured at render, so changing two
+                  // filters in quick succession cannot drop the first.
                   filter({ enterpriseId: event.target.value || undefined })
                 }
               >
@@ -345,11 +353,31 @@ function ApplicationsPage() {
                 }
               >
                 <option value="">All statuses</option>
-                {STATUSES.map((st) => (
-                  <option key={st} value={st}>
-                    {labelFor(st)}
+                {STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {labelFor(status)}
                   </option>
                 ))}
+              </select>
+              <ChevronDown className={styles.selectChevron} aria-hidden="true" />
+            </div>
+
+            <div className={styles.selectWrap}>
+              <select
+                id="type"
+                aria-label="Application type"
+                className={styles.filterSelect}
+                value={search.applicationType ?? ''}
+                onChange={(event) =>
+                  filter({
+                    applicationType: (event.target.value || undefined) as
+                      ApplicationType | undefined,
+                  })
+                }
+              >
+                <option value="">Any type</option>
+                <option value="INITIAL">Initial</option>
+                <option value="EXPANSION">Expansion</option>
               </select>
               <ChevronDown className={styles.selectChevron} aria-hidden="true" />
             </div>
@@ -369,16 +397,27 @@ function ApplicationsPage() {
               </select>
               <ChevronDown className={styles.selectChevron} aria-hidden="true" />
             </div>
+
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={search.includeDeleted ?? false}
+                onChange={(event) =>
+                  filter({ includeDeleted: event.target.checked ? true : undefined })
+                }
+              />
+              Include removed drafts
+            </label>
           </div>
         </div>
 
-        {/* Applications List Table or Empty State */}
         {applications.length === 0 ? (
           <div className={styles.tableCard}>
             <div className={styles.emptyCard}>
               <div className={styles.emptyIcon}>
                 <FileText size={24} aria-hidden="true" />
               </div>
+              {/* Two different facts: nothing matched, or there is nothing here. */}
               {filtered ? (
                 <>
                   <h3 className={styles.emptyTitle}>Nothing matches</h3>
@@ -438,9 +477,6 @@ function ApplicationsPage() {
                     <th scope="col" className={styles.th}>
                       Last updated
                     </th>
-                    <th scope="col" className={styles.th} style={{ textAlign: 'right' }}>
-                      Actions
-                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -448,7 +484,22 @@ function ApplicationsPage() {
                     const cycle = cycleMap.get(application.programmeCycleId)
                     const enterprise = enterpriseMap.get(application.enterpriseId)
                     return (
-                      <tr key={application.id} className={styles.tr}>
+                      // The whole row opens the application. The title Link
+                      // carries keyboard and screen-reader access; the row
+                      // handler only widens the click target, and ignores
+                      // clicks on the Link itself so nothing navigates twice.
+                      <tr
+                        key={application.id}
+                        className={styles.tr}
+                        style={{ cursor: 'pointer' }}
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest('a')) return
+                          void navigate({
+                            to: '/applications/$id',
+                            params: { id: application.id },
+                          })
+                        }}
+                      >
                         <td className={styles.td}>
                           <div className={styles.cellStack}>
                             <Link
@@ -461,6 +512,8 @@ function ApplicationsPage() {
                                 : 'Seed Grant Application'}
                             </Link>
                             <span className={styles.appRef}>
+                              {/* A reference is issued at first submission, so
+                                  a draft genuinely has none yet. */}
                               {application.referenceNumber ?? 'Draft'}
                             </span>
                             <span
@@ -491,11 +544,11 @@ function ApplicationsPage() {
                             <span className={styles.enterpriseName}>
                               {application.businessName ?? enterprise?.name ?? '—'}
                             </span>
-                            <span className={styles.enterpriseRef}>
-                              {enterprise?.id
-                                ? `ENT-${enterprise.id.slice(0, 4)}`
-                                : 'ENT-0001'}
-                            </span>
+                            {enterprise?.registrationNumber ? (
+                              <span className={styles.enterpriseRef}>
+                                {enterprise.registrationNumber}
+                              </span>
+                            ) : null}
                           </div>
                         </td>
                         <td className={styles.td}>
@@ -524,17 +577,6 @@ function ApplicationsPage() {
                             </span>
                           </div>
                         </td>
-                        <td className={styles.td} style={{ textAlign: 'right' }}>
-                          <Link
-                            to="/applications/$id"
-                            params={{ id: application.id }}
-                            className={styles.actionLink}
-                            title="View application"
-                            aria-label={`View application ${application.referenceNumber ?? application.id}`}
-                          >
-                            <MoreHorizontal size={18} aria-hidden="true" />
-                          </Link>
-                        </td>
                       </tr>
                     )
                   })}
@@ -542,11 +584,9 @@ function ApplicationsPage() {
               </table>
             </div>
 
-            {/* Pagination Controls Footer */}
             <div className={styles.paginationBar}>
               <span>
-                Showing {applications.length > 0 ? 1 : 0} to {applications.length} of{' '}
-                {data?.pageInfo.totalCount ?? applications.length}{' '}
+                Showing {applications.length} of {data?.pageInfo.totalCount ?? 0}{' '}
                 {data?.pageInfo.totalCount === 1 ? 'application' : 'applications'}
               </span>
               <div className={styles.pageControls}>
@@ -559,16 +599,10 @@ function ApplicationsPage() {
                       search: (previous) => ({ ...previous, after: undefined }),
                     })
                   }
-                  title="Previous page"
-                  aria-label="Previous page"
+                  title="First page"
+                  aria-label="First page"
                 >
                   <ChevronLeft size={16} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.pageBtn} ${styles.pageBtnActive}`}
-                >
-                  1
                 </button>
                 <button
                   type="button"

@@ -8,7 +8,7 @@
  * were paid rather than to audit an accounting journal.
  */
 import { and, asc, eq, isNull } from 'drizzle-orm'
-import type { Database } from '../../../db'
+import { batch, type Database } from '../../../db'
 import { sebAwardAssessment, sebDisbursement, sebFundingAward } from '../../../db/schema'
 import { foldDisbursementLedger } from '../ledger'
 import type { ApplicantFunding } from '../types'
@@ -40,7 +40,7 @@ export const findApplicantFunding = async (
    * the results back correctly — a joined read could not go in here, because a
    * batch is read back by column name and two columns called `id` collide.
    */
-  const [entries, assessments] = await db.batch([
+  const [entries, assessments] = await batch(db, (tx) => [
     db
       .select()
       .from(sebDisbursement)
@@ -106,7 +106,7 @@ export const findApplicantFunding = async (
     // listed as their own entries. The applicant asked what they were paid, not
     // for the ledger: "₹X on this date, of which ₹Y was reversed" answers that.
     //
-    // Every other release column stays internal: the TTM approval reference,
+    // Every other release column stays internal: the approval reference,
     // bank-account verification, performance agreement, and physical
     // verification are programme-office prerequisites, not payment facts.
     releases: ledger.releases.map(({ release, reversedAmountPaise }) => ({

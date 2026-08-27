@@ -5,21 +5,26 @@
  *
  * **A named environment inherits less than it looks.** Wrangler 4 inherits
  * `name`, `main`, `routes`, `triggers` and the `compatibility_*` keys into an
- * `env.*` block, but **not** `vars`, `d1_databases`, `r2_buckets`, `queues` or
+ * `env.*` block, but **not** `vars`, `hyperdrive`, `r2_buckets`, `queues` or
  * `services`. Any environment added here must redeclare each of those in full,
  * or it deploys with the binding silently missing.
  *
- * **The bindings below are deliberately incomplete.** `DB` has no
- * `database_id` and `STORAGE` has no `bucket_name`, because neither resource
- * exists yet — R2 is not enabled on the account. The development runtime
- * supplies both locally regardless. This cannot be deployed until they are
- * filled in, and it fails loudly rather than quietly deploying without storage.
+ * **This file is the deployed configuration, and only that.** A developer's
+ * machine and the end-to-end suite run on `wrangler.dev.jsonc` instead, because
+ * two things here cannot be shared with them: the `vars` below say this is
+ * production, and there is no `STORAGE` binding to give them. That file explains
+ * both. Anything added here that local work also needs has to be added there
+ * too — nothing makes the two agree by construction.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "seb-backend",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-21",
+  // `node-postgres` speaks the Postgres wire protocol over a TCP socket, which
+  // a Worker only has with this flag. Without it the Worker fails at the first
+  // query rather than at startup, so the failure looks like a database outage.
+  "compatibility_flags": ["nodejs_compat"],
 
   // Pinned so a stray CLOUDFLARE_ACCOUNT_ID in the environment cannot redirect
   // a deploy to a different account. That is not hypothetical: it happened once
@@ -73,21 +78,83 @@
     { "name": "RL_SIGNUP_IP", "namespace_id": "1005", "simple": { "limit": 5, "period": 60 } },
     { "name": "RL_VERIFY_IP", "namespace_id": "1006", "simple": { "limit": 10, "period": 60 } },
     { "name": "RL_INVITE_IP", "namespace_id": "1007", "simple": { "limit": 10, "period": 60 } },
-    { "name": "RL_UPLOAD_SESSION", "namespace_id": "1008", "simple": { "limit": 20, "period": 60 } }
+    { "name": "RL_UPLOAD_SESSION", "namespace_id": "1008", "simple": { "limit": 20, "period": 60 } },
+    { "name": "RL_RESET_SUBJECT", "namespace_id": "1009", "simple": { "limit": 2, "period": 60 } },
+    { "name": "RL_RESET_IP", "namespace_id": "1010", "simple": { "limit": 5, "period": 60 } },
+    { "name": "RL_RESET_VERIFY_IP", "namespace_id": "1011", "simple": { "limit": 10, "period": 60 } },
+    { "name": "RL_PASSWORD_SESSION", "namespace_id": "1012", "simple": { "limit": 5, "period": 60 } },
+    { "name": "RL_EMAIL_CHANGE_SESSION", "namespace_id": "1013", "simple": { "limit": 2, "period": 60 } },
+    { "name": "RL_EMAIL_VERIFY_SESSION", "namespace_id": "1014", "simple": { "limit": 10, "period": 60 } }
   ],
-  "d1_databases": [
+  // Non-secret configuration. Credentials are never here — they are set with
+  // `wrangler secret put`, which keeps them out of a public repository.
+  //
+  // FRONTEND_ORIGINS is "*", which echoes whichever origin asks rather than
+  // sending a literal `*` (a browser refuses that on a credentialed request).
+  // It means any site can call this API as a signed-in user, and it is here
+  // because the frontend host is not yet known. Name the origin before launch.
+  //
+  // These are the *deployed* values, and nothing else reads them: local work and
+  // the end-to-end suite run on `wrangler.dev.jsonc`, which declares no `vars`
+  // at all, so `ENVIRONMENT` reads as local there.
+  //
+  // That is load-bearing. Give the dev config a `vars` block naming a deployed
+  // environment and storage would point at the real provider.
+  //
+  // `ENVIRONMENT` is `develop`, and the difference from `production` is exactly
+  // one seam: malware scanning. `document-scanner` refuses to build without a
+  // real scanner in production, and there is none — so every uploaded document
+  // stayed PENDING and could never be opened. Under `develop` it builds the
+  // permissive scanner instead, which is what that file says `develop` is for:
+  // a demonstration environment holding no real applicant's evidence.
+  //
+  // Nothing else weakens. Notifications still deliver through Pingram
+  // (`develop` is a delivering environment), storage is still Cloudinary, the
+  // queue is still the real one, and rate limiting still counts on the bindings
+  // above — `RATE_LIMIT_DISABLED` is not set, and setting it here would turn
+  // counting off, because only production refuses it outright.
+  //
+  // **This must go back to `production` before real applications arrive.**
+  // Scanning is what is being given up, and it stops being optional the moment
+  // the evidence is somebody's.
+  "vars": {
+    "ENVIRONMENT": "develop",
+    "FRONTEND_ORIGINS": "*",
+    // Where the client is. An invitation link travels to a person, so it has to
+    // land on the portal — unset, this falls back to this Worker's own origin,
+    // which has no page to receive the token in its fragment.
+    "PORTAL_BASE_URL": "https://seb-web.kuchukboromd-15a.workers.dev",
+    "STORAGE_TRANSPORT": "cloudinary",
+    "PINGRAM_NOTIFICATION_TYPE": "seb",
+    "PINGRAM_BASE_URL": "https://api.eu.pingram.io",
+    "PINGRAM_FROM_NAME": "Mission SEP",
+    "PINGRAM_FROM_ADDRESS": "noreply@pingram.io"
+  },
+
+  /*
+   * Neon, reached through Hyperdrive's edge pool.
+   *
+   * **`caching.disabled` is a security setting, not a performance one.**
+   * Hyperdrive caches non-mutating query results for up to a minute by default.
+   * This service re-reads roles live on every request precisely so that
+   * revoking somebody's access takes effect on their next action — see the
+   * loaders rule in `docs/rules/code.md`. With caching on, a revoked
+   * administrator keeps reading as an administrator until the entry expires.
+   * Do not turn this on to make the console feel faster.
+   */
+  "hyperdrive": [
     {
-      "binding": "DB",
-      "database_name": "seb-db",
-      "database_id": "b965cc55-f8ab-44a7-919c-cc10d2f36938"
+      "binding": "HYPERDRIVE",
+      "id": "6874f5c7d25a4d588c8b656c762043bc",
+      "caching": { "disabled": true }
     }
   ],
-  "r2_buckets": [
-    {
-      "binding": "STORAGE",
-      "bucket_name": "seb-storage"
-    }
-  ],
+  // No `r2_buckets` here. R2 is not enabled on this account, and `wrangler
+  // deploy` checks the bucket exists — a dry run does not, so this fails only
+  // at the real deploy. Deployed storage is Cloudinary and never touches the
+  // binding. Local work and the end-to-end suite do need it, and get it from
+  // `wrangler.dev.jsonc`.
+
   "queues": {
     "producers": [
       {
@@ -99,7 +166,28 @@
       {
         "queue": "seb-backend-queue",
         "max_batch_size": 10,
-        "max_batch_timeout": 5
+        "max_batch_timeout": 5,
+        /*
+         * One invocation at a time, because the scanner behind this is.
+         * Cloudflare autoscales consumers by backlog, and Cloudmersive's free
+         * tier allows a single concurrent request — so scaling up would have
+         * the consumers rate-limit each other, and every 429 costs a retry
+         * from the same small monthly allowance that the scan itself does.
+         */
+        "max_concurrency": 1,
+        /*
+         * Retries exist for a provider that was briefly unavailable, not for a
+         * misconfiguration. Three attempts distinguish the two: a transient
+         * failure clears, and a missing key does not — it lands in the
+         * dead-letter queue, where the document is recoverable and countable.
+         *
+         * Without the dead letter queue an exhausted message is dropped, and
+         * that is the quiet failure worth spending a queue on: the document
+         * stays PENDING and unopenable for good, with nothing but a log line
+         * to say it ever happened.
+         */
+        "max_retries": 3,
+        "dead_letter_queue": "seb-backend-queue-dlq"
       }
     ]
   }

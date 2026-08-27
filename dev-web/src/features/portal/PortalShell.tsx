@@ -143,13 +143,6 @@ export function PlatformNavigation({
                   activePrefixes={['/admin/queue', '/admin/applications']}
                   onNavigate={onClose}
                 />
-                <NavLink
-                  to="/admin/meetings"
-                  label="Committee meetings"
-                  icon={Users}
-                  activePrefixes={['/admin/meetings']}
-                  onNavigate={onClose}
-                />
               </NavGroup>
 
               {can(user, 'STAFF_WRITE') ||
@@ -415,7 +408,7 @@ function PortalSelector({
       </summary>
       <div className={styles.portalMenu}>
         <p>Switch portal</p>
-        <Link to="/" className={styles.menuItem} onClick={closeSelector}>
+        <Link to="/dashboard" className={styles.menuItem} onClick={closeSelector}>
           Applicant
         </Link>
         <Link to="/admin" className={styles.menuItem} onClick={closeSelector}>
@@ -580,7 +573,7 @@ function AccountMenu({
           </Link>
           {isApplicant(user) && can(user, 'STAFF_READ') ? (
             <Link
-              to={portal === 'applicant' ? '/admin' : '/'}
+              to={portal === 'applicant' ? '/admin' : '/dashboard'}
               className={styles.menuItem}
               role="menuitem"
               onClick={onNavigate}

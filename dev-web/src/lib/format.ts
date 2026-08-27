@@ -52,6 +52,28 @@ export const formatDateTime = (value: string | null | undefined): string =>
   value ? dayMonthYearTime.format(new Date(value)) : '—'
 
 /**
+ * An instant as a `datetime-local` input wants it: `YYYY-MM-DDTHH:mm`, **local**.
+ *
+ * Deliberately not `toISOString().slice(0, 16)`, which is the obvious thing and
+ * is wrong. That yields UTC wall-clock, and the input reads whatever it is
+ * given as local — so an instant went in, local time came out, and saving
+ * converted that local reading back to UTC and subtracted the offset again.
+ * It compounded: every edit moved the value one more time.
+ *
+ * The parse back needs no helper. `new Date('2026-08-25T14:00')` already reads
+ * a zoneless string as local, which is exactly what the input produced.
+ */
+export const toLocalDateTimeInput = (value: string | null | undefined): string => {
+  if (!value) return ''
+  const at = new Date(value)
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return (
+    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
+    `T${pad(at.getHours())}:${pad(at.getMinutes())}`
+  )
+}
+
+/**
  * "in 3 days" / "2 hours ago", for cycle windows and session expiry.
  *
  * Chooses the largest unit that still reads naturally, so a closing date three
@@ -76,8 +98,9 @@ export const formatRelative = (value: string | null | undefined): string => {
 /**
  * Acronyms this programme uses, which must not be sentence-cased.
  *
- * Without this, `humanize` produces "St certificate", "Dpr" and "Ttm deferral"
- * — which look like typos to the people who work with these documents daily.
+ * Without this, `humanize` produces "St certificate", "Dpr feasibility" and
+ * "Gstin" — which look like typos to the people who work with these documents
+ * daily.
  */
 const ACRONYMS = new Set([
   'ST',
@@ -85,7 +108,6 @@ const ACRONYMS = new Set([
   'GST',
   'GSTIN',
   'NOC',
-  'TTM',
   'TTAADC',
   'SEP',
   'IT',

@@ -86,7 +86,8 @@ These rules are already agreed and must remain true throughout the roadmap.
 - [x] Registration gives only applicant access. It can never grant administrator
   or super-administrator access.
 - [ ] Replace development-only email output with a production notification
-  provider that actually delivers the code to the applicant's mailbox.
+  provider that actually delivers the code to the applicant's mailbox. The
+  adapter is delivered; only the key is unprovisioned — see §18.
 - [ ] Limit repeated registration and code requests by email, device, and
   network so attackers cannot flood applicants or the notification provider.
 - [ ] Add a human-verification challenge after suspicious or excessive signup
@@ -106,11 +107,19 @@ These rules are already agreed and must remain true throughout the roadmap.
   sessions.
 - [x] Removing applicant access stops applicant operations on the next request,
   even if the person was already signed in.
-- [ ] Add “forgot password” using a short-lived email verification flow.
-- [ ] Allow a password reset to revoke all existing sessions as the default safe
-  choice, while clearly informing the applicant before completion.
-- [ ] Add a verified-email change flow that confirms both account ownership and
-  the new address before the login email changes.
+- [x] Add “forgot password” using a short-lived email verification flow. Ten
+  minutes, five attempts, and a challenge token independent of the emailed code
+  — the same pair signup uses. Answers identically for an address that has no
+  account, so it cannot be used to discover who has applied.
+- [x] Allow a password reset to revoke all existing sessions as the default safe
+  choice, while clearly informing the applicant before completion. The reset
+  screen says so before the password is set, and a notice is sent afterwards.
+- [x] Add a verified-email change flow that confirms both account ownership and
+  the new address before the login email changes. The password proves the
+  account, a code sent to the new address proves that; the old address is told a
+  change was asked for.
+- [x] Let somebody change a password they still know, and set what they are
+  called. Other devices are signed out; the one in use is not.
 - [ ] Add an applicant account closure flow that explains retained application
   history, blocks further sign-in, and revokes all active sessions.
 
@@ -298,7 +307,7 @@ submitted in an older cycle.
 - [x] If the application changed elsewhere after the applicant loaded it, the
   stale save is rejected and the applicant must reload before trying again.
 - [x] Submitted versions never change when the applicant later edits an allowed
-  revision section.
+  revision stage.
 - [x] The applicant can view only applications belonging to their account.
 - [x] The application list is paginated and supports stable continuation through
   large histories.
@@ -314,74 +323,81 @@ submitted in an older cycle.
   should be dropped instead: a version number means nothing to an applicant and
   reads as a count of submissions.
 
-### 5.2 Enterprise section
+### 5.2 What a cycle may ask
 
-- [x] Record business name, establishment date, CIN/Udyam registration, GSTIN,
-  sector, Category A/B, and majority-ownership confirmation.
-- [x] Require a description when “Other” is selected as the sector.
-- [x] Require registration details and registration evidence when the enterprise
-  is declared registered.
-- [x] Require GST evidence when a GSTIN is supplied.
-- [x] Category A means proposed or established for no more than 24 calendar
-  months at submission.
-- [x] Category B means established for more than 24 calendar months at
-  submission.
-- [x] Reject a category that conflicts with the establishment date.
-- [x] Require confirmation of the programme's majority-ownership condition at
-  submission.
-- [x] Display copied name, establishment date, registration, GSTIN, and sector
-  as greyed, disabled values; Category A/B and majority ownership remain
-  editable.
+**The questions are no longer the software's.** Sections 5.2–5.6 used to list
+about thirty-five specific fields as though they were product rules; every one of
+them is now the *content* of a form template a cycle declares, and the software's
+behaviour is that it enforces whatever the template says. A cycle that drops the
+GSTIN question, or adds one, needs no deploy and no change here. The whole
+system — types, conditions, structures, storage, authoring — is the
+[form template guide](form-template-guide.md).
 
-### 5.3 Owners section
+What the software guarantees:
 
-- [x] Record name, designation, birth date, gender, business address, PIN code,
-  phone, and email.
-- [x] Require the applicant to be at least 18 and no older than 60 on the date
-  of formal submission.
-- [x] Accept real calendar dates only, including correct leap-day handling.
-- [x] Validate the email, phone, and PIN formats before submission.
-- [x] Label the office address `Office address (as per your business documents)`
-  and warn that it must not be a personal or residential address.
-- [x] Offer only Dhalai, Gomati, Khowai, North Tripura, Sepahijala, South
-  Tripura, Unakoti, and West Tripura for the district.
-- [x] Show the verified portal identity as a disabled `Registered email address`
-  and require exactly ten digits for the contact number.
-- [x] Do not collect an ST certificate number.
+- [x] A cycle declares its form as stages and fields, frozen with the cycle
+  version. An application is judged against the version it pinned, so the
+  questions it was asked cannot change under it.
+- [x] Each field declares one of fourteen types — text, long text, email,
+  phone, date, integer, money in paise, boolean, an attestation with one
+  acceptable answer, a statement the applicant only reads, single choice,
+  multiple choice, file, or a repeated group — and the answer is coerced and
+  checked against it. A statement takes no answer at all, and one addressed to
+  it is refused.
+- [x] Each field declares its own bounds: length, an anchored pattern with the
+  cycle's own message, numeric and date ranges, a `NOT_FUTURE`/`NOT_PAST` bound
+  resolved against the write's instant, repeat bounds, and a file-size cap.
+- [x] Each field declares when it is shown and when it becomes compulsory, as
+  conditions against other answers. Conditions in one group are ANDed; separate
+  groups are alternatives.
+- [x] A hidden question is never required, and its answer is cleared rather than
+  stored — run to a fixed point, so hiding a question hides what depended on it.
+- [x] Documents are `FILE` fields, so which evidence a cycle wants and when it is
+  required are the same kind of decision as any other question.
+- [x] A save replaces the whole answer set: an unknown key is refused rather than
+  dropped, and a declared key left out is refused rather than treated as
+  unchanged.
+- [x] Each field carries how it is drawn as well as what it must satisfy —
+  placeholder, inline note with a tone, width, prefix/suffix, autocomplete
+  hint, character counter, textarea rows, choice style; options carry a
+  description and an icon; stages carry a description, an icon and an
+  estimated-minutes hint. Every one is a closed set, so a typo is refused
+  rather than silently unstyled.
+- [x] A cycle can define a reusable structure once — "an Owner is a name, a
+  date of birth, a share" — and use it in any repeated group. Members are
+  expanded into ordinary questions under `USE__MEMBER` keys at authoring time,
+  with hard ceilings (16 definitions, 24 members each, 20 entries, 200
+  questions, 20 stages, one level of nesting, no conditions on members yet)
+  and a 32 KB worst-case answer budget refused when the *form* is authored
+  rather than when an applicant hits it.
+- [x] Two **roles** pin the questions the programme itself must find across
+  cycles — the applicant's date of birth (which may live inside the owners
+  group) and the requested amount (pinned to the key
+  `SEED_FUND_REQUESTED_PAISE`, which SQL reads literally). The business name,
+  sector, establishment date and category stopped being answers: they are read
+  live from the enterprise, and the category is computed at submission.
+- [x] A cycle cannot be saved or opened with a role unbound: authoring refuses
+  it by name, and `resolveFormTemplate` refuses to resolve such a template at
+  all.
+- [x] Authoring a form in the cycle editor. The nine `formTemplate` mutations
+  and the cycle editor's form screen exist, gated by `CYCLE_ADMIN` (held only
+  by a super administrator) and only while the cycle is a draft.
 
-### 5.4 Financial section
+### 5.3 The three rules that are still the programme's
 
-- [x] Record total project cost, requested seed fund, proposed bank loan, and
-  promoter contribution.
-- [x] Require total project cost and requested seed fund to be positive.
-- [x] Reject negative monetary values.
-- [x] Preserve exact rupee-and-paise values without rounding through floating
-  point arithmetic.
-- [x] Do not require the listed financing components to equal project cost.
-- [x] Do not enforce a seed-fund ceiling until TTAADC resolves the source-policy
-  contradiction.
+These read cycle policy rather than template rows, so they cannot become field
+bounds — their inputs are cycle scalars, not anything an applicant answers.
 
-### 5.5 Prior support and credit section
-
-- [x] Ask whether the applicant has received prior government funding.
-- [x] If yes, require scheme, positive amount, and sanction year.
-- [x] If no, allow the dependent scheme, amount, and year fields to remain
-  empty.
-- [x] Offer government-scheme sanction years from 2026 down to 1900 and reject
-  years outside that inclusive range. Existing bank credit has no year field.
-- [x] Ask whether the enterprise has existing bank credit.
-- [x] If yes, require the bank, positive sanctioned amount, and `STANDARD` or
-  `NPA` status.
-- [x] If no, allow dependent bank-credit fields to remain empty.
-
-### 5.6 Review
-
-- [x] Before submission, show every enterprise, owner, financial,
-  previous-support, evidence-applicability, expansion, and attached-document
-  value in sectioned read-only summaries.
-- [x] Each summary links to the reachable stage that can edit it. Review retains
-  Back and Submit application while editable and hides submission actions once
-  the application is read-only.
+- [x] The applicant must be at least the minimum and no older than the maximum
+  age the cycle states, on the date of formal submission.
+- [x] Category A means trading for at least the cycle's stated number of
+  calendar months at submission; Category B means younger. The category is
+  computed by the server from the enterprise's establishment date, and a
+  sorting cycle refuses submission when that date is missing.
+- [x] The requested amount is refused above the cycle's funding ceiling, where
+  the cycle states one. Unresolved means no ceiling is enforced — see §21.
+- [x] Real calendar dates only, including correct leap-day handling.
+- [x] Exact rupee-and-paise values, without rounding through floating point.
 
 ---
 
@@ -389,17 +405,22 @@ submitted in an older cycle.
 
 ### 6.1 Required evidence
 
-- [x] Always require identity/age proof, ST certificate, address proof, detailed
-  project report, and bank details before submission.
-- [x] Require business-registration evidence when the enterprise is registered.
-- [x] Require GST evidence when a GSTIN is supplied.
-- [x] Require an NOC when the applicant declares that an NOC applies.
-- [x] Do not require optional document types when their condition does not
-  apply.
+**Which documents a cycle wants is the cycle's decision too.** Evidence is a
+`FILE` field of the form template, so "always required", "required when the
+enterprise is registered" and "required when a GSTIN is present" are ordinary
+conditions against whatever questions that cycle happens to ask — strictly more
+expressive than the four fixed conditions this used to list.
+
+- [x] A `FILE` field carries evidence rather than an answer, and is required
+  exactly when the template says and its conditions hold.
+- [x] A document whose question is not on screen is not asked for at all.
+- [x] The list the validator computes is the same list the submitting write
+  repeats in its own predicate, so a document deleted between the two cannot
+  slip past.
 
 ### 6.2 Upload, replacement, and access
 
-- [x] Accept PDF, JPEG, and PNG files up to 5 MB each, with the file name's
+- [x] Accept PDF, JPEG, and PNG files up to 2 MB each, with the file name's
   extension required to match the file's declared type.
 - [x] Reject a file whose actual type does not match its declared type.
 - [x] Reject incomplete, altered, oversized, or expired upload attempts.
@@ -418,10 +439,17 @@ submitted in an older cycle.
 - [x] Route every finalized document through a scanner before it becomes
   available to programme staff. The seam, the producer and the consumer are all
   real; which product does the scanning is the open decision below.
-- [ ] Choose and configure a real malware scanner. Until one exists, `local` and
+- [x] Choose a real malware scanner. Cloudmersive, selected by
+  `SCANNER_TRANSPORT` alongside the permissive `none`. With `none`, `local` and
   `develop` accept documents without examining them and record
   `NO_SCANNER_CONFIGURED` against each one, so an unexamined file can never be
-  mistaken for a checked one. `production` refuses to start without a scanner.
+  mistaken for a checked one. `production` refuses `none`, and
+  `npm run check:scanner` refuses that configuration before it is deployed.
+- [ ] Provision `CLOUDMERSIVE_API_KEY` and turn the transport on in the deployed
+  configuration. The code is delivered and tested; what remains is an account.
+  Its free tier is ~600-800 scans a month, one at a time, and refuses a file
+  over 2.5 MB — which is why documents are capped at 2 MB. An intake round of
+  any size needs a paid tier or a different transport.
 - [ ] Show applicants the malware-scan states “Pending”, “Accepted”, and
   “Rejected”, with a safe reason and a replacement action for rejected files.
 - [ ] Prevent submission while any required document is awaiting or has failed
@@ -436,7 +464,7 @@ submitted in an older cycle.
 ### 7.1 Validation
 
 - [x] The applicant can validate a draft without submitting it.
-- [x] Validation groups issues by form section and identifies the exact field
+- [x] Validation groups issues by form stage and identifies the exact field
   and correction needed.
 - [x] Validation checks required and conditional answers, dates, age, category,
   contact formats, districts, sanction years, money, and documents.
@@ -469,10 +497,10 @@ submitted in an older cycle.
   submission just made — the applicant surface reports no submission number of
   its own, and inventing one in the browser was not acceptable.
 - [ ] Let the applicant download a human-readable acknowledgement of the exact
-  submitted snapshot and document list. The confirmation page prints as a
-  document — navigation and controls are hidden — which gives a paper copy, but
-  not a file. A download needs the API to render one, because only the server
-  can attest to what it holds.
+  submitted snapshot and document list. The server now renders exactly such a
+  PDF and attaches it to the submission confirmation email, so the file
+  exists; what is still missing is a download control in the portal. The
+  confirmation page prints as a document, which gives a paper copy meanwhile.
 
 ### 7.3 Applicant timeline and status
 
@@ -493,11 +521,11 @@ submitted in an older cycle.
 
 The applicant response and the staff issuance/cancellation workflow both exist.
 
-- [x] A revision request identifies one form section and gives the applicant a
+- [x] A revision request identifies one form stage and gives the applicant a
   readable correction note.
-- [x] While revision is required, the applicant may edit only sections named by
+- [x] While revision is required, the applicant may edit only stages named by
   unresolved requests.
-- [x] Fields outside those sections must remain identical to the last
+- [x] Fields outside those stages must remain identical to the last
   submission.
 - [x] Resubmission validates the complete application and all required evidence.
 - [x] Resubmission creates a new formal snapshot and the next submission number.
@@ -506,12 +534,12 @@ The applicant response and the staff issuance/cancellation workflow both exist.
 - [x] Resubmission remains available after the original programme cycle closes.
 - [x] Let an administrator cancel an incorrect revision request with a reason
   and issue a replacement without editing or hiding the original request.
-- [x] Revision requests carry their section, issue date, note, and resolved or
-  cancelled state, ready to group by section.
-- [x] The application reports which sections are editable right now, derived
-  from the same rule the draft-save path enforces, so a locked section can never
+- [x] Revision requests carry their stage, issue date, note, and resolved or
+  cancelled state, ready to group by stage.
+- [x] The application reports which stages are editable right now, derived
+  from the same rule the draft-save path enforces, so a locked stage can never
   be shown as editable.
-- [x] The applicant can list the sections their draft changes relative to the
+- [x] The applicant can list the stages their draft changes relative to the
   submission under revision, using the same comparison a reviewer sees.
 
 ---
@@ -649,9 +677,10 @@ with no recovery path.
 - [x] Let an administrator revise a draft cycle while retaining who changed it,
   when, and why.
 - [x] Let an administrator open a cycle only when its code, display name, policy
-  year, policy reference, opening/closing times, applicant guidance, required
-  document list, eligibility rules, and every resolved cycle-specific funding
-  limit are present.
+  year, policy reference, opening/closing times, applicant guidance, a
+  resolvable form template with both roles bound (required documents are its
+  `FILE` questions), eligibility rules, and every resolved cycle-specific
+  funding limit are present.
 - [x] Opening a cycle makes it visible and available for new applicant drafts at
   the stated opening time.
 - [x] Let an administrator close a cycle immediately with a required reason, or
@@ -673,7 +702,8 @@ with no recovery path.
 ### 11.1 Queue visibility
 
 - [x] Administrators have separate named queues for newly submitted, desk
-  review, revision responses, partner-bank evaluation, TTM review, approved,
+  review, revision responses, partner-bank evaluation, awaiting decision,
+  approved,
   rejected, sanctioned, and disbursed applications, with matching counts. New
   submissions and revision responses are both `SUBMITTED` and are separated by
   submission number.
@@ -713,7 +743,7 @@ with no recovery path.
 - [x] Show the exact submitted snapshot, not the applicant's later canonical
   enterprise profile.
 - [x] Show every submitted document version associated with that submission.
-- [x] Show prior submissions and clearly highlight sections changed in a
+- [x] Show prior submissions and clearly highlight stages changed in a
   revision.
 - [x] Separate applicant-visible timeline entries from staff-only notes.
 - [x] Let staff add a dated internal note that cannot alter an applicant answer.
@@ -730,9 +760,9 @@ with no recovery path.
   evidence, and consistency between answers and documents.
 - [x] The reviewer records one outcome: request revision, advance to
   partner-bank evaluation, or reject.
-- [x] A revision request names exactly one editable section and contains a
+- [x] A revision request names exactly one editable stage and contains a
   clear, applicant-safe correction instruction.
-- [x] Multiple sections require separate revision requests so each issue can be
+- [x] Multiple stages require separate revision requests so each issue can be
   tracked and resolved.
 - [x] Issuing one or more requests changes the application to
   `REVISION_REQUIRED` and exposes the requests in the applicant workflow.
@@ -792,31 +822,38 @@ is no separate bank user or bank portal in this roadmap.
   recommended, or more information required.
 - [x] A recorded outcome includes the decision date, decision reference, and a
   safe summary.
-- [x] “More information required” creates section-specific revision requests and
+- [x] “More information required” creates stage-specific revision requests and
   returns the applicant to the normal revision flow.
-- [x] “Recommended” advances the application to TTM review.
-- [x] “Not recommended” also advances to TTM review; bank feedback is advisory
-  evidence and TTM records the programme decision and applicant-safe reason.
+- [x] “Recommended” advances the application to await a decision.
+- [x] “Not recommended” also advances to await a decision; bank feedback is
+  advisory evidence, and the programme decision records the outcome and
+  applicant-safe reason.
 - [x] Replacement bank outcomes remain additional history entries; an earlier
   outcome is never overwritten.
 
 ---
 
-## 14. TTM review and programme decision
+## 14. The programme decision
 
-- [x] Administrators can place applications with either positive or negative
-  bank feedback into a TTM meeting agenda identified by meeting reference and
-  date.
-- [x] The agenda shows the exact submission and bank outcome being considered.
-- [x] Each application receives one recorded meeting outcome: approved,
-  rejected, deferred, or revision required.
+- [x] An application with either positive or negative bank feedback waits in
+  `AWAITING_DECISION` and is decided directly by a holder of `DECIDE`. There is
+  no meeting to convene and no agenda to build. **This diverges from the TTAADC
+  source, which names a Tripartite Meeting** — see
+  [policy alignment](policy-alignment.md).
+- [x] The decision records the exact submission and bank outcome that were read,
+  so the file still shows what was in front of whoever decided it.
+- [x] Each application receives one recorded outcome per decision: approved,
+  rejected, or revision required. Decisions are numbered per application, so an
+  application sent back and decided again is numbered rather than overwritten.
 - [x] Approval records the approved amount, decision reference, decision date,
   conditions, and authorized actor.
 - [x] Rejection records a standard category and applicant-safe reason.
-- [x] Deferral records the next required programme action and does not pretend
-  the application is approved or rejected.
-- [x] Revision required uses the existing section-specific applicant revision
-  flow.
+- [x] Revision required uses the existing stage-specific applicant revision
+  flow, and every named stage must be one the application's own cycle declares.
+- [ ] Nothing records that applications were considered *as a set, in a stated
+  order*. The agenda's position was the only place that lived, and it went with
+  the meeting. Whether the programme needs it back is an open question, not a
+  regression to repair.
 - [x] A decision correction creates a superseding decision with a mandatory
   reason and identifies the administrator who made the correction; the original
   decision remains visible.
@@ -843,7 +880,9 @@ is no separate bank user or bank portal in this roadmap.
 - [x] The applicant can see sanction order, sanction date, sanctioned amount,
   award status, and applicant-safe conditions.
 - [ ] The applicant can download an official sanction letter generated or
-  uploaded by an administrator.
+  uploaded by an administrator. The sanction notice email now encloses a PDF of
+  the application with the sanctioned amount; an official letter, and a portal
+  download, remain open.
 - [x] Award creation changes the application to `SANCTIONED` and records an
   applicant-visible timeline event.
 
@@ -868,13 +907,13 @@ is no separate bank user or bank portal in this roadmap.
   `DISBURSED` and records an applicant-visible event.
 - [x] Later releases keep the status `DISBURSED` and add separate timeline
   items.
-- [x] Every release records its TTM approval reference/date, verified payment
+- [x] Every release records its approval reference/date, verified payment
   prerequisites, and actual payment in one transition.
 - [x] Every release creates its own utilization obligation due 180 UTC calendar
   days after that release.
 - [x] The applicant sees payment date, amount, safe reference, and whether an
   amount was reversed, with the reversal folded into the release it corrects.
-  TTM approval references, bank-account verification, performance agreements,
+  Release approval references, bank-account verification, performance agreements,
   and physical verification stay internal.
 - [x] Releasing more than the currently sanctioned amount requires an explicit
   corrected award amount before the release can be recorded.
@@ -931,14 +970,17 @@ record.
 - [ ] Provision a provider key for the deployed environment. The adapter exists
   and refuses rather than printing codes when the key is absent, so a deployed
   environment currently cannot send signup verification codes at all.
-- [ ] Send a submission acknowledgement containing the application reference and
-  submission number.
+- [x] Send a submission acknowledgement containing the application reference,
+  the cycle, and a PDF copy of the application as submitted. Best-effort after
+  the write, with a failure-only audit action.
 - [ ] Notify the applicant when a revision is requested, including the affected
-  sections and a portal link.
+  stages and a portal link.
 - [ ] Notify the applicant when a revision resubmission is accepted by the
   portal.
 - [ ] Notify the applicant of approval, rejection, sanction, suspension,
-  cancellation, and closure using only applicant-safe text.
+  cancellation, and closure using only applicant-safe text. Approval and
+  sanction now send, each with the amount and a PDF enclosure; rejection,
+  suspension, cancellation and closure do not yet.
 - [ ] Notify the applicant when a release or reversal is recorded.
 - [ ] Keep a communication history showing event type, destination, send time,
   and delivered/failed state without storing OTPs or document contents.
@@ -946,6 +988,9 @@ record.
   the underlying business action.
 - [ ] Respect future communication preferences for optional updates; security,
   decision, sanction, and payment notices remain mandatory.
+- [ ] Open emailed links through an in-app browser, and send only links whose
+  targets have passed malware scanning. Explicitly deferred by the product
+  owner on 2026-08-27.
 
 ---
 
@@ -955,22 +1000,26 @@ record.
   an enterprise name, or a cycle code, backed by an index rather than a table
   scan.
 - [x] State the limit honestly: it is a prefix match, and the interface says
-  "starts with" rather than "search". Full-text search is not available, because
-  the canonical schema is generated and compared byte-exact, which rules out an
-  FTS5 virtual table.
+  "starts with" rather than "search". Substring search is not available;
+  `pg_trgm` would serve it and is not yet enabled.
 - [x] Report a total alongside every paged list, so a page can say where it sits
   in the set and an empty result can distinguish "nothing matches these filters"
   from "nothing here yet".
-- [ ] Provide cycle-level counts for started drafts, submitted, under review,
-  revision required, approved, rejected, sanctioned, and disbursed applications.
+- [x] Provide counts of submitted applications in every status, filterable by
+  cycle — `admin.analytics.summary` groups the queue's own filtered set by
+  status, category, sector, district and cycle, with requested-amount totals
+  and a monthly series. Drafts are deliberately absent: the summary describes
+  the intake, and drafts are not in it.
 - [ ] Report unique applicants and enterprises separately so one person with two
   enterprises is not counted as two people.
 - [ ] Break down applications by category, sector, phase, gender, and
-  application outcome using only authorized programme views.
+  application outcome using only authorized programme views. Category, sector
+  and district are delivered in the analytics summary; phase, gender and
+  outcome views are not.
 - [ ] Report sanctioned amount, gross releases, reversals, and net disbursement
   without treating reversals as new payments.
 - [ ] Provide ageing reports showing time spent in each review stage.
-- [ ] Provide a revision report by section and reason category to identify
+- [ ] Provide a revision report by stage and reason category to identify
   common applicant difficulties.
 - [ ] Allow exports only to authorized administrators and record who exported,
   when, which filters were used, and the purpose.
@@ -1016,12 +1065,14 @@ complete.
 - [ ] Provision the approved provider's key. The console transport cannot be
   reached from a delivering environment, but nothing is sent without a key.
 - [x] Build a forward path for the schema. `database/schema.sql` is the whole
-  schema while nothing is deployed, and `db:schema:check` proves it parses and
-  re-applies to no effect. The path for afterwards is built and unused:
-  `database/migrations/` is empty, `scripts/migrate.mjs` applies ordered files
-  and records them in `core_schema_migration`, and the same check compares the
-  two routes from the first file added. Adding that file is what will exercise
-  it — until then the comparison is skipped rather than run against nothing.
+  schema while nothing is deployed, and `db:schema:check` proves it is exactly
+  what `src/db/schema` says. The path for afterwards is drizzle-kit's own:
+  there is deliberately **no chain**: `scripts/migrate.mjs` and the
+  `core_schema_migration` ledger were deleted with the engine that needed them,
+  and a generated migration directory went with them — neither checked nor
+  applied, it was a second copy of the schema that could only drift. The escape
+  hatch when a database finally has to be kept is `drizzle-kit generate
+  --custom`, and that is the day the chain begins.
 - [x] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits. One
   policy names which operations are limited and by how much, counted against
   the caller's address, their session, and the account being acted on; a
@@ -1033,10 +1084,17 @@ complete.
   a minute" — bulk abuse is stopped, a patient attacker trickling requests is
   not. A Durable Object counts any window; swapping to one changes a single
   transport file and the numbers in the policy.
-- [ ] Configure a real malware scanner. This is a **production** blocker rather
-  than a blanket one: the seam exists, and `local` and `develop` are usable
-  without it because they record plainly that nothing examined the file.
-- [ ] Complete administrator recovery procedures. Provisioning is delivered.
+- [ ] Offer a free self-hosted server option, so the programme can run without
+  a paid cloud account. Explicitly deferred by the product owner on
+  2026-08-27.
+- [ ] Provision the malware scanner's API key and enable it. This is a
+  **production** blocker rather than a blanket one: the transport is delivered,
+  and `local` and `develop` are usable without it because they record plainly
+  that nothing examined the file.
+- [x] Complete administrator recovery procedures. Password reset by emailed
+  code works for every account, a reset ends every session, and the manual
+  route for a lost sole `SUPER_ADMIN` is a documented runbook. The stronger
+  organizational-approval recovery in §9.2 remains open.
 - [ ] Approve applicant privacy notice, consent text, retention schedule, and
   grievance/contact process.
 - [ ] Define who may see application answers, documents, decisions, and reports
@@ -1088,6 +1146,17 @@ must be supplied before the affected feature can be completed.
 - [ ] **Applicant-visible reasons:** Programme owners must approve reason
   categories and safe message templates for revision, rejection, suspension,
   cancellation, and payment reversal before those actions are exposed.
+- [ ] **Who signs off the wording of the questions.** A programme officer now
+  owns the words on an applicant's screen: every label, every piece of help text
+  and every choice on the form is a cycle's own, not the software's. That is the
+  point of the change, and it moves an approval that used to happen implicitly —
+  through code review and a deploy — to somewhere nobody has named. Rewording is
+  a versioned cycle revision carrying a required reason, and is refused on an
+  open cycle, so the trail exists; what does not exist is a decision about whose
+  approval it needs.
+- [ ] **Who decides an application.** The portal has no Tripartite Meeting; see
+  [policy alignment](policy-alignment.md), where this is the one row that
+  diverges from the TTAADC source rather than interpreting it.
 
 ## Completion order
 
@@ -1096,7 +1165,8 @@ their prerequisites.
 
 1. Complete and harden programme-cycle administration and the current
    applicant-plus-administrator operational workflow.
-2. Complete intake, review, partner-bank, TTM, award, release, assessment, and
+2. Complete intake, review, partner-bank, decision, award, release, assessment,
+   and
    recovery scenario testing with programme staff.
 3. Complete administrator recovery before enabling the already implemented
    business workflow publicly. Administrator-only sign-in and role management
@@ -1124,4 +1194,6 @@ is a conservative safeguard. Publication/public launch remains blocked by:
 The omission of the ST certificate number is an intentional user-approved
 portal decision differing from the paper form; the certificate file remains
 mandatory. Bank roster publication uses governed cycle free text, and both
-positive and negative bank feedback proceed to TTM.
+positive and negative bank feedback go on to be decided. The portal has no
+Tripartite Meeting: an application that clears the bank stage is decided
+directly, which is a divergence from the source rather than a reading of it.

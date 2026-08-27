@@ -1,16 +1,22 @@
 /**
  * Index-backed prefix search.
  *
- * SQLite will not use an index for a case-insensitive `LIKE`, because `LIKE`
- * ignores case while a plain index is `BINARY`-collated. `GLOB` is
- * case-sensitive and binary, so lowering both the column and the term makes the
- * comparison case-insensitive *and* leaves it index-usable — which turns a full
- * table scan into a range seek on `lower(column)`.
+ * `lower(column) LIKE 'term%'` uses an index when that index is declared with
+ * `text_pattern_ops`. The default operator class sorts by the database
+ * collation, and a collated index cannot answer a pattern match — so without
+ * the opclass this is a sequential scan that still returns the right rows and
+ * nothing fails. The three search indexes in `src/db/schema` carry it, and
+ * proving the plan rather than assuming it is the standard here.
  *
- * Prefix only. That is a real limit and the interface says so: a control that
- * offers "search" and silently means "starts with" is a lie. Substring search
- * cannot use an index at all, and full text would need an FTS5 virtual table,
- * which the generated-schema check cannot carry.
+ * ## Prefix only, and now that is a choice
+ *
+ * It used to be a limitation: substring search could not use an index at all.
+ * Postgres has `pg_trgm`, so it can — a trigram index would serve
+ * `LIKE '%devi%'` and would genuinely help on a business name, where "Devi"
+ * sits inside "Sri Devi Handlooms". It is not enabled, so the interface must go
+ * on saying "starts with": a control that offers "search" and silently means
+ * something narrower is a lie, and that is as true when the narrowing is
+ * deliberate as when it was forced.
  */
 import { or, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
 
@@ -18,23 +24,41 @@ import { or, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
 const MAX_TERM = 64
 
 /**
- * Normalizes what somebody typed into a GLOB prefix pattern, or null when there
- * is nothing to search for.
+ * Normalizes what somebody typed into a prefix pattern, or null when there is
+ * nothing to search for.
  *
- * `*`, `?` and `[` are GLOB metacharacters, so a term containing them would
- * otherwise match far more than it appears to. They are escaped with GLOB's own
- * character-class form, which is the only escape it has.
+ * **`%`, `_` and `\` are `LIKE`'s metacharacters and every one must be
+ * escaped.** They are not the same set as the `*`, `?` and `[` this escaped
+ * when the search ran on `GLOB`, and carrying the old set across is the whole
+ * of the bug: `%` matches any run of characters, so a single unescaped `%` as
+ * the search term matches **every row in the table** — measured, against twenty
+ * thousand of them — inside a page whose count claims to describe the filter.
+ *
+ * `_` is the quieter half: it matches exactly one character, so a term
+ * containing it silently returns near-misses the applicant did not ask for.
+ *
+ * The backslash must be escaped first, or escaping the others would double-escape
+ * a backslash the person actually typed.
  */
 export const prefixPattern = (term: string | null | undefined): string | null => {
   const trimmed = term?.trim().slice(0, MAX_TERM).toLowerCase()
   if (!trimmed) return null
-  const escaped = trimmed.replaceAll(/[*?[]/gu, (character) => `[${character}]`)
-  return `${escaped}*`
+  const escaped = trimmed
+    .replaceAll('\\', '\\\\')
+    .replaceAll('%', '\\%')
+    .replaceAll('_', '\\_')
+  return `${escaped}%`
 }
 
-/** `lower(column) GLOB 'term*'`, for a column carrying a `lower()` index. */
+/**
+ * `lower(column) LIKE 'term%'`, for a column carrying a `text_pattern_ops` index.
+ *
+ * The escape character is stated explicitly. Postgres defaults to backslash,
+ * but only while `standard_conforming_strings` is on — naming it means the
+ * escaping above cannot be quietly undone by a server setting.
+ */
 export const prefixMatch = (column: SQLWrapper, pattern: string): SQL =>
-  sql`lower(${column}) GLOB ${pattern}`
+  sql`lower(${column}) LIKE ${pattern} ESCAPE '\\'`
 
 /**
  * True when any of the columns starts with the term.

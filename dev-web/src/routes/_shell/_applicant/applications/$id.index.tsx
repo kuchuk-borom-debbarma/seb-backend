@@ -13,34 +13,38 @@ import {
   FileCheck,
   FilePenLine,
   FileText,
-  HelpCircle,
   Landmark,
   Lock,
   Megaphone,
   Paperclip,
   PlayCircle,
+  Scale,
   Search,
   Sprout,
-  Users,
 } from 'lucide-react'
-import {
-  firstIncompleteStep,
-  type ApplicationJourneyStep,
-} from '#/features/application/ApplicationJourney'
-import { FORM_SECTIONS, SECTION_TITLES } from '#/features/application/draft'
+import { stageTitle } from '#/features/application/draft'
 import { cyclesQuery, statusGuideQuery } from '#/features/application/queries'
 import {
   applicationQuery,
-  validationQuery,
+  formTemplateQuery,
+  timelineQuery,
 } from '#/features/application/applicationQueries'
 import type { ApplicationStatus } from '#/graphql/generated/schema'
 import { formatDate, formatDateTime, humanize } from '#/lib/format'
 import styles from '#/features/application/ApplicationDetails.module.css'
 
+/*
+ * The overview is the index route beneath `$id`, not `$id` itself.
+ *
+ * In flat file routing a `$id.tsx` alongside `$id.form.tsx` becomes a layout
+ * wrapping the form, so the overview would have had to render an outlet and
+ * would have shown above every child screen. Naming it `.index` makes it a
+ * sibling instead, which is what it actually is.
+ */
 /** The statuses in which a sanction order can exist. */
 const FUNDED_STATUSES = new Set<string>(['SANCTIONED', 'DISBURSED'])
 
-/** 8 Stages in the Application Pipeline */
+/** The happy-path stages of the pipeline, in workflow order. */
 const PIPELINE_STAGES: Array<{
   status: ApplicationStatus
   number: number
@@ -73,15 +77,15 @@ const PIPELINE_STAGES: Array<{
     status: 'PARTNER_BANK_EVALUATION',
     number: 4,
     label: 'Bank',
-    description: 'Sent to partner bank for appraisal.',
+    description: 'Sent to a partner bank for appraisal.',
     icon: Landmark,
   },
   {
-    status: 'TTM_REVIEW',
+    status: 'AWAITING_DECISION',
     number: 5,
-    label: 'Committee',
-    description: 'Reviewed by the selection committee.',
-    icon: Users,
+    label: 'Decision',
+    description: 'Awaiting the programme’s funding decision.',
+    icon: Scale,
   },
   {
     status: 'APPROVED',
@@ -107,10 +111,11 @@ const PIPELINE_STAGES: Array<{
 ]
 
 export const Route = createFileRoute('/_shell/_applicant/applications/$id/')({
+  // All of these start together: one round of requests, no waterfall.
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(applicationQuery(params.id)),
-      context.queryClient.fetchQuery(validationQuery(params.id)),
+      context.queryClient.ensureQueryData(timelineQuery(params.id)),
       context.queryClient.ensureQueryData(statusGuideQuery),
       context.queryClient.ensureQueryData(cyclesQuery),
     ])
@@ -253,31 +258,46 @@ function HeroBannerArtwork() {
 function ApplicationPage() {
   const { id } = Route.useParams()
   const { data: application } = useQuery(applicationQuery(id))
-  const { data: validation } = useQuery(validationQuery(id))
+  const { data: timeline } = useQuery(timelineQuery(id))
   const { data: guide } = useQuery(statusGuideQuery)
   const { data: cycles } = useQuery(cyclesQuery)
+  const { data: template } = useQuery(formTemplateQuery(id))
 
-  if (!application || !guide || !validation) return null
+  if (!application || !guide) return null
 
   const openRevisions = application.revisionRequests.filter(
     (request) => request.resolvedAt === null && request.cancelledAt === null,
   )
 
+  /*
+   * An award exists only once the application has been sanctioned, and it
+   * survives everything after that. Before then the funding screen would have
+   * nothing to say, so it is not offered.
+   */
   const funded = FUNDED_STATUSES.has(application.status)
-  const editableFormSections = FORM_SECTIONS.filter((section) =>
-    application.editableSections.includes(section),
+
+  /*
+   * Named from the template where it is to hand, so an applicant reads the
+   * cycle's own heading rather than a key. The list itself is the API's: it
+   * derives it from the same rule the draft-save path enforces, so it can never
+   * invite an edit the write would refuse.
+   */
+  const editableStages = application.editableStageKeys
+
+  const guideEntry = guide.find((entry) => entry.status === application.status)
+  const cycleInfo = cycles?.mine.find(
+    (cycle) => cycle.id === application.programmeCycleId,
   )
-  const continuationStep =
-    application.status === 'REVISION_REQUIRED'
-      ? (editableFormSections[0] ?? 'REVIEW')
-      : firstIncompleteStep(validation.issues)
 
-  const guideEntry = guide.find((c) => c.status === application.status)
-  const cycleInfo = cycles?.mine?.find((c) => c.id === application.programmeCycleId)
-
+  // Revision required means the application is back on the reviewer's desk
+  // once corrected, so the rail holds at desk review. Rejected and cancelled
+  // applications match no pipeline stage; the hero carries the outcome.
   const railStatus =
     application.status === 'REVISION_REQUIRED' ? 'DESK_REVIEW' : application.status
-  const reachedIndex = PIPELINE_STAGES.findIndex((s) => s.status === railStatus)
+  const reachedIndex = PIPELINE_STAGES.findIndex(
+    (stage) => stage.status === railStatus,
+  )
+  const onTrack = reachedIndex >= 0 && application.status !== 'REVISION_REQUIRED'
 
   return (
     <main className="page">
@@ -287,10 +307,12 @@ function ApplicationPage() {
             <ArrowLeft size={16} aria-hidden="true" />
             Back to applications
           </Link>
-          <div className={styles.cycleBadge}>
-            <Calendar size={14} aria-hidden="true" />
-            {cycleInfo?.displayName ?? 'Mission SEP 2026'}
-          </div>
+          {cycleInfo ? (
+            <div className={styles.cycleBadge}>
+              <Calendar size={14} aria-hidden="true" />
+              {cycleInfo.displayName}
+            </div>
+          ) : null}
         </div>
 
         <div className={styles.headerRow}>
@@ -307,6 +329,9 @@ function ApplicationPage() {
           </div>
 
           <div className={styles.headerActions}>
+            {/* Offered only while something can actually be changed or sent.
+                Money is separate: it outlives editing, and appears the moment
+                a sanction order can exist. */}
             {funded ? (
               <Link
                 to="/applications/$id/funding"
@@ -316,12 +341,29 @@ function ApplicationPage() {
                 <Award size={15} aria-hidden="true" />
                 Funding
               </Link>
-            ) : application.editableSections.length > 0 ? (
-              <ContinueApplicationLink
-                id={id}
-                step={continuationStep}
-                revision={application.status === 'REVISION_REQUIRED'}
-              />
+            ) : editableStages.length > 0 ? (
+              <>
+                <Link
+                  to="/applications/$id/documents"
+                  params={{ id }}
+                  className="button"
+                >
+                  Evidence
+                </Link>
+                <Link to="/applications/$id/review" params={{ id }} className="button">
+                  Check and submit
+                </Link>
+                <Link
+                  to="/applications/$id/form"
+                  params={{ id }}
+                  className={styles.primaryCta}
+                >
+                  {application.status === 'REVISION_REQUIRED'
+                    ? 'Make the corrections'
+                    : 'Fill in the form'}
+                  <ArrowRight size={15} aria-hidden="true" />
+                </Link>
+              </>
             ) : null}
           </div>
         </div>
@@ -332,7 +374,7 @@ function ApplicationPage() {
         >
           <div className={styles.stepperTrack}>
             {PIPELINE_STAGES.map((stage, index) => {
-              const isDone = index < reachedIndex
+              const isDone = reachedIndex >= 0 && index < reachedIndex
               const isCurrent = index === reachedIndex
 
               return (
@@ -398,6 +440,10 @@ function ApplicationPage() {
           <HeroBannerArtwork />
         </section>
 
+        {/*
+          While revision is required, the requests are the most important thing
+          on the page: they are the exact work the applicant has to do.
+        */}
         {openRevisions.length > 0 ? (
           <div className="card">
             <div className="card-header">
@@ -406,7 +452,9 @@ function ApplicationPage() {
             <div className="card-body stack">
               {openRevisions.map((request) => (
                 <div key={request.id} className="notice" data-tone="action">
-                  <span className="notice-title">{SECTION_TITLES[request.section]}</span>
+                  <span className="notice-title">
+                    {stageTitle(request.stageKey, template?.stages)}
+                  </span>
                   {request.note}
                   <p
                     className="muted"
@@ -428,22 +476,26 @@ function ApplicationPage() {
                   <ClipboardList className={styles.cardIcon} aria-hidden="true" />
                   <h3 className={styles.cardTitle}>Application</h3>
                 </div>
-                <span className={styles.onTrackPill}>
-                  <Check size={12} strokeWidth={2.5} aria-hidden="true" />
-                  On track
-                </span>
+                {onTrack ? (
+                  <span className={styles.onTrackPill}>
+                    <Check size={12} strokeWidth={2.5} aria-hidden="true" />
+                    On track
+                  </span>
+                ) : null}
               </div>
 
               <div className={styles.detailList}>
                 <div className={styles.detailRow}>
                   <div className={styles.detailRowLeft}>
                     <div className={styles.detailIconBadge}>
-                      <Calendar aria-hidden="true" />
+                      <FileText aria-hidden="true" />
                     </div>
                     <span className={styles.detailLabel}>Reference number</span>
                   </div>
                   <span className={styles.detailValue}>
                     {application.referenceNumber ?? (
+                      // Set apart from a real reference: this is what will
+                      // happen, not a value anyone can quote.
                       <span className="muted">Issued at first submission</span>
                     )}
                   </span>
@@ -492,29 +544,14 @@ function ApplicationPage() {
                     <div className={styles.detailIconBadge}>
                       <Lock aria-hidden="true" />
                     </div>
-                    <span className={styles.detailLabel}>Sections you can edit</span>
+                    <span className={styles.detailLabel}>Stages you can edit</span>
                   </div>
                   <span className={styles.detailValue}>
-                    {editableFormSections.length === 0 ? (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        None — this application is read-only
-                        <HelpCircle
-                          size={13}
-                          style={{ color: '#9ca3af' }}
-                          aria-hidden="true"
-                        />
-                      </span>
-                    ) : (
-                      editableFormSections
-                        .map((section) => SECTION_TITLES[section])
-                        .join(', ')
-                    )}
+                    {editableStages.length === 0
+                      ? 'None — this application is read-only'
+                      : editableStages
+                          .map((stageKey) => stageTitle(stageKey, template?.stages))
+                          .join(', ')}
                   </span>
                 </div>
 
@@ -531,10 +568,63 @@ function ApplicationPage() {
                     className={styles.docsPill}
                   >
                     <FileText size={13} aria-hidden="true" />
-                    {application.documents.filter((doc) => !doc.deletedAt).length}
+                    {application.documents.filter((document) => !document.deletedAt)
+                      .length}
                   </Link>
                 </div>
               </div>
+            </div>
+
+            <div className={styles.card}>
+              <div className={styles.cardHeader}>
+                <div className={styles.cardTitleGroup}>
+                  <Clock className={styles.cardIcon} aria-hidden="true" />
+                  <h3 className={styles.cardTitle}>History</h3>
+                </div>
+              </div>
+              {timeline && timeline.length > 0 ? (
+                <div className={styles.tableWrap}>
+                  <table className={styles.table}>
+                    <caption className="visually-hidden">Application history</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col" className={styles.th}>
+                          When
+                        </th>
+                        <th scope="col" className={styles.th}>
+                          What happened
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {timeline.map((event) => (
+                        <tr key={event.id} className={styles.tr}>
+                          <td className={styles.td} style={{ whiteSpace: 'nowrap' }}>
+                            {formatDateTime(event.createdAt)}
+                          </td>
+                          <td className={styles.td}>
+                            <span style={{ fontWeight: 500 }}>
+                              {humanize(event.eventType)}
+                            </span>
+                            {event.message ? (
+                              <p className="muted" style={{ marginTop: '0.25rem' }}>
+                                {event.message}
+                              </p>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="empty">
+                  <p>
+                    Nothing has happened yet. Events appear here as your application
+                    moves.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className={styles.statusNotice}>
@@ -564,7 +654,7 @@ function ApplicationPage() {
                 {PIPELINE_STAGES.slice(1).map((stage, idx) => {
                   const stageIndex = idx + 1
                   const isCurrent = stageIndex === reachedIndex
-                  const isDone = stageIndex < reachedIndex
+                  const isDone = reachedIndex >= 0 && stageIndex < reachedIndex
                   const StageIcon = stage.icon
 
                   return (
@@ -579,7 +669,9 @@ function ApplicationPage() {
                           isDone || isCurrent ? styles.timelineNodeDone : ''
                         }`}
                       >
-                        {isDone || isCurrent ? <Check size={11} strokeWidth={3} /> : null}
+                        {isDone || isCurrent ? (
+                          <Check size={11} strokeWidth={3} />
+                        ) : null}
                       </div>
 
                       <div
@@ -608,49 +700,5 @@ function ApplicationPage() {
         </div>
       </div>
     </main>
-  )
-}
-
-/** One continuation action always lands at the first category that needs work. */
-function ContinueApplicationLink({
-  id,
-  step,
-  revision,
-}: {
-  id: string
-  step: ApplicationJourneyStep
-  revision: boolean
-}) {
-  const label = revision ? 'Make the corrections' : 'Continue application'
-  if (step === 'ATTACH_EVIDENCE') {
-    return (
-      <Link
-        to="/applications/$id/documents"
-        params={{ id }}
-        className={styles.primaryCta}
-      >
-        {label}
-        <ArrowRight size={15} aria-hidden="true" />
-      </Link>
-    )
-  }
-  if (step === 'REVIEW') {
-    return (
-      <Link to="/applications/$id/review" params={{ id }} className={styles.primaryCta}>
-        {label}
-        <ArrowRight size={15} aria-hidden="true" />
-      </Link>
-    )
-  }
-  return (
-    <Link
-      to="/applications/$id/form"
-      params={{ id }}
-      search={{ section: step }}
-      className={styles.primaryCta}
-    >
-      {label}
-      <ArrowRight size={15} aria-hidden="true" />
-    </Link>
   )
 }

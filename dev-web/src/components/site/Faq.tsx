@@ -17,7 +17,7 @@ const faqs = [
   },
   {
     q: 'What is the difference between Category A and Category B?',
-    a: 'Category A is for new startups and ventures up to 24 months old. Category B is for existing enterprises operating for over 24 months seeking scaling or expansion.',
+    a: 'Category A is for established enterprises operating for 24 months or more. Category B is for new startups and ventures under 24 months old.',
   },
   {
     q: 'Which documents are required?',

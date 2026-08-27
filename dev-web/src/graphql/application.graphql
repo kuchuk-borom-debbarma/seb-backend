@@ -54,14 +54,8 @@ query MyApplications(
         success
         message
         response {
-          nodes {
-            ...ApplicationSummaryFields
-          }
-          pageInfo {
-            endCursor
-            hasNextPage
-            totalCount
-          }
+          nodes { ...ApplicationSummaryFields }
+          pageInfo { endCursor hasNextPage totalCount }
         }
       }
     }
@@ -74,20 +68,12 @@ query ProgrammeCycles {
       availableProgrammeCycles {
         success
         message
-        response {
-          cycles {
-            ...CycleFields
-          }
-        }
+        response { cycles { ...CycleFields } }
       }
       myProgrammeCycles {
         success
         message
-        response {
-          cycles {
-            ...CycleFields
-          }
-        }
+        response { cycles { ...CycleFields } }
       }
     }
   }
@@ -100,13 +86,7 @@ query StatusGuide {
         success
         message
         response {
-          statuses {
-            status
-            label
-            explanation
-            nextActor
-            nextAction
-          }
+          statuses { status label explanation nextActor nextAction }
         }
       }
     }
@@ -126,11 +106,7 @@ query ExpansionEligibility($enterpriseId: ID!, $programmeCycleId: ID!) {
           eligible
           nextPhaseNumber
           eligibleAt
-          reasons {
-            code
-            message
-            obligationId
-          }
+          reasons { code message obligationId }
         }
       }
     }
@@ -145,9 +121,7 @@ mutation StartInitialApplication($enterpriseId: ID!, $programmeCycleId: ID!) {
       ) {
         success
         message
-        response {
-          id
-        }
+        response { id }
       }
     }
   }
@@ -161,9 +135,7 @@ mutation StartExpansionApplication($enterpriseId: ID!, $programmeCycleId: ID!) {
       ) {
         success
         message
-        response {
-          id
-        }
+        response { id }
       }
     }
   }
@@ -189,58 +161,18 @@ query ApplicationById($id: ID!) {
           createdAt
           updatedAt
           deletedAt
-          editableSections
+          editableStageKeys
+          answers
           snapshot {
             version
-            enterprise {
-              businessName
-              establishmentDate
-              registrationType
-              registrationNumber
-              gstin
-              businessSector
-              otherBusinessSector
-              applicationCategory
-              majorityOwnershipConfirmed
-            }
-            applicantProfile {
-              primaryApplicantName
-              designation
-              dateOfBirth
-              gender
-              businessBlockOrVillage
-              businessDistrict
-              businessPinCode
-              contactNumber
-              contactEmail
-            }
-            financial {
-              totalProjectCostPaise
-              seedFundRequestedPaise
-              bankLoanProposedPaise
-              promoterContributionPaise
-            }
-            priorFunding {
-              receivedGovernmentFunding
-              governmentSchemeName
-              governmentFundingAmountPaise
-              governmentFundingSanctionYear
-              hasExistingBankCredit
-              existingBankName
-              existingCreditAmountPaise
-              existingCreditStatus
-            }
-            documents {
-              nocRequired
-            }
-            priorSanctionOrderNumber
-            priorSanctionDate
-            priorNetDisbursedAmountPaise
-            continuousOperationMonths
+            programmeCycleVersion
+            declarationAcceptedAt
+            priorSanctionOrderNumber priorSanctionDate
+            priorNetDisbursedAmountPaise continuousOperationMonths
           }
           revisionRequests {
             id
-            section
+            stageKey
             note
             requestedAt
             resolvedAt
@@ -248,7 +180,7 @@ query ApplicationById($id: ID!) {
           }
           documents {
             id
-            documentType
+            fieldKey
             currentVersion
             originalFilename
             contentType
@@ -262,6 +194,50 @@ query ApplicationById($id: ID!) {
   }
 }
 
+fragment FormTemplateFields on FormTemplate {
+  programmeCycleId
+  programmeCycleVersion
+  stages { key title description iconName estimatedMinutes position }
+  fields {
+    key
+    stageKey
+    type
+    role
+    label
+    helpText
+    requirement
+    source
+    position
+    repeatGroupKey
+    groupDefinitionKey
+    options { value label position description iconName }
+    validation {
+      minLength maxLength pattern patternMessage
+      minValue maxValue minDate maxDate relativeDateBound
+      minRepeat maxRepeat maxFileBytes
+    }
+    presentation {
+      placeholder note tone widthHint prefixText suffixText
+      autocompleteHint showCharCount textareaRows choiceStyle
+    }
+    conditions {
+      effect groupNumber sequenceNumber sourceFieldKey operator comparisonValue
+    }
+  }
+}
+
+query ApplicationFormTemplate($applicationId: ID!) {
+  seb {
+    application {
+      formTemplate(applicationId: $applicationId) {
+        success
+        message
+        response { ...FormTemplateFields }
+      }
+    }
+  }
+}
+
 query ApplicationTimeline($applicationId: ID!, $first: Int) {
   seb {
     application {
@@ -269,20 +245,8 @@ query ApplicationTimeline($applicationId: ID!, $first: Int) {
         success
         message
         response {
-          nodes {
-            id
-            eventType
-            fromStatus
-            toStatus
-            section
-            message
-            createdAt
-          }
-          pageInfo {
-            endCursor
-            hasNextPage
-            totalCount
-          }
+          nodes { id eventType fromStatus toStatus stageKey message createdAt }
+          pageInfo { endCursor hasNextPage totalCount }
         }
       }
     }
@@ -295,12 +259,7 @@ mutation SaveApplicationDraft($input: SaveApplicationDraftInput!) {
       saveDraft(input: $input) {
         success
         message
-        response {
-          id
-          currentVersion
-          statusVersion
-          updatedAt
-        }
+        response { id currentVersion statusVersion updatedAt }
       }
     }
   }
@@ -314,12 +273,7 @@ query ValidateApplication($applicationId: ID!) {
         message
         response {
           valid
-          issues {
-            section
-            field
-            code
-            message
-          }
+          issues { stageKey field code message }
         }
       }
     }
@@ -332,10 +286,7 @@ query DraftChanges($applicationId: ID!) {
       draftChanges(applicationId: $applicationId) {
         success
         message
-        response {
-          sections
-          comparedToSubmissionNumber
-        }
+        response { stageKeys comparedToSubmissionNumber }
       }
     }
   }
@@ -347,13 +298,7 @@ mutation SubmitApplication($input: ApplicationVersionInput!) {
       submit(input: $input) {
         success
         message
-        response {
-          id
-          referenceNumber
-          status
-          statusVersion
-          currentVersion
-        }
+        response { id referenceNumber status statusVersion currentVersion }
       }
     }
   }
@@ -365,13 +310,7 @@ mutation ResubmitApplication($input: ApplicationVersionInput!) {
       resubmit(input: $input) {
         success
         message
-        response {
-          id
-          referenceNumber
-          status
-          statusVersion
-          currentVersion
-        }
+        response { id referenceNumber status statusVersion currentVersion }
       }
     }
   }
@@ -394,10 +333,7 @@ mutation IssueDocumentUpload($input: IssueDocumentUploadInput!) {
           uploadId
           uploadUrl
           expiresAt
-          requiredHeaders {
-            name
-            value
-          }
+          requiredHeaders { name value }
         }
       }
     }
@@ -410,10 +346,7 @@ mutation FinalizeDocumentUpload($uploadId: ID!) {
       finalizeDocumentUpload(uploadId: $uploadId) {
         success
         message
-        response {
-          documentId
-          version
-        }
+        response { documentId version }
       }
     }
   }
@@ -422,13 +355,7 @@ mutation FinalizeDocumentUpload($uploadId: ID!) {
 mutation SoftDeleteDocument($input: ApplicationDocumentVersionInput!) {
   seb {
     application {
-      softDeleteDocument(input: $input) {
-        success
-        message
-        response {
-          value
-        }
-      }
+      softDeleteDocument(input: $input) { success message response { value } }
     }
   }
 }
@@ -436,13 +363,7 @@ mutation SoftDeleteDocument($input: ApplicationDocumentVersionInput!) {
 mutation RestoreDocument($input: ApplicationDocumentVersionInput!) {
   seb {
     application {
-      restoreDocument(input: $input) {
-        success
-        message
-        response {
-          value
-        }
-      }
+      restoreDocument(input: $input) { success message response { value } }
     }
   }
 }
@@ -453,10 +374,7 @@ query DocumentDownloadUrl($documentId: ID!) {
       documentDownloadUrl(documentId: $documentId) {
         success
         message
-        response {
-          downloadUrl
-          expiresAt
-        }
+        response { downloadUrl expiresAt }
       }
     }
   }

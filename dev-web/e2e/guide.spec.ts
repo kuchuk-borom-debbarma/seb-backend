@@ -51,6 +51,9 @@ const collectSources = async (directory: string): Promise<string[]> => {
   return found.flat()
 }
 
+/** The cycle this file opened, so its applications start in that one. */
+let cycleCode = ''
+
 test.describe('the guide keeps its own promises', () => {
   /*
    * A step that marks an element nobody registered brackets nothing: the rail
@@ -85,11 +88,13 @@ test.describe('how this works', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
   })
 
-  test('is kept with the shared navigation utilities', async ({ page }) => {
-    await page.goto('/dashboard')
+  test('is offered from the portal navigation', async ({ page }) => {
+    // The redesign leads with the workspace links; the guide keeps its place
+    // in the rail rather than the top slot. The root is the public site now,
+    // so the portal is where the rail lives.
+    await page.goto('/admin')
     const navigation = page.getByRole('navigation', { name: 'Portal sections' })
-    const links = await navigation.getByRole('link').allInnerTexts()
-    expect(links.slice(-2)).toEqual(['How this works', 'Settings'])
+    await expect(navigation.getByRole('link', { name: 'How this works' })).toBeVisible()
   })
 
   test('draws the whole route, one stop per row, in order', async ({ page }) => {
@@ -355,7 +360,7 @@ test.describe('the first visit', () => {
 test.describe('a question that explains itself', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await openProgrammeCycle(page, { prefix: 'SEP-G' })
+    cycleCode = await openProgrammeCycle(page, { prefix: 'SEP-G' })
     await page.context().clearCookies()
   })
 
@@ -363,6 +368,7 @@ test.describe('a question that explains itself', () => {
     page,
   }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'guide',
       businessName: 'Guide Works',
     })
@@ -390,6 +396,7 @@ test.describe('a question that explains itself', () => {
 
   test('is offered only where a question genuinely surprises', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'guide',
       businessName: 'Guide Works',
     })
@@ -595,7 +602,6 @@ test.describe('the office reads its own words', () => {
       '/admin/queue',
       '/admin/cycles',
       '/admin/cycles/new',
-      '/admin/meetings',
       '/admin/access',
     ]) {
       await page.goto(path)
@@ -641,7 +647,7 @@ test.describe('the first visit', () => {
     await expect(page.getByText('First time in the programme office?')).toBeVisible()
     await page.getByRole('button', { name: 'Not now' }).click()
 
-    await page.goto('/dashboard')
+    await page.goto('/')
     await expect(page.getByText('First time here?')).toHaveCount(0)
     await page.goto('/admin')
     await expect(page.getByText('First time in the programme office?')).toHaveCount(0)

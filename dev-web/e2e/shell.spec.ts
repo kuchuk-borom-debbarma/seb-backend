@@ -17,7 +17,7 @@ test.describe('the signed-in shell', () => {
      * applicant sections are offered.
      */
     await expect(sidebar.getByText('Programme office', { exact: true })).toBeVisible()
-    await expect(sidebar.getByRole('link', { name: 'Dashboard' })).toBeVisible()
+    await expect(sidebar.getByRole('link', { name: 'Applications' })).toBeVisible()
     await expect(sidebar.getByRole('link', { name: 'Enterprises' })).toHaveCount(0)
     await expect(sidebar.getByRole('link', { name: 'Applicant portal' })).toHaveCount(0)
   })
@@ -29,10 +29,9 @@ test.describe('the signed-in shell', () => {
     await signUpApplicant(page, email)
     await signIn(page, email)
 
-    const sidebar = page.getByRole('navigation', { name: 'Portal sections' })
-    await expect(sidebar.getByText('Applicant', { exact: true })).toBeVisible()
-    await expect(sidebar.getByText('Programme officer')).toBeHidden()
-    await expect(sidebar.getByText('Super administrator')).toBeHidden()
+    await expect(page.getByText('Applicant', { exact: true })).toBeVisible()
+    await expect(page.getByText('Programme officer')).toBeHidden()
+    await expect(page.getByText('Super administrator')).toBeHidden()
   })
 
   /**
@@ -68,10 +67,15 @@ test.describe('the signed-in shell', () => {
 
   test('marks the current section', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL)
+    // The old sessions address forwards into settings, whose own nav marks
+    // the active tab.
     await page.goto('/account/sessions')
+    await expect(page).toHaveURL(/\/settings\/security$/u)
 
-    const current = page.getByRole('link', { name: 'Settings' })
-    await expect(current).toHaveAttribute('aria-current', 'page')
+    const current = page
+      .getByRole('navigation', { name: 'Settings sections' })
+      .getByRole('link', { name: 'Security' })
+    await expect(current).toHaveAttribute('data-status', 'active')
   })
 
   test('an unknown address shows the not-found page rather than an error', async ({
@@ -84,64 +88,81 @@ test.describe('the signed-in shell', () => {
 })
 
 test.describe('signed-in devices', () => {
+  /*
+   * An account of this file's own, never the shared founder.
+   *
+   * Both tests below end sessions — one "other devices", one "everywhere" — and
+   * revocation is account-wide. Run against `founder@example.com`, which every
+   * other spec signs in as, they would sign other tests out mid-flight. The
+   * session *counts* are wrong for the same reason: another spec's sign-in is
+   * another row.
+   */
+  let owner = ''
+  test.beforeEach(async ({ page }) => {
+    owner = uniqueEmail('devices')
+    await signUpApplicant(page, owner)
+  })
+
   test('lists this browser and can end other sessions', async ({ page, browser }) => {
-    await signIn(page, SUPER_ADMIN_EMAIL)
+    await signIn(page, owner)
 
     // A second browser context is a genuinely separate device holding its own
     // session, which is what makes "sign out other devices" meaningful.
     const second = await browser.newContext()
     const secondPage = await second.newPage()
-    await signIn(secondPage, SUPER_ADMIN_EMAIL)
+    await signIn(secondPage, owner)
 
     await page.goto('/account/sessions')
     await expect(page.getByText('This device')).toBeVisible()
 
-    // The suite shares one database, so earlier tests leave sessions behind and
-    // an absolute starting count would be meaningless. What is deterministic is
-    // the state afterwards: revoking the others leaves exactly this one.
-    const before = await page.getByRole('row').count()
-    expect(before).toBeGreaterThan(2) // header + this device + at least one other
+    // This account is created by this test's own `beforeEach`, so its session
+    // list is exactly what this test made: the two contexts above, and nothing
+    // another file left behind. That is worth asserting exactly — a loose
+    // `toBeGreaterThan` would still pass if the second sign-in had silently
+    // failed to register a device, which is the thing being set up here.
+    await expect(page.getByRole('row')).toHaveCount(3) // header + both devices
 
     await page.getByRole('button', { name: 'Sign out other devices' }).click()
     await expect(page.getByRole('row')).toHaveCount(2) // header + this device
 
-    // The other device is genuinely signed out, not just hidden from the list.
-    await secondPage.goto('/dashboard')
+    // The other device is genuinely signed out, not just hidden from the
+    // list. The root is public now, so a portal route is what proves it.
+    await secondPage.goto('/applications')
     await expect(secondPage).toHaveURL(/\/login/u)
     await second.close()
   })
 
   test('signing out everywhere ends this session too', async ({ page }) => {
-    await signIn(page, SUPER_ADMIN_EMAIL)
+    await signIn(page, owner)
     await page.goto('/account/sessions')
 
     await page.getByRole('button', { name: 'Sign out everywhere' }).click()
-    await expect(page).toHaveURL('/')
+    // Ending every session lands on the public site.
+    await page.waitForURL((url) => url.pathname === '/')
 
-    await page.goto('/dashboard')
-    await expect(page).toHaveURL('/login?next=%2Fdashboard')
+    await page.goto('/applications')
+    await expect(page).toHaveURL('/login?next=%2Fapplications')
   })
 })
 
 test.describe('on a narrow screen', () => {
   test.use({ viewport: { width: 360, height: 900 } })
 
-  test('the navigation becomes a drawer and the page never scrolls sideways', async ({
+  test('the navigation becomes a bar and the page never scrolls sideways', async ({
     page,
   }) => {
     await signIn(page, SUPER_ADMIN_EMAIL)
     await page.goto('/admin')
 
-    // The links remain in the same order, but stay outside the viewport until
-    // the compact header opens the drawer.
+    // The links are still there, in the same order, laid out across the top
+    // rather than down the side.
     const navigation = page.getByRole('navigation', { name: 'Portal sections' })
-    await expect(navigation).toBeHidden()
-    await page.getByRole('button', { name: 'Open navigation' }).click()
     await expect(navigation).toBeVisible()
-    await expect(navigation.getByRole('link', { name: 'Dashboard' })).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(navigation).toBeHidden()
-    await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused()
+    await expect(navigation.getByRole('link', { name: 'Applications' })).toBeVisible()
+
+    // The bar takes its content height, not a share of the viewport.
+    const bar = await navigation.boundingBox()
+    expect(bar?.height ?? 0).toBeLessThan(220)
 
     // Wide content scrolls inside its own container; the body does not.
     const overflow = await page.evaluate(
@@ -152,7 +173,9 @@ test.describe('on a narrow screen', () => {
 
   test('a table scrolls inside its wrapper rather than collapsing', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL)
-    await page.goto('/admin')
+    // The settings device list keeps the shared `.table-wrap` idiom; the
+    // redesigned admin dashboard wraps its table in its own module class.
+    await page.goto('/settings/security')
 
     const wrapper = page.locator('.table-wrap').first()
     const scrollable = await wrapper.evaluate(
@@ -163,7 +186,7 @@ test.describe('on a narrow screen', () => {
 })
 
 test.describe('by keyboard alone', () => {
-  test('every control on the login screen is reachable and visibly focused', async ({
+  test('every control on the sign-in screen is reachable and visibly focused', async ({
     page,
   }) => {
     await page.goto('/login')
@@ -181,7 +204,7 @@ test.describe('by keyboard alone', () => {
       if (here) reached.push(here)
     }
 
-    // Role controls, email, password, the submit button and signup control at least.
+    // Email, password, the submit button and the sign-up link at least.
     expect(reached.length).toBeGreaterThanOrEqual(4)
     // Nothing lands with no ring at all.
     expect(reached.every((entry) => !entry.endsWith(':0px'))).toBe(true)

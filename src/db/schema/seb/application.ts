@@ -9,16 +9,18 @@
  */
 import { sql } from 'drizzle-orm'
 import {
+  boolean,
   check,
   foreignKey,
   index,
   integer,
-  sqliteTable,
+  pgTable,
   text,
+  unique,
   uniqueIndex,
-} from 'drizzle-orm/sqlite-core'
+} from 'drizzle-orm/pg-core'
 import { coreUser } from '../core/auth'
-import { versionedSoftDeleteColumns } from '../shared'
+import { dateOnly, instant, paise, versionedSoftDeleteColumns } from '../shared'
 import { sebFundingCase } from './case'
 import {
   businessSectors,
@@ -33,7 +35,7 @@ export const applicationStatuses = [
   'DESK_REVIEW',
   'REVISION_REQUIRED',
   'PARTNER_BANK_EVALUATION',
-  'TTM_REVIEW',
+  'AWAITING_DECISION',
   'APPROVED',
   'REJECTED',
   'SANCTIONED',
@@ -50,17 +52,21 @@ export const applicationChangeTypes = [
 ] as const
 export const applicationTypes = ['INITIAL', 'EXPANSION'] as const
 export const applicationCategories = ['CATEGORY_A', 'CATEGORY_B'] as const
-export const applicantDesignations = [
-  'PROPRIETOR',
-  'MANAGING_PARTNER',
-  'DIRECTOR',
-  'AUTHORIZED_SIGNATORY',
-] as const
-export const genders = ['MALE', 'FEMALE', 'OTHER'] as const
-export const creditStatuses = ['STANDARD', 'NPA'] as const
+/*
+ * There were four more closed sets here — designations, genders, credit
+ * statuses and relationships. They named answers the *old fixed form* asked,
+ * and they backed no column once the answers became rows: what a cycle asks,
+ * and which values it offers, is the cycle's decision and lives in its own
+ * template. A cycle that wants any of them declares a `SINGLE_CHOICE` question
+ * and enumerates them.
+ *
+ * `applicationCategories` above stays because it is role-bound — the
+ * assessment window and the queue filter read it across many cycles at once,
+ * which is precisely what a role exists for.
+ */
 
 /** Stable application identity and the indexed head of its current state. */
-export const sebApplication = sqliteTable(
+export const sebApplication = pgTable(
   'seb_application',
   {
     id: text('id').primaryKey(),
@@ -78,15 +84,15 @@ export const sebApplication = sqliteTable(
     ...versionedSoftDeleteColumns(() => coreUser.id),
     status: text('status', { enum: applicationStatuses }).notNull().default('DRAFT'),
     statusVersion: integer('status_version').notNull().default(1),
-    statusChangedAt: integer('status_changed_at', { mode: 'timestamp_ms' }).notNull(),
+    statusChangedAt: instant('status_changed_at').notNull(),
     // Assignment is duplicated on the head for fast work queues. Immutable
     // assignment events retain how and why the pointer changed.
     assignedToUserId: text('assigned_to_user_id').references(() => coreUser.id, {
       onDelete: 'restrict',
     }),
-    assignedAt: integer('assigned_at', { mode: 'timestamp_ms' }),
+    assignedAt: instant('assigned_at'),
     assignmentVersion: integer('assignment_version').notNull().default(0),
-    firstSubmittedAt: integer('first_submitted_at', { mode: 'timestamp_ms' }),
+    firstSubmittedAt: instant('first_submitted_at'),
   },
   (table) => [
     // The two composite keys make ownership and case membership database
@@ -103,9 +109,9 @@ export const sebApplication = sqliteTable(
     }).onDelete('restrict'),
     // Application versions repeat the cycle ID so they can bind to both this
     // application and the exact immutable policy-cycle version.
-    uniqueIndex('seb_application_id_cycle_uq').on(table.id, table.programmeCycleId),
-    uniqueIndex('seb_application_case_id_uq').on(table.fundingCaseId, table.id),
-    uniqueIndex('seb_application_owner_id_uq').on(table.applicantUserId, table.id),
+    unique('seb_application_id_cycle_uq').on(table.id, table.programmeCycleId),
+    unique('seb_application_case_id_uq').on(table.fundingCaseId, table.id),
+    unique('seb_application_owner_id_uq').on(table.applicantUserId, table.id),
     // A phase may be retried in a later cycle, but duplicate attempts inside
     // the same policy window are always a client or concurrency error.
     uniqueIndex('seb_application_case_cycle_phase_uq').on(
@@ -123,7 +129,7 @@ export const sebApplication = sqliteTable(
     ),
     check(
       'seb_application_status_check',
-      sql`${table.status} IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'TTM_REVIEW', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED')`,
+      sql`${table.status} IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'AWAITING_DECISION', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED')`,
     ),
     check(
       'seb_application_type_check',
@@ -134,23 +140,32 @@ export const sebApplication = sqliteTable(
       sql`(${table.applicationType} = 'INITIAL' AND ${table.phaseNumber} = 1)
         OR (${table.applicationType} = 'EXPANSION' AND ${table.phaseNumber} >= 2)`,
     ),
-    index('seb_application_owner_idx').on(
-      table.applicantUserId,
-      table.deletedAt,
-      table.updatedAt,
-    ),
-    index('seb_application_enterprise_idx').on(
-      table.enterpriseId,
-      table.deletedAt,
-      table.updatedAt,
-    ),
+    /*
+     * Deletion is a predicate, not a key column.
+     *
+     * Every list below reads live rows and says so with a literal
+     * `deleted_at IS NULL`, so indexing the deleted ones costs writes and cache
+     * for rows no query wants. As a partial index the entry simply does not
+     * exist for them.
+     *
+     * **The planner only uses a partial index when it can prove the
+     * predicate.** Dropping the `IS NULL` term from a query — or writing it as
+     * `IS NOT DISTINCT FROM NULL` — silently falls back to a sequential scan.
+     * That is slower rather than wrong, so nothing fails and nobody notices.
+     */
+    index('seb_application_owner_idx')
+      .on(table.applicantUserId, table.updatedAt)
+      .where(sql`${table.deletedAt} IS NULL`),
+    index('seb_application_enterprise_idx')
+      .on(table.enterpriseId, table.updatedAt)
+      .where(sql`${table.deletedAt} IS NULL`),
     index('seb_application_case_phase_idx').on(table.fundingCaseId, table.phaseNumber),
-    index('seb_application_cycle_idx').on(
-      table.programmeCycleId,
-      table.deletedAt,
-      table.updatedAt,
-    ),
-    index('seb_application_status_idx').on(table.status, table.deletedAt, table.updatedAt),
+    index('seb_application_cycle_idx')
+      .on(table.programmeCycleId, table.updatedAt)
+      .where(sql`${table.deletedAt} IS NULL`),
+    index('seb_application_status_idx')
+      .on(table.status, table.updatedAt)
+      .where(sql`${table.deletedAt} IS NULL`),
     index('seb_application_assignment_idx').on(
       table.assignedToUserId,
       table.status,
@@ -162,10 +177,27 @@ export const sebApplication = sqliteTable(
      * the queue does not filter on, so without these two the default console
      * view was a full table scan and a full sort on every page.
      */
-    index('seb_application_intake_waiting_idx').on(table.deletedAt, table.statusChangedAt),
-    index('seb_application_intake_activity_idx').on(table.deletedAt, table.updatedAt),
-    /* Prefix search on the reference number an applicant quotes. */
-    index('seb_application_reference_search_idx').on(sql`lower(${table.referenceNumber})`),
+    index('seb_application_intake_waiting_idx')
+      .on(table.statusChangedAt)
+      .where(sql`${table.deletedAt} IS NULL`),
+    index('seb_application_intake_activity_idx')
+      .on(table.updatedAt)
+      .where(sql`${table.deletedAt} IS NULL`),
+    /*
+     * Prefix search on the reference number an applicant quotes.
+     *
+     * `text_pattern_ops` is what makes `LIKE 'sep-2026%'` use this index. The
+     * default opclass sorts by the database collation, and a collated index
+     * cannot answer a pattern match — without the opclass this is a sequential
+     * scan that still returns the right rows, so nothing fails.
+     *
+     * The cost is that this index answers prefix matches and equality only: an
+     * ordering or a range over the same expression cannot use it. That is what
+     * it is for, and no query orders by a lowercased reference number.
+     */
+    index('seb_application_reference_search_idx').on(
+      sql`lower(${table.referenceNumber}) text_pattern_ops`,
+    ),
     index('seb_application_cycle_status_idx').on(
       table.programmeCycleId,
       table.status,
@@ -175,11 +207,31 @@ export const sebApplication = sqliteTable(
 )
 
 /**
- * Complete immutable snapshots of the seven-section application form.
- * Form fields are nullable while an application is a draft; submission-time
- * completeness and conditional rules belong to the future application service.
+ * One immutable snapshot of the form, and the facts the server owns about it.
+ *
+ * **The answers are not here.** They live one row each in
+ * `seb_application_version_answer`, keyed to the field the cycle's template
+ * declared, because which questions exist is a cycle's decision and no longer
+ * the schema's. What stays are the pins that make a snapshot readable — the
+ * exact cycle version it was filled against — and the small set of values an
+ * applicant must never be able to assert.
+ *
+ * ## Why the expansion facts are columns and not answers
+ *
+ * `priorSanctionOrderNumber`, `priorSanctionDate`, `priorNetDisbursedAmountPaise`
+ * and `continuousOperationMonths` are derived by the server from the qualifying
+ * award and the disbursement ledger, and are re-checked against live aggregates
+ * inside the guarded write. As answer rows the only thing preventing an
+ * applicant claiming a ten-crore prior sanction would be the engine remembering
+ * to strip four keys on every path — a boundary maintained by vigilance rather
+ * than by structure. A column the answer path cannot write is the boundary.
+ *
+ * `declarationAcceptedAt` is here for a related reason: the server re-stamps it
+ * on every submission, so as an answer it would be both applicant-writable and
+ * different on every save, making every submission differ from the draft it
+ * came from and breaking both the no-op check and the change diff.
  */
-export const sebApplicationVersion = sqliteTable(
+export const sebApplicationVersion = pgTable(
   'seb_application_version',
   {
     id: text('id').primaryKey(),
@@ -197,61 +249,40 @@ export const sebApplicationVersion = sqliteTable(
     changedByUserId: text('changed_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
 
-    // Section 1: enterprise and registration details.
-    businessName: text('business_name'),
-    establishmentDate: text('establishment_date'),
-    registrationType: text('registration_type', { enum: registrationTypes }),
-    registrationNumber: text('registration_number'),
-    gstin: text('gstin'),
-    businessSector: text('business_sector', { enum: businessSectors }),
-    otherBusinessSector: text('other_business_sector'),
-    applicationCategory: text('application_category', { enum: applicationCategories }),
-    majorityOwnershipConfirmed: integer('majority_ownership_confirmed', { mode: 'boolean' }),
-
-    // Section 2: applicant/promoter contact profile. The ST certificate number
-    // is deliberately absent; eligibility evidence is supplied as a document.
-    primaryApplicantName: text('primary_applicant_name'),
-    designation: text('designation', { enum: applicantDesignations }),
-    dateOfBirth: text('date_of_birth'),
-    gender: text('gender', { enum: genders }),
-    businessBlockOrVillage: text('business_block_or_village'),
-    businessDistrict: text('business_district'),
-    businessPinCode: text('business_pin_code'),
-    contactNumber: text('contact_number'),
-    contactEmail: text('contact_email'),
-
-    // Section 3: all currency is stored as integer paise.
-    totalProjectCostPaise: integer('total_project_cost_paise'),
-    seedFundRequestedPaise: integer('seed_fund_requested_paise'),
-    bankLoanProposedPaise: integer('bank_loan_proposed_paise'),
-    promoterContributionPaise: integer('promoter_contribution_paise'),
-
-    // Section 4: previous grants and commercial credit.
-    receivedGovernmentFunding: integer('received_government_funding', { mode: 'boolean' }),
-    governmentSchemeName: text('government_scheme_name'),
-    governmentFundingAmountPaise: integer('government_funding_amount_paise'),
-    governmentFundingSanctionYear: integer('government_funding_sanction_year'),
-    hasExistingBankCredit: integer('has_existing_bank_credit', { mode: 'boolean' }),
-    existingBankName: text('existing_bank_name'),
-    existingCreditAmountPaise: integer('existing_credit_amount_paise'),
-    existingCreditStatus: text('existing_credit_status', { enum: creditStatuses }),
-
-    // Section 5: server-derived prior-award facts copied into the immutable
-    // snapshot. Applicants cannot override the linked award or ledger totals.
+    // Server-derived prior-award facts. See the header for why these are not
+    // answers; the write re-checks them against the live ledger.
     priorSanctionOrderNumber: text('prior_sanction_order_number'),
-    priorSanctionDate: text('prior_sanction_date'),
-    priorNetDisbursedAmountPaise: integer('prior_net_disbursed_amount_paise'),
+    priorSanctionDate: dateOnly('prior_sanction_date'),
+    priorNetDisbursedAmountPaise: paise('prior_net_disbursed_amount_paise'),
     continuousOperationMonths: integer('continuous_operation_months'),
 
-    // Section 6: the form says "NOC, if applicable". Keeping the applicant's
-    // applicability declaration in the snapshot makes the document rule
-    // deterministic when an old submission is reviewed.
-    nocRequired: integer('noc_required', { mode: 'boolean' }),
+    // Stamped by the server on submission, never sent by the applicant.
+    declarationAcceptedAt: instant('declaration_accepted_at'),
 
+    /*
+     * Computed by the server at submission from the enterprise's establishment
+     * date and the cycle's `category_a_maximum_months` — CATEGORY_A for an
+     * enterprise trading at least that long, CATEGORY_B otherwise. A column
+     * rather than an answer because an applicant must not be able to assert
+     * it, and a column rather than a live read because the sorting must not
+     * drift when the enterprise is later edited: it is part of the legal
+     * snapshot, like everything else on this row. Null on drafts, and on
+     * cycles that set no threshold.
+     */
+    applicationCategory: text('application_category', {
+      enum: ['CATEGORY_A', 'CATEGORY_B'],
+    }),
   },
   (table) => [
+    // Written out because `text(col, { enum })` emits no constraint at all —
+    // the rule every closed set in this schema keeps.
+    check(
+      'seb_application_version_category_check',
+      sql`${table.applicationCategory} IS NULL
+        OR ${table.applicationCategory} IN ('CATEGORY_A', 'CATEGORY_B')`,
+    ),
     foreignKey({
       columns: [table.applicationId, table.programmeCycleId],
       foreignColumns: [sebApplication.id, sebApplication.programmeCycleId],
@@ -265,7 +296,7 @@ export const sebApplicationVersion = sqliteTable(
       ],
       name: 'seb_application_version_programme_cycle_version_fk',
     }).onDelete('restrict'),
-    uniqueIndex('seb_application_version_number_uq').on(table.applicationId, table.version),
+    unique('seb_application_version_number_uq').on(table.applicationId, table.version),
     check('seb_application_version_number_check', sql`${table.version} >= 1`),
     check(
       'seb_application_version_type_check',
@@ -280,66 +311,41 @@ export const sebApplicationVersion = sqliteTable(
       'seb_application_version_change_type_check',
       sql`${table.changeType} IN ('INITIAL', 'SAVE', 'REVISION', 'SUBMISSION', 'RESUBMISSION')`,
     ),
-    check(
-      'seb_application_version_registration_type_check',
-      sql`${table.registrationType} IS NULL OR ${table.registrationType} IN ('NONE', 'CIN', 'UDYAM')`,
+    /*
+     * The target the answer rows key on.
+     *
+     * `id` alone is already unique, so this adds nothing about the version —
+     * it exists so an answer can prove, in SQL, that the cycle version it names
+     * is the one its own snapshot pinned. Without it those two columns on the
+     * answer row are a free-floating copy that could name a different version
+     * than the form was filled on, which is exactly what freezing prevents.
+     */
+    unique('seb_application_version_cycle_pin_uq').on(
+      table.id,
+      table.programmeCycleId,
+      table.programmeCycleVersion,
     ),
     check(
-      'seb_application_version_sector_check',
-      sql`${table.businessSector} IS NULL OR ${table.businessSector} IN ('AGRICULTURE_AND_ALLIED', 'HANDLOOM_TEXTILE_AND_HANDICRAFTS', 'FOOD_PROCESSING', 'TOURISM_AND_HOSPITALITY', 'INFORMATION_TECHNOLOGY', 'MANUFACTURING_AND_SERVICES', 'OTHER')`,
+      'seb_application_version_prior_award_check',
+      sql`(${table.priorNetDisbursedAmountPaise} IS NULL
+          OR (${table.priorNetDisbursedAmountPaise} >= 0
+              AND ${table.priorNetDisbursedAmountPaise} <= 9007199254740991))
+        AND (${table.continuousOperationMonths} IS NULL OR ${table.continuousOperationMonths} >= 0)`,
     ),
-    check(
-      'seb_application_version_category_check',
-      sql`${table.applicationCategory} IS NULL OR ${table.applicationCategory} IN ('CATEGORY_A', 'CATEGORY_B')`,
-    ),
-    check(
-      'seb_application_version_designation_check',
-      sql`${table.designation} IS NULL OR ${table.designation} IN ('PROPRIETOR', 'MANAGING_PARTNER', 'DIRECTOR', 'AUTHORIZED_SIGNATORY')`,
-    ),
-    check(
-      'seb_application_version_gender_check',
-      sql`${table.gender} IS NULL OR ${table.gender} IN ('MALE', 'FEMALE', 'OTHER')`,
-    ),
-    check(
-      'seb_application_version_credit_status_check',
-      sql`${table.existingCreditStatus} IS NULL OR ${table.existingCreditStatus} IN ('STANDARD', 'NPA')`,
-    ),
-    check(
-      'seb_application_version_district_check',
-      sql`${table.businessDistrict} IS NULL OR ${table.businessDistrict} IN ('Dhalai', 'Gomati', 'Khowai', 'North Tripura', 'Sepahijala', 'South Tripura', 'Unakoti', 'West Tripura')`,
-    ),
-    check(
-      'seb_application_version_support_year_check',
-      sql`${table.governmentFundingSanctionYear} IS NULL OR ${table.governmentFundingSanctionYear} BETWEEN 1900 AND 2026`,
-    ),
-    check(
-      'seb_application_version_money_check',
-      sql`(${table.totalProjectCostPaise} IS NULL OR ${table.totalProjectCostPaise} >= 0)
-        AND (${table.seedFundRequestedPaise} IS NULL OR ${table.seedFundRequestedPaise} >= 0)
-        AND (${table.bankLoanProposedPaise} IS NULL OR ${table.bankLoanProposedPaise} >= 0)
-        AND (${table.promoterContributionPaise} IS NULL OR ${table.promoterContributionPaise} >= 0)
-        AND (${table.governmentFundingAmountPaise} IS NULL OR ${table.governmentFundingAmountPaise} >= 0)
-        AND (${table.existingCreditAmountPaise} IS NULL OR ${table.existingCreditAmountPaise} >= 0)
-        AND (${table.priorNetDisbursedAmountPaise} IS NULL OR ${table.priorNetDisbursedAmountPaise} >= 0)`,
-    ),
-    // SQLite has no native Boolean storage class. These checks prevent values
-    // such as 2 or -1 from being silently decoded by Drizzle as `true`.
-    check(
-      'seb_application_version_boolean_check',
-      sql`(${table.majorityOwnershipConfirmed} IS NULL OR ${table.majorityOwnershipConfirmed} IN (0, 1))
-        AND (${table.receivedGovernmentFunding} IS NULL OR ${table.receivedGovernmentFunding} IN (0, 1))
-        AND (${table.hasExistingBankCredit} IS NULL OR ${table.hasExistingBankCredit} IN (0, 1))
-        AND (${table.nocRequired} IS NULL OR ${table.nocRequired} IN (0, 1))`,
-    ),
-    check(
-      'seb_application_version_operation_months_check',
-      sql`${table.continuousOperationMonths} IS NULL OR ${table.continuousOperationMonths} >= 0`,
-    ),
+    /*
+     * The queue's category filter and the analytics category grouping both
+     * read this column on the frozen submitted version. Partial, because every
+     * draft save writes a row with a NULL category — indexing those would
+     * grow the index with entries no filter can ever match.
+     */
+    index('seb_application_version_category_idx')
+      .on(table.applicationCategory)
+      .where(sql`${table.applicationCategory} IS NOT NULL`),
   ],
 )
 
 /** One immutable record for every formal submission or resubmission. */
-export const sebApplicationSubmission = sqliteTable(
+export const sebApplicationSubmission = pgTable(
   'seb_application_submission',
   {
     id: text('id').primaryKey(),
@@ -351,7 +357,7 @@ export const sebApplicationSubmission = sqliteTable(
     submittedByUserId: text('submitted_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    submittedAt: integer('submitted_at', { mode: 'timestamp_ms' }).notNull(),
+    submittedAt: instant('submitted_at').notNull(),
   },
   (table) => [
     uniqueIndex('seb_application_submission_number_uq').on(
@@ -367,7 +373,7 @@ export const sebApplicationSubmission = sqliteTable(
     /* The NEWEST_SUBMISSION ordering and the submitted-between filters both
        seek on this column, which no index reached. */
     index('seb_application_submission_submitted_idx').on(table.submittedAt),
-    uniqueIndex('seb_application_submission_application_id_uq').on(
+    unique('seb_application_submission_application_id_uq').on(
       table.applicationId,
       table.id,
     ),

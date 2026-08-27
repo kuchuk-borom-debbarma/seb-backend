@@ -1,43 +1,28 @@
+import type { CyclePolicy } from './form/types'
 /**
- * Pure application-form normalization and validation.
+ * The rules that are still the software's rather than a cycle's.
  *
- * Keeping policy rules free of D1/R2 calls makes boundary behavior explicit
- * and lets both the validation query and submission mutation use exactly the
- * same rules.
+ * Everything about the *application form* moved to `form/`, where the template
+ * says what the questions are. What is left is the enterprise profile — a fixed
+ * record the portal owns, not a cycle's questionnaire — and the calendar
+ * arithmetic the twelve-month expansion rule needs, which is shared rather than
+ * duplicated because two implementations of "how many whole months" would
+ * disagree at a month boundary.
+ *
+ * Pure: no database, no storage. That is what lets the validating read and the
+ * submitting write apply the identical rule.
  */
-import {
-  applicationCategories,
-  applicantDesignations,
-  businessSectors,
-  creditStatuses,
-  genders,
-  registrationTypes,
-  tripuraDistricts,
-} from '../../db/schema'
-import type {
-  ApplicationDraftInput,
-  ApplicationSection,
-  ApplicationSnapshot,
-  DocumentType,
-  ValidationIssue,
-  ValidationReport,
-  EnterpriseProfileInput,
-  SuppliedEnterpriseProfile,
-} from './types'
+import { businessSectors, registrationTypes, tripuraDistricts } from '../../db/schema'
+import type { EnterpriseProfileInput, SuppliedEnterpriseProfile } from './types'
 
-export type SubmissionPolicy = {
-  minimumApplicantAge: number
-  maximumApplicantAge: number
-  categoryAMaximumMonths: number
-  majorityOwnershipRequired: boolean
-  fundingCeilingState: 'UNRESOLVED' | 'RESOLVED'
-  fundingCeilingAmountPaise: number | null
-  fundingCeilingScope: 'APPLICATION' | 'PHASE' | 'ENTERPRISE' | 'FUNDING_CASE' | null
-  documentRules: Array<{
-    documentType: DocumentType
-    condition: 'ALWAYS' | 'WHEN_REGISTERED' | 'WHEN_GSTIN_PRESENT' | 'WHEN_NOC_REQUIRED' | 'OPTIONAL'
-  }>
-}
+/**
+ * The cycle scalars a submission is judged by.
+ *
+ * One name for one thing: the form engine calls it `CyclePolicy`, this is the
+ * name the rest of the service already used, and two definitions of the same
+ * record is exactly the duplication the envelope was extracted to avoid.
+ */
+export type SubmissionPolicy = CyclePolicy
 
 const DEFAULT_SUBMISSION_POLICY: SubmissionPolicy = {
   minimumApplicantAge: 18,
@@ -47,12 +32,16 @@ const DEFAULT_SUBMISSION_POLICY: SubmissionPolicy = {
   fundingCeilingState: 'UNRESOLVED',
   fundingCeilingAmountPaise: null,
   fundingCeilingScope: null,
-  documentRules: [],
 }
 
 const MAX_MONEY_PAISE = Number.MAX_SAFE_INTEGER
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
-const PHONE_PATTERN = /^\d{10}$/u
+/*
+ * Exactly ten digits after the optional '+91' is stripped: the programme is
+ * Tripura's, so the contact is an Indian mobile, and one canonical spelling is
+ * what lets two records of the same phone compare equal.
+ */
+const MOBILE_PATTERN = /^\d{10}$/u
 const PIN_PATTERN = /^\d{6}$/u
 const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/u
 const MAX_SHORT_TEXT = 200
@@ -60,75 +49,6 @@ const MAX_ADDRESS_TEXT = 500
 const MAX_EMAIL_LENGTH = 254
 const MIN_PRIOR_SUPPORT_YEAR = 1900
 const MAX_PRIOR_SUPPORT_YEAR = 2026
-
-const requiredKeys = {
-  enterprise: [
-    'businessName',
-    'establishmentDate',
-    'registrationType',
-    'registrationNumber',
-    'gstin',
-    'businessSector',
-    'otherBusinessSector',
-    'applicationCategory',
-    'majorityOwnershipConfirmed',
-  ],
-  applicantProfile: [
-    'primaryApplicantName',
-    'designation',
-    'dateOfBirth',
-    'gender',
-    'businessBlockOrVillage',
-    'businessDistrict',
-    'businessPinCode',
-    'contactNumber',
-    'contactEmail',
-  ],
-  financial: [
-    'totalProjectCostPaise',
-    'seedFundRequestedPaise',
-    'bankLoanProposedPaise',
-    'promoterContributionPaise',
-  ],
-  priorFunding: [
-    'receivedGovernmentFunding',
-    'governmentSchemeName',
-    'governmentFundingAmountPaise',
-    'governmentFundingSanctionYear',
-    'hasExistingBankCredit',
-    'existingBankName',
-    'existingCreditAmountPaise',
-    'existingCreditStatus',
-  ],
-  documents: ['nocRequired'],
-} as const
-
-/**
- * Names a document the way the person holding it would.
- *
- * Written out rather than derived from the enum. Splitting the constant gave
- * "st certificate", "dpr" and "identity age proof" — the first two read as
- * typos and the third is not a phrase anybody uses. This is the name that
- * appears in a sentence asking somebody to go and find that exact document, so
- * it is worth spelling.
- */
-const DOCUMENT_NAMES: Record<DocumentType, string> = {
-  IDENTITY_AGE_PROOF: 'proof of identity and age',
-  ST_CERTIFICATE: 'Scheduled Tribe certificate',
-  ADDRESS_PROOF: 'proof of address',
-  BUSINESS_REGISTRATION: 'business registration',
-  GST_REGISTRATION: 'GST registration',
-  DPR: 'detailed project report',
-  BANK_DETAILS: 'bank account details',
-  NOC: 'no-objection certificate',
-}
-
-const issue = (
-  section: ApplicationSection,
-  field: string,
-  code: string,
-  message: string,
-): ValidationIssue => ({ section, field, code, message })
 
 /**
  * Accepts `undefined` as well as `null` because GraphQL omits absent nullable
@@ -144,7 +64,6 @@ const cleanText = (value: string | null | undefined): string | null => {
 const cleanUpper = (value: string | null | undefined): string | null =>
   cleanText(value)?.toUpperCase() ?? null
 
-/** Returns a UTC date only when the input is an actual ISO calendar date. */
 export const parseDateOnly = (value: string): Date | null => {
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return null
   const [yearText, monthText, dayText] = value.split('-')
@@ -157,15 +76,6 @@ export const parseDateOnly = (value: string): Date | null => {
     date.getUTCDate() === day
     ? date
     : null
-}
-
-const fullCalendarYears = (from: Date, to: Date): number => {
-  let years = to.getUTCFullYear() - from.getUTCFullYear()
-  const anniversary = new Date(
-    Date.UTC(to.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()),
-  )
-  if (anniversary.getTime() > to.getTime()) years -= 1
-  return years
 }
 
 export const addUtcCalendarMonths = (value: Date, months: number): Date => {
@@ -194,232 +104,10 @@ export const fullUtcCalendarMonths = (from: Date, to: Date): number => {
   return Math.max(0, months)
 }
 
-const hasAllSnapshotKeys = (input: ApplicationDraftInput): ValidationIssue[] => {
-  const issues: ValidationIssue[] = []
-  const sections: Array<keyof typeof requiredKeys> = [
-    'enterprise',
-    'applicantProfile',
-    'financial',
-    'priorFunding',
-    'documents',
-  ]
-  for (const section of sections) {
-    const value = input[section] as unknown
-    if (!value || typeof value !== 'object') {
-      issues.push(issue('ENTERPRISE', section, 'MISSING_SECTION', `The ${section} section is required.`))
-      continue
-    }
-    for (const key of requiredKeys[section]) {
-      if (!Object.prototype.hasOwnProperty.call(value, key)) {
-        const applicationSection: ApplicationSection =
-          section === 'applicantProfile'
-            ? 'APPLICANT_PROFILE'
-            : section === 'priorFunding'
-              ? 'PRIOR_FUNDING'
-              : section === 'documents'
-                ? 'DOCUMENTS'
-                : section.toUpperCase() as ApplicationSection
-        issues.push(
-          issue(
-            applicationSection,
-            key,
-            'MISSING_SNAPSHOT_FIELD',
-            `The replacement snapshot must include ${key}.`,
-          ),
-        )
-      }
-    }
-  }
-  return issues
-}
-
-const validEnum = <T extends string>(value: T | null, allowed: readonly T[]): boolean =>
-  value === null || allowed.includes(value)
-
-const validateTextLength = (
-  issues: ValidationIssue[],
-  section: ApplicationSection,
-  field: string,
-  value: string | null,
-  maximum: number,
-) => {
-  if (value !== null && value.length > maximum) {
-    issues.push(
-      issue(section, field, 'TOO_LONG', `This field must contain at most ${maximum} characters.`),
-    )
-  }
-}
-
-const validateEnums = (input: ApplicationDraftInput): ValidationIssue[] => {
-  const issues: ValidationIssue[] = []
-  const { enterprise, applicantProfile, priorFunding } = input
-  if (!validEnum(enterprise.registrationType, registrationTypes)) {
-    issues.push(issue('ENTERPRISE', 'registrationType', 'INVALID_ENUM', 'Select a valid registration type.'))
-  }
-  if (!validEnum(enterprise.businessSector, businessSectors)) {
-    issues.push(issue('ENTERPRISE', 'businessSector', 'INVALID_ENUM', 'Select a valid business sector.'))
-  }
-  if (!validEnum(enterprise.applicationCategory, applicationCategories)) {
-    issues.push(issue('ENTERPRISE', 'applicationCategory', 'INVALID_ENUM', 'Select a valid application category.'))
-  }
-  if (!validEnum(applicantProfile.designation, applicantDesignations)) {
-    issues.push(issue('APPLICANT_PROFILE', 'designation', 'INVALID_ENUM', 'Select a valid designation.'))
-  }
-  if (!validEnum(applicantProfile.gender, genders)) {
-    issues.push(issue('APPLICANT_PROFILE', 'gender', 'INVALID_ENUM', 'Select a valid gender.'))
-  }
-  if (!validEnum(priorFunding.existingCreditStatus, creditStatuses)) {
-    issues.push(issue('PRIOR_FUNDING', 'existingCreditStatus', 'INVALID_ENUM', 'Select a valid credit status.'))
-  }
-  return issues
-}
-
-const validateDatesAndContacts = (input: ApplicationDraftInput): ValidationIssue[] => {
-  const issues: ValidationIssue[] = []
-  const { enterprise, applicantProfile } = input
-  for (const [field, value] of [
-    ['establishmentDate', enterprise.establishmentDate],
-    ['dateOfBirth', applicantProfile.dateOfBirth],
-  ] as const) {
-    if (value !== null && parseDateOnly(value) === null) {
-      issues.push(
-        issue(
-          field === 'dateOfBirth' ? 'APPLICANT_PROFILE' : 'ENTERPRISE',
-          field,
-          'INVALID_DATE',
-          'Enter a real date in YYYY-MM-DD format.',
-        ),
-      )
-    }
-  }
-
-  if (enterprise.gstin !== null && !GSTIN_PATTERN.test(enterprise.gstin)) {
-    issues.push(issue('ENTERPRISE', 'gstin', 'INVALID_GSTIN', 'Enter a valid GSTIN.'))
-  }
-  if (
-    applicantProfile.contactEmail !== null &&
-    !EMAIL_PATTERN.test(applicantProfile.contactEmail)
-  ) {
-    issues.push(issue('APPLICANT_PROFILE', 'contactEmail', 'INVALID_EMAIL', 'Enter a valid email address.'))
-  }
-  if (
-    applicantProfile.contactNumber !== null &&
-    !PHONE_PATTERN.test(applicantProfile.contactNumber)
-  ) {
-    issues.push(issue('APPLICANT_PROFILE', 'contactNumber', 'INVALID_PHONE', 'Enter a 10-digit contact number.'))
-  }
-  if (
-    applicantProfile.businessDistrict !== null &&
-    !tripuraDistricts.includes(applicantProfile.businessDistrict as (typeof tripuraDistricts)[number])
-  ) {
-    issues.push(issue('APPLICANT_PROFILE', 'businessDistrict', 'INVALID_DISTRICT', 'Select a Tripura district.'))
-  }
-  if (
-    applicantProfile.businessPinCode !== null &&
-    !PIN_PATTERN.test(applicantProfile.businessPinCode)
-  ) {
-    issues.push(issue('APPLICANT_PROFILE', 'businessPinCode', 'INVALID_PIN', 'Enter a six-digit PIN code.'))
-  }
-  return issues
-}
-
-const validateMoneyAndFlags = (input: ApplicationDraftInput): ValidationIssue[] => {
-  const issues: ValidationIssue[] = []
-  const { financial, priorFunding, documents } = input
-  const moneyEntries = Object.entries(financial).concat([
-    ['governmentFundingAmountPaise', priorFunding.governmentFundingAmountPaise],
-    ['existingCreditAmountPaise', priorFunding.existingCreditAmountPaise],
-  ]) as Array<[string, number | null]>
-  for (const [field, value] of moneyEntries) {
-    if (
-      value !== null &&
-      (!Number.isSafeInteger(value) || value < 0 || value > MAX_MONEY_PAISE)
-    ) {
-      issues.push(issue(field in financial ? 'FINANCIAL' : 'PRIOR_FUNDING', field, 'INVALID_MONEY', 'Money must be a non-negative integer number of paise.'))
-    }
-  }
-  if (
-    priorFunding.governmentFundingSanctionYear !== null &&
-    (!Number.isInteger(priorFunding.governmentFundingSanctionYear) ||
-      priorFunding.governmentFundingSanctionYear < 1900 ||
-      priorFunding.governmentFundingSanctionYear > MAX_PRIOR_SUPPORT_YEAR)
-  ) {
-    issues.push(issue(
-      'PRIOR_FUNDING',
-      'governmentFundingSanctionYear',
-      'INVALID_YEAR',
-      `Select a sanction year from ${MIN_PRIOR_SUPPORT_YEAR} through ${MAX_PRIOR_SUPPORT_YEAR}.`,
-    ))
-  }
-  if (documents.nocRequired !== null && typeof documents.nocRequired !== 'boolean') {
-    issues.push(issue('DOCUMENTS', 'nocRequired', 'INVALID_BOOLEAN', 'NOC applicability must be true or false.'))
-  }
-  return issues
-}
-
-const validateTextFields = (input: ApplicationDraftInput): ValidationIssue[] => {
-  const issues: ValidationIssue[] = []
-  const { enterprise, applicantProfile, priorFunding } = input
-  for (const [section, field, value, maximum] of [
-    ['ENTERPRISE', 'businessName', enterprise.businessName, MAX_SHORT_TEXT],
-    ['ENTERPRISE', 'registrationNumber', enterprise.registrationNumber, MAX_SHORT_TEXT],
-    ['ENTERPRISE', 'otherBusinessSector', enterprise.otherBusinessSector, MAX_SHORT_TEXT],
-    ['APPLICANT_PROFILE', 'primaryApplicantName', applicantProfile.primaryApplicantName, MAX_SHORT_TEXT],
-    ['APPLICANT_PROFILE', 'businessBlockOrVillage', applicantProfile.businessBlockOrVillage, MAX_ADDRESS_TEXT],
-    ['APPLICANT_PROFILE', 'businessDistrict', applicantProfile.businessDistrict, MAX_SHORT_TEXT],
-    ['APPLICANT_PROFILE', 'contactEmail', applicantProfile.contactEmail, MAX_EMAIL_LENGTH],
-    ['PRIOR_FUNDING', 'governmentSchemeName', priorFunding.governmentSchemeName, MAX_SHORT_TEXT],
-    ['PRIOR_FUNDING', 'existingBankName', priorFunding.existingBankName, MAX_SHORT_TEXT],
-  ] as const) validateTextLength(issues, section, field, value, maximum)
-  return issues
-}
-
-const validateOptionalFormats = (input: ApplicationDraftInput): ValidationIssue[] => [
-  ...validateEnums(input),
-  ...validateDatesAndContacts(input),
-  ...validateMoneyAndFlags(input),
-  ...validateTextFields(input),
-]
-
-export const normalizeDraftInput = (
-  input: ApplicationDraftInput,
-): { value: ApplicationDraftInput | null; issues: ValidationIssue[] } => {
-  const keyIssues = hasAllSnapshotKeys(input)
-  if (keyIssues.length > 0) return { value: null, issues: keyIssues }
-
-  const value: ApplicationDraftInput = {
-    enterprise: {
-      ...input.enterprise,
-      businessName: cleanText(input.enterprise.businessName),
-      establishmentDate: cleanText(input.enterprise.establishmentDate),
-      registrationNumber: cleanUpper(input.enterprise.registrationNumber),
-      gstin: cleanUpper(input.enterprise.gstin),
-      otherBusinessSector: cleanText(input.enterprise.otherBusinessSector),
-    },
-    applicantProfile: {
-      ...input.applicantProfile,
-      primaryApplicantName: cleanText(input.applicantProfile.primaryApplicantName),
-      dateOfBirth: cleanText(input.applicantProfile.dateOfBirth),
-      businessBlockOrVillage: cleanText(input.applicantProfile.businessBlockOrVillage),
-      businessDistrict: cleanText(input.applicantProfile.businessDistrict),
-      businessPinCode: cleanText(input.applicantProfile.businessPinCode),
-      contactNumber: cleanText(input.applicantProfile.contactNumber)?.replace(/[\s()-]/gu, '') ?? null,
-      contactEmail: cleanText(input.applicantProfile.contactEmail)?.toLowerCase() ?? null,
-    },
-    financial: { ...input.financial },
-    priorFunding: {
-      ...input.priorFunding,
-      governmentSchemeName: cleanText(input.priorFunding.governmentSchemeName),
-      existingBankName: cleanText(input.priorFunding.existingBankName),
-    },
-    documents: { ...input.documents },
-  }
-  return { value, issues: validateOptionalFormats(value) }
-}
-
 export const normalizeEnterpriseProfile = (
   input: SuppliedEnterpriseProfile,
 ): { value: EnterpriseProfileInput | null; message: string | null } => {
+  const suppliedDistrict = cleanText(input.businessDistrict)
   const value: EnterpriseProfileInput = {
     ...input,
     name: cleanText(input.name) ?? '',
@@ -432,9 +120,13 @@ export const normalizeEnterpriseProfile = (
     businessSector: input.businessSector ?? null,
     otherBusinessSector: cleanText(input.otherBusinessSector),
     businessBlockOrVillage: cleanText(input.businessBlockOrVillage),
-    businessDistrict: cleanText(input.businessDistrict),
+    // `find` narrows by value: only a member of the closed set — never the
+    // client's free text — can flow into the typed column.
+    businessDistrict:
+      tripuraDistricts.find((district) => district === suppliedDistrict) ?? null,
     businessPinCode: cleanText(input.businessPinCode),
-    contactNumber: cleanText(input.contactNumber)?.replace(/[\s()-]/gu, '') ?? null,
+    contactNumber:
+      cleanText(input.contactNumber)?.replace(/[\s()-]/gu, '').replace(/^\+91/u, '') ?? null,
     contactEmail: cleanText(input.contactEmail)?.toLowerCase() ?? null,
   }
   if (value.name.length < 2 || value.name.length > 200) {
@@ -443,10 +135,15 @@ export const normalizeEnterpriseProfile = (
   if (!registrationTypes.includes(value.registrationType)) {
     return { value: null, message: 'Select a valid registration type.' }
   }
-  if (
-    (value.registrationType === 'NONE' && value.registrationNumber !== null) ||
-    (value.registrationType !== 'NONE' && value.registrationNumber === null)
-  ) return { value: null, message: 'Registration details do not match the registration type.' }
+  /*
+   * Companies, LLPs and OPCs hold a statutory number (CIN/LLPIN) from
+   * incorporation, so the type without one is a contradiction. A sole
+   * proprietorship has no incorporation instrument: it may quote a number it
+   * happens to hold, or nothing — both are ordinary.
+   */
+  if (value.registrationType !== 'SOLE_PROPRIETORSHIP' && value.registrationNumber === null) {
+    return { value: null, message: 'Enter the registration number for this registration type.' }
+  }
   if (value.establishmentDate !== null && parseDateOnly(value.establishmentDate) === null) {
     return { value: null, message: 'Enter a real establishment date in YYYY-MM-DD format.' }
   }
@@ -459,17 +156,15 @@ export const normalizeEnterpriseProfile = (
   if (value.businessSector === 'OTHER' && value.otherBusinessSector === null) {
     return { value: null, message: 'Describe the other business sector.' }
   }
+  // An answered district that matched nothing above collapsed to null.
+  if (suppliedDistrict !== null && value.businessDistrict === null) {
+    return { value: null, message: 'Select one of the eight districts of Tripura.' }
+  }
   if (value.businessPinCode !== null && !PIN_PATTERN.test(value.businessPinCode)) {
     return { value: null, message: 'Enter a six-digit PIN code.' }
   }
-  if (
-    value.businessDistrict !== null &&
-    !tripuraDistricts.includes(value.businessDistrict as (typeof tripuraDistricts)[number])
-  ) {
-    return { value: null, message: 'Select a valid Tripura district.' }
-  }
-  if (value.contactNumber !== null && !PHONE_PATTERN.test(value.contactNumber)) {
-    return { value: null, message: 'Enter a 10-digit contact number.' }
+  if (value.contactNumber !== null && !MOBILE_PATTERN.test(value.contactNumber)) {
+    return { value: null, message: 'Enter a 10-digit mobile number.' }
   }
   if (value.contactEmail !== null && !EMAIL_PATTERN.test(value.contactEmail)) {
     return { value: null, message: 'Enter a valid email address.' }
@@ -478,7 +173,6 @@ export const normalizeEnterpriseProfile = (
     ['registration number', value.registrationNumber, MAX_SHORT_TEXT],
     ['other business sector', value.otherBusinessSector, MAX_SHORT_TEXT],
     ['block or village', value.businessBlockOrVillage, MAX_ADDRESS_TEXT],
-    ['district', value.businessDistrict, MAX_SHORT_TEXT],
     ['email address', value.contactEmail, MAX_EMAIL_LENGTH],
   ] as const) {
     if (text !== null && text.length > maximum) {
@@ -486,249 +180,4 @@ export const normalizeEnterpriseProfile = (
     }
   }
   return { value, message: null }
-}
-
-const requireValue = (
-  issues: ValidationIssue[],
-  section: ApplicationSection,
-  field: string,
-  value: unknown,
-) => {
-  if (value === null || value === undefined || value === '') {
-    issues.push(issue(section, field, 'REQUIRED', 'This field is required.'))
-  }
-}
-
-const validateEnterpriseSubmission = (
-  snapshot: ApplicationSnapshot,
-  issues: ValidationIssue[],
-  now: Date,
-  policy: SubmissionPolicy,
-) => {
-  const { enterprise } = snapshot
-  for (const [field, value] of [
-    ['businessName', enterprise.businessName],
-    ['registrationType', enterprise.registrationType],
-    ['businessSector', enterprise.businessSector],
-    ['applicationCategory', enterprise.applicationCategory],
-  ] as const) requireValue(issues, 'ENTERPRISE', field, value)
-  if (policy.majorityOwnershipRequired && enterprise.majorityOwnershipConfirmed !== true) {
-    issues.push(issue('ENTERPRISE', 'majorityOwnershipConfirmed', 'MUST_CONFIRM', 'Majority ownership must be confirmed.'))
-  }
-  if (enterprise.registrationType === 'NONE' && enterprise.registrationNumber !== null) {
-    issues.push(issue('ENTERPRISE', 'registrationNumber', 'MUST_BE_EMPTY', 'An unregistered enterprise cannot have a registration number.'))
-  }
-  if (
-    enterprise.registrationType !== null &&
-    enterprise.registrationType !== 'NONE' &&
-    enterprise.registrationNumber === null
-  ) requireValue(issues, 'ENTERPRISE', 'registrationNumber', null)
-  if (enterprise.businessSector === 'OTHER') {
-    requireValue(issues, 'ENTERPRISE', 'otherBusinessSector', enterprise.otherBusinessSector)
-  }
-
-  const establishment = enterprise.establishmentDate
-    ? parseDateOnly(enterprise.establishmentDate)
-    : null
-  if (establishment && establishment.getTime() > now.getTime()) {
-    issues.push(issue('ENTERPRISE', 'establishmentDate', 'FUTURE_DATE', 'Establishment date cannot be in the future.'))
-  }
-  if (enterprise.applicationCategory === 'CATEGORY_B' && establishment === null) {
-    requireValue(issues, 'ENTERPRISE', 'establishmentDate', null)
-  }
-  if (!establishment || !enterprise.applicationCategory) return
-
-  const ageBoundary = addUtcCalendarMonths(establishment, policy.categoryAMaximumMonths)
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  const categoryMismatch =
-    (enterprise.applicationCategory === 'CATEGORY_A' && today > ageBoundary.getTime()) ||
-    (enterprise.applicationCategory === 'CATEGORY_B' && today <= ageBoundary.getTime())
-  if (categoryMismatch) {
-    issues.push(issue(
-      'ENTERPRISE',
-      'applicationCategory',
-      'CATEGORY_MISMATCH',
-      enterprise.applicationCategory === 'CATEGORY_A'
-        ? `Category A enterprises must be proposed or at most ${policy.categoryAMaximumMonths} months old.`
-        : `Category B enterprises must be older than ${policy.categoryAMaximumMonths} months.`,
-    ))
-  }
-}
-
-const validateApplicantSubmission = (
-  snapshot: ApplicationSnapshot,
-  issues: ValidationIssue[],
-  now: Date,
-  policy: SubmissionPolicy,
-) => {
-  for (const [field, value] of Object.entries(snapshot.applicantProfile)) {
-    requireValue(issues, 'APPLICANT_PROFILE', field, value)
-  }
-  const birthDate = snapshot.applicantProfile.dateOfBirth
-    ? parseDateOnly(snapshot.applicantProfile.dateOfBirth)
-    : null
-  if (!birthDate) return
-  const age = fullCalendarYears(birthDate, now)
-  if (birthDate.getTime() > now.getTime() || age < policy.minimumApplicantAge || age > policy.maximumApplicantAge) {
-    issues.push(issue('APPLICANT_PROFILE', 'dateOfBirth', 'AGE_INELIGIBLE', `Applicant age must be from ${policy.minimumApplicantAge} through ${policy.maximumApplicantAge}.`))
-  }
-}
-
-const validateFinancialSubmission = (
-  snapshot: ApplicationSnapshot,
-  issues: ValidationIssue[],
-  policy: SubmissionPolicy,
-) => {
-  const { financial } = snapshot
-  if (financial.totalProjectCostPaise === null || financial.totalProjectCostPaise <= 0) {
-    issues.push(issue('FINANCIAL', 'totalProjectCostPaise', 'MUST_BE_POSITIVE', 'Total project cost must be positive.'))
-  }
-  if (financial.seedFundRequestedPaise === null || financial.seedFundRequestedPaise <= 0) {
-    issues.push(issue('FINANCIAL', 'seedFundRequestedPaise', 'MUST_BE_POSITIVE', 'Requested seed fund must be positive.'))
-  }
-  requireValue(issues, 'FINANCIAL', 'bankLoanProposedPaise', financial.bankLoanProposedPaise)
-  requireValue(issues, 'FINANCIAL', 'promoterContributionPaise', financial.promoterContributionPaise)
-  if (
-    policy.fundingCeilingState === 'RESOLVED' &&
-    policy.fundingCeilingScope === 'APPLICATION' &&
-    policy.fundingCeilingAmountPaise !== null &&
-    financial.seedFundRequestedPaise !== null &&
-    financial.seedFundRequestedPaise > policy.fundingCeilingAmountPaise
-  ) {
-    issues.push(issue('FINANCIAL', 'seedFundRequestedPaise', 'FUNDING_CEILING_EXCEEDED', 'The requested seed fund exceeds this cycle’s application ceiling.'))
-  }
-}
-
-const hasGovernmentDetails = (snapshot: ApplicationSnapshot): boolean => {
-  const value = snapshot.priorFunding
-  return value.governmentSchemeName !== null ||
-    value.governmentFundingAmountPaise !== null ||
-    value.governmentFundingSanctionYear !== null
-}
-
-const hasCreditDetails = (snapshot: ApplicationSnapshot): boolean => {
-  const value = snapshot.priorFunding
-  return value.existingBankName !== null ||
-    value.existingCreditAmountPaise !== null ||
-    value.existingCreditStatus !== null
-}
-
-const validatePriorFundingSubmission = (
-  snapshot: ApplicationSnapshot,
-  issues: ValidationIssue[],
-) => {
-  const { priorFunding } = snapshot
-  requireValue(issues, 'PRIOR_FUNDING', 'receivedGovernmentFunding', priorFunding.receivedGovernmentFunding)
-  if (priorFunding.receivedGovernmentFunding === true) {
-    requireValue(issues, 'PRIOR_FUNDING', 'governmentSchemeName', priorFunding.governmentSchemeName)
-    if ((priorFunding.governmentFundingAmountPaise ?? 0) <= 0) {
-      requireValue(issues, 'PRIOR_FUNDING', 'governmentFundingAmountPaise', null)
-    }
-    requireValue(issues, 'PRIOR_FUNDING', 'governmentFundingSanctionYear', priorFunding.governmentFundingSanctionYear)
-  } else if (priorFunding.receivedGovernmentFunding === false && hasGovernmentDetails(snapshot)) {
-    issues.push(issue('PRIOR_FUNDING', 'receivedGovernmentFunding', 'CONDITIONAL_FIELDS', 'Clear government-funding details when the answer is no.'))
-  }
-
-  requireValue(issues, 'PRIOR_FUNDING', 'hasExistingBankCredit', priorFunding.hasExistingBankCredit)
-  if (priorFunding.hasExistingBankCredit === true) {
-    requireValue(issues, 'PRIOR_FUNDING', 'existingBankName', priorFunding.existingBankName)
-    if ((priorFunding.existingCreditAmountPaise ?? 0) <= 0) {
-      requireValue(issues, 'PRIOR_FUNDING', 'existingCreditAmountPaise', null)
-    }
-    requireValue(issues, 'PRIOR_FUNDING', 'existingCreditStatus', priorFunding.existingCreditStatus)
-  } else if (priorFunding.hasExistingBankCredit === false && hasCreditDetails(snapshot)) {
-    issues.push(issue('PRIOR_FUNDING', 'hasExistingBankCredit', 'CONDITIONAL_FIELDS', 'Clear bank-credit details when the answer is no.'))
-  }
-}
-
-/**
- * Derives evidence slots from the frozen form values. Both the friendly
- * validator and the atomic submission predicate use this exact function so a
- * concurrent document mutation cannot exploit rule drift between layers.
- */
-export const requiredDocumentTypesForSnapshot = (
-  snapshot: Pick<ApplicationDraftInput, 'enterprise' | 'documents'>,
-): DocumentType[] => {
-  const requiredDocuments: DocumentType[] = [
-    'IDENTITY_AGE_PROOF',
-    'ST_CERTIFICATE',
-    'ADDRESS_PROOF',
-    'DPR',
-    'BANK_DETAILS',
-  ]
-  if (snapshot.enterprise.registrationType !== null && snapshot.enterprise.registrationType !== 'NONE') {
-    requiredDocuments.push('BUSINESS_REGISTRATION')
-  }
-  if (snapshot.enterprise.gstin !== null) requiredDocuments.push('GST_REGISTRATION')
-  if (snapshot.documents.nocRequired === true) requiredDocuments.push('NOC')
-  return requiredDocuments
-}
-
-/**
- * The documents this application must carry.
- *
- * The cycle's own rules decide, and a rule may make a document optional — so a
- * cycle can legitimately require none at all. The snapshot-only list is used
- * only when a cycle defines no rules, which is the pre-policy default rather
- * than a deliberate empty policy.
- *
- * Exported because submission checks the same thing twice: once when validating
- * and again inside the write, so a document deleted in between cannot slip
- * past. Both must ask this one function — when they disagreed, an application
- * the cycle considered complete was refused by the write with a message about
- * something else entirely.
- */
-export const requiredDocumentTypes = (
-  snapshot: Pick<ApplicationDraftInput, 'enterprise' | 'documents'>,
-  policy: Pick<SubmissionPolicy, 'documentRules'> | undefined,
-): DocumentType[] => {
-  if (!policy || policy.documentRules.length === 0) {
-    return requiredDocumentTypesForSnapshot(snapshot)
-  }
-  return [
-    ...new Set(
-      policy.documentRules
-        .filter(
-          (rule) =>
-            rule.condition === 'ALWAYS' ||
-            (rule.condition === 'WHEN_REGISTERED' &&
-              snapshot.enterprise.registrationType !== 'NONE') ||
-            (rule.condition === 'WHEN_GSTIN_PRESENT' && snapshot.enterprise.gstin !== null) ||
-            (rule.condition === 'WHEN_NOC_REQUIRED' && snapshot.documents.nocRequired === true),
-        )
-        .map((rule) => rule.documentType),
-    ),
-  ]
-}
-
-const validateDocumentSubmission = (
-  snapshot: ApplicationSnapshot,
-  activeDocumentTypes: ReadonlySet<DocumentType>,
-  issues: ValidationIssue[],
-  policy: SubmissionPolicy,
-) => {
-  requireValue(issues, 'DOCUMENTS', 'nocRequired', snapshot.documents.nocRequired)
-  const requiredDocuments = requiredDocumentTypes(snapshot, policy)
-  for (const documentType of requiredDocuments) {
-    if (!activeDocumentTypes.has(documentType)) {
-      issues.push(issue('DOCUMENTS', documentType, 'DOCUMENT_REQUIRED', `Upload the ${DOCUMENT_NAMES[documentType]}.`))
-    }
-  }
-}
-
-/** Validates one normalized snapshot for formal submission. */
-export const validateSubmissionSnapshot = (
-  snapshot: ApplicationSnapshot,
-  activeDocumentTypes: ReadonlySet<DocumentType>,
-  now: Date,
-  configuredPolicy: SubmissionPolicy = DEFAULT_SUBMISSION_POLICY,
-): ValidationReport => {
-  const policy = configuredPolicy
-  const issues = validateOptionalFormats(snapshot)
-  validateEnterpriseSubmission(snapshot, issues, now, policy)
-  validateApplicantSubmission(snapshot, issues, now, policy)
-  validateFinancialSubmission(snapshot, issues, policy)
-  validatePriorFundingSubmission(snapshot, issues)
-  validateDocumentSubmission(snapshot, activeDocumentTypes, issues, policy)
-  return { valid: issues.length === 0, issues }
 }

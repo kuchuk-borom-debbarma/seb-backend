@@ -91,7 +91,7 @@ worked example rather than an abstract warning:
 
 | Subject | Was in | Now owned by |
 | --- | --- | --- |
-| Upload rules — MIME types, 5 MB, the signed headers, the cleanup retry | four places | `src/services/application/README.md` |
+| Upload rules — MIME types, the size cap, the signed headers, the cleanup retry | four places | `src/services/application/README.md` |
 | Transcribed identifiers and the key-rotation warning | three places | `docs/admin-workflow-guide.md` for the rule, `src/services/admin/README.md` for the mechanism |
 | The named-queue rationale | two places, near-verbatim | `docs/admin-workflow-guide.md` |
 | What bounds a request | the client's guide, describing server limits | `src/graphql/README.md` |
@@ -117,5 +117,5 @@ Some headings are referenced by anchor and must not be renamed:
 
 | Heading | Referenced by |
 | --- | --- |
-| `## Role administration` in [`../admin-rbac.md`](../admin-rbac.md) | three inbound anchor links |
+| `## Role administration` in [`../admin-rbac.md`](../admin-rbac.md) | two inbound anchor links |
 | The nine sections of [`../admin-workflow-guide.md`](../admin-workflow-guide.md) cited in `officeGuidance.ts` | the client's office help text |

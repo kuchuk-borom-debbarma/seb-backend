@@ -1,11 +1,24 @@
 import { coreAuditEvent } from './core/audit'
-import { coreSession, coreSignupChallenge, coreUser, coreUserRoleGrant } from './core/auth'
+import {
+  coreAccountChallenge,
+  coreSession,
+  coreSignupChallenge,
+  coreUser,
+  coreUserRoleGrant,
+} from './core/auth'
 import {
   sebApplication,
   sebApplicationSubmission,
   sebApplicationVersion,
 } from './seb/application'
+import { sebApplicationVersionAnswer } from './seb/answer'
 import { sebFundingCase, sebFundingCaseVersion } from './seb/case'
+import {
+  sebProgrammeCycleFormField,
+  sebProgrammeCycleFormFieldCondition,
+  sebProgrammeCycleFormFieldOption,
+  sebProgrammeCycleFormStage,
+} from './seb/form-template'
 import {
   sebApplicationDocument,
   sebApplicationDocumentScan,
@@ -26,8 +39,8 @@ import {
 import {
   sebProgrammeCycle,
   sebProgrammeCycleAssessmentRule,
-  sebProgrammeCycleDocumentRule,
   sebProgrammeCycleEvent,
+  sebProgrammeCycleIdentifierRule,
   sebProgrammeCycleReason,
   sebProgrammeCycleVersion,
 } from './seb/programme'
@@ -42,11 +55,7 @@ import {
   sebPartnerBankOutcome,
   sebPartnerBankReferral,
   sebPartnerBankReferralVersion,
-  sebTtmAgendaItem,
-  sebTtmAgendaItemVersion,
-  sebTtmDecision,
-  sebTtmMeeting,
-  sebTtmMeetingVersion,
+  sebProgrammeDecision,
 } from './seb/decision'
 import { sebRecoveryCase, sebRecoveryCaseVersion, sebRecoveryEntry } from './seb/recovery'
 import { sebApplicationEvent, sebRevisionRequest } from './seb/workflow'
@@ -54,38 +63,54 @@ import { sebApplicationEvent, sebRevisionRequest } from './seb/workflow'
 export * from './shared'
 export * from './core/audit'
 export * from './core/auth'
-export * from './core/migration'
 export * from './seb/application'
 export * from './seb/case'
 export * from './seb/document'
 export * from './seb/decision'
+export * from './seb/answer'
 export * from './seb/enterprise'
+export * from './seb/form-template'
 export * from './seb/funding'
 export * from './seb/programme'
 export * from './seb/recovery'
 export * from './seb/review'
 export * from './seb/workflow'
 
-/** Complete schema passed to the request-scoped Drizzle D1 client. */
+/** Complete schema passed to the request-scoped Drizzle client. */
 export const schema = {
   coreUser,
   coreUserRoleGrant,
   coreSession,
   coreSignupChallenge,
+  coreAccountChallenge,
   coreAuditEvent,
   sebEnterprise,
   sebEnterpriseVersion,
   sebProgrammeCycle,
   sebProgrammeCycleVersion,
-  sebProgrammeCycleDocumentRule,
   sebProgrammeCycleAssessmentRule,
+  sebProgrammeCycleIdentifierRule,
   sebProgrammeCycleReason,
   sebProgrammeCycleEvent,
+  /*
+   * The four template tables, which were imported and never listed.
+   *
+   * Inert while nothing uses `db.query.*` — DDL comes from `export *` above and
+   * every read is an explicit `select` — but this object is what
+   * `drizzle(client, { schema })` receives, so the first relational query
+   * against a form table would have failed with the table simply absent.
+   * `noUnusedLocals` is off, so the dangling imports said nothing.
+   */
+  sebProgrammeCycleFormStage,
+  sebProgrammeCycleFormField,
+  sebProgrammeCycleFormFieldOption,
+  sebProgrammeCycleFormFieldCondition,
   sebFundingCase,
   sebFundingCaseVersion,
   sebApplication,
   sebApplicationVersion,
   sebApplicationSubmission,
+  sebApplicationVersionAnswer,
   sebApplicationDocument,
   sebApplicationDocumentVersion,
   sebApplicationSubmissionDocument,
@@ -101,11 +126,7 @@ export const schema = {
   sebPartnerBankReferral,
   sebPartnerBankReferralVersion,
   sebPartnerBankOutcome,
-  sebTtmMeeting,
-  sebTtmMeetingVersion,
-  sebTtmAgendaItem,
-  sebTtmAgendaItemVersion,
-  sebTtmDecision,
+  sebProgrammeDecision,
   sebFundingAward,
   sebFundingAwardVersion,
   sebApplicationQualifyingAward,

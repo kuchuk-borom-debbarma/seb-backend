@@ -1,0 +1,138 @@
+/*
+ * The form-authoring screen: a rail of stages on the left, the selected
+ * stage's questions (or the structures panel) on the right. The rail mirrors
+ * the FormJourney idea without its machinery — the editor's job is the list,
+ * not the walk.
+ */
+
+.layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: var(--space-4, 1.5rem);
+  align-items: start;
+}
+
+@media (max-width: 800px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  position: sticky;
+  top: var(--space-4, 1.5rem);
+}
+
+.railItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.railItem:hover {
+  background: var(--surface-raised, rgba(127, 127, 127, 0.08));
+}
+
+.railItem[aria-current='true'] {
+  border-color: var(--hairline);
+  background: var(--surface-raised, rgba(127, 127, 127, 0.08));
+  font-weight: 500;
+}
+
+.railCount {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+}
+
+.questionRow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.questionRow:first-child {
+  border-top: 0;
+}
+
+.questionKey {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+  opacity: 0.65;
+}
+
+.questionActions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* A member row sits under its group, visibly of it rather than beside it. */
+.memberRow {
+  margin-left: 1.5rem;
+}
+
+/*
+ * A question materialised from a structure. Greyed rather than hidden: the
+ * officer should see exactly what the expansion produced, and equally see
+ * that it is not theirs to edit one-by-one.
+ */
+.derived {
+  opacity: 0.55;
+}
+
+.derivedTag {
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+
+.editor {
+  border: 1px solid var(--hairline);
+  border-radius: 0.5rem;
+  padding: var(--space-3, 1rem);
+  margin: 0.5rem 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.subheading {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}

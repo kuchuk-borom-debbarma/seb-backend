@@ -27,7 +27,7 @@ export const officeDashboardQuery = queryOptions({
     const data = await gql(OfficeDashboardDocument)
     return {
       queues: unwrap(data.admin.intake.queues).queues,
-      meetings: unwrap(data.admin.decision.meetings),
+      decisionQueue: unwrap(data.admin.intake.decisionQueue),
     }
   },
 })

@@ -118,6 +118,90 @@ const RATE_LIMIT_POLICY = {
   ],
 
   /**
+   * Asking for a password reset, which sends a code to an address.
+   *
+   * The same shape as starting signup and for the same reason: the cost of
+   * abuse is the mail, not the request. Somebody who can trigger unlimited
+   * resets is using this programme to deliver mail to a stranger's inbox — and
+   * to bury the notice that would have warned them.
+   */
+  'auth.startPasswordReset': [
+    {
+      binding: 'RL_RESET_SUBJECT',
+      dimension: 'SUBJECT',
+      limit: 2,
+      periodSeconds: 60,
+    },
+    {
+      binding: 'RL_RESET_IP',
+      dimension: 'IP',
+      limit: 5,
+      periodSeconds: 60,
+    },
+  ],
+
+  /**
+   * Completing a password reset.
+   *
+   * Guessing a six-digit code, where the limit is the security control rather
+   * than a guard on load. The challenge counts its own attempts; this stops one
+   * source working through many challenges at once.
+   */
+  'auth.completePasswordReset': [
+    {
+      binding: 'RL_RESET_VERIFY_IP',
+      dimension: 'IP',
+      limit: 10,
+      periodSeconds: 60,
+    },
+  ],
+
+  /**
+   * Changing a known password.
+   *
+   * Counted by session because the caller is signed in, and each attempt costs
+   * a scrypt verification. Five a minute is far above any real use.
+   */
+  'auth.changePassword': [
+    {
+      binding: 'RL_PASSWORD_SESSION',
+      dimension: 'SESSION',
+      limit: 5,
+      periodSeconds: 60,
+    },
+  ],
+
+  /**
+   * Asking to move an account to another address.
+   *
+   * **By session, not by subject.** `operationSubject` reads `input.email` and
+   * nothing else, so a SUBJECT bucket on an input naming `newEmail` would
+   * resolve to null and be skipped silently — an allowance that looks declared
+   * and counts nothing. The session is the right dimension anyway: this sends
+   * mail to an address the caller chose, and the cost belongs to their account.
+   */
+  'auth.startEmailChange': [
+    {
+      binding: 'RL_EMAIL_CHANGE_SESSION',
+      dimension: 'SESSION',
+      limit: 2,
+      periodSeconds: 60,
+    },
+  ],
+
+  /**
+   * Completing a change of address, which is guessing a six-digit code.
+   */
+  'auth.completeEmailChange': [
+    {
+      binding: 'RL_EMAIL_VERIFY_SESSION',
+      dimension: 'SESSION',
+      limit: 10,
+      periodSeconds: 60,
+    },
+  ],
+
+  /**
    * Accepting a role invitation.
    *
    * Takes no session — possession of the sealed token is the whole credential —

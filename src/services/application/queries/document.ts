@@ -1,6 +1,6 @@
 /** Drizzle persistence for upload intents and immutable document versions. */
 import { and, eq, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
-import type { Database } from '../../../db'
+import { batch, changedExactlyOne, type Database, type Transaction } from '../../../db'
 import {
   coreAuditEvent,
   sebApplication,
@@ -13,8 +13,6 @@ import {
 } from '../../../db/schema'
 import {
   appendWhenChanged,
-  d1ChangedExactlyOne,
-  sqlDateMilliseconds,
   sqlNullable,
   type AuditRecord,
 } from '../support'
@@ -30,6 +28,17 @@ export type UploadIntentRecord = typeof sebDocumentUploadIntent.$inferSelect
 const applicationDocumentsEditable = (
   applicationId: string,
   userId: string,
+  /*
+   * The stage this *document* belongs to, taken from its own FILE field.
+   *
+   * This asked whether a stage literally named `DOCUMENTS` was open, which was
+   * the removed enum's last surviving assumption. `canEditDocument` in the
+   * controller was corrected to read the field's own stage; this was not, so
+   * for any cycle that names the stage anything else, every upload, replacement
+   * and removal during a revision was refused with "The application or document
+   * changed. Refresh it and try again." — advice that could never work.
+   */
+  stageKey: string,
 ) => sql`EXISTS (
   SELECT 1 FROM ${sebApplication}
   WHERE ${sebApplication.id} = ${applicationId}
@@ -42,7 +51,7 @@ const applicationDocumentsEditable = (
         AND EXISTS (
           SELECT 1 FROM ${sebRevisionRequest}
           WHERE ${sebRevisionRequest.applicationId} = ${applicationId}
-            AND ${sebRevisionRequest.section} = 'DOCUMENTS'
+            AND ${sebRevisionRequest.stageKey} = ${stageKey}
             AND ${sebRevisionRequest.resolvedAt} IS NULL
             AND ${sebRevisionRequest.cancelledAt} IS NULL
         )
@@ -52,7 +61,8 @@ const applicationDocumentsEditable = (
 
 export const insertUploadIntent = async (
   db: Database,
-  input: typeof sebDocumentUploadIntent.$inferInsert,
+  /** The intent row, and the stage its FILE question sits in. */
+  input: typeof sebDocumentUploadIntent.$inferInsert & { stageKey: string },
   audit: AuditRecord,
 ): Promise<boolean> => {
   // The controller signs only after a friendly ownership/status check. This
@@ -60,23 +70,23 @@ export const insertUploadIntent = async (
   // submission or document replacement cannot leave behind a usable intent.
   const insertIntent = db.insert(sebDocumentUploadIntent).select(sql`
     SELECT ${input.id}, ${input.applicationId}, ${input.applicantUserId},
-      ${input.documentType}, ${input.expectedDocumentVersion}, ${input.objectKey},
+      ${input.fieldKey}, ${input.expectedDocumentVersion}, ${input.objectKey},
       ${input.originalFilename}, ${input.contentType}, ${input.sizeBytes},
       ${input.checksumSha256}, 'ISSUED', NULL,
-      ${sqlDateMilliseconds(input.expiresAt)},
+      ${sqlNullable(input.expiresAt)},
       ${sqlNullable(input.finalizedDocumentVersionId)},
-      ${sqlDateMilliseconds(input.createdAt)}, ${sqlDateMilliseconds(input.updatedAt)}
-    WHERE ${applicationDocumentsEditable(input.applicationId, input.applicantUserId)}
+      ${input.createdAt}, ${input.updatedAt}
+    WHERE ${applicationDocumentsEditable(input.applicationId, input.applicantUserId, input.stageKey)}
       AND (
         (${input.expectedDocumentVersion} = 0 AND NOT EXISTS (
           SELECT 1 FROM ${sebApplicationDocument}
           WHERE ${sebApplicationDocument.applicationId} = ${input.applicationId}
-            AND ${sebApplicationDocument.documentType} = ${input.documentType}
+            AND ${sebApplicationDocument.fieldKey} = ${input.fieldKey}
         ))
         OR EXISTS (
           SELECT 1 FROM ${sebApplicationDocument}
           WHERE ${sebApplicationDocument.applicationId} = ${input.applicationId}
-            AND ${sebApplicationDocument.documentType} = ${input.documentType}
+            AND ${sebApplicationDocument.fieldKey} = ${input.fieldKey}
             AND ${sebApplicationDocument.currentVersion} = ${input.expectedDocumentVersion}
             AND ${sebApplicationDocument.deletedAt} IS NULL
         )
@@ -87,17 +97,17 @@ export const insertUploadIntent = async (
       ${audit.entityType}, ${audit.entityId}, ${audit.outcome},
       ${sqlNullable(audit.requestId)}, ${sqlNullable(audit.ipAddress)},
       ${sqlNullable(audit.userAgent)}, ${sqlNullable(audit.changesJson)},
-      ${sqlNullable(audit.metadataJson)}, ${sqlDateMilliseconds(audit.createdAt)}
+      ${sqlNullable(audit.metadataJson)}, ${audit.createdAt}
     WHERE EXISTS (
       SELECT 1 FROM ${sebDocumentUploadIntent}
       WHERE ${sebDocumentUploadIntent.id} = ${input.id}
     )
   `)
-  const [inserted] = await db.batch([
+  const [inserted] = await batch(db, (tx) => [
     insertIntent,
     insertAudit,
   ])
-  return d1ChangedExactlyOne(inserted)
+  return changedExactlyOne(inserted)
 }
 
 export const findOwnedUploadIntent = async (
@@ -118,10 +128,11 @@ export const findOwnedUploadIntent = async (
   return record ?? null
 }
 
+/** One document by the slot it fills, or by its own id. */
 export const findApplicationDocument = async (
   db: Database,
   applicationId: string,
-  documentType: DocumentType,
+  fieldKey: DocumentType,
 ) => {
   const [record] = await db
     .select()
@@ -129,7 +140,25 @@ export const findApplicationDocument = async (
     .where(
       and(
         eq(sebApplicationDocument.applicationId, applicationId),
-        eq(sebApplicationDocument.documentType, documentType),
+        eq(sebApplicationDocument.fieldKey, fieldKey),
+      ),
+    )
+    .limit(1)
+  return record ?? null
+}
+
+export const findApplicationDocumentById = async (
+  db: Database,
+  applicationId: string,
+  documentId: string,
+) => {
+  const [record] = await db
+    .select()
+    .from(sebApplicationDocument)
+    .where(
+      and(
+        eq(sebApplicationDocument.applicationId, applicationId),
+        eq(sebApplicationDocument.id, documentId),
       ),
     )
     .limit(1)
@@ -139,6 +168,8 @@ export const findApplicationDocument = async (
 export const finalizeUploadIntent = async (
   db: Database,
   input: {
+    /** The stage this document's FILE question sits in. */
+    stageKey: string
     intent: UploadIntentRecord
     documentId: string
     documentVersionId: string
@@ -151,23 +182,32 @@ export const finalizeUploadIntent = async (
   const document = await findApplicationDocument(
     db,
     input.intent.applicationId,
-    input.intent.documentType,
+    input.intent.fieldKey,
   )
   const newDocument = document === null
-  const createOrAdvance = newDocument
-    ? db.insert(sebApplicationDocument).select(sql`
+  /*
+   * Both branches return the row they touched.
+   *
+   * They used to differ — an insert returning an id, an update returning only a
+   * count — because the old driver reported both as arrays and the difference
+   * did not show. It does now, and a single outcome check that means one thing
+   * for a new document and another for a replacement is the kind of difference
+   * that is only found by the case nobody tried.
+   */
+  const createOrAdvance = (tx: Transaction) => newDocument
+    ? tx.insert(sebApplicationDocument).select(sql`
         SELECT ${input.documentId}, ${input.intent.applicationId},
-          ${input.intent.documentType}, 1, ${input.now.getTime()}, ${input.now.getTime()},
+          ${input.intent.fieldKey}, 1, ${input.now}, ${input.now},
           NULL, NULL, NULL
         WHERE EXISTS (
           SELECT 1 FROM ${sebDocumentUploadIntent}
           WHERE ${sebDocumentUploadIntent.id} = ${input.intent.id}
             AND ${sebDocumentUploadIntent.status} = 'ISSUED'
-            AND ${sebDocumentUploadIntent.expiresAt} > ${input.now.getTime()}
+            AND ${sebDocumentUploadIntent.expiresAt} > ${input.now}
         )
-        AND ${applicationDocumentsEditable(input.intent.applicationId, input.userId)}
+        AND ${applicationDocumentsEditable(input.intent.applicationId, input.userId, input.stageKey)}
       `).returning({ id: sebApplicationDocument.id })
-    : db
+    : tx
         .update(sebApplicationDocument)
         .set({ currentVersion: input.nextVersion, updatedAt: input.now })
         .where(
@@ -179,25 +219,26 @@ export const finalizeUploadIntent = async (
               SELECT 1 FROM ${sebDocumentUploadIntent}
               WHERE ${sebDocumentUploadIntent.id} = ${input.intent.id}
                 AND ${sebDocumentUploadIntent.status} = 'ISSUED'
-                AND ${sebDocumentUploadIntent.expiresAt} > ${input.now.getTime()}
+                AND ${sebDocumentUploadIntent.expiresAt} > ${input.now}
             )`,
-            applicationDocumentsEditable(input.intent.applicationId, input.userId),
+            applicationDocumentsEditable(input.intent.applicationId, input.userId, input.stageKey),
           ),
         )
-  const insertVersion = db.insert(sebApplicationDocumentVersion).select(sql`
+        .returning({ id: sebApplicationDocument.id })
+  const insertVersion = (tx: Transaction) => tx.insert(sebApplicationDocumentVersion).select(sql`
     SELECT ${input.documentVersionId}, ${input.documentId}, ${input.nextVersion},
       ${newDocument ? 'UPLOAD' : 'REPLACE'}, ${input.intent.objectKey},
       ${input.intent.originalFilename}, ${input.intent.contentType},
       ${input.intent.sizeBytes}, ${input.intent.checksumSha256}, ${input.userId},
-      ${input.now.getTime()}
+      ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplicationDocument}
       WHERE ${sebApplicationDocument.id} = ${input.documentId}
         AND ${sebApplicationDocument.currentVersion} = ${input.nextVersion}
-        AND ${sebApplicationDocument.updatedAt} = ${input.now.getTime()}
+        AND ${sebApplicationDocument.updatedAt} = ${input.now}
     )
   `)
-  const finalizeIntent = db
+  const finalizeIntent = (tx: Transaction) => tx
     .update(sebDocumentUploadIntent)
     .set({
       status: 'FINALIZED',
@@ -217,46 +258,46 @@ export const finalizeUploadIntent = async (
   // Finalization never makes a file staff-readable. It merely queues the
   // immutable object for the future malware scanner; administrative download
   // authorization fails closed until an ACCEPTED result is appended.
-  const pendingScan = db.insert(sebApplicationDocumentScan).select(sql`
+  const pendingScan = (tx: Transaction) => tx.insert(sebApplicationDocumentScan).select(sql`
     SELECT ${crypto.randomUUID()}, ${input.documentVersionId}, 1, 'PENDING',
-      NULL, NULL, NULL, ${input.now.getTime()}
+      NULL, NULL, NULL, ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebDocumentUploadIntent}
       WHERE ${sebDocumentUploadIntent.id} = ${input.intent.id}
         AND ${sebDocumentUploadIntent.status} = 'FINALIZED'
     )
   `)
-  const event = db.insert(sebApplicationEvent).select(sql`
+  const event = (tx: Transaction) => tx.insert(sebApplicationEvent).select(sql`
     SELECT ${crypto.randomUUID()}, ${input.intent.applicationId}, 'DOCUMENT_FINALIZED',
-      ${input.userId}, NULL, NULL, NULL, NULL, NULL, 'DOCUMENTS',
-      'Application document updated.', NULL, ${input.now.getTime()}
+      ${input.userId}, NULL, NULL, NULL, NULL, NULL, ${input.stageKey},
+      'Application document updated.', NULL, ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebDocumentUploadIntent}
       WHERE ${sebDocumentUploadIntent.id} = ${input.intent.id}
         AND ${sebDocumentUploadIntent.status} = 'FINALIZED'
     )
   `)
-  const audit = db.insert(coreAuditEvent).select(sql`
+  const audit = (tx: Transaction) => tx.insert(coreAuditEvent).select(sql`
     SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
       ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
       ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
       ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now.getTime()}
+      ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebDocumentUploadIntent}
       WHERE ${sebDocumentUploadIntent.id} = ${input.intent.id}
         AND ${sebDocumentUploadIntent.status} = 'FINALIZED'
     )
   `)
-  const [changed] = await db.batch([
-    createOrAdvance,
-    insertVersion,
-    finalizeIntent,
-    pendingScan,
-    event,
-    audit,
+  const [changed] = await batch(db, (tx) => [
+    createOrAdvance(tx),
+    insertVersion(tx),
+    finalizeIntent(tx),
+    pendingScan(tx),
+    event(tx),
+    audit(tx),
   ])
-  return d1ChangedExactlyOne(changed)
+  return changedExactlyOne(changed)
 }
 
 /**
@@ -268,7 +309,7 @@ export const finalizeUploadIntent = async (
  * alone rather than forced.
  */
 export const closeUploadIntentStatement = (
-  db: Database,
+  db: Database | Transaction,
   uploadId: string,
   target: 'REJECTED' | 'EXPIRED',
   now: Date,
@@ -312,7 +353,7 @@ export const claimUploadIntentForCleanup = async (
         eq(sebDocumentUploadIntent.status, 'ISSUED'),
       ),
     )
-  return d1ChangedExactlyOne(result)
+  return result.rowCount === 1
 }
 
 export const findOwnedDocumentVersion = async (
@@ -352,6 +393,8 @@ export const setDocumentDeleted = async (
   input: {
     applicationId: string
     documentId: string
+    /** The stage this document's FILE question sits in. */
+    stageKey: string
     expectedVersion: number
     userId: string
     deleted: boolean
@@ -362,12 +405,12 @@ export const setDocumentDeleted = async (
   // The append-only audit ID doubles as an operation claim. Every later
   // statement in the batch checks this exact ID, so two transitions occurring
   // in the same millisecond cannot attribute events to the wrong request.
-  const audit = db.insert(coreAuditEvent).select(sql`
+  const audit = (tx: Transaction) => tx.insert(coreAuditEvent).select(sql`
     SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
       ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
       ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
       ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now.getTime()}
+      ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplicationDocument}
       WHERE ${sebApplicationDocument.id} = ${input.documentId}
@@ -376,10 +419,10 @@ export const setDocumentDeleted = async (
         AND ${input.deleted
           ? sql`${sebApplicationDocument.deletedAt} IS NULL`
           : sql`${sebApplicationDocument.deletedAt} IS NOT NULL`}
-        AND ${applicationDocumentsEditable(input.applicationId, input.userId)}
+        AND ${applicationDocumentsEditable(input.applicationId, input.userId, input.stageKey)}
     )
   `)
-  const update = db
+  const update = (tx: Transaction) => tx
     .update(sebApplicationDocument)
     .set(
       input.deleted
@@ -404,26 +447,26 @@ export const setDocumentDeleted = async (
         input.deleted
           ? isNull(sebApplicationDocument.deletedAt)
           : isNotNull(sebApplicationDocument.deletedAt),
-        applicationDocumentsEditable(input.applicationId, input.userId),
+        applicationDocumentsEditable(input.applicationId, input.userId, input.stageKey),
         sql`EXISTS (
           SELECT 1 FROM ${coreAuditEvent}
           WHERE ${coreAuditEvent.id} = ${input.audit.id}
         )`,
       ),
     )
-  const event = db.insert(sebApplicationEvent).select(sql`
+  const event = (tx: Transaction) => tx.insert(sebApplicationEvent).select(sql`
     SELECT ${crypto.randomUUID()}, ${input.applicationId},
       ${input.deleted ? 'DOCUMENT_DELETED' : 'DOCUMENT_RESTORED'}, ${input.userId},
-      NULL, NULL, NULL, NULL, NULL, 'DOCUMENTS',
+      NULL, NULL, NULL, NULL, NULL, ${input.stageKey},
       ${input.deleted ? 'Application document removed.' : 'Application document restored.'},
-      NULL, ${input.now.getTime()}
+      NULL, ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${coreAuditEvent}
       WHERE ${coreAuditEvent.id} = ${input.audit.id}
     )
   `)
-  const [changed] = await db.batch([audit, update, event])
-  return d1ChangedExactlyOne(changed)
+  const [changed] = await batch(db, (tx) => [audit(tx), update(tx), event(tx)])
+  return changedExactlyOne(changed)
 }
 
 export const claimExpiredUploadIntents = async (
@@ -477,9 +520,9 @@ export const claimExpiredUploadIntents = async (
   // `db.batch` refuses an empty list, and an idle cron run is the common case.
   if (intended.length === 0) return []
 
-  const results = await db.batch(
+  const results = await batch(db, (tx) =>
     intended.map((candidate) =>
-      db
+      tx
         .update(sebDocumentUploadIntent)
         .set({
           status: 'CLEANUP_PENDING',
@@ -504,7 +547,7 @@ export const claimExpiredUploadIntents = async (
             ),
           ),
         ),
-    ) as unknown as Parameters<typeof db.batch>[0],
+    ),
   )
 
   const claimed: typeof intended = []

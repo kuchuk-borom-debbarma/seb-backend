@@ -47,17 +47,17 @@ const guide: Record<ApplicationStatus, Omit<ApplicationStatusGuideEntry, 'status
     nextActor: 'PROGRAMME_OFFICE',
     nextAction: null,
   },
-  TTM_REVIEW: {
-    label: 'Awaiting committee decision',
-    explanation: 'Your application is on the agenda for a Tripartite Meeting, which '
-      + 'takes the funding decision.',
+  AWAITING_DECISION: {
+    label: 'Awaiting a decision',
+    explanation: 'The bank has answered and your application is complete. It is now '
+      + 'waiting for the programme to take the funding decision.',
     nextActor: 'PROGRAMME_OFFICE',
     nextAction: null,
   },
   APPROVED: {
     label: 'Approved',
-    explanation: 'The committee has approved your application. The sanction order '
-      + 'that releases funding is prepared next.',
+    explanation: 'Your application has been approved. The sanction order that '
+      + 'releases funding is prepared next.',
     nextActor: 'PROGRAMME_OFFICE',
     nextAction: null,
   },

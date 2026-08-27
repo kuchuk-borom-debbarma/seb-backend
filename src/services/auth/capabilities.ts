@@ -25,8 +25,10 @@ import type { UserRole } from '../../db/schema'
 export const capabilities = [
   /** Every administrative read: the queue, a workspace, documents, funding. */
   'STAFF_READ',
-  /** Cycles, intake, desk review, referral, meetings, awards, recovery. */
+  /** Intake, desk review, referral, awards, recovery. */
   'STAFF_WRITE',
+  /** Creating a cycle, editing its rules and its form — the questions every applicant is judged against. */
+  'CYCLE_ADMIN',
   /** Recording and correcting the programme decision, and nothing else. */
   'DECIDE',
   /** Granting and revoking a role directly. */

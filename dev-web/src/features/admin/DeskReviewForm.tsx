@@ -12,18 +12,10 @@
  * are allowed to change.
  */
 import { useMemo, useState } from 'react'
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  ClipboardCheck,
-  X,
-} from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, ClipboardCheck, X } from 'lucide-react'
 import { reasonsFor, type ReasonCategory } from '#/features/admin/workspaceQueries'
-import { SECTION_TITLES } from '#/features/application/draft'
 import type {
   DeskReviewIdentifierKind,
-  ApplicationSection,
   DeskReviewCheckResult,
   DeskReviewCheckType,
   DeskReviewOutcome,
@@ -112,14 +104,6 @@ const OUTCOMES: { value: DeskReviewOutcome; label: string; means: string }[] = [
 ]
 
 /** The sections an applicant can be asked to correct. */
-const REVISABLE: ApplicationSection[] = [
-  'ENTERPRISE',
-  'APPLICANT_PROFILE',
-  'FINANCIAL',
-  'PRIOR_FUNDING',
-  'DOCUMENTS',
-]
-
 export type DeskReviewDraft = {
   outcome: DeskReviewOutcome
   checks: {
@@ -130,7 +114,7 @@ export type DeskReviewDraft = {
   reasonCategoryId?: string | null
   applicantMessage?: string | null
   revisions: {
-    section: ApplicationSection
+    stageKey: string
     reasonCategoryId: string
     note: string
   }[]
@@ -144,7 +128,28 @@ export type DeskReviewDraft = {
   conflictAcknowledged?: boolean | null
 }
 
-/** How each identifier is presented. Copy, not policy. */
+/**
+ * What the reviewer transcribes, and which check it is the evidence for.
+ *
+ * Passing a check means having read a document. The number on it is what turns
+ * "I saw a valid certificate" into something the programme can later ask
+ * questions about — chiefly whether the same one has been used before.
+ *
+ * What is demanded is the cycle's decision, not this file's. A cycle that
+ * demands nothing is a real configuration and shows no fields at all.
+ */
+/**
+ * How each identifier is presented. Copy, not policy.
+ *
+ * Which identifiers a cycle demands, and which it compares for duplicates, is
+ * configured per programme cycle and arrives with the workspace. What stays
+ * here is only how to word the field — a label and a hint are editorial, and
+ * putting them in the database would mean a form change needed a data change.
+ *
+ * `branch` marks the one identifier that is two fields: an account number is
+ * only unique with its branch, and the same digits at two banks are two
+ * accounts.
+ */
 const IDENTIFIER_PRESENTATION: Record<
   DeskReviewIdentifierKind,
   { label: string; hint: string; branch?: string }
@@ -178,6 +183,7 @@ export type IdentifierRule = {
 
 export function DeskReviewForm({
   reasons,
+  stages,
   rules,
   reviewingOwnApplication,
   pending,
@@ -186,54 +192,109 @@ export function DeskReviewForm({
   onCancel,
 }: {
   reasons: ReasonCategory[] | undefined
+  /**
+   * The stages this application's own form declares.
+   *
+   * Passed in rather than fixed in code: which stages exist is the cycle's
+   * decision, and the API refuses a revision naming a stage the pinned form
+   * does not have — so a hard-coded list would offer refusals.
+   */
+  stages: readonly { key: string; title: string }[]
   /** The cycle's identifier rules, frozen with the submission under review. */
   rules: IdentifierRule[]
+  /** Whether the signed-in reviewer is also the applicant. */
   reviewingOwnApplication: boolean
   pending: boolean
   error: string | null
   onSubmit: (draft: DeskReviewDraft) => void
   onCancel?: () => void
 }) {
-  const mark = useMarker()
   const [activeTab, setActiveTab] = useState<'checks' | 'documents' | 'outcome'>('checks')
   const [results, setResults] = useState<
     Partial<Record<DeskReviewCheckType, DeskReviewCheckResult>>
   >({})
   const [notes, setNotes] = useState<Partial<Record<DeskReviewCheckType, string>>>({})
   const [outcome, setOutcome] = useState<DeskReviewOutcome | ''>('')
-  const [rejectionReasonId, setRejectionReasonId] = useState('')
   const [applicantMessage, setApplicantMessage] = useState('')
+  const [outcomeReasonId, setOutcomeReasonId] = useState('')
   const [revisions, setRevisions] = useState<
-    Partial<Record<ApplicationSection, { reasonCategoryId: string; note: string }>>
+    Partial<Record<string, { reasonCategoryId: string; note: string }>>
   >({})
   const [typed, setTyped] = useState<
     Partial<Record<DeskReviewIdentifierKind, { value: string; branchCode: string }>>
   >({})
   const [notSameClaim, setNotSameClaim] = useState('')
   const [conflictAcknowledged, setConflictAcknowledged] = useState(false)
+  const mark = useMarker()
 
+  /*
+   * Only what this review is actually attesting to. A check that is failed or
+   * does not apply asks for nothing, so the field disappears rather than sitting
+   * there greyed out.
+   */
   const transcribing = rules
     .filter((rule) => rule.requirement !== 'OFF')
     .filter((rule) => rule.checkType === null || results[rule.checkType] === 'PASS')
     .map((rule) => ({ ...rule, ...IDENTIFIER_PRESENTATION[rule.kind] }))
-
+  /*
+   * Demanded only where the cycle says so *and* the check it stands behind
+   * passed. A failed check is attesting to nothing, so asking for the number
+   * behind it would be asking somebody to write down a document they have just
+   * rejected.
+   */
   const required = transcribing.filter(
     (entry) => entry.requirement === 'REQUIRED_ON_PASS' && entry.checkType !== null,
   )
 
+  /*
+   * The server has already refused once because one of these numbers exists on
+   * another file. It is a question rather than a verdict — the same promoter
+   * legitimately returns for a later phase — so the answer appears only after
+   * it has been asked.
+   *
+   * Shown but never demanded. A reviewer who realises they mistyped the number
+   * should be able to correct it and carry on; requiring the reason as well
+   * would offer only one way out of two honest ones. The API decides, and it
+   * refuses again with the same sentence if the value really is a repeat.
+   *
+   * The phrase is matched rather than flagged structurally because the result
+   * envelope carries only a message. `e2e/duplicates.spec.ts` walks the whole
+   * refusal through the interface, so the two sides cannot drift apart quietly.
+   */
   const flagged = Boolean(error?.includes('already recorded against'))
 
   const revisionReasons = useMemo(() => reasonsFor(reasons, 'REVISION'), [reasons])
   const rejectionReasons = useMemo(() => reasonsFor(reasons, 'REJECTION'), [reasons])
 
+  /*
+   * One outcome reason, chosen from whichever catalogue the outcome names.
+   *
+   * The API decides this from the outcome — `REJECT` reads the rejection
+   * catalogue and everything else reads the revision one — and `seb_desk_review`
+   * will not store a revision or a rejection without one. Only the rejection
+   * select existed, so asking for a revision sent no reason and was refused
+   * with nothing on the form to fix.
+   */
+  const needsOutcomeReason = outcome === 'REJECT' || outcome === 'REQUEST_REVISION'
+  const outcomeReasons = outcome === 'REJECT' ? rejectionReasons : revisionReasons
+
   const chosen = Object.entries(revisions) as [
-    ApplicationSection,
+    string,
     { reasonCategoryId: string; note: string },
   ][]
 
-  const answeredChecksCount = CHECKS.filter((check) => Boolean(results[check.type])).length
+  /*
+   * What the API will accept. Stated here so the button is disabled rather than
+   * the write refused — the reviewer should not have to read a rule back from
+   * an error message they could have been shown first.
+   */
+  const answeredChecksCount = CHECKS.filter((check) =>
+    Boolean(results[check.type]),
+  ).length
   const everyCheckAnswered = answeredChecksCount === CHECKS.length
 
+  // Per-tab progress, so each tab header can say how far along its work is
+  // without the reviewer opening it.
   const requiredCount = required.length
   const filledRequiredCount = required.filter((entry) => {
     const entered = typed[entry.kind]
@@ -242,15 +303,13 @@ export function DeskReviewForm({
       (!entry.branch || (entered?.branchCode.trim().length ?? 0) >= 4)
     )
   }).length
-
   const docsComplete = transcribing.length === 0 || filledRequiredCount === requiredCount
-
   const outcomeComplete =
     Boolean(outcome) &&
     (outcome !== 'REQUEST_REVISION' ||
       (chosen.length > 0 &&
-        chosen.every(([, value]) => Boolean(value.reasonCategoryId) && Boolean(value.note.trim())))) &&
-    (outcome !== 'REJECT' || Boolean(rejectionReasonId)) &&
+        chosen.every(([, value]) => value.reasonCategoryId && value.note.trim()))) &&
+    (!needsOutcomeReason || Boolean(outcomeReasonId)) &&
     (outcome === 'ADVANCE_TO_BANK' || applicantMessage.trim().length > 0) &&
     (!reviewingOwnApplication || conflictAcknowledged)
 
@@ -259,8 +318,8 @@ export function DeskReviewForm({
     everyCheckAnswered &&
     (outcome !== 'REQUEST_REVISION' ||
       (chosen.length > 0 &&
-        chosen.every(([, value]) => Boolean(value.reasonCategoryId) && Boolean(value.note.trim())))) &&
-    (outcome !== 'REJECT' || Boolean(rejectionReasonId)) &&
+        chosen.every(([, value]) => value.reasonCategoryId && value.note.trim()))) &&
+    (!needsOutcomeReason || Boolean(outcomeReasonId)) &&
     (outcome === 'ADVANCE_TO_BANK' || applicantMessage.trim().length > 0) &&
     required.every((entry) => {
       const entered = typed[entry.kind]
@@ -269,12 +328,13 @@ export function DeskReviewForm({
         (!entry.branch || (entered?.branchCode.trim().length ?? 0) >= 4)
       )
     }) &&
+    // Permitted, but never silently: the server refuses the same way, so a
+    // disabled button here is the honest preview of that refusal.
     (!reviewingOwnApplication || conflictAcknowledged)
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
     if (!ready || outcome === '') return
-
     onSubmit({
       outcome,
       checks: CHECKS.map((check) => ({
@@ -282,17 +342,12 @@ export function DeskReviewForm({
         result: results[check.type] as DeskReviewCheckResult,
         internalNote: notes[check.type]?.trim() || null,
       })),
-      reasonCategoryId:
-        outcome === 'REJECT'
-          ? rejectionReasonId
-          : outcome === 'REQUEST_REVISION'
-            ? (chosen[0]?.[1].reasonCategoryId ?? null)
-            : null,
+      reasonCategoryId: needsOutcomeReason ? outcomeReasonId : null,
       applicantMessage: applicantMessage.trim() || null,
       revisions:
         outcome === 'REQUEST_REVISION'
-          ? chosen.map(([section, value]) => ({
-              section,
+          ? chosen.map(([stageKey, value]) => ({
+              stageKey,
               reasonCategoryId: value.reasonCategoryId,
               note: value.note.trim(),
             }))
@@ -398,7 +453,9 @@ export function DeskReviewForm({
         <div className={styles.tabPane}>
           <fieldset className={styles.fieldset} disabled={pending}>
             <div className={styles.sectionHeader}>
-              <legend className={styles.sectionEyebrow}>Eligibility & verification checks</legend>
+              <legend className={styles.sectionEyebrow}>
+                Eligibility & verification checks
+              </legend>
             </div>
             <div className={styles.checksCard}>
               {CHECKS.map((check) => (
@@ -456,8 +513,10 @@ export function DeskReviewForm({
                 </div>
               ))}
             </div>
+            {/* Said once, under the list, rather than nine times beside it. */}
             <p className={styles.hintBox}>
-              Internal notes stay inside the programme office. The applicant never sees them.
+              Internal notes stay inside the programme office. The applicant never sees
+              them.
             </p>
           </fieldset>
 
@@ -477,6 +536,11 @@ export function DeskReviewForm({
       {/* Tab 2: What documents say */}
       {activeTab === 'documents' && (
         <div className={styles.tabPane}>
+          {/*
+        Appears as checks are passed, because that is what it is evidence for.
+        Sitting before the outcome puts it where the reviewer still has the
+        documents open, rather than after they have decided.
+      */}
           {transcribing.length > 0 ? (
             <fieldset
               className={styles.fieldset}
@@ -484,20 +548,26 @@ export function DeskReviewForm({
               {...mark('desk-review-identifiers')}
             >
               <div className={styles.sectionHeader}>
-                <legend className={styles.sectionEyebrow}>Transcribed identifiers</legend>
-                <Explain label="these numbers" opener="Why a passed check asks for a number">
+                <legend className={styles.sectionEyebrow}>What the documents say</legend>
+                <Explain
+                  label="these numbers"
+                  opener="Why a passed check asks for a number"
+                >
                   {OFFICE_HELP.transcribing}
                 </Explain>
               </div>
               <div className={styles.identifiersBox}>
                 <p className={styles.hintBox} style={{ margin: 0 }}>
-                  Passing a check means you have read the document. Entering its number is what
-                  lets the programme notice if the same one is used twice.
+                  Passing a check means you have read the document. Entering its number is
+                  what lets the programme notice if the same one is used twice.
                 </p>
 
                 <div className="stack">
                   {transcribing.map((entry) => (
-                    <div key={entry.kind} className={entry.branch ? 'detail-grid' : undefined}>
+                    <div
+                      key={entry.kind}
+                      className={entry.branch ? 'detail-grid' : undefined}
+                    >
                       <div>
                         <label className="field-label" htmlFor={`id-${entry.kind}`}>
                           {entry.label}
@@ -556,9 +626,9 @@ export function DeskReviewForm({
                         onChange={(event) => setNotSameClaim(event.target.value)}
                       />
                       <p className="field-hint">
-                        A number appearing twice is not proof of anything — the same promoter
-                        returns for a later phase. Say what this is, and it is kept beside the
-                        number that raised it.
+                        A number appearing twice is not proof of anything — the same
+                        promoter returns for a later phase. Say what this is, and it is
+                        kept beside the number that raised it.
                       </p>
                     </div>
                   ) : null}
@@ -568,7 +638,8 @@ export function DeskReviewForm({
           ) : (
             <div className={styles.identifiersBox}>
               <p className={styles.hintBox} style={{ margin: 0 }}>
-                No identifiers need to be transcribed based on the current checks and cycle rules.
+                No identifiers need to be transcribed based on the current checks and
+                cycle rules.
               </p>
             </div>
           )}
@@ -625,12 +696,12 @@ export function DeskReviewForm({
 
             {outcome === 'REQUEST_REVISION' ? (
               <div style={{ marginTop: '1rem' }}>
-                <p className="field-label">Sections the applicant must correct</p>
+                <p className="field-label">Stages the applicant must correct</p>
                 <div className="stack">
-                  {REVISABLE.map((section) => {
-                    const value = revisions[section]
+                  {stages.map((stage) => {
+                    const value = revisions[stage.key]
                     return (
-                      <div className="card" key={section}>
+                      <div className="card" key={stage.key}>
                         <div className="card-body">
                           <label className="checkbox-row">
                             <input
@@ -640,34 +711,37 @@ export function DeskReviewForm({
                                 setRevisions((previous) => {
                                   const next = { ...previous }
                                   if (event.target.checked) {
-                                    next[section] = {
+                                    next[stage.key] = {
                                       reasonCategoryId: '',
                                       note: '',
                                     }
                                   } else {
-                                    delete next[section]
+                                    delete next[stage.key]
                                   }
                                   return next
                                 })
                               }
                             />
-                            {SECTION_TITLES[section]}
+                            {stage.title}
                           </label>
 
                           {value ? (
                             <div className="detail-grid" style={{ marginTop: '0.75rem' }}>
                               <div>
-                                <label className="field-label" htmlFor={`${section}-reason`}>
+                                <label
+                                  className="field-label"
+                                  htmlFor={`${stage.key}-reason`}
+                                >
                                   Reason
                                 </label>
                                 <select
-                                  id={`${section}-reason`}
+                                  id={`${stage.key}-reason`}
                                   className="select"
                                   value={value.reasonCategoryId}
                                   onChange={(event) =>
                                     setRevisions((previous) => ({
                                       ...previous,
-                                      [section]: {
+                                      [stage.key]: {
                                         ...value,
                                         reasonCategoryId: event.target.value,
                                       },
@@ -683,18 +757,21 @@ export function DeskReviewForm({
                                 </select>
                               </div>
                               <div style={{ gridColumn: '2 / -1' }}>
-                                <label className="field-label" htmlFor={`${section}-note`}>
+                                <label
+                                  className="field-label"
+                                  htmlFor={`${stage.key}-note`}
+                                >
                                   What the applicant must do
                                 </label>
                                 <textarea
-                                  id={`${section}-note`}
+                                  id={`${stage.key}-note`}
                                   className="textarea"
                                   rows={2}
                                   value={value.note}
                                   onChange={(event) =>
                                     setRevisions((previous) => ({
                                       ...previous,
-                                      [section]: {
+                                      [stage.key]: {
                                         ...value,
                                         note: event.target.value,
                                       },
@@ -711,32 +788,56 @@ export function DeskReviewForm({
                 </div>
                 {revisionReasons.length === 0 ? (
                   <p className="notice" data-tone="warn" style={{ marginTop: '0.75rem' }}>
-                    <span className="notice-title">This cycle has no revision reasons</span>A
-                    correction request must name a reason from the cycle's catalogue. Add one
-                    in cycle administration first.
+                    <span className="notice-title">
+                      This cycle has no revision reasons
+                    </span>
+                    A correction request must name a reason from the cycle's catalogue.
+                    Add one in cycle administration first.
                   </p>
                 ) : null}
               </div>
             ) : null}
 
-            {outcome === 'REJECT' ? (
+            {/* Otherwise the button is simply disabled and nothing says why. */}
+            {needsOutcomeReason && outcomeReasons.length === 0 ? (
+              <p className="notice" data-tone="warn" style={{ marginTop: '1rem' }}>
+                <span className="notice-title">
+                  This cycle has no reason for that outcome
+                </span>
+                A review must name a reason from the cycle's catalogue. Add one in cycle
+                administration first.
+              </p>
+            ) : null}
+
+            {needsOutcomeReason && outcomeReasons.length > 0 ? (
               <div style={{ marginTop: '1rem' }}>
-                <label className="field-label" htmlFor="rejection-reason">
-                  Reason for rejection
+                <label className="field-label" htmlFor="outcome-reason">
+                  {outcome === 'REJECT'
+                    ? 'Reason for rejection'
+                    : 'Why this is going back'}
                 </label>
                 <select
-                  id="rejection-reason"
+                  id="outcome-reason"
                   className="select"
-                  value={rejectionReasonId}
-                  onChange={(event) => setRejectionReasonId(event.target.value)}
+                  value={outcomeReasonId}
+                  onChange={(event) => setOutcomeReasonId(event.target.value)}
                 >
                   <option value="">Choose a reason</option>
-                  {rejectionReasons.map((reason) => (
+                  {outcomeReasons.map((reason) => (
                     <option key={reason.id} value={reason.id}>
                       {reason.label}
                     </option>
                   ))}
                 </select>
+                {/* Distinct from the per-section reasons above: this one says why
+                the application is going back, each of those says what is wrong
+                with one section. */}
+                {outcome === 'REQUEST_REVISION' ? (
+                  <span className="field-hint">
+                    The whole application's reason. Each section you ticked carries its
+                    own.
+                  </span>
+                ) : null}
               </div>
             ) : null}
 
@@ -760,7 +861,14 @@ export function DeskReviewForm({
           </fieldset>
 
           {reviewingOwnApplication ? (
-            <p className="notice" style={{ marginTop: '0.5rem' }}>
+            /*
+             * `docs/policy-alignment.md` permits acting on your own application
+             * with disclosure. This is the disclosure, and it is deliberately not
+             * a warning: a small office will have officers who are also applicants
+             * and that is expected rather than suspect. Saying so is what has to
+             * happen, and the acknowledgement lands in the audit trail.
+             */
+            <p className="notice" style={{ marginTop: '1rem' }}>
               <span className="notice-title">This is your own application</span>
               <label className="checkbox-row">
                 <input
@@ -786,13 +894,9 @@ export function DeskReviewForm({
         </div>
       )}
 
+      {/* Outside the panes, so a refusal is visible whichever tab is open. */}
       {error ? (
-        <p
-          className="notice"
-          data-tone="error"
-          role="alert"
-          style={{ margin: 0 }}
-        >
+        <p className="notice" data-tone="error" role="alert" style={{ margin: 0 }}>
           {error}
         </p>
       ) : null}
@@ -834,7 +938,10 @@ export function DeskReviewForm({
 }
 
 /**
- * Dedicated Desk Review Modal Dialog.
+ * The desk review, in its own dialog.
+ *
+ * The workspace stays visible behind it, and closing writes nothing: the nine
+ * checks and the outcome still land together in one write or not at all.
  */
 export function DeskReviewModal({
   open,

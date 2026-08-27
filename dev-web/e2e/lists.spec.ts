@@ -11,16 +11,27 @@
  * quietly meant "starts with" would be discovered by somebody typing a word
  * from the middle of a name and getting nothing.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
   openProgrammeCycle,
-  registerEnterprise,
   signIn,
   signUpApplicant,
   uniqueEmail,
 } from './support'
+
+/** Registers an enterprise through its own screen. */
+const registerEnterprise = async (page: Page, name: string) => {
+  await page.goto('/enterprises/new')
+  await page.getByLabel('Registered or trading name').fill(name)
+  // The form is a four-step wizard now; a name plus defaults carries through.
+  for (let step = 0; step < 3; step += 1) {
+    await page.getByRole('button', { name: 'Next' }).click()
+  }
+  await page.getByRole('button', { name: 'Register enterprise' }).click()
+  await expect(page).toHaveURL(/\/enterprises\/[0-9a-f-]{36}$/u)
+}
 
 test.describe('the enterprises list', () => {
   test.beforeEach(async ({ page }) => {
@@ -91,7 +102,6 @@ test.describe('the enterprises list', () => {
     await expect(page.getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
   })
 })
-
 test.describe('the intake queue', () => {
   test('searches by reference or enterprise, and says when nothing matches', async ({
     page,
@@ -149,37 +159,5 @@ test.describe('the cycle list', () => {
 
     await page.getByLabel('Programme year').fill('2000')
     await expect(page.getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
-  })
-})
-
-test.describe('committee meetings', () => {
-  test('are paged, with a total, and filtered by state', async ({ page }) => {
-    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-
-    for (const index of [1, 2]) {
-      await page.goto('/admin/meetings')
-      await page.getByRole('button', { name: 'Schedule a meeting' }).click()
-      await page
-        .getByLabel('Meeting reference')
-        .fill(`TTM-L${Date.now().toString(36)}${index}`)
-      await page
-        .getByLabel('When')
-        .fill(new Date(Date.now() + index * 86_400_000).toISOString().slice(0, 16))
-      await page.getByLabel('Where').fill('Khumulwng')
-      await page.getByRole('button', { name: 'Schedule it' }).click()
-      await expect(page).toHaveURL(/\/admin\/meetings\/[0-9a-f-]{36}$/u)
-    }
-
-    await page.goto('/admin/meetings')
-    // The list reports a size rather than returning the whole table silently.
-    await expect(page.getByText(/\d+ results/u)).toBeVisible()
-
-    await page.getByLabel('State').selectOption('FINALIZED')
-    await expect(page.getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
-
-    await page.getByLabel('State').selectOption('DRAFT')
-    await expect(
-      page.getByRole('row').filter({ hasText: 'Being planned' }).first(),
-    ).toBeVisible()
   })
 })

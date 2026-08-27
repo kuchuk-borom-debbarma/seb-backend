@@ -11,6 +11,8 @@ import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 
 export const Route = createFileRoute('/_shell/_applicant/enterprises/new')({
+  // A registration begun from the application flow returns there, with the new
+  // enterprise pre-selected, instead of stranding the person on this record.
   validateSearch: (
     search: Record<string, unknown>,
   ): { returnTo?: 'application'; cycleId?: string } => ({
@@ -40,11 +42,7 @@ function NewEnterprisePage() {
       if (search.returnTo === 'application') {
         await router.navigate({
           to: '/applications/new',
-          search: {
-            enterpriseId: enterprise.id,
-            cycleId: search.cycleId,
-            step: search.cycleId ? 'TYPE' : 'SETUP',
-          },
+          search: { enterpriseId: enterprise.id, cycleId: search.cycleId },
         })
       } else {
         await router.navigate({

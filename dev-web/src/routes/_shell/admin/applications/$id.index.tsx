@@ -1,3 +1,13 @@
+/**
+ * One application, as the programme office works on it.
+ *
+ * The screen is ordered by what a reviewer does, not by how the data is stored:
+ * who holds this application, what to do next, what was submitted, what has
+ * been said about it, and then the record of everything that has happened.
+ *
+ * Every write here carries a version read from this same workspace, so two
+ * reviewers acting at once produce a refusal rather than a silent overwrite.
+ */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -13,7 +23,7 @@ import {
 } from 'lucide-react'
 import { WhoIsOnThis } from '#/features/admin/WhoIsOnThis'
 import { BankStage } from '#/features/admin/BankStage'
-import { CommitteeStage } from '#/features/admin/CommitteeStage'
+import { DecisionStage } from '#/features/admin/DecisionStage'
 import {
   DeskReviewForm,
   DeskReviewModal,
@@ -22,8 +32,8 @@ import {
 } from '#/features/admin/DeskReviewForm'
 import { statusTone } from '#/features/admin/queues'
 import { cycleReasonsQuery, workspaceQuery } from '#/features/admin/workspaceQueries'
-import { DOCUMENT_TITLES, formatBytes } from '#/features/application/documents'
-import { SECTION_TITLES, sectionTitle } from '#/features/application/draft'
+import { formatBytes } from '#/features/application/documents'
+import { fieldLabel, stageTitle } from '#/features/application/draft'
 import styles from '#/features/admin/Workspace.module.css'
 import {
   AddInternalNoteDocument,
@@ -32,7 +42,6 @@ import {
   CompleteDeskReviewDocument,
   StartDeskReviewDocument,
 } from '#/graphql/generated/operations'
-import type { DocumentType } from '#/graphql/generated/schema'
 import { formatDateTime, humanize } from '#/lib/format'
 import { can } from '#/lib/session'
 import { gql } from '#/lib/graphql'
@@ -53,7 +62,18 @@ export const Route = createFileRoute('/_shell/admin/applications/$id/')({
 function WorkspacePage() {
   const { id } = Route.useParams()
   const queryClient = useQueryClient()
+  // Loaded by the shell for every signed-in screen, so reading it here costs
+  // nothing — it is only needed to tell "you were here last" from somebody else.
   const { user: viewer } = Route.useRouteContext()
+  /*
+   * A reviewer may read every one of these screens and change nothing on them.
+   * Drawing the action cards anyway offers a whole desk-review form that the
+   * API refuses on submit — the work is done before the refusal arrives, which
+   * is the worst possible moment to learn a role cannot do something.
+   *
+   * `can` decides what to draw and never what is permitted; every operation is
+   * re-checked by the API, which is what actually refuses.
+   */
   const mayWrite = can(viewer, 'STAFF_WRITE')
   const mayDecide = can(viewer, 'DECIDE')
   const { data: workspace } = useQuery(workspaceQuery(id))
@@ -63,6 +83,13 @@ function WorkspacePage() {
 
   if (!workspace?.application) return null
   const application = workspace.application
+  /*
+   * Which stages exist is this application's cycle's decision, so every control
+   * that names one reads them from here. Empty only where the cycle's rows have
+   * been edited by hand, in which case a reviewer is offered no stage rather
+   * than a wrong one.
+   */
+  const stages = workspace.formTemplate?.stages ?? []
 
   const openRevisions = workspace.revisions.filter(
     (revision) => !revision.resolvedAt && !revision.cancelledAt,
@@ -89,6 +116,8 @@ function WorkspacePage() {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* Money outlives the review, so the funding screen is offered
+                from the moment a sanction order can exist. */}
             {FUNDED_STATUSES.has(application.status) ? (
               <Link
                 to="/admin/applications/$id/funding"
@@ -130,6 +159,7 @@ function WorkspacePage() {
               status={application.status}
               statusVersion={application.statusVersion}
               reasons={reasons}
+              stages={stages}
               rules={workspace.identifierRules}
               reviewingOwnApplication={application.applicantUserId === viewer?.id}
               hasReview={workspace.reviews.length > 0}
@@ -147,20 +177,20 @@ function WorkspacePage() {
               referrals={workspace.referrals}
               outcomes={workspace.bankOutcomes}
               reasons={reasons}
+              stages={stages}
               onChanged={refresh}
             />
           ) : null}
 
           {mayWrite || mayDecide ? (
-            <CommitteeStage
+            <DecisionStage
               applicationId={id}
               status={application.status}
               statusVersion={application.statusVersion}
-              latestSubmissionId={latestSubmission?.id}
               latestBankOutcomeId={workspace.bankOutcomes.at(-1)?.id}
-              agenda={workspace.agenda}
               decisions={workspace.decisions}
               reasons={reasons}
+              stages={stages}
               decidingOwnApplication={application.applicantUserId === viewer?.id}
               onChanged={refresh}
             />
@@ -193,8 +223,12 @@ function WorkspacePage() {
                 </caption>
                 <thead>
                   <tr>
-                    <th scope="col" style={{ width: '56px' }}>No.</th>
-                    <th scope="col" style={{ width: '220px' }}>Submitted</th>
+                    <th scope="col" style={{ width: '56px' }}>
+                      No.
+                    </th>
+                    <th scope="col" style={{ width: '220px' }}>
+                      Submitted
+                    </th>
                     <th scope="col">What changed</th>
                   </tr>
                 </thead>
@@ -205,7 +239,10 @@ function WorkspacePage() {
                     )
                     return (
                       <tr key={submission.id} className={styles.tableRow}>
-                        <td className="tabular" style={{ fontWeight: 600, color: '#111827' }}>
+                        <td
+                          className="tabular"
+                          style={{ fontWeight: 600, color: '#111827' }}
+                        >
                           {submission.submissionNumber}
                         </td>
                         <td style={{ color: '#334155' }}>
@@ -213,10 +250,12 @@ function WorkspacePage() {
                         </td>
                         <td>
                           {change ? (
-                            change.sections
-                              .map((section) => SECTION_TITLES[section])
+                            change.stageKeys
+                              .map((stageKey) => stageTitle(stageKey))
                               .join(', ')
                           ) : (
+                            // The first submission changed everything by
+                            // definition, so there is nothing to compare it to.
                             <span className="muted">First submission</span>
                           )}
                         </td>
@@ -265,6 +304,14 @@ function WorkspacePage() {
                           >
                             {humanize(review.outcome)}
                           </span>
+                          {/* A review an officer carried out on their own
+                              application is allowed, and is exactly what a reader
+                              of this record needs to see beside the outcome. */}
+                          {review.conflictAcknowledged ? (
+                            <span className="field-hint">
+                              Reviewed by the applicant, declared
+                            </span>
+                          ) : null}
                         </td>
                         <td>{formatDateTime(review.reviewedAt)}</td>
                         <td>
@@ -337,12 +384,17 @@ function WorkspacePage() {
 
 /**
  * The one thing to do next, given where the application is.
+ *
+ * Only the transitions the API will actually accept from this status are
+ * offered. A button that exists to be refused teaches people to distrust the
+ * screen.
  */
 function NextStep({
   applicationId,
   status,
   statusVersion,
   reasons,
+  stages,
   rules,
   reviewingOwnApplication,
   hasReview,
@@ -352,11 +404,18 @@ function NextStep({
   status: string
   statusVersion: number
   reasons: Parameters<typeof DeskReviewForm>[0]['reasons']
+  /** This application's own stages; see the workspace comment above. */
+  stages: Parameters<typeof DeskReviewForm>[0]['stages']
   rules: Parameters<typeof DeskReviewForm>[0]['rules']
   reviewingOwnApplication: boolean
   hasReview: boolean
   onChanged: () => Promise<unknown>
 }) {
+  /*
+   * Marked on every branch. Only one renders, so the "exactly one bracket on
+   * the page" property holds — and the step lands on whatever this application
+   * actually offers rather than on a stage it happens not to be at.
+   */
   const mark = useMarker()
   const [error, setError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -473,6 +532,7 @@ function NextStep({
           onClose={() => setModalOpen(false)}
           hasReview={hasReview}
           reasons={reasons}
+          stages={stages}
           rules={rules}
           reviewingOwnApplication={reviewingOwnApplication}
           pending={complete.isPending}
@@ -498,6 +558,9 @@ function NextStep({
 
 /**
  * Correction requests the applicant has not yet answered.
+ *
+ * Cancelling one withdraws it: the section locks again and the applicant is no
+ * longer waiting on it. That is a real decision, so it needs a reason.
  */
 function OpenRevisions({
   applicationId,
@@ -509,7 +572,7 @@ function OpenRevisions({
   statusVersion: number
   revisions: {
     id: string
-    section: string
+    stageKey: string
     note: string
     requestedAt: string
   }[]
@@ -549,7 +612,7 @@ function OpenRevisions({
         {revisions.map((revision) => (
           <div key={revision.id}>
             <p className="notice" data-tone="action">
-              <span className="notice-title">{sectionTitle(revision.section)}</span>
+              <span className="notice-title">{stageTitle(revision.stageKey)}</span>
               {revision.note}
             </p>
             {cancelling === revision.id ? (
@@ -622,7 +685,7 @@ function Documents({
   documents: {
     id: string
     submissionId: string
-    documentType: DocumentType
+    fieldKey: string
     documentVersion: number
     originalFilename: string
     sizeBytes: number
@@ -644,6 +707,8 @@ function Documents({
     onError: (cause) => setError(messageFor(cause)),
   })
 
+  // Documents from earlier submissions are kept, but the ones being reviewed
+  // now are the ones frozen into the latest submission.
   const current = documents.filter(
     (document) => document.submissionId === latestSubmissionId,
   )
@@ -657,6 +722,8 @@ function Documents({
         </Explain>
       </div>
       {current.length === 0 ? (
+        // Two different facts. Saying "none" when earlier submissions carry
+        // documents would report the filter as if it were the application.
         <p className="muted">
           {documents.length === 0
             ? 'Nothing has been attached to this application.'
@@ -671,8 +738,12 @@ function Documents({
               <tr>
                 <th scope="col">Document</th>
                 <th scope="col">File</th>
-                <th scope="col" style={{ textAlign: 'right' }}>Size</th>
-                <th scope="col" style={{ textAlign: 'right' }}>Open</th>
+                <th scope="col" style={{ textAlign: 'right' }}>
+                  Size
+                </th>
+                <th scope="col" style={{ textAlign: 'right' }}>
+                  Open
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -681,20 +752,16 @@ function Documents({
                   <td>
                     <div className={styles.docTitleCell}>
                       <FileText size={16} className={styles.docIcon} aria-hidden="true" />
-                      <span>{DOCUMENT_TITLES[document.documentType]}</span>
+                      <span>{fieldLabel(document.fieldKey)}</span>
                       {document.documentVersion > 1 ? (
-                        <span className="field-hint">
-                          v{document.documentVersion}
-                        </span>
+                        <span className="field-hint">v{document.documentVersion}</span>
                       ) : null}
                     </div>
                   </td>
                   <td className={styles.filenameCell} title={document.originalFilename}>
                     {document.originalFilename}
                   </td>
-                  <td className={styles.sizeCell}>
-                    {formatBytes(document.sizeBytes)}
-                  </td>
+                  <td className={styles.sizeCell}>{formatBytes(document.sizeBytes)}</td>
                   <td className={styles.actionCell}>
                     <button
                       type="button"
@@ -712,7 +779,12 @@ function Documents({
         </div>
       )}
       {error ? (
-        <p className="notice" data-tone="error" role="alert" style={{ marginTop: '10px' }}>
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginTop: '10px' }}
+        >
           {error}
         </p>
       ) : null}
@@ -722,6 +794,11 @@ function Documents({
 
 /**
  * Notes kept inside the programme office.
+ *
+ * A note cannot be edited or deleted — a correction is a new note that points
+ * at the one it corrects, so the record of what was thought at the time
+ * survives. The interface shows that relationship rather than hiding the
+ * superseded note.
  */
 function InternalNotes({
   applicationId,
@@ -819,9 +896,8 @@ function InternalNotes({
 
       {notes.length === 0 ? (
         <p className={styles.notesEmptyHint}>
-          No notes yet. Notes stay inside the office and are never shown to the
-          applicant; once written, one can only be corrected by another that points at
-          it.
+          No notes yet. Notes stay inside the office and are never shown to the applicant;
+          once written, one can only be corrected by another that points at it.
         </p>
       ) : (
         <div className={styles.notesList}>
@@ -939,7 +1015,7 @@ function InternalNotes({
               <div className={styles.noteModalFooter}>
                 <button
                   type="button"
-                  className={styles.cancelButton}
+                  className="button"
                   onClick={closeModal}
                   disabled={add.isPending}
                 >
@@ -964,4 +1040,3 @@ function InternalNotes({
     </section>
   )
 }
-

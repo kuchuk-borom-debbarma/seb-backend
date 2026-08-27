@@ -19,9 +19,9 @@ Worker. Concretely:
   role removes its section on the next navigation; and a link appears only once
   its screen exists. An entry that leads nowhere is a defect, and the
   end-to-end suite asserts it.
-- Disabled and hidden states come from real data — `editableSections` decides
-  which form sections are open, `expansionEligibility.reasons` decides whether
-  an expansion can start.
+- Disabled and hidden states come from real data — `editableStageKeys` decides
+  which form stages are open, `expansionEligibility.reasons` decides whether an
+  expansion can start.
 - Money is rendered from the `Money` scalar, which is a decimal string of
   **paise**, not rupees and not a number.
 
@@ -46,8 +46,7 @@ The database starts empty and there is no administrator, by design. Create one
 the same way a real deployment does:
 
 1. `npm run db:setup:local` applies the canonical schema.
-2. Open `/login`, choose **Create Account**, and use the address in
-   `FIRST_SUPER_ADMIN_EMAIL`.
+2. Sign up at `/sign-up` with the address in `FIRST_SUPER_ADMIN_EMAIL`.
 3. Read the six-digit code from the Wrangler console (see the limitation
    below) and finish signing up.
 4. Run the curl promotion in the
@@ -77,9 +76,9 @@ overrides `main` and `assets`. Everything else in the file it finds survives.
 
 Without [`wrangler.jsonc`](wrangler.jsonc) the walk reaches the repository root
 and finds the **API Worker's** config, so the client builds as `seb-backend`
-carrying the API's D1 binding, its R2 bucket, its queue producer and consumer,
-and its hourly cron. Deploying that would replace the API Worker with the
-server-rendered client.
+carrying the API's Hyperdrive binding, its queue producer and consumer, and its
+hourly cron. Deploying that would replace the API Worker with the server-rendered
+client.
 
 That is not a theory about the code; it is what the build does with the file
 removed. The file exists to be found first.
@@ -105,8 +104,11 @@ CORS to keep in step, and `AUTH_COOKIE_SAME_SITE` can stay `lax`. During server
 rendering the same forwarding runs in-process, so it costs one local call rather
 than a round trip through our own HTTP server.
 
-`FRONTEND_ORIGINS` is therefore not needed by this client at all. It stays
-configured for anyone calling the Worker directly from a browser.
+`FRONTEND_ORIGINS` is needed for exactly one thing. Uploading a document is the
+single request the browser makes to the Worker itself — a grant is addressed to
+whoever stores the file, by definition — so that origin has to be trusted or the
+preflight is refused and the file never leaves the page. Everything else goes
+through the server layer and needs no CORS at all.
 
 ## Types come from the Worker's own schema
 
@@ -122,36 +124,26 @@ The generated output is gitignored, so run it once after cloning.
 These are inherited from the API and are surfaced honestly in the interface
 rather than hidden:
 
-- **Signup codes are printed to the console.** Notification delivery is a
-  `console.log` transport until roadmap §18 is built, so the verify screen says
-  to read the code from the Wrangler output. It does not claim an email was
-  sent.
-- **Uploading evidence needs R2 credentials.** `services/application/uploads.ts`
-  requires `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID` and
-  `R2_SECRET_ACCESS_KEY`. The evidence screen is built for the real flow and
-  performs it: it checksums the file, asks the Worker to authorize an object,
-  and would put the bytes straight into the bucket. Without credentials the
-  Worker refuses at the signing step, and the screen shows what it answered.
-  Note that the Worker masks that particular error — a missing configuration is
-  an operator's problem and is not described to an applicant — so the message
-  is the generic one, and the specific cause is in the Worker's own output.
-
-  With a bucket configured, it must also allow `PUT` from the client's origin:
-  the browser uploads directly to the presigned URL, which is the one request
-  in the whole client that does not go through the backend-for-frontend.
-
-  Everything else on that screen works without credentials — listing what is
-  required, removing a document and putting it back.
-- **An agenda item does not report which meeting it is on.** The API accepts a
-  committee decision only while that meeting is in session, but an application's
-  workspace cannot tell whether it is — so the screen states the rule and links
-  to the meetings list rather than hiding a control it cannot decide about.
-  `AdminAgendaItem.meetingId` would let it.
+- **Signup codes are printed to the console locally.** Notification delivery
+  goes through a transport seam; on a developer's machine the console transport
+  prints each message as a `DEV_EMAIL` line, so the verify screen says to read
+  the code from the Wrangler output. It does not claim an email was sent. A
+  deployed environment with a real transport configured sends actual email.
+- **Uploads work locally with no credentials, and deployment is where storage
+  gets real.** On a developer's machine documents land in the Worker's own
+  `STORAGE` binding, so the evidence screen's whole flow — checksum, grant,
+  upload, finalize — runs unconfigured. A deployed environment picks a backend
+  with `STORAGE_TRANSPORT`: R2 sends the browser straight to the bucket, which
+  must then allow `PUT` from the client's origin — the one request in the
+  whole client that does not go through the backend-for-frontend — while
+  Cloudinary relays the bytes through the Worker. See the
+  [storage service](../src/services/storage/README.md).
 - **The workspace does not report its cycle's id**, only its code. Every write
-  that names a reason — releasing a claim, reassigning, requesting a correction
-  — needs a reason category defined by the programme cycle, so the client finds
-  the cycle by code before it can read the catalogue. That costs two extra
-  cached requests. `AdminWorkspace.programmeCycleId` would remove both.
+  that names a reason — requesting a correction, cancelling a referral,
+  recording a rejection — needs a reason category defined by the programme
+  cycle, so the client finds the cycle by code before it can read the
+  catalogue. That costs two extra cached requests.
+  `AdminWorkspace.programmeCycleId` would remove both.
 - **Scheduled work does not run.** Wrangler does not fire cron triggers in local
   development, so the session sweep and expired-upload cleanup need
   `wrangler dev --test-scheduled` and a request to `/__scheduled`.
@@ -160,29 +152,31 @@ rather than hidden:
 
 Built:
 
-- **Authentication and settings** — `/login` gives applicants and programme
-  staff one role-aware sign-in screen. Applicant signup requests a code first,
-  then verifies that code while choosing a password; it does not create a
-  session until the applicant signs in. Signing out, including revoking every
-  session from Security, returns to the public site at `/`. Account identity is
-  read-only at `/settings/general`, and `/settings/security` lists signed-in
-  devices with per-session and bulk revocation.
-- **The applicant portal** — enterprises, starting an initial or expansion
-  application, categorized enterprise and application journeys, autosave,
-  evidence, validation and submission or resubmission, the timeline, the
-  funding view, and the cycles an applicant can apply in.
-- **Programme cycle administration** — the list, the dense policy form, and
-  every transition the API exposes.
-- **Programme-office dashboard and intake** — the actionable and total queue
-  counts, reference lookup, latest committee meetings, capability-gated quick
-  actions, one queue per page with the API's filters and ordering held in the
-  address, and the application workspace: assignment, internal notes, desk
-  review, and withdrawal of a correction request.
+- **Authentication** — sign in, sign up with the console code, sign out, and
+  signed-in devices with per-session and bulk revocation.
+- **The public site** — a landing page at `/`, an FAQ at `/faq`, and sign-in
+  at `/login`, all reachable without an account.
+- **The applicant portal**, at `/dashboard` — enterprises, starting an initial
+  or expansion application, the template-driven form rendered stage by stage
+  as a `FormJourney` stepper with autosave, the review step that shows the
+  whole application before submission, the evidence screen, the validation
+  report and submission or resubmission, the timeline, the funding view, and
+  the cycles an applicant can apply in.
+- **Account self-service** — profile and display name, password change,
+  email change, forgotten-password recovery, and signed-in devices, under
+  `/settings` and `/account`.
+- **Programme cycle administration** — the list, the dense policy form, the
+  cycle editor's form screen for authoring the stages and questions a draft
+  cycle asks, and every transition the API exposes.
+- **Intake** — the queue console with counts for every named queue, one queue
+  per page with the API's filters and ordering held in the address, reference
+  lookup, an analytics panel on the office home summarising the filtered
+  intake, and the application workspace: internal notes, desk review, and
+  withdrawal of a correction request.
 - **Access** — exact-address lookup, the complete role history, and grant and
   revoke with the operator's own password as a step-up.
 - **Decisions** — referral to a partner bank, recording and correcting its
-  outcome, committee meetings with their agendas, and recording and correcting
-  a committee decision.
+  outcome, and recording and correcting the programme's decision.
 - **Funding** — issuing the sanction order, the award ledger, releasing a
   payment with every prerequisite the API demands, reversing one, assessments,
   amending or closing an award, and recovery cases with their own ledger and
@@ -196,133 +190,46 @@ pages, and no control that does not do what it says.
 ## The whole programme, end to end
 
 `e2e/journey.spec.ts` carries one application from signup to money in the bank:
-submission, claim, desk review, referral to a partner bank, the bank's outcome,
-a committee agenda and decision, the sanction order, and a payment — then signs
+submission, desk review, referral to a partner bank, the bank's outcome,
+the programme decision, the sanction order, and a payment — then signs
 back in as the applicant and checks they can see their own award, and that
 nothing the office keeps to itself has leaked into it.
 
-It reaches all of that without a storage bucket by opening a cycle whose
-document rules are all `OPTIONAL`. That is a legitimate policy the API accepts,
-not a fixture: an application in such a cycle genuinely requires no files. Every
-other cycle in the suite keeps the ordinary rules.
+It reaches all of that without configured storage by opening a cycle whose
+form declares its document questions `OPTIONAL`. That is a legitimate policy
+the API accepts, not a fixture: an application in such a cycle genuinely
+requires no files. Every other cycle in the suite keeps the ordinary rules.
 
-## Public site and two portals
+## Two portals
 
-The public programme site and both signed-in portals share one institution.
+The client is a public site and two portals sharing one institution.
 
-- **`/` — the public programme site.** The landing page, programme information,
-  eligibility guidance, and links to `/login`; it requires no session.
-- **`/dashboard` — the applicant portal.** Dashboard, applications,
-  enterprises, and the cycles available to the applicant. Needs the
-  `APPLICANT` role.
-- **`/admin` — the programme office.** Dashboard, applications and committee
-  meetings for every account with `STAFF_READ`, followed by administration
-  links gated independently by `STAFF_WRITE`, `ROLE_INVITE`, `ROLE_ADMIN`, and
-  `AUDIT_READ`.
-- **Shared** — How this works at `/guide` and Settings at
-  `/settings/general` and `/settings/security`, reachable from either usable
-  portal. `/settings` redirects to General, and the old `/account/sessions`
-  address redirects to Security so bookmarks continue to work.
+- **`/` — the public site.** The landing page, the FAQ at `/faq`, and sign-in
+  at `/login`. No account needed.
+- **`/dashboard` — the applicant portal.** Overview, enterprises, applications
+  and the cycles you can apply in. Needs the `APPLICANT` role.
+- **`/admin` — the programme office.** Intake, cycle administration, and role
+  management at `/admin/access`. Needs `ADMIN` or
+  `SUPER_ADMIN`; the access screen needs `SUPER_ADMIN` specifically.
+- **Shared** — `/guide` and the account screens under `/settings` and
+  `/account`, reachable from either portal.
 
 Signing in lands each account in the portal its roles fit, so an officer with no
-applicant grant never has to read a refusal after every sign-in. On the combined
-login screen, an account that can use both portals follows the Applicant or
-Administrator selection. Opening a portal you cannot use **refuses in place**
-rather than redirecting: the screen names the roles the account does hold, links
-to the portal it can use, and when it holds none, gives the exact sentence to
-send a super administrator.
+applicant grant never has to read a refusal after every sign-in. Opening a
+portal you cannot use **refuses in place** rather than redirecting: the screen
+names the roles the account does hold, links to the portal it can use, and when
+it holds none, gives the exact sentence to send a super administrator.
 
 The navigation beside a refusal is the one that *works*. If an applicant opens
 `/admin`, the sidebar shows the applicant portal — listing four office links
 that would every one of them refuse is exactly what this interface does not do.
 
-**Two densities, one system.** Locally bundled Inter Variable, Lucide's
-16-pixel line icons, the neutral palette and every component are shared. Four
-custom properties differ, set by `data-portal` on the shell:
+**Two densities, one system.** The palette, the three faces and every component
+are shared. Four custom properties differ, set by `data-portal` on the shell:
 `--page-measure`, `--body-size`, `--card-padding` and `--title-size`. An
 applicant applying once in their life gets room; an officer working forty
 applications a day gets density. Note that the shell — not `body` — reads
 `--body-size`, because custom properties inherit downwards only.
-
-The shell follows the interaction pattern of the
-[OpenAI Platform project navigation][platform-projects] without using OpenAI
-branding or assets: a 260-pixel desktop sidebar can collapse to an icon rail,
-and only that presentation preference is stored. The Mission SEP portal label
-acts as a switcher only for an account that can use both portals; for a
-single-portal account it is static. The account button opens email, roles,
-Settings, an available portal switch, and Sign out.
-
-### Dashboards
-
-The applicant Dashboard composes one operation from existing API fields. It
-shows linked totals for applications and enterprises, the currently available
-cycle count, the nearest closing time, and requested revisions before saved
-drafts. The main action is chosen from live state: register an enterprise,
-start an application, continue at the earliest reachable category, or view the
-application list. Empty enterprise, application and open-cycle states are
-stated explicitly.
-
-### Categorized applicant forms
-
-Enterprise registration and editing use the same four-category journey:
-enterprise details, registration and tax, business location, then contact
-details. Values stay in component state as the applicant moves back and forward;
-the complete profile reaches GraphQL only from the last category. Nothing is
-written to browser storage. Cancel confirms before discarding changed answers,
-while the create or update mutation remains authoritative for uniqueness and
-concurrent-edit failures.
-
-Application setup has two categories. The first holds the enterprise and
-programme cycle, and the second presents initial and expansion as described
-selection cards. Expansion stays disabled unless `expansionEligibility` says it
-is eligible, and all of that operation's reasons and eligible date are shown.
-The draft is created only from the second category. Registration opened from
-setup uses the validated `returnTo=application` context and an optional cycle
-id; arbitrary return addresses are never accepted.
-
-An application then shares one journey frame across its form, evidence and
-review routes. Its seven ordered stages are Enterprise details, Owners, Project
-cost and funding, Previous support and credit, Evidence requirements, Attach
-evidence, and Review. On desktop a sticky rail
-names the current, complete, blocked, error and read-only states with icons and
-text. At 52rem and below it becomes a Step X of Y selector. The sticky action
-footer has enough trailing clearance for 360–390 pixel screens, and the frame
-inherits the portal's keyboard focus, screen-reader announcements and
-reduced-motion behavior.
-
-`/applications/$id/form?section=APPLICANT_PROFILE` is the linkable form-category
-shape. Unknown section values are discarded. A plain `/form` address opens the
-earliest incomplete category; complete and fully read-only forms start at the
-first. Existing `/form#fieldName` bookmarks still resolve the field's category,
-scroll to the control and focus it. Validation-report links are the deliberate
-exception to normal forward gating: they include both `section` and the field
-hash so they can open the exact later question that needs work.
-
-Typing keeps the existing debounced autosave and stale-write protection.
-`Save & Next` on every editable answer stage cancels the pending timer, flushes
-changed answers immediately, fetches a fresh server validation report, and
-advances only when the active stage has no issues. Attach evidence uses the same
-label, waits for uploads or removals, and refreshes validation before advancing.
-Required missing files are assigned to Attach evidence, not to the NOC question
-stage; they prevent moving to Review, while optional documents do not. Revision
-stages outside the request are readable and marked read only, and every stage
-remains browsable when the whole application is read only.
-
-Enterprise name, establishment date, registration, GSTIN, and sector are copied
-into the application as greyed, disabled values; Category A/B and majority
-ownership remain editable. Owners uses the business-document office-address
-label and disclaimer, an eight-value Tripura district select, a ten-digit
-contact number, and the disabled verified portal email labelled `Registered
-email address`. Government-support years descend from 2026 through 1900.
-Review shows every answer, expansion fact, and attached document with Edit links
-to reachable stages, and hides submission actions for a read-only application.
-
-The programme-office Dashboard retains the intake queue and reference lookup,
-adds an actionable total and a total across the named queues, and links every
-count to the matching filtered list. It reads the five latest scheduled
-committee meetings from the existing connection. Quick actions are shown only
-when the signed-in user's published capabilities allow them; it invents no
-reporting totals or charts.
 
 **The gates are not the security boundary.** They decide what is *offered*.
 Every operation is still refused server-side by `currentApplicant` or by
@@ -349,10 +256,9 @@ room they do not have the key to.
 The client is a demonstration as well as a client, so it leads people through
 itself.
 
-**How this works** (`/guide`) is kept with the shared utilities after the
-portal's operational and administrative navigation. It opens
+**How this works** (`/guide`) is the first entry in the navigation. It opens
 with the route a file takes: all eleven states, each placed under the desk that
-holds it — applicant, programme office, partner bank, committee — numbered in
+holds it — applicant, programme office, partner bank — numbered in
 the order they happen. The office's description of each stop is this screen's
 own; the applicant's plain-language wording is quoted beneath it from the API's
 status guide, where the account is allowed to read it. That surface is
@@ -383,7 +289,7 @@ string — and a tour missing from that table fell through to applicant-only and
 vanished from the office with nothing failing.
 
 **The file in hand.** Most office screens exist only for one particular
-application, meeting or cycle, so their address carries an id a tour cannot
+application or cycle, so their address carries an id a tour cannot
 know. The guide watches the address and remembers the last one opened; a step
 naming such a screen follows it. With nothing in hand the step does not
 navigate at all — the rail says what to open, and offers to take you there once
@@ -393,7 +299,7 @@ would be the demonstration lying about what it knows.
 `Explain` attaches a short answer to a word whose name does not give one. It is
 kept sparse — at most one per card, and only where the meaning is genuinely not
 guessable, because an icon beside every label teaches nothing and doubles the
-reading. One sits on the application form. Eight sit in the programme office,
+reading. One sits on the application form. Nine sit in the programme office,
 which is where the vocabulary is hardest: an applicant reads "Submitted" and
 knows what it means, while an officer reads two queues that both hold
 `SUBMITTED` and has to be told why they are separate.
@@ -450,10 +356,40 @@ Shared controls live in `src/components/ListControls.tsx` — `SearchBox` and
 and says "continued" past the first page because a keyset cursor cannot know
 which page number it is on.
 
+## The form is rendered, not written
+
+There is no hand-written application form. `FormRenderer` walks the template the
+API returns and draws a control per question, so the labels, the help text, the
+choices, the bounds and the conditions are all the cycle's own — a programme
+officer adding a question adds a control without a deploy.
+
+**A programme officer therefore owns the words on an applicant's screen.** That
+is the point of the change rather than a side effect of it, and it is worth
+saying out loud: rewording a question is a versioned cycle revision carrying a
+required reason and refused on an open cycle, none of which is true of a code
+deploy. Who approves that wording is an open question — see
+[roadmap §21](../docs/ROADMAP.md).
+
+**The client decides visibility itself**, in `features/application/formTemplate.ts`.
+It has to: a question must appear the moment the answer above it changes, and a
+round trip per keystroke is not that. That makes two implementations of one rule,
+which is exactly how two implementations come to disagree — so
+`test/service/client-parity.test.ts` in the API package runs both over the same
+templates and asserts they agree, on every condition operator, on chains where
+the source is itself hidden, and on ANDed and ORed groups. It compares the real
+functions rather than a fixture of expected values, because a fixture goes on
+passing while both drift the same wrong way.
+
+`FormControls.tsx` holds `Field`, `YesNoField` and `Attestation` unchanged from
+the six hand-built sections they replace. That is deliberate: the ~150
+label-addressed assertions in the end-to-end suite are the proof that the cutover
+preserved behaviour, and they only prove it if the controls still render the same
+markup.
+
 ## What bounds a request
 
 The client is built to stay well inside the server's limits — its largest
-operation selects 114 fields at depth 7, and its largest request is under 16 KB,
+operation selects 174 fields at depth 8, and its largest request is about 4 KB,
 against limits of 500, 12 and 64 KB.
 
 Those limits, and why a document-wide field limit exists at all, belong to the
@@ -470,11 +406,10 @@ Held by tests rather than asserted in a document:
   registered brackets nothing, the rail polls for thirty frames and silently
   scrolls to the top instead, and the failure survives review. One step was in
   that state until the check was written.
-- **Narrow screens.** Below 60rem a compact top bar opens the sidebar as a
-  modal drawer. Escape and the backdrop dismiss it, focus stays inside while
-  it is open and returns to the trigger afterwards, background scrolling is
-  blocked, and the page body never scrolls sideways. The behavior is asserted
-  at 360px and 390px.
+- **Narrow screens.** Below 60rem the sidebar becomes a bar across the top. The
+  bar takes its own content height, wide content scrolls inside its own
+  container, and the page body never scrolls sideways — all three are asserted
+  at 360px.
 - **Keyboard.** Every control is reachable by Tab and lands with a visible focus
   ring; nothing traps focus.
 - **Reduced motion.** The stylesheet neutralizes animation and smooth scrolling,
@@ -508,11 +443,6 @@ It runs against the built artifact rather than the dev server, because Vite's
 dependency optimizer pre-bundles on first request and a cold server raced with
 the first navigation leaves the page unhydrated.
 
-That artifact and Nitro's intermediate files live under the ignored
-`dev-web/.playwright/` directory. A normal `npm run build` can therefore run in
-another terminal without replacing hashed assets while the suite is serving
-them.
-
 Seeding uses the product's own paths — signup, the real six-digit code read from
 the Worker's output, the curl bootstrap — so the documented setup procedure
 above is itself under test. If the first-administrator flow breaks, the suite
@@ -522,7 +452,7 @@ fails there with a clear message rather than mysteriously later.
 
 `dev-web` is a separate package with its own dependency tree. The Worker's
 `npm run check` excludes it from TypeScript, Vitest and `fallow`, so the
-backend's 100% coverage gate and dead-code analysis continue to cover only the
+backend's coverage gate and dead-code analysis continue to cover only the
 Worker.
 
 See the [combined application guide][applicant] for what the
@@ -533,4 +463,3 @@ side.
 [bootstrap]: ../docs/first-super-admin-bootstrap.md
 [office]: ../docs/admin-workflow-guide.md
 [applicant]: ../docs/application-guide.md
-[platform-projects]: https://help.openai.com/en/articles/9186755-managing-your-work-in-the-api-platform-with-projects

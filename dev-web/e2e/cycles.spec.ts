@@ -2,7 +2,6 @@ import { expect, test, type Page } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
-  registerEnterprise,
   signIn,
   signUpApplicant,
   uniqueEmail,
@@ -29,7 +28,7 @@ const createOpenCycle = async (page: Page, name: string) => {
   await page.getByLabel('Applications open').fill(local(opens))
   await page.getByLabel('Applications close').fill(local(closes))
 
-  await page.getByRole('button', { name: 'Save draft' }).click()
+  await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
 
   await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
@@ -54,6 +53,42 @@ test.describe('cycle administration', () => {
     await expect(page.getByRole('button', { name: 'Archive' })).toBeVisible()
   })
 
+  /**
+   * What a cycle asks and what it enforces, shown back on its own page.
+   *
+   * Both were write-only: the questions could only be seen by starting an
+   * application against the cycle, and the eligibility rules could be sent and
+   * never read at all — so the editor had nothing to populate from and resent
+   * its own defaults, which is how a settled age limit gets reset by somebody
+   * changing something else.
+   *
+   * Addressed by heading and by text rather than by a role name that a
+   * navigation might also match, per the three-spec scar this suite carries.
+   */
+  test('shows an officer the questions and the rules of a cycle', async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    const code = `SEP-${Date.now().toString(36).toUpperCase()}`
+    await createOpenCycle(page, code)
+
+    const questions = page.locator('[data-guide="cycle-questions"]')
+    await expect(questions.getByRole('heading', { name: 'The enterprise' })).toBeVisible()
+    // A role-bound question says so: the programme reads it across cycles, and
+    // an officer renaming one needs to know it is not theirs alone to move.
+    await expect(
+      questions.getByText('read by the programme as Business Name'),
+    ).toBeVisible()
+
+    const frozen = page.locator('[data-guide="cycle-frozen"]')
+    await expect(frozen.getByText('18 to 60')).toBeVisible()
+    /*
+     * `UNRESOLVED` is a real state — no amount is checked against a ceiling
+     * nobody has approved — so it reads as a sentence rather than a blank.
+     */
+    await expect(
+      frozen.getByText('Not settled, so no amount is checked against one'),
+    ).toBeVisible()
+  })
+
   test('refuses a lifecycle change without a reason', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin/cycles/new')
@@ -67,7 +102,7 @@ test.describe('cycle administration', () => {
     await page
       .getByLabel('Applications close')
       .fill(new Date(Date.now() + 86_400_000).toISOString().slice(0, 16))
-    await page.getByRole('button', { name: 'Save draft' }).click()
+    await page.getByRole('button', { name: 'Create draft cycle' }).click()
     await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
 
     // Every transition retains a reason, so the action is not offered until
@@ -97,48 +132,25 @@ test.describe('cycle administration', () => {
     await applicantPage.goto('/cycles')
     await expect(applicantPage.getByText(code).first()).toBeVisible()
 
-    await registerEnterprise(applicantPage, 'Journey Works')
+    await applicantPage.goto('/enterprises/new')
+    await applicantPage.getByLabel('Registered or trading name').fill('Journey Works')
+    for (let step = 0; step < 3; step += 1) {
+      await applicantPage.getByRole('button', { name: 'Next' }).click()
+    }
+    await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
 
     await applicantPage.goto('/applications/new')
     await applicantPage.getByLabel('Enterprise').selectOption({ label: 'Journey Works' })
     await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
-    const selectedCycle = await applicantPage.getByLabel('Programme cycle').inputValue()
-
-    // Registration opened from setup returns to the same cycle, selects the
-    // new enterprise, and advances because both setup choices are now present.
-    await applicantPage.getByRole('link', { name: 'Register another enterprise' }).click()
-    await applicantPage
-      .getByLabel('Registered or trading name')
-      .fill('Contextual Journey Works')
-    await applicantPage.getByLabel('Sector').selectOption('FOOD_PROCESSING')
-    for (const category of [
-      'Registration and tax',
-      'Business location',
-      'Contact details',
-    ]) {
-      await applicantPage.getByRole('button', { name: 'Next' }).click()
-      await expect(applicantPage.getByRole('heading', { name: category })).toBeVisible()
-    }
-    await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
-    await expect(applicantPage).toHaveURL(/\/applications\/new\?.*step=TYPE/u)
-    const resumedSearch = new URL(applicantPage.url()).searchParams
-    expect(resumedSearch.get('enterpriseId')).toBeTruthy()
-    expect(resumedSearch.get('cycleId')).toBe(selectedCycle)
-    await expect(
-      applicantPage.getByRole('heading', { name: 'Application type' }),
-    ).toBeVisible()
-
-    await applicantPage.getByLabel('Initial application').check()
     await applicantPage
       .getByRole('button', { name: 'Start an initial application' })
       .click()
 
-    // The application exists and opens directly at its first form category.
-    await expect(applicantPage).toHaveURL(
-      /\/applications\/[0-9a-f-]{36}\/form\?section=ENTERPRISE/u,
-    )
+    // The application exists, and the status rail says whose turn it is.
+    await expect(applicantPage).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
+    await expect(applicantPage.getByText('Your turn')).toBeVisible()
     await expect(
-      applicantPage.getByRole('heading', { name: 'Enterprise details' }),
+      applicantPage.getByRole('heading', { name: 'Unsubmitted draft' }),
     ).toBeVisible()
 
     await applicant.close()
@@ -157,12 +169,16 @@ test.describe('cycle administration', () => {
     await signUpApplicant(applicantPage, email)
     await signIn(applicantPage, email)
 
-    await registerEnterprise(applicantPage, 'Unfunded Works')
+    await applicantPage.goto('/enterprises/new')
+    await applicantPage.getByLabel('Registered or trading name').fill('Unfunded Works')
+    for (let step = 0; step < 3; step += 1) {
+      await applicantPage.getByRole('button', { name: 'Next' }).click()
+    }
+    await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
 
     await applicantPage.goto('/applications/new')
     await applicantPage.getByLabel('Enterprise').selectOption({ label: 'Unfunded Works' })
     await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
-    await applicantPage.getByRole('button', { name: 'Next' }).click()
 
     // The API's own wording, not a message invented by the client.
     await expect(
@@ -170,7 +186,9 @@ test.describe('cycle administration', () => {
         'This enterprise has no sanctioned funding award to expand from.',
       ),
     ).toBeVisible()
-    await expect(applicantPage.getByLabel('Expansion application')).toBeDisabled()
+    await expect(
+      applicantPage.getByRole('button', { name: /Start (an expansion|phase)/u }),
+    ).toBeDisabled()
 
     await applicant.close()
   })

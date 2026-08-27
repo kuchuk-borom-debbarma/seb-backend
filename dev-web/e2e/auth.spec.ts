@@ -2,65 +2,29 @@ import { expect, test } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
-  latestOtp,
   navigationSections,
   signIn,
+  signOut,
   signUpApplicant,
   uniqueEmail,
-  workerLogLength,
 } from './support'
 
-test.describe('landing-page authentication', () => {
-  test('shows the safe refusal returned by the backend', async ({ page }) => {
-    await page.goto('/login')
-    await page.getByLabel('Email Address').fill(uniqueEmail('nobody'))
-    await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
-    await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
-
-    await expect(page.getByRole('alert')).toContainText('Invalid email or password')
-    await expect(page).toHaveURL(/\/login/u)
-  })
-
-  test('registers with the issued code and then signs the applicant in', async ({
+test.describe('signing in', () => {
+  test('the root is the public site; the portal remembers where you were going', async ({
     page,
   }) => {
-    const email = uniqueEmail('landing-applicant')
-    const offset = await workerLogLength()
+    // The landing page is public now — no redirect, no session needed.
+    await page.goto('/')
+    await expect(page).toHaveURL('/')
 
-    await page.goto('/login')
-    await page.getByRole('button', { name: 'Create Account' }).click()
-    await page.getByLabel('Email Address').fill(email)
-    await page.getByRole('button', { name: 'Send verification code' }).click()
-
-    const code = await latestOtp(offset)
-    await page.getByLabel(/Six-digit code/u).fill(code)
-    await page.getByLabel('Choose a password').fill(PASSWORD)
-    await page.getByRole('button', { name: 'Create Applicant Account' }).click()
-
-    await expect(page.getByRole('status')).toContainText('Account created')
-    await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
-    await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
-
-    await expect(page).toHaveURL(/\/dashboard$/u)
-    await expect(page.getByText(email).first()).toBeVisible()
-  })
-})
-
-test.describe('signing in', () => {
-  test('turns away a visitor and remembers where they were going', async ({ page }) => {
-    await page.goto('/dashboard')
-    await expect(page).toHaveURL('/login?next=%2Fdashboard')
-    await expect(page.getByRole('heading', { name: 'Applicant Sign In' })).toBeVisible()
-  })
-
-  test('a signed-out visitor is sent to login from anywhere', async ({ page }) => {
+    // Portal routes still turn a visitor away, remembering the destination.
     await page.goto('/applications')
     await expect(page).toHaveURL('/login?next=%2Fapplications')
   })
 
   test('shows the message the API returned for a wrong password', async ({ page }) => {
     await page.goto('/login')
-    await page.getByLabel('Email Address').fill(SUPER_ADMIN_EMAIL)
+    await page.getByLabel('Email address').fill(SUPER_ADMIN_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill('not the right password')
     await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
 
@@ -72,14 +36,14 @@ test.describe('signing in', () => {
 
   test('gives the same answer for an address that does not exist', async ({ page }) => {
     await page.goto('/login')
-    await page.getByLabel('Email Address').fill(uniqueEmail('nobody'))
+    await page.getByLabel('Email address').fill(uniqueEmail('nobody'))
     await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
     await expect(page.getByRole('alert')).toContainText('Invalid email or password')
   })
 
   /**
-   * Regression: signing in used to land back on the login page.
+   * Regression: signing in used to land back on the sign-in page.
    *
    * The identity is read by route guards through `ensureQueryData`, which
    * returns whatever is cached. Invalidating it after sign-in was not enough —
@@ -91,7 +55,7 @@ test.describe('signing in', () => {
     page,
   }) => {
     await page.goto('/login')
-    await page.getByLabel('Email Address').fill(SUPER_ADMIN_EMAIL)
+    await page.getByLabel('Email address').fill(SUPER_ADMIN_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
 
@@ -105,10 +69,11 @@ test.describe('signing in', () => {
     await page.goto('/account/sessions')
     await expect(page).toHaveURL('/login?next=%2Faccount%2Fsessions')
 
-    await page.getByLabel('Email Address').fill(SUPER_ADMIN_EMAIL)
+    await page.getByLabel('Email address').fill(SUPER_ADMIN_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
 
+    // The old sessions address forwards to its new home in settings.
     await expect(page).toHaveURL(/\/settings\/security$/u)
   })
 
@@ -120,16 +85,14 @@ test.describe('signing in', () => {
 })
 
 test.describe('signing out', () => {
-  test('ends at the public site and refuses the portal afterwards', async ({ page }) => {
+  test('ends the session and refuses the portal afterwards', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL)
-    await page.getByRole('button', { name: 'Account menu' }).click()
-    await page.getByRole('menuitem', { name: 'Sign out' }).click()
+    await signOut(page)
 
-    await expect(page).toHaveURL('/')
-
-    // Not merely a redirect: the session is deleted, so going back is refused.
-    await page.goto('/dashboard')
-    await expect(page).toHaveURL('/login?next=%2Fdashboard')
+    // Not merely a redirect: the session is deleted, so a portal route is
+    // refused afterwards. (The root itself is the public site now.)
+    await page.goto('/applications')
+    await expect(page).toHaveURL('/login?next=%2Fapplications')
   })
 })
 
@@ -150,23 +113,21 @@ test.describe('creating an account', () => {
   })
 
   test('refuses a code that is not the one that was sent', async ({ page }) => {
-    await page.goto('/login')
-    await page.getByRole('button', { name: 'Create Account' }).click()
-    await page.getByLabel('Email Address').fill(uniqueEmail('applicant'))
+    await page.goto('/sign-up')
+    await page.getByLabel('Email address').fill(uniqueEmail('applicant'))
     await page.getByRole('button', { name: 'Send verification code' }).click()
 
     await page.getByLabel(/Six-digit code/u).fill('000000')
     await page.getByLabel('Choose a password').fill(PASSWORD)
-    await page.getByRole('button', { name: 'Create Applicant Account' }).click()
+    await page.getByRole('button', { name: 'Create account' }).click()
 
     await expect(page.getByRole('alert')).toBeVisible()
-    await expect(page).toHaveURL(/\/login/u)
+    await expect(page).toHaveURL(/\/sign-up/u)
   })
 
   test('says where the code actually comes from in development', async ({ page }) => {
-    await page.goto('/login')
-    await page.getByRole('button', { name: 'Create Account' }).click()
-    await page.getByLabel('Email Address').fill(uniqueEmail('applicant'))
+    await page.goto('/sign-up')
+    await page.getByLabel('Email address').fill(uniqueEmail('applicant'))
     await page.getByRole('button', { name: 'Send verification code' }).click()
 
     // Honesty rule: the interface must not claim an email was sent when the
@@ -175,14 +136,13 @@ test.describe('creating an account', () => {
   })
 
   test('refuses a password the signup policy rejects', async ({ page }) => {
-    await page.goto('/login')
-    await page.getByRole('button', { name: 'Create Account' }).click()
-    await page.getByLabel('Email Address').fill(uniqueEmail('applicant'))
+    await page.goto('/sign-up')
+    await page.getByLabel('Email address').fill(uniqueEmail('applicant'))
     await page.getByRole('button', { name: 'Send verification code' }).click()
 
     await page.getByLabel(/Six-digit code/u).fill('123456')
     await page.getByLabel('Choose a password').fill('short')
-    await page.getByRole('button', { name: 'Create Applicant Account' }).click()
+    await page.getByRole('button', { name: 'Create account' }).click()
 
     await expect(page.getByRole('alert')).toBeVisible()
   })

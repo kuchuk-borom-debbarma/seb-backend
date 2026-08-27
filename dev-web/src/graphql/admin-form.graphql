@@ -1,0 +1,199 @@
+# The cycle editor's form-authoring surface.
+#
+# Every mutation here is a cycle revision: it quotes the version the officer
+# was looking at, carries a required reason, and returns the new head beside
+# the re-expanded template — so the screen can update its cache from the
+# result instead of refetching a form it was just handed.
+
+fragment GroupDefinitionFields on FormGroupDefinition {
+  definitionKey
+  label
+  members {
+    memberKey
+    fieldType
+    role
+    label
+    helpText
+    requirement
+    minLength
+    maxLength
+    pattern
+    patternMessage
+    minValue
+    maxValue
+    minDate
+    maxDate
+    relativeDateBound
+    placeholder
+    note
+    tone
+    widthHint
+    prefixText
+    suffixText
+    autocompleteHint
+    showCharCount
+    textareaRows
+    choiceStyle
+    options {
+      optionValue
+      optionLabel
+      optionDescription
+      iconName
+    }
+  }
+}
+
+# What the authoring screen needs of a cycle: the head (whose currentVersion
+# every edit must quote back), the template as it expands for applicants, and
+# the structure definitions the derived members came from.
+fragment CycleAuthoringFields on AdminCycleAggregate {
+  head {
+    ...AdminCycleHead
+  }
+  formTemplate {
+    ...FormTemplateFields
+  }
+  groupDefinitions {
+    ...GroupDefinitionFields
+  }
+}
+
+query AdminCycleFormEditor($id: ID!) {
+  admin {
+    programmeCycle {
+      byId(id: $id) {
+        success
+        message
+        response {
+          ...CycleAuthoringFields
+        }
+      }
+    }
+  }
+}
+
+mutation ReplaceCycleFormTemplate($input: ReplaceFormTemplateInput!) {
+  admin {
+    formTemplate {
+      replace(input: $input) {
+        success
+        message
+        response {
+          ...CycleAuthoringFields
+        }
+      }
+    }
+  }
+}
+
+mutation AddCycleFormStage($input: FormStageMutationInput!) {
+  admin {
+    formTemplate {
+      addStage(input: $input) {
+        success
+        message
+        response {
+          ...CycleAuthoringFields
+        }
+      }
+    }
+  }
+}
+
+mutation UpdateCycleFormStage($input: FormStageMutationInput!) {
+  admin {
+    formTemplate {
+      updateStage(input: $input) {
+        success
+        message
+        response {
+          ...CycleAuthoringFields
+        }
+      }
+    }
+  }
+}
+
+mutation RemoveCycleFormStage($input: RemoveFormStageInput!) {
+  admin {
+    formTemplate {
+      removeStage(input: $input) {
+        success
+        message
+        response {
+          ...CycleAuthoringFields
+        }
+      }
+    }
+  }
+}
+
+mutation AddCycleFormQuestion($input: FormQuestionMutationInput!) {
+  admin {
+    formTemplate {
+      addQuestion(input: $input) {
+        success
+        message
+        response {
+          ...CycleAuthoringFields
+        }
+      }
+    }
+  }
+}
+
+mutation UpdateCycleFormQuestion($input: FormQuestionMutationInput!) {
+  admin {
+    formTemplate {
+      updateQuestion(input: $input) {
+        success
+        message
+        response {
+          ...CycleAuthoringFields
+        }
+      }
+    }
+  }
+}
+
+mutation RemoveCycleFormQuestion($input: RemoveFormQuestionInput!) {
+  admin {
+    formTemplate {
+      removeQuestion(input: $input) {
+        success
+        message
+        response {
+          ...CycleAuthoringFields
+        }
+      }
+    }
+  }
+}
+
+mutation PutCycleGroupDefinition($input: PutGroupDefinitionInput!) {
+  admin {
+    formTemplate {
+      putGroupDefinition(input: $input) {
+        success
+        message
+        response {
+          ...CycleAuthoringFields
+        }
+      }
+    }
+  }
+}
+
+mutation RemoveCycleGroupDefinition($input: RemoveGroupDefinitionInput!) {
+  admin {
+    formTemplate {
+      removeGroupDefinition(input: $input) {
+        success
+        message
+        response {
+          ...CycleAuthoringFields
+        }
+      }
+    }
+  }
+}

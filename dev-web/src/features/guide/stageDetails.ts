@@ -26,7 +26,7 @@ export const STAGE_DETAILS: StageDetail[] = [
     name: 'Draft',
     desk: DESKS.applicant,
     shortDescription:
-      'The applicant is answering the six sections and attaching evidence.',
+      'The applicant is answering the cycle\u2019s stages and attaching evidence.',
     fullDescription:
       'The applicant fills in the enterprise profile, personal details, project costs, prior funding records, and uploads required identity and business documents. Work is autosaved privately.',
     applicantQuote: {
@@ -36,7 +36,7 @@ export const STAGE_DETAILS: StageDetail[] = [
     aboutStage: [
       {
         icon: 'document',
-        text: 'Six structured sections ensure all required statutory details are provided.',
+        text: 'The cycle\u2019s own stages ensure all required statutory details are provided.',
       },
       {
         icon: 'check',
@@ -170,7 +170,7 @@ export const STAGE_DETAILS: StageDetail[] = [
       },
       {
         icon: 'clock',
-        text: 'Prepares the application file for the district task force committee meeting.',
+        text: 'Prepares the application file for the programme office\u2019s formal decision.',
       },
     ],
     keyScreens: [
@@ -179,25 +179,25 @@ export const STAGE_DETAILS: StageDetail[] = [
     ],
   },
   {
-    id: 'TTM_REVIEW',
+    id: 'AWAITING_DECISION',
     number: '06',
-    name: 'Before the committee',
-    desk: DESKS.committee,
-    shortDescription: 'It sits on an agenda in a numbered position.',
+    name: 'Awaiting a decision',
+    desk: DESKS.office,
+    shortDescription: 'The file is complete and waits for the recorded decision.',
     fullDescription:
-      'The application is placed on the formal agenda of the Task Force Committee meeting in a specific numbered order. The committee reviews desk findings, bank reports, and interviews the applicant before recording a collective award decision.',
+      'Desk findings and the partner bank\u2019s report are before the programme office, which records the formal decision \u2014 approval with an amount, rejection with a catalogued reason, or a request to defer \u2014 against the submitted application.',
     applicantQuote: {
-      text: 'Your application is listed on the Task Force Committee agenda for review.',
-      waitingOn: 'Task Force Committee',
+      text: 'Your application is with the programme office for a decision.',
+      waitingOn: 'Programme office',
     },
     aboutStage: [
       {
         icon: 'user',
-        text: 'Placed on a numbered agenda order for the official meeting session.',
+        text: 'Everything gathered so far \u2014 the desk review and the bank report \u2014 travels with the file.',
       },
       {
         icon: 'check',
-        text: 'Decisions can only be recorded while the committee meeting is formally in session.',
+        text: 'A decision names its approved amount or its reason, and is recorded permanently.',
       },
       {
         icon: 'document',
@@ -205,7 +205,7 @@ export const STAGE_DETAILS: StageDetail[] = [
       },
     ],
     keyScreens: [
-      'Committee meetings → Active agenda',
+      'Intake queue → Awaiting decision',
       'Meeting session → Decision recording',
     ],
   },
@@ -214,11 +214,11 @@ export const STAGE_DETAILS: StageDetail[] = [
     number: '07',
     name: 'Approved',
     desk: DESKS.office,
-    shortDescription: 'The committee approved an amount.',
+    shortDescription: 'The programme office approved an amount.',
     fullDescription:
-      'The committee has formally approved seed funding for the enterprise. The programme office records the sanctioned amount, special conditions, and prepares the legal sanction agreement.',
+      'The programme office has formally approved seed funding for the enterprise, recording the sanctioned amount, special conditions, and preparing the legal sanction agreement.',
     applicantQuote: {
-      text: 'Congratulations! Your application has been approved by the committee.',
+      text: 'Congratulations! Your application has been approved by the programme office.',
       waitingOn: 'Programme office',
     },
     aboutStage: [
@@ -311,7 +311,7 @@ export const STAGE_DETAILS: StageDetail[] = [
     desk: DESKS.office,
     shortDescription: 'Closed without funding, with the reason recorded.',
     fullDescription:
-      'The application was closed without grant approval following desk review or committee assessment. A formal notice with catalogued statutory reasons is recorded and communicated.',
+      'The application was closed without grant approval following desk review or the recorded decision. A formal notice with catalogued statutory reasons is recorded and communicated.',
     applicantQuote: {
       text: 'Your application was not approved. The recorded reason is available in your file.',
       waitingOn: 'Closed',

@@ -3,7 +3,7 @@
  * the award itself.
  *
  * Releasing money is the most consequential write in the whole product and the
- * API guards it accordingly — it demands the committee approval it is paid
+ * API guards it accordingly — it demands the approval it is paid
  * under, evidence the bank account was verified, the executed performance
  * agreement, and, where the programme requires it, the physical verification.
  * The form asks for all of them because the payment does not happen without
@@ -195,8 +195,8 @@ function ReleaseForm({
   const [amount, setAmount] = useState('')
   const [occurredAt, setOccurredAt] = useState('')
   const [externalReference, setExternalReference] = useState('')
-  const [ttmApprovalReference, setApprovalReference] = useState('')
-  const [ttmApprovalDate, setApprovalDate] = useState('')
+  const [approvalReference, setApprovalReference] = useState('')
+  const [approvalDate, setApprovalDate] = useState('')
   const [bankAccountVerifiedAt, setVerifiedAt] = useState('')
   const [agreementReference, setAgreementReference] = useState('')
   const [agreementExecutedAt, setAgreementExecutedAt] = useState('')
@@ -216,8 +216,8 @@ function ReleaseForm({
           amountPaise: toPaise(amount),
           occurredAt: toInstant(occurredAt),
           externalReference: externalReference.trim(),
-          ttmApprovalReference: ttmApprovalReference.trim(),
-          ttmApprovalDate,
+          approvalReference: approvalReference.trim(),
+          approvalDate,
           bankAccountVerifiedAt: toInstant(bankAccountVerifiedAt),
           performanceAgreementReference: agreementReference.trim(),
           performanceAgreementExecutedAt: toInstant(agreementExecutedAt),
@@ -243,8 +243,8 @@ function ReleaseForm({
     amount.trim() &&
     occurredAt &&
     externalReference.trim() &&
-    ttmApprovalReference.trim() &&
-    ttmApprovalDate &&
+    approvalReference.trim() &&
+    approvalDate &&
     bankAccountVerifiedAt &&
     agreementReference.trim() &&
     agreementExecutedAt &&
@@ -309,12 +309,12 @@ function ReleaseForm({
         <div className="detail-grid">
           <div>
             <label className="field-label" htmlFor="release-approval">
-              Committee approval reference
+              Approval reference
             </label>
             <input
               id="release-approval"
               className="input tabular"
-              value={ttmApprovalReference}
+              value={approvalReference}
               onChange={(event) => setApprovalReference(event.target.value)}
             />
           </div>
@@ -326,7 +326,7 @@ function ReleaseForm({
               id="release-approval-date"
               className="input"
               type="date"
-              value={ttmApprovalDate}
+              value={approvalDate}
               onChange={(event) => setApprovalDate(event.target.value)}
             />
           </div>
@@ -830,7 +830,7 @@ function AssessmentForm({
  * Suspending, cancelling, closing or amending an award.
  *
  * The amount is part of this form because an amendment can change it — the
- * committee may revise what it approved — and the API takes the new amount
+ * the programme may revise what it approved — and the API takes the new amount
  * alongside the new status.
  */
 function ChangeAwardForm({

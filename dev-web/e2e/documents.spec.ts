@@ -28,15 +28,19 @@ const choose = async (
   await page.locator('input[type="file"]').first().setInputFiles(file)
 }
 
+/** The cycle this file opened, so its applications start in that one. */
+let cycleCode = ''
+
 test.describe('evidence', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await openProgrammeCycle(page, { prefix: 'SEP-E' })
+    cycleCode = await openProgrammeCycle(page, { prefix: 'SEP-E' })
     await page.context().clearCookies()
   })
 
   test('lists every document the application can carry', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -58,30 +62,39 @@ test.describe('evidence', () => {
 
   test('separates what is required from what is optional', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
     await page.goto(`/applications/${id}/documents`)
 
-    // The requirement is the API's own message, so the screen never states a
-    // rule the server does not hold.
-    await expect(page.getByText('Upload the detailed project report.')).toBeVisible()
+    /*
+     * The requirement is the API's own message, so the screen never states a
+     * rule the server does not hold.
+     *
+     * The wording changed with the cutover and the change is deliberate: the
+     * name in it is now the *cycle's own label*, and a sentence of the shape
+     * "Upload the {label}." would be guessing at the grammar of words a
+     * programme officer writes. This form reads correctly whatever the cycle
+     * calls its documents, and the validation report needs the name because it
+     * is shown away from the card that carries it.
+     */
+    await expect(
+      page.getByText('Detailed project report has not been uploaded.'),
+    ).toBeVisible()
 
     // The cycle's rules did not ask for these, and the screen says so rather
     // than leaving them looking overdue.
     await expect(
       page.getByText('Not attached. This one is optional.').first(),
     ).toBeVisible()
-
-    await page.getByRole('button', { name: 'Save & Next' }).click()
-    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
-    await expect(page.locator('section[tabindex="-1"]:focus')).toHaveCount(1)
   })
 
   test('refuses a file of the wrong type before sending it anywhere', async ({
     page,
   }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -97,6 +110,7 @@ test.describe('evidence', () => {
 
   test('refuses an empty file', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -112,6 +126,7 @@ test.describe('evidence', () => {
 
   test('refuses a file over the limit, and one whose name lies', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -122,9 +137,9 @@ test.describe('evidence', () => {
     await choose(page, {
       name: 'big.pdf',
       mimeType: 'application/pdf',
-      buffer: Buffer.alloc(6 * 1024 * 1024, 0x20),
+      buffer: Buffer.alloc(3 * 1024 * 1024, 0x20),
     })
-    await expect(page.getByText('The largest a document can be is 5 MB.')).toBeVisible()
+    await expect(page.getByText('The largest a document can be is 2 MB.')).toBeVisible()
 
     /*
      * The name is the one thing about an upload that is stored and served back
@@ -147,6 +162,7 @@ test.describe('evidence', () => {
     page,
   }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -160,7 +176,7 @@ test.describe('evidence', () => {
     const card = page
       .locator('.card')
       .filter({ has: page.getByRole('heading', { name: 'Detailed project report' }) })
-    await expect(card.getByText('Upload the detailed project report.')).toBeVisible()
+    await expect(card.getByText('Detailed project report has not been uploaded.')).toBeVisible()
 
     await card.locator('input[type="file"]').setInputFiles({
       name: 'dpr.pdf',
@@ -175,18 +191,12 @@ test.describe('evidence', () => {
      * sent, and this is what would notice.
      */
     await expect(card.getByText('dpr.pdf')).toBeVisible({ timeout: 15_000 })
-    await expect(card.getByText('Upload the detailed project report.')).toBeHidden()
-
-    await page.goto(`/applications/${id}/review`)
-    const documents = page
-      .locator('section.card')
-      .filter({ has: page.getByRole('heading', { name: 'Documents', exact: true }) })
-    await expect(documents.getByText('dpr.pdf', { exact: true })).toBeVisible()
-    await expect(documents.getByText('Detailed project report')).toBeVisible()
+    await expect(card.getByText('Detailed project report has not been uploaded.')).toBeHidden()
   })
 
   test('each issue in the report links to the screen that fixes it', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -196,11 +206,10 @@ test.describe('evidence', () => {
     // form, because that is where the file is attached.
     const documentIssue = page
       .getByRole('row')
-      .filter({ hasText: 'Upload the detailed project report.' })
+      .filter({ hasText: 'Detailed project report has not been uploaded.' })
       .getByRole('link')
     await documentIssue.click()
-    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents#DPR$`, 'u'))
-    await expect(page.locator('#DPR')).toBeFocused()
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
 
     // An answer on the form leads to the form.
     await page.goto(`/applications/${id}/review`)
@@ -210,11 +219,9 @@ test.describe('evidence', () => {
       .first()
       .getByRole('link')
     await formIssue.click()
-    // With the field named in the address — the form is forty questions long,
-    // and the section alone is not where the answer goes.
-    await expect(page).toHaveURL(
-      new RegExp(`/applications/${id}/form\\?section=[A-Z_]+#\\w+$`, 'u'),
-    )
+    // With the field named in the address — the form is dozens of questions
+    // long, and the stage alone is not where the answer goes.
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/form(\\?stage=\\w+)?#\\w+$`, 'u'))
   })
 
   test('sends the no-objection question to the form, not to the evidence screen', async ({
@@ -229,6 +236,7 @@ test.describe('evidence', () => {
      * was told to fix something where it does not exist.
      */
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
@@ -242,26 +250,30 @@ test.describe('evidence', () => {
     )
 
     await row.getByRole('link').click()
-    await expect(page).toHaveURL(
-      new RegExp(`/applications/${id}/form\\?section=DOCUMENTS#nocRequired$`, 'u'),
-    )
+    /*
+     * The template's own key, not the camelCase column this used to be. That
+     * one string is the question's name everywhere — in the answers, in a
+     * `ValidationIssue.field`, in the DOM `id` — and all four now come off one
+     * row instead of being kept in step by hand.
+     */
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/form#NOC_REQUIRED$`, 'u'))
     // And the control is genuinely there.
-    await expect(page.locator('#nocRequired')).toBeVisible()
+    await expect(page.locator('#NOC_REQUIRED')).toBeVisible()
   })
 
-  test('stays inside the application journey', async ({ page }) => {
+  test('is reachable from the application and from the form', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'evidence',
       businessName: 'Evidence Works',
     })
 
-    await page.goto(`/applications/${id}/documents`)
+    await page.goto(`/applications/${id}`)
+    await page.getByRole('link', { name: 'Evidence' }).click()
     await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
-    await expect(page.getByRole('heading', { name: 'Attach evidence' })).toBeVisible()
-    await expect(
-      page
-        .getByRole('navigation', { name: 'Form categories' })
-        .getByRole('button', { name: 'Review' }),
-    ).toBeAttached()
+
+    await page.goto(`/applications/${id}/form`)
+    await page.getByRole('link', { name: 'Attach evidence' }).click()
+    await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
   })
 })

@@ -1,9 +1,18 @@
+/**
+ * The office dashboard.
+ *
+ * The question this screen answers is "what needs me today?": the queues that
+ * are genuinely waiting on the programme office lead, the oldest applications
+ * waiting on a decision follow, and the rest — waiting on a bank or a payment
+ * — close as a plain count.
+ *
+ * Every queue is shown even when empty. A chip that disappears when it reaches
+ * zero moves everything beside it, and staff who work this screen daily learn
+ * where their queue sits.
+ */
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
-  Calendar,
-  CalendarDays,
-  CalendarPlus,
   CheckCircle2,
   ChevronRight,
   FileCheck,
@@ -12,13 +21,14 @@ import {
   Folder,
   Landmark,
   RefreshCw,
+  Scale,
   Search,
   UserPlus,
-  Users,
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
+import { AnalyticsPanel } from '#/features/admin/AnalyticsPanel'
 import { ReferenceLookup } from '#/features/admin/ReferenceLookup'
 import { OFFICE_HELP } from '#/features/admin/officeGuidance'
 import { Explain } from '#/features/guide/Explain'
@@ -28,12 +38,11 @@ import {
   QUEUE_DESCRIPTIONS,
   QUEUE_KEYS,
   QUEUE_TITLES,
+  waitingFor,
 } from '#/features/admin/queues'
-import { MEETING_TITLES } from '#/features/admin/states'
 import { officeDashboardQuery } from '#/features/dashboard/dashboardQueries'
 import type { AdminIntakeQueueKey } from '#/graphql/generated/schema'
 import { can } from '#/lib/session'
-import { formatDateTime, humanize } from '#/lib/format'
 import styles from '#/features/dashboard/Dashboard.module.css'
 
 export const Route = createFileRoute('/_shell/admin/')({
@@ -51,8 +60,8 @@ const QUEUE_ICONS: Record<
   NEW_SUBMISSIONS: { icon: FileText, color: 'blue' },
   REVISION_RESPONSES: { icon: RefreshCw, color: 'green' },
   DESK_REVIEW: { icon: Search, color: 'amber' },
-  PARTNER_BANK_EVALUATION: { icon: Calendar, color: 'teal' },
-  TTM_REVIEW: { icon: Users, color: 'purple' },
+  PARTNER_BANK_EVALUATION: { icon: Landmark, color: 'teal' },
+  AWAITING_DECISION: { icon: Scale, color: 'purple' },
   APPROVED: { icon: CheckCircle2, color: 'green-circle' },
   REJECTED: { icon: XCircle, color: 'red-circle' },
   SANCTIONED: { icon: FileCheck, color: 'amber' },
@@ -64,18 +73,19 @@ function OfficeDashboard() {
   const { user } = Route.useRouteContext()
   const mark = useMarker()
   const queues = data?.queues ?? []
-  const meetings = data?.meetings.nodes ?? []
+  const decisions = data?.decisionQueue.nodes ?? []
   const countOf = (queue: AdminIntakeQueueKey) =>
     queues.find((entry) => entry.queue === queue)?.count ?? 0
   const actionable = QUEUE_KEYS.filter((queue) => ACTIONABLE_QUEUES.has(queue))
   const waiting = actionable.reduce((total, queue) => total + countOf(queue), 0)
   const submittedCasework = queues.reduce((total, entry) => total + entry.count, 0)
+  const toDecide = data?.decisionQueue.pageInfo.totalCount ?? 0
 
   return (
     <main className="page">
       <PageHeader
         title="Dashboard"
-        description="The programme office’s live casework, meetings, and fastest routes into today’s work."
+        description="The programme office’s live casework and fastest routes into today’s work."
         actions={
           <Link to="/admin/queue" className={styles.headerPrimaryButton}>
             View applications
@@ -113,21 +123,29 @@ function OfficeDashboard() {
             <ChevronRight className={styles.metricChevron} size={18} aria-hidden="true" />
           </Link>
 
-          <Link to="/admin/meetings" className={styles.metricCard}>
+          <Link
+            to="/admin/queue"
+            search={{ queue: 'AWAITING_DECISION' }}
+            className={styles.metricCard}
+          >
             <div className={styles.metricLeft}>
               <div className={styles.metricIconBadge} data-color="purple">
-                <Users aria-hidden="true" />
+                <Scale aria-hidden="true" />
               </div>
               <div className={styles.metricInfo}>
-                <span className={styles.metricLabel}>Committee meetings</span>
-                <strong className={styles.metricValue}>
-                  {data?.meetings.pageInfo.totalCount ?? 0}
-                </strong>
+                <span className={styles.metricLabel}>Waiting to be decided</span>
+                <strong className={styles.metricValue}>{toDecide}</strong>
               </div>
             </div>
             <ChevronRight className={styles.metricChevron} size={18} aria-hidden="true" />
           </Link>
         </section>
+
+        {/* The reporting panel, for the people who steer the programme. The
+            capability rather than a role: an approver-lead holds CYCLE_ADMIN
+            without holding ADMIN, and this decides only what is drawn — the
+            API authorizes the read on its own. */}
+        {can(user, 'CYCLE_ADMIN') ? <AnalyticsPanel /> : null}
 
         {/* Two-Column Responsive Main Grid */}
         <div className={styles.adminMainGrid}>
@@ -136,6 +154,8 @@ function OfficeDashboard() {
             {/* Card 1: Waiting on us */}
             <section className={styles.adminCard} aria-label="Waiting on us">
               <div className={styles.adminCardHeader}>
+                {/* The one place both SUBMITTED queues are on screen together, so
+                    the one place their separation is worth explaining. */}
                 <div className="label-row" style={{ margin: 0 }}>
                   <h2 className={styles.adminCardTitle}>Waiting on us</h2>
                   <Explain
@@ -189,48 +209,50 @@ function OfficeDashboard() {
               <h2 className={styles.adminCardTitle} style={{ marginBottom: '14px' }}>
                 Find an application
               </h2>
-              <ReferenceLookup variant="embedded" />
+              <ReferenceLookup />
             </section>
           </div>
 
           {/* Right Column */}
           <div className={styles.adminCol}>
-            {/* Card 1: Latest scheduled meetings */}
-            <section className={styles.adminCard} aria-label="Latest scheduled meetings">
+            {/* Card 1: The oldest applications waiting on a decision */}
+            <section className={styles.adminCard} aria-label="Waiting to be decided">
               <div className={styles.adminCardHeader}>
-                <h2 className={styles.adminCardTitle}>Latest scheduled meetings</h2>
-                <Link to="/admin/meetings" className={styles.viewAllLink}>
+                <h2 className={styles.adminCardTitle}>Waiting to be decided</h2>
+                <Link
+                  to="/admin/queue"
+                  search={{ queue: 'AWAITING_DECISION' }}
+                  className={styles.viewAllLink}
+                >
                   View all
                 </Link>
               </div>
-              {meetings.length === 0 ? (
+              {decisions.length === 0 ? (
                 <div className={styles.meetingEmpty}>
                   <div className={styles.meetingEmptyIcon}>
-                    <CalendarDays size={24} aria-hidden="true" />
+                    <Scale size={24} aria-hidden="true" />
                   </div>
                   <p className={styles.meetingEmptyText}>
-                    No committee meetings have been scheduled.
+                    Nothing is waiting on a decision.
                   </p>
                 </div>
               ) : (
                 <div className={styles.meetingList}>
-                  {meetings.map((meeting) => (
+                  {decisions.map((application) => (
                     <Link
-                      key={meeting.id}
-                      to="/admin/meetings/$meetingId"
-                      params={{ meetingId: meeting.id }}
+                      key={application.id}
+                      to="/admin/applications/$id"
+                      params={{ id: application.id }}
                       className={styles.meetingRow}
                     >
-                      <CalendarDays className={styles.rowIcon} aria-hidden="true" />
+                      <FileText className={styles.rowIcon} aria-hidden="true" />
                       <span className={styles.rowText}>
-                        <strong>{meeting.meetingReference}</strong>
+                        <strong>{application.enterpriseName}</strong>
                         <small>
-                          {formatDateTime(meeting.scheduledAt)} · {meeting.venue}
+                          {application.referenceNumber} · {application.cycleCode}
                         </small>
                       </span>
-                      <span className="badge">
-                        {MEETING_TITLES[meeting.status] ?? humanize(meeting.status)}
-                      </span>
+                      <span className="badge">{waitingFor(application.submittedAt)}</span>
                     </Link>
                   ))}
                 </div>
@@ -247,26 +269,15 @@ function OfficeDashboard() {
                   <Search className={styles.quickActionIcon} aria-hidden="true" />
                   <span className={styles.quickActionLabel}>Find an application</span>
                 </Link>
-                {can(user, 'STAFF_WRITE') ? (
-                  <Link
-                    to="/admin/meetings"
-                    search={{ create: true }}
-                    className={styles.quickActionTile}
-                    data-color="green"
-                  >
-                    <CalendarPlus className={styles.quickActionIcon} aria-hidden="true" />
-                    <span className={styles.quickActionLabel}>Schedule a meeting</span>
-                  </Link>
-                ) : (
-                  <Link
-                    to="/admin/meetings"
-                    className={styles.quickActionTile}
-                    data-color="green"
-                  >
-                    <Users className={styles.quickActionIcon} aria-hidden="true" />
-                    <span className={styles.quickActionLabel}>Committee meetings</span>
-                  </Link>
-                )}
+                <Link
+                  to="/admin/queue"
+                  search={{ queue: 'AWAITING_DECISION' }}
+                  className={styles.quickActionTile}
+                  data-color="green"
+                >
+                  <Scale className={styles.quickActionIcon} aria-hidden="true" />
+                  <span className={styles.quickActionLabel}>Decide applications</span>
+                </Link>
                 {can(user, 'STAFF_WRITE') ? (
                   <Link
                     to="/admin/cycles/new"
@@ -355,4 +366,3 @@ function OfficeDashboard() {
     </main>
   )
 }
-

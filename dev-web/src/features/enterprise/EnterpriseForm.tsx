@@ -1,11 +1,19 @@
 /**
  * The enterprise profile journey, shared by registration and editing.
  *
- * The API accepts the same complete profile for both operations, so one form
- * keeps their questions, conditional clearing, and progression rules aligned.
- * Values remain in React state until the final category is submitted; they are
- * never copied into browser storage where the next person at the device could
- * inherit them.
+ * One component because the API takes the same `EnterpriseProfileInput` for
+ * both. Keeping them together is what stops a field being added to creation and
+ * quietly forgotten on the edit screen.
+ *
+ * The questions are asked one category at a time. Values remain in React state
+ * until the final category is submitted; they are never copied into browser
+ * storage where the next person at the device could inherit them.
+ *
+ * Validation is deliberately thin here. The Worker owns the real rules — it
+ * normalizes, cross-checks registration numbers against the registration type,
+ * and returns a message written for the person reading it. The browser only
+ * checks what a step's own fields declare, so the two can never disagree about
+ * what is valid.
  */
 import { useEffect, useState } from 'react'
 import { Check, LockKeyhole } from 'lucide-react'
@@ -14,11 +22,36 @@ import type {
   EnterpriseProfileInput,
   RegistrationType,
 } from '#/graphql/generated/schema'
-import { TRIPURA_DISTRICTS } from '#/lib/businessRules'
+import { DISTRICTS } from '#/features/enterprise/districts'
 import { humanize } from '#/lib/format'
 import styles from './EnterpriseWizard.module.css'
 
-const REGISTRATION_TYPES: RegistrationType[] = ['NONE', 'CIN', 'UDYAM']
+/**
+ * The sectors and registration types come from the schema's own enums, so a
+ * value added to the API appears here without an edit.
+ */
+const REGISTRATION_TYPES: RegistrationType[] = [
+  'PRIVATE_LIMITED',
+  'LLP',
+  'SOLE_PROPRIETORSHIP',
+  'OPC',
+]
+
+/** Exported so the read view describes a type in the same words as the form. */
+export const REGISTRATION_TYPE_LABELS: Record<RegistrationType, string> = {
+  PRIVATE_LIMITED: 'Private Limited',
+  LLP: 'LLP (Limited Liability Partnership)',
+  SOLE_PROPRIETORSHIP: 'Sole Proprietorship',
+  OPC: 'OPC (One Person Company)',
+}
+
+/** Which number each instrument confers, naming the registration-number field. */
+const REGISTRATION_NUMBER_LABELS: Record<RegistrationType, string> = {
+  PRIVATE_LIMITED: 'CIN',
+  LLP: 'LLPIN',
+  SOLE_PROPRIETORSHIP: 'Registration number',
+  OPC: 'CIN',
+}
 
 const SECTORS: BusinessSector[] = [
   'AGRICULTURE_AND_ALLIED',
@@ -54,7 +87,7 @@ const ENTERPRISE_STEPS: EnterpriseStepDef[] = [
     id: 'LOCATION',
     label: 'Business location',
     description:
-      'Add the block or village, district, and postal code where the enterprise operates.',
+      'Add the office address, district, and postal code where the enterprise operates.',
   },
   {
     id: 'CONTACT',
@@ -66,11 +99,15 @@ const ENTERPRISE_STEPS: EnterpriseStepDef[] = [
 
 export type EnterpriseFormValues = EnterpriseProfileInput
 
-/** Empty rather than pre-filled: nothing is assumed about a new enterprise. */
+/**
+ * Empty apart from the registration type, which the API requires. Sole
+ * proprietorship is the one type whose number is optional, so a name-only
+ * registration still goes through.
+ */
 export const emptyEnterprise: EnterpriseFormValues = {
   name: '',
   establishmentDate: null,
-  registrationType: 'NONE',
+  registrationType: 'SOLE_PROPRIETORSHIP',
   registrationNumber: null,
   gstin: null,
   businessSector: null,
@@ -104,6 +141,8 @@ export function EnterpriseForm({
   const activeDef = ENTERPRISE_STEPS[activeIndex] ?? ENTERPRISE_STEPS[0]!
   const dirty = JSON.stringify(values) !== JSON.stringify(initial)
 
+  // Half-entered answers exist only in this component's state, so leaving the
+  // page is the one way to lose them — worth a browser prompt while dirty.
   useEffect(() => {
     if (!dirty || busy) return
     const warn = (event: BeforeUnloadEvent) => event.preventDefault()
@@ -116,6 +155,8 @@ export function EnterpriseForm({
     value: EnterpriseFormValues[TKey],
   ) => setValues((current) => ({ ...current, [key]: value }))
 
+  // Only the fields of the visible step are rendered, so reportValidity()
+  // checks exactly the current category before letting it be left.
   const next = (form: HTMLFormElement) => {
     if (!form.reportValidity()) return
     const following = ENTERPRISE_STEPS[activeIndex + 1]
@@ -141,7 +182,7 @@ export function EnterpriseForm({
         onSubmit(values)
       }}
     >
-      {/* Top Stepper Card */}
+      {/* Top stepper card */}
       <section className={styles.stepperCard} aria-label="Registration categories">
         <div className={styles.stepperTrack}>
           {ENTERPRISE_STEPS.map((step, index) => {
@@ -213,7 +254,7 @@ export function EnterpriseForm({
         </div>
       </section>
 
-      {/* Main Form Content Card */}
+      {/* Main form content card */}
       <section className={styles.formCard}>
         <h2 className={styles.categoryHeading}>{activeDef.label}</h2>
         <p className={styles.categoryDesc}>{activeDef.description}</p>
@@ -305,7 +346,6 @@ function EnterpriseDetails({
           id="name"
           className={styles.textInput}
           required
-          minLength={2}
           maxLength={200}
           value={values.name}
           onChange={(event) => set('name', event.target.value)}
@@ -339,12 +379,11 @@ function EnterpriseDetails({
         <select
           id="businessSector"
           className={styles.selectInput}
-          required
           value={values.businessSector ?? ''}
           onChange={(event) => {
-            const nextVal = orNull(event.target.value) as BusinessSector | null
-            set('businessSector', nextVal)
-            if (nextVal !== 'OTHER') set('otherBusinessSector', null)
+            const next = orNull(event.target.value) as BusinessSector | null
+            set('businessSector', next)
+            if (next !== 'OTHER') set('otherBusinessSector', null)
           }}
         >
           <option value="">Not stated</option>
@@ -365,7 +404,6 @@ function EnterpriseDetails({
             id="otherBusinessSector"
             className={styles.textInput}
             required
-            maxLength={200}
             value={values.otherBusinessSector ?? ''}
             onChange={(event) => set('otherBusinessSector', orNull(event.target.value))}
           />
@@ -382,7 +420,9 @@ function RegistrationDetails({
   values: EnterpriseFormValues
   set: Setter
 }) {
-  const registered = values.registrationType !== 'NONE'
+  // The API requires the statutory number for the incorporated types and
+  // leaves it optional for a sole proprietorship, so the field follows suit.
+  const incorporated = values.registrationType !== 'SOLE_PROPRIETORSHIP'
   return (
     <div className={styles.fieldGrid}>
       <div className={styles.fieldGroup}>
@@ -393,35 +433,35 @@ function RegistrationDetails({
           id="registrationType"
           className={styles.selectInput}
           value={values.registrationType}
-          onChange={(event) => {
-            const nextVal = event.target.value as RegistrationType
-            set('registrationType', nextVal)
-            if (nextVal === 'NONE') set('registrationNumber', null)
-          }}
+          onChange={(event) =>
+            set('registrationType', event.target.value as RegistrationType)
+          }
         >
           {REGISTRATION_TYPES.map((type) => (
             <option key={type} value={type}>
-              {type === 'NONE' ? 'Not registered' : type}
+              {REGISTRATION_TYPE_LABELS[type]}
             </option>
           ))}
         </select>
       </div>
 
-      {registered ? (
-        <div className={styles.fieldGroup}>
-          <label className={styles.fieldLabel} htmlFor="registrationNumber">
-            {values.registrationType} number
-          </label>
-          <input
-            id="registrationNumber"
-            className={styles.textInput}
-            required
-            maxLength={200}
-            value={values.registrationNumber ?? ''}
-            onChange={(event) => set('registrationNumber', orNull(event.target.value))}
-          />
-        </div>
-      ) : null}
+      <div className={styles.fieldGroup}>
+        <label className={styles.fieldLabel} htmlFor="registrationNumber">
+          {REGISTRATION_NUMBER_LABELS[values.registrationType]}
+        </label>
+        <input
+          id="registrationNumber"
+          className={styles.textInput}
+          required={incorporated}
+          value={values.registrationNumber ?? ''}
+          onChange={(event) => set('registrationNumber', orNull(event.target.value))}
+        />
+        <span className={styles.fieldHint}>
+          {incorporated
+            ? 'As it appears on the certificate of incorporation.'
+            : 'Only if the proprietorship holds one.'}
+        </span>
+      </div>
 
       <div className={styles.fieldGroup}>
         <label className={styles.fieldLabel} htmlFor="gstin">
@@ -430,9 +470,6 @@ function RegistrationDetails({
         <input
           id="gstin"
           className={styles.textInput}
-          maxLength={15}
-          pattern="[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][A-Za-z0-9]Z[A-Za-z0-9]"
-          title="Enter a valid 15-character GSTIN."
           value={values.gstin ?? ''}
           onChange={(event) => set('gstin', orNull(event.target.value))}
         />
@@ -447,6 +484,10 @@ function RegistrationDetails({
 function LocationDetails({ values, set }: { values: EnterpriseFormValues; set: Setter }) {
   return (
     <div className={styles.fieldGrid}>
+      <p className="notice" data-tone="action" style={{ margin: 0 }}>
+        Give the address of the business itself, as it appears on your business
+        documents — not a personal or home address.
+      </p>
       <div className={styles.fieldGroup}>
         <label className={styles.fieldLabel} htmlFor="businessBlockOrVillage">
           Office address (as per your business documents)
@@ -454,13 +495,9 @@ function LocationDetails({ values, set }: { values: EnterpriseFormValues; set: S
         <input
           id="businessBlockOrVillage"
           className={styles.textInput}
-          maxLength={500}
           value={values.businessBlockOrVillage ?? ''}
           onChange={(event) => set('businessBlockOrVillage', orNull(event.target.value))}
         />
-        <span className={styles.fieldHint}>
-          Enter business-document details, not a personal or residential address.
-        </span>
       </div>
       <div className={styles.fieldGroup}>
         <label className={styles.fieldLabel} htmlFor="businessDistrict">
@@ -472,10 +509,10 @@ function LocationDetails({ values, set }: { values: EnterpriseFormValues; set: S
           value={values.businessDistrict ?? ''}
           onChange={(event) => set('businessDistrict', orNull(event.target.value))}
         >
-          <option value="">Select district</option>
-          {TRIPURA_DISTRICTS.map((district) => (
-            <option key={district} value={district}>
-              {district}
+          <option value="">Select a district</option>
+          {DISTRICTS.map((district) => (
+            <option key={district.code} value={district.code}>
+              {district.name} ({district.headquarters})
             </option>
           ))}
         </select>
@@ -488,8 +525,6 @@ function LocationDetails({ values, set }: { values: EnterpriseFormValues; set: S
           id="businessPinCode"
           className={styles.textInput}
           inputMode="numeric"
-          pattern="[0-9]{6}"
-          title="Enter a six-digit PIN code."
           maxLength={6}
           value={values.businessPinCode ?? ''}
           onChange={(event) => set('businessPinCode', orNull(event.target.value))}
@@ -511,12 +546,15 @@ function ContactDetails({ values, set }: { values: EnterpriseFormValues; set: Se
           className={styles.textInput}
           type="tel"
           inputMode="numeric"
-          pattern="[0-9]{10}"
-          title="Enter exactly 10 digits without a country prefix."
-          maxLength={10}
+          maxLength={13}
+          pattern="(\+91)?[0-9]{10}"
+          title="Enter a 10-digit mobile number."
           value={values.contactNumber ?? ''}
           onChange={(event) => set('contactNumber', orNull(event.target.value))}
         />
+        <span className={styles.fieldHint}>
+          Your 10-digit mobile number; +91 is optional.
+        </span>
       </div>
       <div className={styles.fieldGroup}>
         <label className={styles.fieldLabel} htmlFor="contactEmail">
@@ -526,7 +564,6 @@ function ContactDetails({ values, set }: { values: EnterpriseFormValues; set: Se
           id="contactEmail"
           className={styles.textInput}
           type="email"
-          maxLength={254}
           value={values.contactEmail ?? ''}
           onChange={(event) => set('contactEmail', orNull(event.target.value))}
         />

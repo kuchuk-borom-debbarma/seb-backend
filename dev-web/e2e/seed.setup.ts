@@ -22,7 +22,7 @@ setup(
     await signUpApplicant(page, SUPER_ADMIN_EMAIL)
 
     // Before promotion this is an ordinary applicant, so sign-in lands on the
-    // applicant dashboard rather than the public landing page.
+    // applicant portal's dashboard.
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await expect(page).toHaveURL(/\/dashboard$/u)
     expect(await navigationSections(page)).toContain('workspace')

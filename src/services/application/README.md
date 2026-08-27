@@ -26,8 +26,12 @@ the code implements it. The breaking form-contract and baseline changes are in
 - **A verified applicant always holds the `APPLICANT` role.** The signup write
   rolls back entirely if the role insert fails, so an account without it cannot
   exist.
-- **`undefined` and SQL `NULL` are different things** to D1. `sqlNullable` is
-  the single conversion point.
+- **`undefined` and SQL `NULL` are different things.** `sqlNullable` is the
+  single conversion point.
+- **The questions are the cycle's, not the schema's.** Which questions exist,
+  what they are called and when they are asked all come from the form template
+  frozen with the cycle version an application pins. Nothing in this service
+  names a question except through a role binding.
 
 ## Layout
 
@@ -38,11 +42,14 @@ the code implements it. The breaking form-contract and baseline changes are in
 | `controllers/document.ts` | Upload authorization, finalization, download, cleanup |
 | `controllers/funding.ts` | The applicant's read of their own award |
 | `queries/*` | Drizzle reads and every guarded write |
-| `validation.ts` | Pure form normalization and policy rules — no D1, no R2 |
+| `form/*` | The template engine: resolution, coercion, rules, conditions — pure |
+| `validation.ts` | What is still the software's rather than a cycle's: the enterprise profile rules, the default submission policy, and the calendar arithmetic the expansion rule shares — pure |
+| `enterprise-policy.ts` | How many enterprises one applicant may hold, and what makes two of them the same |
+| `text.ts` | One definition of what counts as empty typed text, shared by the profile and the form engine |
+| `confirmation.ts` | The application as one PDF an applicant can keep; content can never make it throw |
 | `uploads.ts` | The upload rules — types, size, keys, object verification |
 | `ownership.ts` | The ownership preamble every read starts from |
 | `ledger.ts` | The release/reversal fold |
-| `sections.ts` | Which form sections differ between two snapshots |
 | `status-guide.ts` | Plain-language explanation of every status |
 | `pagination.ts` | Cursors, page size, and `MAX_COLLECTION_ROWS` |
 | `support.ts`, `types.ts` | Envelope, audit builder, shared shapes |
@@ -55,13 +62,21 @@ the code implements it. The breaking form-contract and baseline changes are in
 | --- | --- |
 | **Entry** | `seb.application.saveDraft` |
 | **Guard** | applicant, and owns this application |
-| **Refuses** | a stale `expectedVersion` or `expectedStatusVersion`; a status that is neither `DRAFT` nor `REVISION_REQUIRED`; a registered email different from the verified caller; any alteration to copied name, establishment, registration, GSTIN, or sector; in `REVISION_REQUIRED`, any section that was not asked for; expansion evidence that has since changed |
+| **Refuses** | a stale `expectedVersion` or `expectedStatusVersion`; a status that is neither `DRAFT` nor `REVISION_REQUIRED`; an answer the form does not ask, or one it does ask left out; in `REVISION_REQUIRED`, any stage that was not asked for; expansion evidence that has since changed |
 | **Writes** | a new immutable form version plus the audit row, one batch |
 | **Guarded by** | both versions, the status, the revision scope, and the pinned expansion evidence |
 | **Fails** | `The record changed. Reload and try again.` |
 
-`editableSections` is derived from the same rule the write enforces, so the API
-can never advertise an edit the write path would refuse.
+`editableStageKeys` is derived from the same rule the write enforces, so the
+API can never advertise an edit the write path would refuse.
+
+**An unrecognised answer key is refused, never dropped.** A browser holding a
+form from an older cycle version would otherwise be told the save succeeded and
+watch its answers disappear — the worst outcome available, because nothing tells
+the applicant their work was discarded. **A hidden question's answer is cleared**
+rather than merely ignored, on both sides and run to a fixed point: hiding a
+question can hide the one that depended on it, and a single pass leaves the
+third answer behind.
 
 Normalization accepts common separators in a contact number but the resulting
 value must contain exactly ten digits and cannot carry a country prefix.
@@ -81,11 +96,12 @@ draft, snapshot, validation, submission, or revision vocabulary.
 | **Guarded by** | both versions, the status, and the required-document set recomputed at write time |
 | **Fails** | the first validation issue, or `The record changed.` |
 
-**The validator and the write must ask the same function** which documents are
-required. When they derived it separately, a cycle asking for fewer documents
-validated as complete and was then refused with a message about the application
-having changed — which it had not. One definition:
-`requiredDocumentTypes` in `validation.ts`.
+**The validator and the write must read the same resolved template.** Submission
+resolves it once and hands the same object to both. When they derived the
+required documents separately, a cycle asking for fewer validated as complete and
+was then refused with a message about the application having changed — which it
+had not. One definition: `requiredDocumentFieldKeys` in `form/engine.ts`, over
+the template the validator just used.
 
 Resubmission clears the assignment, because a resubmission is fresh intake work.
 
@@ -136,7 +152,7 @@ This service is the single owner of the upload rules.
 | | |
 | --- | --- |
 | Types | PDF, JPEG, PNG |
-| Maximum | 5 MB |
+| Maximum | 2 MB — set by what the malware scanner accepts, not by storage; see [`uploads.ts`](uploads.ts) |
 | Upload URL | valid 10 minutes |
 | Download URL | valid 5 minutes, always forced to attachment |
 
@@ -212,12 +228,18 @@ a file worked on for years should not make one request read ten thousand rows.
 | `issueDocumentUpload`, `finalizeDocumentUpload`, `documentDownloadUrl`, `softDeleteApplicationDocument`, `restoreApplicationDocument` | `controllers/document.ts` | Evidence |
 | `cleanupExpiredDocumentUploads` | `controllers/document.ts` | Hourly cron; at most 50 objects per run |
 | `applicationFunding` | `controllers/funding.ts` | Ownership proof plus one query |
-| `requiredDocumentTypes`, `validateSubmissionSnapshot`, `normalizeDraftInput` | `validation.ts` | The rules, with no I/O |
+| `normalizeAnswers`, `validateAnswersForSubmission`, `requiredDocumentFieldKeys` | `form/engine.ts` | The rules, with no I/O |
+| `resolveFormTemplate` | `form/template.ts` | The one door from rows to a usable form |
+| `visibleFields`, `isRequiredWhenVisible` | `form/conditions.ts` | Which questions are asked, and which must be answered |
+| `normalizeEnterpriseProfile` | `validation.ts` | The enterprise record, which is the portal's own rather than a cycle's |
 | `foldDisbursementLedger` | `ledger.ts` | Pairs reversals to releases; one definition so no two views disagree |
-| `changedSections` | `sections.ts` | Which sections differ between snapshots |
+| `changedStageKeys`, `answersEqual`, `pruneHidden` | `form/answers.ts` | Which stages differ, and clearing what is no longer asked |
 | `ownedApplication`, `ownedApplicationAtVersion` | `ownership.ts` | The ownership preamble |
 | `pageSize`, `encodeCursor`, `decodeCursor`, `MAX_COLLECTION_ROWS` | `pagination.ts` | Paging |
 | `verifyUploadedObject`, `extensionMatchesContentType`, `createDocumentObjectKey`, `sanitizeFilename` | `uploads.ts` | The upload rules |
+| `buildApplicationPdf`, `formatPaise` | `confirmation.ts` | The PDF the three notification hooks attach, and the one money formatter they share |
+| `maxEnterprisesPerUser`, `enterpriseLimitReached`, `comparableEnterpriseName` | `enterprise-policy.ts` | The enterprise cap and duplicate-name rule |
+| `cleanText`, `cleanLongText`, `cleanUpper`, `cleanLower`, `cleanPhone` | `text.ts` | Text normalization, one spelling of "empty" |
 
 ## Elsewhere
 

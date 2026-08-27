@@ -47,12 +47,13 @@ input EnterpriseProfileInput {
   """
   establishmentDate: Date
 
-  """Whether the business is registered, and under which instrument."""
+  """Under which instrument the business is constituted."""
   registrationType: RegistrationType!
 
   """
-  The registration number, when there is one. Leave null for `NONE`; an
-  unregistered enterprise is a normal applicant, not an incomplete one.
+  The statutory number (CIN, LLPIN) — required for `PRIVATE_LIMITED`, `LLP`
+  and `OPC`. Optional for `SOLE_PROPRIETORSHIP`, which has no incorporation
+  instrument to quote.
   """
   registrationNumber: String
 
@@ -73,7 +74,10 @@ input EnterpriseProfileInput {
   """Where the business operates — the block or village."""
   businessBlockOrVillage: String
 
-  """The district the business operates in."""
+  """
+  The district the business operates in, as one of the eight district codes
+  (for example `WEST_TRIPURA`); anything else is refused.
+  """
   businessDistrict: String
 
   """Six-digit postal code for the business address."""
@@ -204,173 +208,6 @@ input StartApplicationInput {
 }
 
 """
-The enterprise section of the application form.
-
-Separate from the enterprise record itself: this is what the applicant asserts
-*for this application*, frozen at submission, while the enterprise record goes
-on changing.
-"""
-input EnterpriseDetailsInput {
-  """The business name as it should appear on this application."""
-  businessName: String
-
-  """When the business began trading, as `YYYY-MM-DD`."""
-  establishmentDate: Date
-
-  """Whether the business is registered, and under which instrument."""
-  registrationType: RegistrationType
-
-  """The registration number, when there is one."""
-  registrationNumber: String
-
-  """The GSTIN, when the business holds one."""
-  gstin: String
-
-  """What the business does."""
-  businessSector: BusinessSector
-
-  """Used only with `businessSector: OTHER`."""
-  otherBusinessSector: String
-
-  """
-  Which funding band this application is for. Decided by how long the business
-  has been trading against the cycle's threshold, and validated at submission.
-  """
-  applicationCategory: ApplicationCategory
-
-  """
-  Whether the applicant confirms majority ownership by the qualifying group.
-  A cycle may require this; submission refuses without it where it does.
-  """
-  majorityOwnershipConfirmed: Boolean
-}
-
-"""Who is applying, as a person rather than as a business."""
-input ApplicantProfileInput {
-  """Full name of the person responsible for the application."""
-  primaryApplicantName: String
-
-  """Their role in the business."""
-  designation: ApplicantDesignation
-
-  """
-  Date of birth as `YYYY-MM-DD`. Checked against the cycle's age range at
-  submission, so an out-of-range value is accepted into a draft and refused
-  when the application is sent.
-  """
-  dateOfBirth: Date
-
-  """The applicant's gender, as recorded for programme reporting."""
-  gender: Gender
-
-  """The applicant's block or village."""
-  businessBlockOrVillage: String
-
-  """The applicant's district."""
-  businessDistrict: String
-
-  """Six-digit postal code."""
-  businessPinCode: String
-
-  """Telephone number for programme correspondence."""
-  contactNumber: String
-
-  """Address for programme correspondence."""
-  contactEmail: String
-}
-
-"""
-What the project costs and how it is to be paid for.
-
-Every amount is **paise**, not rupees: ₹10,00,000 is `"1000000000"`. They are
-sent and returned as decimal strings so that no amount can lose precision on
-the way through a client.
-"""
-input FinancialInput {
-  """What the whole project costs, in paise. The seed fund covers part of it."""
-  totalProjectCostPaise: Money
-
-  """
-  How much seed funding is being asked for, in paise. Checked against the
-  cycle's ceiling at submission.
-  """
-  seedFundRequestedPaise: Money
-
-  """How much of the cost a bank loan is expected to cover, in paise."""
-  bankLoanProposedPaise: Money
-
-  """How much the promoter is putting in themselves, in paise."""
-  promoterContributionPaise: Money
-}
-
-"""
-Public money and bank credit the enterprise already has.
-
-Declared rather than verified here; the desk review is where it is checked
-against evidence.
-"""
-input PriorFundingInput {
-  """Whether the enterprise has had government funding before."""
-  receivedGovernmentFunding: Boolean
-
-  """Which scheme it came from. Expected when `receivedGovernmentFunding`."""
-  governmentSchemeName: String
-
-  """How much was received, in paise."""
-  governmentFundingAmountPaise: Money
-
-  """The year it was sanctioned, as a four-digit year."""
-  governmentFundingSanctionYear: Int
-
-  """Whether the enterprise currently has a bank facility."""
-  hasExistingBankCredit: Boolean
-
-  """Which bank holds it. Expected when `hasExistingBankCredit`."""
-  existingBankName: String
-
-  """The outstanding amount, in paise."""
-  existingCreditAmountPaise: Money
-
-  """Whether that facility is performing."""
-  existingCreditStatus: CreditStatus
-}
-
-"""Answers that change which documents the application must carry."""
-input DocumentRequirementsInput {
-  """
-  Whether a no-objection certificate applies to this project. Setting it true
-  makes the NOC a required document at submission.
-  """
-  nocRequired: Boolean
-}
-
-"""
-The whole application form, sent complete on every save.
-
-Every section is required as an object; the fields inside them are not. That is
-what lets a half-finished draft be saved: the shape is always complete, the
-answers arrive over time, and completeness is judged at submission rather than
-at every keystroke.
-"""
-input ApplicationDraftInput {
-  """The business, as asserted for this application."""
-  enterprise: EnterpriseDetailsInput!
-
-  """The person applying."""
-  applicantProfile: ApplicantProfileInput!
-
-  """What the project costs and who pays for it."""
-  financial: FinancialInput!
-
-  """Public money and bank credit already held."""
-  priorFunding: PriorFundingInput!
-
-  """Answers that decide which documents are required."""
-  documents: DocumentRequirementsInput!
-
-}
-
-"""
 Saves the whole draft, guarded against both kinds of concurrent change.
 
 Two versions, because two different things can move underneath a draft: the
@@ -394,8 +231,22 @@ input SaveApplicationDraftInput {
   """
   expectedStatusVersion: Int!
 
-  """The complete form. Sections are required; their fields are not."""
-  draft: ApplicationDraftInput!
+  """
+  Every answer, keyed by `FormField.key`.
+
+  **A whole replacement, not a merge.** Every question the form asks must be an
+  own property: send an explicit `null` to clear one, and omitting one is
+  refused rather than treated as unchanged — a client that omits a key it does
+  not understand would otherwise silently erase it.
+
+  A key the form does not ask is refused too, never dropped. A browser holding
+  an older version of the form would otherwise be told the save succeeded and
+  watch the answers disappear.
+
+  A repeated group's key holds a list of entries, each an object of its members'
+  answers. Nesting stops there.
+  """
+  answers: JSON!
 }
 
 """Identifies an application at an exact form version and status version."""
@@ -435,8 +286,12 @@ input IssueDocumentUploadInput {
   """Which application the document belongs to."""
   applicationId: ID!
 
-  """Which evidence slot this file fills."""
-  documentType: DocumentType!
+  """
+  Which `FILE` question of the form this file answers, by `FormField.key`.
+
+  Refused unless the form pinned to this application asks it.
+  """
+  fieldKey: String!
 
   """
   The `version` of the document currently in this slot, or `0` for the first
@@ -459,7 +314,7 @@ input IssueDocumentUploadInput {
   contentType: String!
 
   """
-  The exact size in bytes. At most 5 MB (5,242,880). Checked again against
+  The exact size in bytes. At most 2 MB (2,097,152). Checked again against
   what actually arrives.
   """
   sizeBytes: Int!
@@ -534,7 +389,7 @@ type UploadAuthorizationResult implements BaseResponse {
 
   """
   What to show the applicant when `success` is false — an unsupported file
-  type, a file over 5 MB, or a document that changed in another tab.
+  type, a file over 2 MB, or a document that changed in another tab.
   """
   message: String
 
@@ -614,8 +469,9 @@ type SebApplicationMutation {
   are accepted — completeness is judged at `submit`.
 
   **Refuses:** a stale `expectedVersion` or `expectedStatusVersion`; an
-  application not in an editable status; and, while a correction is open, any
-  change outside the sections the office asked for.
+  application not in an editable status; an answer the form does not ask, or one
+  it does ask left out; and, while a correction is open, any change outside the
+  stages the office asked for.
   """
   saveDraft(
     """Which application, at which versions, and the whole form."""
@@ -652,7 +508,7 @@ type SebApplicationMutation {
   `finalizeDocumentUpload`. Nothing is attached until that second call, so an
   abandoned upload leaves the application untouched.
 
-  **Refuses:** a file over 5 MB, a type other than PDF, JPEG or PNG, a filename
+  **Refuses:** a file over 2 MB, a type other than PDF, JPEG or PNG, a filename
   whose extension disagrees with its type, and an application whose status no
   longer allows documents to change.
   """

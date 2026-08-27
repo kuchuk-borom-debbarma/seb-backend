@@ -1,0 +1,77 @@
+/**
+ * The API Worker as it runs on a developer's machine, and under the
+ * end-to-end suite.
+ *
+ * ## Why this is not `wrangler.jsonc`
+ *
+ * Two bindings cannot be shared with the deployed configuration.
+ *
+ * **`STORAGE`.** Local uploads go to the `STORAGE` binding, which the
+ * development runtime supplies with no account feature and no keys. The
+ * deployed Worker cannot declare it: R2 is not enabled on this account, and
+ * `wrangler deploy` verifies the bucket exists. A dry run does not, so that
+ * failure only appears at the real deploy.
+ *
+ * **`vars`.** The deployed values name a deployed environment and
+ * `STORAGE_TRANSPORT: cloudinary`. Inherited here, a test run would send test
+ * documents to the real provider, and would count rate limits on bindings this
+ * configuration does not declare. Absent, `ENVIRONMENT` reads as local, which
+ * is what a machine with nothing configured should be.
+ *
+ * ## What must not drift
+ *
+ * `hyperdrive.localConnectionString` names the Postgres this machine talks to.
+ * `scripts/reset-e2e-db.mjs` prepares that same database, so changing it here
+ * without changing the script gives `npm run local` and the suite a different,
+ * empty database from the one that was prepared.
+ *
+ * Rate-limit bindings are deliberately absent: local runs count in process, and
+ * the suite turns counting off entirely. `npm run check:rate-limits` reads the
+ * deployed configuration, which is the one that has to match the policy.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "seb-backend",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-21",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "account_id": "15a26eaa33db8561da8f42e036dfe627",
+
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.graphql"],
+      "fallthrough": true
+    }
+  ],
+
+  /*
+   * `localConnectionString` is what makes `wrangler dev` reach a Postgres on
+   * this machine instead of the deployed Neon branch. The id is still required
+   * by the schema and is not used locally.
+   */
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "REPLACE_WITH_HYPERDRIVE_ID",
+      "localConnectionString": "postgresql://postgres:postgres@localhost:5432/seb_backend"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "STORAGE",
+      "bucket_name": "seb-backend-documents"
+    }
+  ],
+
+  "queues": {
+    "producers": [
+      {
+        "binding": "QUEUE",
+        "queue": "seb-backend-queue"
+      }
+    ]
+  }
+}

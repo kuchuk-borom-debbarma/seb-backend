@@ -13,14 +13,13 @@
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { reasonsFor, type ReasonCategory } from '#/features/admin/workspaceQueries'
-import { SECTION_TITLES } from '#/features/application/draft'
 import {
   CancelBankReferralDocument,
   CorrectBankOutcomeDocument,
   RecordBankOutcomeDocument,
   ReferToBankDocument,
 } from '#/graphql/generated/operations'
-import type { ApplicationSection, BankOutcome } from '#/graphql/generated/schema'
+import type { BankOutcome } from '#/graphql/generated/schema'
 import { REFERRAL_STATES, REFERRAL_TITLES } from '#/features/admin/states'
 import { formatDate, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
@@ -52,12 +51,12 @@ const OUTCOMES: { value: BankOutcome; label: string; means: string }[] = [
   {
     value: 'RECOMMENDED',
     label: 'Recommended',
-    means: 'The bank supports the proposal. The application goes to the committee.',
+    means: 'The bank supports the proposal. The application goes on to be decided.',
   },
   {
     value: 'NOT_RECOMMENDED',
     label: 'Not recommended',
-    means: 'The bank does not support it. The application goes to the committee anyway.',
+    means: 'The bank does not support it. The application is still decided on its merits.',
   },
   {
     value: 'MORE_INFORMATION_REQUIRED',
@@ -65,14 +64,6 @@ const OUTCOMES: { value: BankOutcome; label: string; means: string }[] = [
     means:
       'The bank cannot decide yet. Name the sections the applicant must correct; the application returns to them.',
   },
-]
-
-const REVISABLE: ApplicationSection[] = [
-  'ENTERPRISE',
-  'APPLICANT_PROFILE',
-  'FINANCIAL',
-  'PRIOR_FUNDING',
-  'DOCUMENTS',
 ]
 
 export function BankStage({
@@ -84,6 +75,7 @@ export function BankStage({
   referrals,
   outcomes,
   reasons,
+  stages,
   onChanged,
 }: {
   applicationId: string
@@ -94,6 +86,14 @@ export function BankStage({
   referrals: Referral[]
   outcomes: Outcome[]
   reasons: ReasonCategory[] | undefined
+  /**
+   * The stages this application's own form declares.
+   *
+   * Passed in rather than fixed in code: which stages exist is the cycle's
+   * decision, and the API refuses a revision naming a stage the pinned form
+   * does not have — so a hard-coded list would offer refusals.
+   */
+  stages: readonly { key: string; title: string }[]
   onChanged: () => Promise<unknown>
 }) {
   /*
@@ -207,6 +207,7 @@ export function BankStage({
             title="Record what the bank said"
             confirmLabel="Record the outcome"
             reasons={reasons}
+            stages={stages}
             onSubmit={async (draft) => {
               const data = await gql(RecordBankOutcomeDocument, {
                 input: {
@@ -230,6 +231,7 @@ export function BankStage({
             supersedesOutcomeId={latestOutcome.id}
             statusVersion={statusVersion}
             reasons={reasons}
+            stages={stages}
             onChanged={onChanged}
           />
         ) : null}
@@ -425,7 +427,7 @@ type OutcomeDraft = {
   applicantSummary: string
   internalNote?: string | null
   revisions: {
-    section: ApplicationSection
+    stageKey: string
     reasonCategoryId: string
     note: string
   }[]
@@ -442,12 +444,21 @@ function OutcomeForm({
   title,
   confirmLabel,
   reasons,
+  stages,
   extra,
   onSubmit,
 }: {
   title: string
   confirmLabel: string
   reasons: ReasonCategory[] | undefined
+  /**
+   * The stages this application's own form declares.
+   *
+   * Passed in rather than fixed in code: which stages exist is the cycle's
+   * decision, and the API refuses a revision naming a stage the pinned form
+   * does not have — so a hard-coded list would offer refusals.
+   */
+  stages: readonly { key: string; title: string }[]
   extra?: React.ReactNode
   onSubmit: (draft: OutcomeDraft) => Promise<void>
 }) {
@@ -458,13 +469,13 @@ function OutcomeForm({
   const [applicantSummary, setApplicantSummary] = useState('')
   const [internalNote, setInternalNote] = useState('')
   const [revisions, setRevisions] = useState<
-    Partial<Record<ApplicationSection, { reasonCategoryId: string; note: string }>>
+    Partial<Record<string, { reasonCategoryId: string; note: string }>>
   >({})
   const [error, setError] = useState<string | null>(null)
 
   const revisionReasons = reasonsFor(reasons, 'REVISION')
   const chosen = Object.entries(revisions) as [
-    ApplicationSection,
+    string,
     { reasonCategoryId: string; note: string },
   ][]
 
@@ -481,8 +492,8 @@ function OutcomeForm({
         internalNote: internalNote.trim() || null,
         revisions:
           outcome === 'MORE_INFORMATION_REQUIRED'
-            ? chosen.map(([section, value]) => ({
-                section,
+            ? chosen.map(([stageKey, value]) => ({
+                stageKey,
                 reasonCategoryId: value.reasonCategoryId,
                 note: value.note.trim(),
               }))
@@ -574,12 +585,12 @@ function OutcomeForm({
 
       {outcome === 'MORE_INFORMATION_REQUIRED' ? (
         <div style={{ marginTop: '0.75rem' }}>
-          <p className="field-label">Sections the applicant must correct</p>
+          <p className="field-label">Stages the applicant must correct</p>
           <div className="stack">
-            {REVISABLE.map((section) => {
-              const value = revisions[section]
+            {stages.map((stage) => {
+              const value = revisions[stage.key]
               return (
-                <div key={section}>
+                <div key={stage.key}>
                   <label className="checkbox-row">
                     <input
                       type="checkbox"
@@ -588,30 +599,30 @@ function OutcomeForm({
                         setRevisions((previous) => {
                           const next = { ...previous }
                           if (event.target.checked) {
-                            next[section] = { reasonCategoryId: '', note: '' }
+                            next[stage.key] = { reasonCategoryId: '', note: '' }
                           } else {
-                            delete next[section]
+                            delete next[stage.key]
                           }
                           return next
                         })
                       }
                     />
-                    {SECTION_TITLES[section]}
+                    {stage.title}
                   </label>
                   {value ? (
                     <div className="detail-grid">
                       <div>
-                        <label className="field-label" htmlFor={`bank-${section}-reason`}>
+                        <label className="field-label" htmlFor={`bank-${stage.key}-reason`}>
                           Reason
                         </label>
                         <select
-                          id={`bank-${section}-reason`}
+                          id={`bank-${stage.key}-reason`}
                           className="select"
                           value={value.reasonCategoryId}
                           onChange={(event) =>
                             setRevisions((previous) => ({
                               ...previous,
-                              [section]: {
+                              [stage.key]: {
                                 ...value,
                                 reasonCategoryId: event.target.value,
                               },
@@ -627,17 +638,17 @@ function OutcomeForm({
                         </select>
                       </div>
                       <div style={{ gridColumn: '2 / -1' }}>
-                        <label className="field-label" htmlFor={`bank-${section}-note`}>
+                        <label className="field-label" htmlFor={`bank-${stage.key}-note`}>
                           What the applicant must do
                         </label>
                         <input
-                          id={`bank-${section}-note`}
+                          id={`bank-${stage.key}-note`}
                           className="input"
                           value={value.note}
                           onChange={(event) =>
                             setRevisions((previous) => ({
                               ...previous,
-                              [section]: { ...value, note: event.target.value },
+                              [stage.key]: { ...value, note: event.target.value },
                             }))
                           }
                         />
@@ -715,6 +726,7 @@ function CorrectOutcome({
   supersedesOutcomeId,
   statusVersion,
   reasons,
+  stages,
   onChanged,
 }: {
   applicationId: string
@@ -722,6 +734,14 @@ function CorrectOutcome({
   supersedesOutcomeId: string
   statusVersion: number
   reasons: ReasonCategory[] | undefined
+  /**
+   * The stages this application's own form declares.
+   *
+   * Passed in rather than fixed in code: which stages exist is the cycle's
+   * decision, and the API refuses a revision naming a stage the pinned form
+   * does not have — so a hard-coded list would offer refusals.
+   */
+  stages: readonly { key: string; title: string }[]
   onChanged: () => Promise<unknown>
 }) {
   const [open, setOpen] = useState(false)
@@ -743,6 +763,7 @@ function CorrectOutcome({
       title="Correct the recorded outcome"
       confirmLabel="Record the correction"
       reasons={reasons}
+      stages={stages}
       extra={
         <div className="detail-grid" style={{ marginTop: '0.75rem' }}>
           <div>

@@ -42,7 +42,7 @@ function FundingPage() {
         <p className="notice">
           <span className="notice-title">Nothing has been sanctioned yet</span>
           {funding?.message ??
-            'Once the committee approves this application and a sanction order is issued, the amount and every payment against it appear here.'}
+            'Once this application is approved and a sanction order is issued, the amount and every payment against it appear here.'}
         </p>
         <div className="row" style={{ marginTop: '1.5rem' }}>
           <Link to="/applications/$id" params={{ id }} className="button">

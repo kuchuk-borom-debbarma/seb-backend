@@ -20,7 +20,7 @@ five fixed roles:
 | `SUPER_ADMIN` | Has all `ADMIN` authority, and may manage roles and read the audit history. |
 
 There is no permission registry or role table. The role vocabulary is defined
-by TypeScript and enforced by a D1 `CHECK`, making every possible authority
+by TypeScript and enforced by a database `CHECK`, making every possible authority
 visible in code review.
 
 ### Roles are not ranked
@@ -36,7 +36,8 @@ roles hold it:
 | Capability | Held by |
 | --- | --- |
 | `STAFF_READ` — every administrative query | `REVIEWER`, `APPROVER`, `ADMIN`, `SUPER_ADMIN` |
-| `STAFF_WRITE` — cycles, intake, review, referral, meetings, awards, recovery | `ADMIN`, `SUPER_ADMIN` |
+| `STAFF_WRITE` — intake, review, referral, awards, recovery | `ADMIN`, `SUPER_ADMIN` |
+| `CYCLE_ADMIN` — creating a cycle and editing its rules and form | `SUPER_ADMIN` |
 | `DECIDE` — recording and correcting the programme decision | `APPROVER`, `ADMIN`, `SUPER_ADMIN` |
 | `ROLE_INVITE` — inviting somebody to a role they accept themselves | `ADMIN`, `SUPER_ADMIN` |
 | `ROLE_ADMIN` — granting and revoking a role directly | `SUPER_ADMIN` |
@@ -84,7 +85,7 @@ time.
 
 Verified public signup always creates only `APPLICANT`. User creation, the role
 grant, challenge consumption, sibling cancellation, and safe audit events share
-one guarded D1 batch. If any statement fails, none of the applicant identity is
+one guarded transaction. If any statement fails, none of the applicant identity is
 committed.
 
 Sessions contain only the user ID and token digest; they do not snapshot roles.
@@ -144,10 +145,10 @@ Follow the [operator guide](first-super-admin-bootstrap.md) for exact commands,
 failure behaviour, and secret removal.
 
 Role strings never come from a client-controlled signup field. Grant and
-revocation transitions use guarded D1 batches, record allow-listed audit events,
+revocation transitions use guarded transactions, record allow-listed audit events,
 and protect against removing the last usable `SUPER_ADMIN`. That last rule is a
 cross-row transition rather than a row-level schema constraint, so it is
-enforced by the write predicate rather than by D1 alone.
+enforced by the write predicate rather than by the schema alone.
 
 ## Role administration
 
@@ -260,8 +261,8 @@ The current workflow still does not provide:
   one-time bootstrap, a direct grant, or an invitation accepted by the person
   named in it;
 - granting or revoking `APPLICANT` through any operation;
-- custom roles or permission sets. The five roles and six capabilities are
-  fixed in TypeScript and in a D1 `CHECK`;
+- custom roles or permission sets. The five roles and seven capabilities are
+  fixed in TypeScript and in a database `CHECK`;
 - staff profiles, departments, organizations, or partner-bank accounts;
 - separate privileged sessions; or
 - a mandatory recusal/second-approval rule. Self-review is allowed only after

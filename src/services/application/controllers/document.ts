@@ -1,11 +1,14 @@
 /** Applicant document authorization, finalization, download, and lifecycle. */
-import { auditActions, documentTypes } from '../../../db/schema'
+import { auditActions } from '../../../db/schema'
+import { batch } from '../../../db'
+import { findPinnedRulesForApplication } from '../queries/form-template'
 import {
   claimExpiredUploadIntents,
   claimUploadIntentForCleanup,
   closeUploadIntentStatement,
   finalizeUploadIntent,
   findApplicationDocument,
+  findApplicationDocumentById,
   findOwnedDocumentVersion,
   findOwnedUploadIntent,
   insertUploadIntent,
@@ -15,7 +18,7 @@ import {
 } from '../queries/document'
 import {
   findOwnedApplicationHead,
-  listOpenRevisionSections,
+  listOpenRevisionStageKeys,
 } from '../queries/application'
 import {
   AUTH_REQUIRED_MESSAGE,
@@ -25,6 +28,7 @@ import {
   runConstraintSafe,
 } from '../support'
 import { failure, success } from '../../envelope'
+import type { ResolvedFormTemplate } from '../form/types'
 import type {
   ApplicationOperationContext,
   DownloadAuthorization,
@@ -45,24 +49,51 @@ import {
 } from '../uploads'
 import { queue, sendBestEffort } from '../../queue'
 import {
+  objectRemover,
   storage,
   UPLOAD_TTL_SECONDS,
   type UploadRequest,
 } from '../../storage'
 
-const canEditDocuments = async (
+/**
+ * Whether this particular slot may be changed right now.
+ *
+ * Per slot rather than per application, because a document belongs to whatever
+ * stage its FILE field sits in and a revision reopens named stages. The old
+ * rule asked whether a stage literally called `DOCUMENTS` was open, which was
+ * the enum's last surviving assumption: a cycle that puts its bank details
+ * beside the financial questions would have had every upload refused.
+ */
+const canEditDocument = async (
   context: ApplicationOperationContext,
   applicationId: string,
   status: string,
-): Promise<boolean> =>
-  status === 'DRAFT' ||
-  (status === 'REVISION_REQUIRED' &&
-    (await listOpenRevisionSections(context.db, applicationId)).has('DOCUMENTS'))
+  template: ResolvedFormTemplate,
+  fieldKey: DocumentType,
+): Promise<boolean> => {
+  if (status === 'DRAFT') return true
+  if (status !== 'REVISION_REQUIRED') return false
+  const stageKey = template.byKey.get(fieldKey)?.stageKey
+  if (!stageKey) return false
+  return (await listOpenRevisionStageKeys(context.db, applicationId)).has(stageKey)
+}
+
+/**
+ * The stage a document's FILE question sits in.
+ *
+ * The write guards on this too, so it has to be the same answer the controller
+ * reached — a document belongs to whatever stage its question is in, and a
+ * revision reopens stages by name.
+ */
+const documentStageKey = (
+  template: ResolvedFormTemplate,
+  fieldKey: DocumentType,
+): string | null => template.byKey.get(fieldKey)?.stageKey ?? null
 
 export const issueDocumentUpload = async (
   input: {
     applicationId: string
-    documentType: DocumentType
+    fieldKey: DocumentType
     expectedDocumentVersion: number
     originalFilename: string
     contentType: string
@@ -73,7 +104,6 @@ export const issueDocumentUpload = async (
 ): Promise<SebResult<UploadAuthorization>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
-  if (!documentTypes.includes(input.documentType)) return failure('Select a valid document type.')
   if (!Number.isInteger(input.expectedDocumentVersion) || input.expectedDocumentVersion < 0) {
     return failure('Expected document version must be a non-negative integer.')
   }
@@ -104,10 +134,52 @@ export const issueDocumentUpload = async (
     input.applicationId,
   )
   if (!application) return failure('The application was not found.')
-  if (!(await canEditDocuments(context, application.id, application.status))) {
+  /*
+   * Which documents exist is the cycle's decision, so the slot is checked
+   * against the template this application is pinned to rather than a list in
+   * code. Read before the edit rule, because that rule now needs the template
+   * too: it asks which stage this slot belongs to.
+   */
+  const pinned = await findPinnedRulesForApplication(
+    context.db,
+    application.id,
+    application.currentVersion,
+  )
+  if (!pinned) return failure('This application’s form is unavailable.')
+  if (!pinned.template.documentFieldKeys.has(input.fieldKey)) {
+    return failure('This application does not ask for that document.')
+  }
+  const slotStageKey = documentStageKey(pinned.template, input.fieldKey)
+  if (slotStageKey === null) {
+    return failure('This application does not ask for that document.')
+  }
+  /*
+   * The slot's own size limit, where the cycle set one.
+   *
+   * **This column enforced nothing at all.** A cycle could declare "at most
+   * 500 KB for the plan", the client would render the limit from the template,
+   * and both size gates measured against `MAX_DOCUMENT_BYTES` alone — so the
+   * programme's own two megabytes were accepted for every slot and the
+   * authored figure was decoration. It bounds the authorization rather than
+   * the arriving bytes because the arriving bytes must equal the size the
+   * authorization fixed, which `verifyUploadedObject` already demands.
+   *
+   * Only downwards: `MAX_DOCUMENT_BYTES` is checked above and stays the
+   * ceiling, so a cycle can ask for something smaller and never for more.
+   */
+  const slotLimit = pinned.template.byKey.get(input.fieldKey)?.rules.maxFileBytes ?? null
+  if (slotLimit !== null && input.sizeBytes > slotLimit) {
+    return failure(
+      `${pinned.template.byKey.get(input.fieldKey)!.label} must be `
+      + `${Math.floor(slotLimit / 1024)} KB or smaller.`,
+    )
+  }
+  if (!(await canEditDocument(
+    context, application.id, application.status, pinned.template, input.fieldKey,
+  ))) {
     return failure('Documents cannot be changed in the application’s current status.')
   }
-  const current = await findApplicationDocument(context.db, application.id, input.documentType)
+  const current = await findApplicationDocument(context.db, application.id, input.fieldKey)
   if (
     (current === null && input.expectedDocumentVersion !== 0) ||
     (current !== null &&
@@ -116,7 +188,7 @@ export const issueDocumentUpload = async (
 
   const now = new Date()
   const uploadId = crypto.randomUUID()
-  const objectKey = createDocumentObjectKey(application.id, input.documentType)
+  const objectKey = createDocumentObjectKey(application.id, input.fieldKey)
   const expiresAt = new Date(now.getTime() + UPLOAD_TTL_SECONDS * 1000)
   const authorization = await storage(context.env, context.requestUrl).authorizeUpload({
     uploadId,
@@ -133,7 +205,8 @@ export const issueDocumentUpload = async (
       id: uploadId,
       applicationId: application.id,
       applicantUserId: applicant.id,
-      documentType: input.documentType,
+      fieldKey: input.fieldKey,
+      stageKey: slotStageKey,
       expectedDocumentVersion: input.expectedDocumentVersion,
       objectKey,
       originalFilename,
@@ -151,7 +224,7 @@ export const issueDocumentUpload = async (
       action: auditActions.documentUploadIssued,
       entityType: 'SEB_DOCUMENT_UPLOAD_INTENT',
       entityId: uploadId,
-      metadata: { documentType: input.documentType },
+      metadata: { fieldKey: input.fieldKey },
       now,
     }),
   )
@@ -173,7 +246,7 @@ export const finalizeDocumentUpload = async (
   if (intent.expiresAt.getTime() <= now.getTime()) {
     const claimed = await claimUploadIntentForCleanup(context.db, intent.id, now, 'EXPIRED')
     await afterSuccessfulClaim(claimed, async () => {
-      await context.env.STORAGE.delete(intent.objectKey)
+      await objectRemover(context.env).remove([intent.objectKey])
       await markUploadIntentExpired(context.db, intent.id, now)
     })
     return failure('The upload authorization expired.')
@@ -183,7 +256,22 @@ export const finalizeDocumentUpload = async (
     applicant.id,
     intent.applicationId,
   )
-  if (!application || !(await canEditDocuments(context, intent.applicationId, application.status))) {
+  const finalizePinned = application
+    ? await findPinnedRulesForApplication(
+        context.db, application.id, application.currentVersion,
+      )
+    : null
+  if (
+    !application ||
+    !finalizePinned ||
+    !(await canEditDocument(
+      context, intent.applicationId, application.status, finalizePinned.template, intent.fieldKey,
+    ))
+  ) {
+    return failure('Documents cannot be changed in the application’s current status.')
+  }
+  const slotStageKey = documentStageKey(finalizePinned.template, intent.fieldKey)
+  if (slotStageKey === null) {
     return failure('Documents cannot be changed in the application’s current status.')
   }
   const verification = await verifyUploadedObject(storage(context.env, context.requestUrl), {
@@ -195,7 +283,7 @@ export const finalizeDocumentUpload = async (
   if (!verification.valid) {
     const claimed = await claimUploadIntentForCleanup(context.db, intent.id, now, 'REJECTED')
     await afterSuccessfulClaim(claimed, async () => {
-      await context.env.STORAGE.delete(intent.objectKey)
+      await objectRemover(context.env).remove([intent.objectKey])
       await markUploadIntentRejected(context.db, intent.id, now)
     })
     return failure(verification.message)
@@ -203,13 +291,14 @@ export const finalizeDocumentUpload = async (
   const existing = await findApplicationDocument(
     context.db,
     intent.applicationId,
-    intent.documentType,
+    intent.fieldKey,
   )
   const documentId = existing?.id ?? crypto.randomUUID()
   const nextVersion = intent.expectedDocumentVersion + 1
   const documentVersionId = crypto.randomUUID()
   const finalized = await runConstraintSafe(() => finalizeUploadIntent(context.db, {
       intent,
+      stageKey: slotStageKey,
       documentId,
       documentVersionId,
       nextVersion,
@@ -220,7 +309,7 @@ export const finalizeDocumentUpload = async (
         action: auditActions.documentFinalized,
         entityType: 'SEB_APPLICATION_DOCUMENT',
         entityId: documentId,
-        metadata: { documentType: intent.documentType, version: nextVersion },
+        metadata: { fieldKey: intent.fieldKey, version: nextVersion },
         now,
       }),
     }))
@@ -284,13 +373,38 @@ const changeDocumentDeletion = async (
     input.applicationId,
   )
   if (!application) return failure('The application was not found.')
-  if (!(await canEditDocuments(context, application.id, application.status))) {
+  /*
+   * The slot is read off the document rather than taken from the caller.
+   *
+   * Removing an existing document names it by id, so there is no field key to
+   * check — and inventing one from the request would let a caller nominate a
+   * slot whose stage happens to be open in order to remove a document from one
+   * that is not.
+   */
+  const document = await findApplicationDocumentById(
+    context.db, application.id, input.documentId,
+  )
+  if (!document) return failure('The document was not found or its state changed.')
+  const pinned = await findPinnedRulesForApplication(
+    context.db,
+    application.id,
+    application.currentVersion,
+  )
+  if (!pinned) return failure('This application’s form is unavailable.')
+  if (!(await canEditDocument(
+    context, application.id, application.status, pinned.template, document.fieldKey,
+  ))) {
+    return failure('Documents cannot be changed in the application’s current status.')
+  }
+  const slotStageKey = documentStageKey(pinned.template, document.fieldKey)
+  if (slotStageKey === null) {
     return failure('Documents cannot be changed in the application’s current status.')
   }
   const now = new Date()
   const changed = await setDocumentDeleted(context.db, {
     applicationId: application.id,
     documentId: input.documentId,
+    stageKey: slotStageKey,
     expectedVersion: input.expectedVersion,
     userId: applicant.id,
     deleted,
@@ -327,7 +441,7 @@ export const cleanupExpiredDocumentUploads = async (
   if (claimed.length === 0) return
 
   /*
-   * One delete for the whole batch. The bucket takes an array, and fifty
+   * One delete for the whole batch. The store takes an array, and fifty
    * objects previously meant fifty calls.
    *
    * **A failure falls back to deleting them one at a time**, and that is not a
@@ -341,13 +455,13 @@ export const cleanupExpiredDocumentUploads = async (
    */
   let removed = claimed
   try {
-    await context.env.STORAGE.delete(claimed.map((intent) => intent.objectKey))
+    await objectRemover(context.env).remove(claimed.map((intent) => intent.objectKey))
   } catch {
     console.error('Document upload cleanup could not remove its objects in one call')
     const survivors = await Promise.all(
       claimed.map(async (intent) => {
         try {
-          await context.env.STORAGE.delete(intent.objectKey)
+          await objectRemover(context.env).remove([intent.objectKey])
           return intent
         } catch {
           return null
@@ -360,15 +474,10 @@ export const cleanupExpiredDocumentUploads = async (
 
   // The objects are gone, so every claim can be closed in one statement. Only
   // the ones actually removed: a row whose object survives must stay claimable.
-  await context.db.batch(
+  await batch(context.db, (tx) =>
     removed.map((intent) =>
-      closeUploadIntentStatement(
-        context.db,
-        intent.id,
-        intent.cleanupTargetStatus,
-        now,
-      ),
-    ) as unknown as Parameters<typeof context.db.batch>[0],
+      closeUploadIntentStatement(tx, intent.id, intent.cleanupTargetStatus, now),
+    ),
   )
 }
 

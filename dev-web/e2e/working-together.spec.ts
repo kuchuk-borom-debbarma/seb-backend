@@ -22,7 +22,6 @@ import {
   signUpApplicant,
   submitApplication,
   uniqueEmail,
-  workerLogLength,
 } from './support'
 
 /**
@@ -87,14 +86,13 @@ test.describe('working the same file', () => {
     await signUpApplicant(page, invited)
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin/invite')
-    const offset = await workerLogLength()
     await page.getByLabel('Their email address').fill(invited)
     await page.getByRole('button', { name: 'Look them up' }).click()
     await expect(page.getByRole('heading', { name: invited })).toBeVisible()
     await page.getByLabel('Invite them to be').selectOption('ADMIN')
     await page.getByLabel('Why').fill('Second officer on intake')
     await page.getByRole('button', { name: 'Send the invitation' }).click()
-    const link = await latestInviteLink(offset)
+    const link = await latestInviteLink(invited)
     await signOut(page)
     await signIn(page, invited, PASSWORD)
     await page.goto(link)
@@ -138,13 +136,8 @@ test.describe('working the same file', () => {
     const fill = async (target: typeof page, certificate: string, account: string) => {
       await target.goto(`/admin/applications/${id}`)
       for (const check of [
-        'IDENTITY_KYC',
-        'ST_ELIGIBILITY',
-        'MAJORITY_OWNERSHIP',
-        'JURISDICTION',
-        'FORM_COMPLETENESS',
-        'DOCUMENT_COMPLETENESS',
-        'ANSWER_DOCUMENT_CONSISTENCY',
+        'IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION',
+        'FORM_COMPLETENESS', 'DOCUMENT_COMPLETENESS', 'ANSWER_DOCUMENT_CONSISTENCY',
         'DPR_FEASIBILITY',
       ]) {
         await target.locator(`input[name="${check}"]`).first().check()
@@ -187,22 +180,30 @@ test.describe('a reviewer reading casework', () => {
 
     const reviewer = uniqueEmail('reviewerread')
     await page.context().clearCookies()
+    // The account has to exist before the invitation can find it: this screen
+    // looks a person up by address and invites the account, it does not create
+    // one.
     await signUpApplicant(page, reviewer)
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin/invite')
-    // Named so a lookup that silently found nobody fails here rather than at
-    // the invitation, where the message would be about the wrong thing.
-    const offset = await workerLogLength()
     await page.getByLabel('Their email address').fill(reviewer)
     await page.getByRole('button', { name: 'Look them up' }).click()
     await page.getByLabel('Invite them to be').selectOption('REVIEWER')
     await page.getByLabel('Why').fill('Reading casework')
     await page.getByRole('button', { name: 'Send the invitation' }).click()
-    const link = await latestInviteLink(offset)
+    const link = await latestInviteLink(reviewer)
     await signOut(page)
     await signIn(page, reviewer, PASSWORD)
     await page.goto(link)
     await page.getByRole('button', { name: 'Accept the invitation' }).click()
+    /*
+     * Checked, rather than clicked and assumed.
+     *
+     * Without this the failure lands three steps later, on the workspace
+     * refusing a reader — which reads as the very regression this test is about
+     * and is instead an invitation that never took.
+     */
+    await expect(page.getByRole('button', { name: 'Accept the invitation' })).toHaveCount(0)
 
     /*
      * The regression this whole change started from. A reviewer cannot claim,

@@ -31,19 +31,28 @@ import {
   X,
 } from 'lucide-react'
 import { statusGuideQuery } from '#/features/application/queries'
-import type { ApplicationStatus, UserRole } from '#/graphql/generated/schema'
+import type { ApplicationStatus } from '#/graphql/generated/schema'
 import { useGuide } from './GuideContext'
 import { STAGE_DETAILS, type StageDetail } from './stageDetails'
 import { DESKS, TOURS, canWalk, type Desk } from './tours'
+import type { Capability, UserRole } from '#/graphql/generated/schema'
 import styles from './RouteDiagram.module.css'
 
 export const ROUTE_LENGTH = STAGE_DETAILS.length
 
-const DESK_COLUMNS: Array<{ desk: Desk; icon: typeof User }> = [
+/*
+ * The fourth column is the recorded decision. The committee module left the
+ * product — decisions are the programme office's, recorded from the queue —
+ * so the column is a stage of the route rather than a desk of its own.
+ */
+const DECISION_COLUMN = 'Decision' as const
+type DiagramColumn = Desk | typeof DECISION_COLUMN
+
+const DESK_COLUMNS: Array<{ desk: DiagramColumn; icon: typeof User }> = [
   { desk: DESKS.applicant, icon: User },
   { desk: DESKS.office, icon: Building2 },
   { desk: DESKS.bank, icon: Landmark },
-  { desk: DESKS.committee, icon: Users },
+  { desk: DECISION_COLUMN, icon: Users },
 ]
 
 function StageIcon({ id }: { id: ApplicationStatus }) {
@@ -58,7 +67,7 @@ function StageIcon({ id }: { id: ApplicationStatus }) {
       return <ArrowLeft size={15} className={styles.stageCardIcon} aria-hidden="true" />
     case 'PARTNER_BANK_EVALUATION':
       return <Landmark size={15} className={styles.stageCardIcon} aria-hidden="true" />
-    case 'TTM_REVIEW':
+    case 'AWAITING_DECISION':
       return <Users size={15} className={styles.stageCardIcon} aria-hidden="true" />
     case 'APPROVED':
       return <Check size={15} className={styles.stageCardIcon} aria-hidden="true" />
@@ -106,7 +115,11 @@ function TourIllustration() {
   )
 }
 
-export function RouteDiagram({ user }: { user?: { roles: readonly UserRole[] } }) {
+export function RouteDiagram({
+  user,
+}: {
+  user?: { roles: readonly UserRole[]; capabilities: readonly Capability[] }
+}) {
   const { data: guide } = useQuery(statusGuideQuery)
   const { start, tour: running } = useGuide()
   const [selectedStageIndex, setSelectedStageIndex] = useState<number | null>(null)
@@ -633,8 +646,8 @@ export function RouteDiagram({ user }: { user?: { roles: readonly UserRole[] } }
                   </>
                 ) : null}
 
-                {/* Column 4: Committee */}
-                {desk === DESKS.committee ? (
+                {/* Column 4: the recorded decision */}
+                {desk === DECISION_COLUMN ? (
                   <>
                     <div className={styles.rowSpacer} />
                     <div className={styles.verticalArrowWrap} />
@@ -644,7 +657,7 @@ export function RouteDiagram({ user }: { user?: { roles: readonly UserRole[] } }
                       ref={card06Ref}
                       type="button"
                       className={styles.stageCard}
-                      data-stage-type="committee"
+                      data-stage-type="decision"
                       data-active={selectedStageIndex === 5 ? 'true' : undefined}
                       onClick={() => setSelectedStageIndex(5)}
                     >
@@ -653,7 +666,7 @@ export function RouteDiagram({ user }: { user?: { roles: readonly UserRole[] } }
                           {stageByIndex(5)?.number}
                         </span>
                         <div className={styles.stageIconTitleRow}>
-                          <StageIcon id="TTM_REVIEW" />
+                          <StageIcon id="AWAITING_DECISION" />
                           <h3 className={styles.stageCardTitle}>
                             {stageByIndex(5)?.name}
                           </h3>

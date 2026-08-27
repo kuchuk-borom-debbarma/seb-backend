@@ -81,9 +81,9 @@ const actionFields = (fields: FieldNode[]): FieldNode[] =>
  * per-field limit cannot see this; only the whole document can.
  *
  * The numbers come from measuring the real client rather than from taste. Its
- * largest operation, `IntakeWorkspace`, selects 114 fields at depth 7 — so 500
- * fields is four times the largest thing anyone legitimately sends, and depth
- * 12 is nearly twice the deepest. Both are generous enough that a screen can
+ * largest operation, `IntakeWorkspace`, selects 174 fields at depth 8 — so 500
+ * fields is nearly three times the largest thing anyone legitimately sends,
+ * and depth 12 is half again the deepest. Both are generous enough that a screen can
  * grow without tripping them, and small enough that amplification is bounded.
  */
 const MAX_FIELDS = 500
@@ -185,6 +185,27 @@ export const documentCostRule = (context: ValidationContext): ASTVisitor => {
 
   return {
     OperationDefinition(operation) {
+      /*
+       * Introspection is exempt, and only introspection.
+       *
+       * The limits above exist because one document can make the server do
+       * unbounded work — five hundred `workspace` fields is thousands of
+       * database reads. An introspection query does none: it is answered from
+       * the schema already in memory, and it is the same query every time,
+       * because every client generates it from the specification.
+       *
+       * It is also unavoidably deep. GraphiQL's asks for roughly fifteen
+       * levels, so a limit tuned to this programme's own operations refuses
+       * every schema fetch — which is what a frontend developer meets first.
+       * Raising `MAX_DEPTH` to admit it would have loosened the guard for
+       * every real operation instead.
+       */
+      const introspectionOnly = operation.selectionSet.selections.every(
+        (selection) =>
+          selection.kind === 'Field' && selection.name.value.startsWith('__'),
+      )
+      if (introspectionOnly) return
+
       const { fields, depth } = measureSelectionSet(
         operation.selectionSet,
         0,

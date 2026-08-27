@@ -6,7 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CirclePlus,
-  MoreVertical,
   Search as SearchIcon,
 } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
@@ -117,7 +116,7 @@ function EnterprisesPage() {
       />
 
       <div className={styles.pageContainer}>
-        {/* Top Filter Card */}
+        {/* Top filter card */}
         <section className={styles.filterCard} aria-label="Enterprise filters">
           <div className={styles.filterGrid}>
             <div className={styles.fieldGroup}>
@@ -127,10 +126,9 @@ function EnterprisesPage() {
               <div className={styles.searchWrap}>
                 <input
                   id="enterprise-search"
-                  aria-label="Name starts with"
                   type="search"
                   className={styles.searchInput}
-                  placeholder="Search enterprise name..."
+                  placeholder="Khumulwng"
                   value={search.search ?? ''}
                   onChange={(event) =>
                     filter({ search: event.target.value || undefined })
@@ -147,13 +145,13 @@ function EnterprisesPage() {
               <div className={styles.selectWrap}>
                 <select
                   id="enterprise-status"
-                  aria-label="State"
                   className={styles.filterSelect}
                   value={search.status ?? ''}
                   onChange={(event) =>
                     filter({
                       status: (event.target.value || undefined) as
-                        EnterpriseStatus | undefined,
+                        | EnterpriseStatus
+                        | undefined,
                     })
                   }
                 >
@@ -175,13 +173,13 @@ function EnterprisesPage() {
               <div className={styles.selectWrap}>
                 <select
                   id="enterprise-sector"
-                  aria-label="Sector"
                   className={styles.filterSelect}
                   value={search.sector ?? ''}
                   onChange={(event) =>
                     filter({
                       sector: (event.target.value || undefined) as
-                        BusinessSector | undefined,
+                        | BusinessSector
+                        | undefined,
                     })
                   }
                 >
@@ -210,9 +208,11 @@ function EnterprisesPage() {
           </label>
         </section>
 
-        {/* Your Enterprises Card */}
+        {/* Your enterprises card */}
         {enterprises.length === 0 ? (
           <div className={styles.tableCard}>
+            {/* Two different facts, and telling them apart is the point of
+                knowing the total: nothing matched, or there is nothing here. */}
             <div className={styles.emptyCard}>
               <div className={styles.emptyIcon}>
                 <Building2 size={24} aria-hidden="true" />
@@ -221,7 +221,8 @@ function EnterprisesPage() {
                 <>
                   <h3 className={styles.emptyTitle}>Nothing matches</h3>
                   <p className={styles.emptyDescription}>
-                    No enterprise matches these filters. Clearing one may bring some back.
+                    No enterprise matches these filters. Clearing one may bring some
+                    back.
                   </p>
                   <button
                     type="button"
@@ -264,22 +265,34 @@ function EnterprisesPage() {
                       Sector
                     </th>
                     <th scope="col" className={styles.th}>
-                      Where established
+                      Where
+                    </th>
+                    <th scope="col" className={styles.th}>
+                      Established
                     </th>
                     <th scope="col" className={styles.th}>
                       State
-                    </th>
-                    <th scope="col" className={styles.th}>
-                      Status
-                    </th>
-                    <th scope="col" className={styles.th} style={{ textAlign: 'right' }}>
-                      Actions
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {enterprises.map((enterprise) => (
-                    <tr key={enterprise.id} className={styles.tr}>
+                    // The whole row opens the enterprise. The name Link carries
+                    // keyboard and screen-reader access; the row handler only
+                    // widens the click target, and ignores clicks on the Link
+                    // itself so nothing navigates twice.
+                    <tr
+                      key={enterprise.id}
+                      className={styles.tr}
+                      style={{ cursor: 'pointer' }}
+                      onClick={(event) => {
+                        if ((event.target as HTMLElement).closest('a')) return
+                        void navigate({
+                          to: '/enterprises/$id',
+                          params: { id: enterprise.id },
+                        })
+                      }}
+                    >
                       <td className={styles.td}>
                         <Link
                           to="/enterprises/$id"
@@ -318,26 +331,21 @@ function EnterprisesPage() {
                           </span>
                         )}
                       </td>
-                      <td className={styles.td} style={{ textAlign: 'right' }}>
-                        <Link
-                          to="/enterprises/$id"
-                          params={{ id: enterprise.id }}
-                          className={styles.actionLink}
-                          title="View enterprise"
-                          aria-label={`View enterprise ${enterprise.name}`}
-                        >
-                          <MoreVertical size={16} aria-hidden="true" />
-                        </Link>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
+            {/*
+              Cursor paging only ever moves forward, because that is what the
+              API provides. "First page" replaces a back button that could not
+              be made correct.
+            */}
             <div className={styles.cardFooter}>
               <span className={styles.resultsCount}>
-                {enterprises.length === 1 ? '1 result' : `${enterprises.length} results`}
+                Showing {enterprises.length} of {data?.pageInfo.totalCount ?? 0}{' '}
+                {data?.pageInfo.totalCount === 1 ? 'enterprise' : 'enterprises'}
               </span>
               {(data?.pageInfo.hasNextPage || search.after) && (
                 <div className={styles.pageControls}>
@@ -350,16 +358,10 @@ function EnterprisesPage() {
                         search: (previous) => ({ ...previous, after: undefined }),
                       })
                     }
-                    title="Previous page"
-                    aria-label="Previous page"
+                    title="First page"
+                    aria-label="First page"
                   >
                     <ChevronLeft size={16} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.pageBtn} ${styles.pageBtnActive}`}
-                  >
-                    1
                   </button>
                   <button
                     type="button"

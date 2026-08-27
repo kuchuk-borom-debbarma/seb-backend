@@ -47,7 +47,7 @@ enum UserRole {
   """Reads every casework screen and changes nothing."""
   REVIEWER
 
-  """Reads casework, and records and corrects the committee decision."""
+  """Reads casework, and records and corrects the programme decision."""
   APPROVER
 
   """The whole operational workflow. Cannot grant or revoke a role."""
@@ -85,7 +85,10 @@ enum Capability {
   """Act on casework: desk review, referral, awards, notes."""
   STAFF_WRITE
 
-  """Record and correct the committee's decision."""
+  """Create a programme cycle and edit its rules and its application form."""
+  CYCLE_ADMIN
+
+  """Record and correct the programme's decision on an application."""
   DECIDE
 
   """Grant and revoke roles directly."""
@@ -114,6 +117,14 @@ type User {
 
   """Whether that address has been verified."""
   emailVerified: Boolean!
+
+  """
+  What this person calls themselves. Null until they have said.
+
+  A label, not an identifier: it is not unique, and the address remains how an
+  account is addressed and how the office refers to each other.
+  """
+  displayName: String
 
   """Every role held now."""
   roles: [UserRole!]!
@@ -178,6 +189,37 @@ type SessionsResponse {
 type BooleanResponse {
   """What the operation concluded."""
   value: Boolean!
+}
+
+"""A challenge in progress for an account that already exists."""
+type StartAccountChallengeResponse {
+  """
+  Identifies this attempt. Send it back with the emailed code.
+
+  Independent of the code on purpose: the token identifies the browser that
+  asked and the code proves the mailbox was read.
+  """
+  challengeToken: String!
+
+  """When the attempt expires. Ten minutes after it started."""
+  expiresAt: DateTime!
+}
+
+"""A challenge, or the reason one could not be started."""
+type StartAccountChallengeResult implements BaseResponse {
+  """
+  Whether the attempt was started.
+
+  Succeeds identically whether or not the address could be used, so this
+  cannot be used to discover which addresses are registered.
+  """
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """The attempt. Null whenever `success` is false."""
+  response: StartAccountChallengeResponse
 }
 
 """A signup attempt, or the reason one could not be started."""
@@ -359,4 +401,390 @@ type Mutation {
   The real mutations are added by each namespace's own SDL.
   """
   _empty: Boolean
+}
+
+"""
+An arbitrary JSON value, bounded.
+
+Carries the answer map, where a keyed object is the honest shape and a list of
+`{fieldKey, value}` pairs would only be a list pretending not to be one.
+
+**Bounded on the way in**, because the request-size and document-cost limits
+both count structure and cannot see one enormous value: at most 64 KB encoded,
+500 keys, 100 entries in a repeated group, 8192 characters in any single value,
+and one level of nesting. Keys must look like field keys. `NaN` and `Infinity`
+are refused rather than encoded as `null`, which would be indistinguishable
+from a deliberate blank.
+"""
+scalar JSON
+
+"""What kind of answer a question takes, and therefore how to draw it."""
+enum FormFieldType {
+  """A single line of text."""
+  TEXT
+
+  """Several lines of text."""
+  LONG_TEXT
+
+  """An email address."""
+  EMAIL
+
+  """A telephone number."""
+  PHONE
+
+  """A calendar day, with no time of day."""
+  DATE
+
+  """A whole number."""
+  INTEGER
+
+  """An amount of money, held in paise."""
+  MONEY_PAISE
+
+  """Yes or no. Both answer it; leaving it unanswered does not."""
+  BOOLEAN
+
+  """
+  A statement the applicant confirms.
+
+  One acceptable answer, unlike `BOOLEAN` — leaving it unticked is a refusal
+  rather than a gap, which is why it is a type rather than a flag.
+  """
+  ATTESTATION
+
+  """
+  A block of prose the applicant reads — a disclaimer or notice. Takes no
+  answer at all; sending one against it is refused.
+  """
+  STATEMENT
+
+  """Exactly one of the offered options."""
+  SINGLE_CHOICE
+
+  """Any number of the offered options."""
+  MULTI_CHOICE
+
+  """A document. Uploaded rather than answered, and carries no answer value."""
+  FILE
+
+  """A block of questions the applicant may fill in more than once."""
+  REPEAT_GROUP
+}
+
+"""Whether an answer is always needed, never needed, or needed on a condition."""
+enum FormFieldRequirement {
+  """Always needed while the question is on screen."""
+  REQUIRED
+
+  """Never needed."""
+  OPTIONAL
+
+  """Needed only when a `REQUIRED_WHEN` condition holds."""
+  CONDITIONAL
+}
+
+"""What a condition does when it holds."""
+enum FieldConditionEffect {
+  """Puts the question on screen."""
+  VISIBLE_WHEN
+
+  """Makes the question compulsory, while it is on screen."""
+  REQUIRED_WHEN
+}
+
+"""How a condition compares an answer already given."""
+enum FieldConditionOperator {
+  """Equal to the comparison value."""
+  EQUALS
+
+  """Not equal to the comparison value."""
+  NOT_EQUALS
+
+  """Greater than the comparison value."""
+  GREATER_THAN
+
+  """Greater than or equal to the comparison value."""
+  GREATER_OR_EQUAL
+
+  """Less than the comparison value."""
+  LESS_THAN
+
+  """Less than or equal to the comparison value."""
+  LESS_OR_EQUAL
+
+  """Answered at all. Takes no comparison value."""
+  IS_PRESENT
+
+  """Not answered. Takes no comparison value."""
+  IS_ABSENT
+}
+
+"""One choice offered for a `SINGLE_CHOICE` or `MULTI_CHOICE` question."""
+type FieldOption {
+  """What is stored when this choice is taken."""
+  value: String!
+
+  """What the applicant reads. The cycle's words, not the software's."""
+  label: String!
+
+  """Where it sits in the list, counting from 1."""
+  position: Int!
+
+  """A sentence under the label when the choice is drawn as a card."""
+  description: String
+
+  """
+  A kebab-case token into the client's icon registry, for the card rendering.
+  A name, never markup; unknown names draw nothing.
+  """
+  iconName: String
+}
+
+"""
+How a question is drawn, as distinct from what an answer must satisfy.
+
+Every value here is the cycle author's styling decision; a client without an
+opinion of its own should honour all of them, and one with constraints (print,
+compact) may ignore the layout hints but never the text.
+"""
+type FieldPresentation {
+  """Ghost text inside an empty control. Never a substitute for the label."""
+  placeholder: String
+
+  """An inline hint under the control, in the cycle's words."""
+  note: String
+
+  """
+  How to colour the note or notice: `INFO`, `WARNING`, `SUCCESS` or `DANGER`.
+  Null reads as neutral.
+  """
+  tone: String
+
+  """
+  How wide to draw the control: a fluid span (`FULL`, `TWO_THIRDS`,
+  `ONE_HALF`, `ONE_THIRD`) or a character-sized width (`CHAR_2`, `CHAR_4`,
+  `CHAR_10`, `CHAR_20`) for answers whose length is known. Null reads as FULL.
+  """
+  widthHint: String
+
+  """Decoration before the value — `₹` on an amount. At most 8 characters."""
+  prefixText: String
+
+  """Decoration after the value — `yrs` on a count. At most 8 characters."""
+  suffixText: String
+
+  """The HTML `autocomplete` token the control should carry, where one fits."""
+  autocompleteHint: String
+
+  """Whether to show characters-remaining against `maxLength`."""
+  showCharCount: Boolean!
+
+  """How many rows a `LONG_TEXT` control opens with. Null for the default."""
+  textareaRows: Int
+
+  """
+  Which control draws a choice: `RADIO`, `DROPDOWN`, `SEGMENTED` or `CARD`
+  for a single choice; `CHECKBOX_LIST` or `MULTISELECT` for a multiple one.
+  Null reads as the renderer's default.
+  """
+  choiceStyle: String
+}
+
+"""
+One comparison against an answer already given.
+
+Conditions sharing a `groupNumber` must **all** hold; separate groups are
+alternatives. The combinator is stated rather than implied, because an implied
+one is what the server and the client would each guess differently.
+"""
+type FieldCondition {
+  """Whether this shows the question or makes it compulsory."""
+  effect: FieldConditionEffect!
+
+  """Which set of conditions this belongs to. Members of a set are ANDed."""
+  groupNumber: Int!
+
+  """Where it sits within its set, so evaluation order is stable."""
+  sequenceNumber: Int!
+
+  """The question whose answer is being compared."""
+  sourceFieldKey: String!
+
+  """How the comparison is made."""
+  operator: FieldConditionOperator!
+
+  """What to compare against. Null for `IS_PRESENT` and `IS_ABSENT`."""
+  comparisonValue: String
+}
+
+"""
+What an answer must satisfy beyond its type.
+
+Every bound is the cycle's, so an empty field here means the cycle set none —
+not that the software has no opinion.
+"""
+type FieldValidation {
+  """Fewest characters. Null when unbounded."""
+  minLength: Int
+
+  """Most characters. Null when unbounded, and required alongside `pattern`."""
+  maxLength: Int
+
+  """
+  A regular expression the answer must match, anchored at both ends.
+
+  Authored by the programme office, so a client should treat a mismatch as the
+  cycle's rule rather than a defect.
+  """
+  pattern: String
+
+  """What to say when `pattern` does not match. The cycle's words."""
+  patternMessage: String
+
+  """Smallest permitted number, for `INTEGER` and `MONEY_PAISE`."""
+  minValue: Money
+
+  """Largest permitted number, for `INTEGER` and `MONEY_PAISE`."""
+  maxValue: Money
+
+  """Earliest permitted day, for `DATE`."""
+  minDate: Date
+
+  """Latest permitted day, for `DATE`."""
+  maxDate: Date
+
+  """
+  A bound resolved against the moment of the write rather than a fixed day.
+
+  `"NOT_FUTURE"` or `"NOT_PAST"`, or null. A stable code safe to branch on.
+  """
+  relativeDateBound: String
+
+  """Fewest entries in a repeated group."""
+  minRepeat: Int
+
+  """Most entries in a repeated group."""
+  maxRepeat: Int
+
+  """Largest permitted upload, in bytes, for a `FILE`."""
+  maxFileBytes: Int
+}
+
+"""One question the cycle asks."""
+type FormField {
+  """
+  How this question is addressed everywhere: in `answers`, in the DOM `id` the
+  client puts on the control, and in a `ValidationIssue.field`.
+
+  For a member of a repeated group the issue path is `GROUP[0].MEMBER`, where
+  the index counts from 0. An issue about the *entry* rather than any question
+  in it — an entry that arrived as something other than a set of answers — is
+  `GROUP[0]`, with no member and no trailing dot.
+  """
+  key: String!
+
+  """Which stage of the form it appears in."""
+  stageKey: String!
+
+  """What kind of answer it takes."""
+  type: FormFieldType!
+
+  """
+  Which fixed role this question plays, where it plays one.
+
+  A stable code naming the questions the programme itself has to find across
+  cycles: `"SEED_FUND_REQUESTED_PAISE"` (pinned to that key) and
+  `"APPLICANT_DATE_OF_BIRTH"` (any DATE question, usually inside the owners
+  group). Null for a question that is purely the cycle's own.
+  """
+  role: String
+
+  """What the applicant reads. The cycle's words."""
+  label: String!
+
+  """A sentence of guidance under the control, where the cycle wrote one."""
+  helpText: String
+
+  """Whether an answer is needed."""
+  requirement: FormFieldRequirement!
+
+  """
+  `"SERVER_DERIVED"` for a value the programme office fills in, `"APPLICANT"`
+  otherwise. A server-derived question is never accepted from an applicant.
+  """
+  source: String!
+
+  """Where it sits within its stage, counting from 1."""
+  position: Int!
+
+  """
+  The repeated group this question is a member of. Null when it stands alone.
+
+  Groups do not nest, so a member never has members of its own.
+  """
+  repeatGroupKey: String
+
+  """
+  The reusable structure this group was expanded from, where it was. Null on
+  everything that is not a structure-using group. Provenance for the editor;
+  the members it produced appear as ordinary questions keyed `USE__MEMBER`.
+  """
+  groupDefinitionKey: String
+
+  """The choices offered. Empty unless the type offers any."""
+  options: [FieldOption!]!
+
+  """What the answer must satisfy beyond its type."""
+  validation: FieldValidation!
+
+  """When to show this question, and when it becomes compulsory."""
+  conditions: [FieldCondition!]!
+
+  """How to draw it, beyond what the type already implies."""
+  presentation: FieldPresentation!
+}
+
+"""One step of the form."""
+type FormStage {
+  """How this stage is addressed: in `editableStageKeys`, and in a revision."""
+  key: String!
+
+  """The heading the applicant reads."""
+  title: String!
+
+  """A paragraph introducing the stage, where the cycle wrote one."""
+  description: String
+
+  """A kebab-case token into the client's icon registry, for the stage rail."""
+  iconName: String
+
+  """Roughly how long this stage takes to fill, in minutes. The cycle's guess."""
+  estimatedMinutes: Int
+
+  """Where it sits in the form, counting from 1."""
+  position: Int!
+}
+
+"""
+The whole form one cycle version asks, as the client renders it.
+
+Frozen with the cycle version, so an application filled last year still reads
+against the questions it was actually asked.
+"""
+type FormTemplate {
+  """The cycle this form belongs to."""
+  programmeCycleId: ID!
+
+  """The exact version pinned. An application is judged against this one."""
+  programmeCycleVersion: Int!
+
+  """The stages, in the order they are filled."""
+  stages: [FormStage!]!
+
+  """
+  Every question, in template order: by stage, then by position.
+
+  Includes group members, addressed through their `repeatGroupKey`.
+  """
+  fields: [FormField!]!
 }

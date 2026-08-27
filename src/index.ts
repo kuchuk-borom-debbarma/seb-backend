@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { AppBindings } from './bindings'
-import { createDatabase } from './db'
+import { withDatabase, type Database } from './db'
 import { createLoaders } from './loaders'
 import { handleGraphQLRequest } from './graphql'
 import {
@@ -19,7 +19,7 @@ import {
   REQUEST_BUDGET,
 } from './services/rate-limit'
 import { callerAddress } from './services/rate-limit/identity'
-import { usesLocalStorage } from './services/storage'
+import { relaysThroughWorker } from './services/storage'
 import { closeExpiredProgrammeCycles } from './services/admin'
 
 const app = new Hono<{ Bindings: AppBindings }>()
@@ -34,13 +34,21 @@ const app = new Hono<{ Bindings: AppBindings }>()
  */
 const operationContext = (
   env: AppBindings,
+  db: Database,
   requestHeaders: Headers,
   requestUrl: string,
   responseHeaders = new Headers(),
-) => {
-  const db = createDatabase(env.DB)
-  return { env, db, loaders: createLoaders(db), requestHeaders, requestUrl, responseHeaders }
-}
+) => ({ env, db, loaders: createLoaders(db), requestHeaders, requestUrl, responseHeaders })
+
+/**
+ * The connection every request opens and every request closes.
+ *
+ * Per request rather than per isolate, for the same reason the loaders are: an
+ * isolate serves many people, and a connection held across them is a slot that
+ * leaks rather than a cache that helps. Hyperdrive holds the real pool, so
+ * opening one costs a hop rather than a handshake.
+ */
+const connectionString = (env: AppBindings): string => env.HYPERDRIVE.connectionString
 
 
 // FRONTEND_ORIGINS is parsed on demand so tests and local Wrangler overrides can
@@ -65,9 +73,19 @@ const applyCorsHeaders = (
   env: AppBindings,
   requestUrl: string,
 ): boolean => {
-  // Echo only an explicitly trusted origin; wildcard origins cannot be used
-  // together with credentialed browser requests.
-  if (!origin || !allowedOrigins(env, requestUrl).has(origin)) return false
+  if (!origin) return false
+  /*
+   * `FRONTEND_ORIGINS = "*"` echoes whichever origin asks.
+   *
+   * Not the same as sending `*`, which a browser refuses on a credentialed
+   * request — so an allow-all still has to name the caller. **It also means any
+   * site can call this API as a signed-in user.** The session cookie is
+   * `SameSite=Lax`, which stops the simplest cross-site form posts, and that is
+   * the whole of what stands behind it. Deliberate, and only for a demo whose
+   * frontend host is not yet known: name the origin before public launch.
+   */
+  const trusted = allowedOrigins(env, requestUrl)
+  if (!trusted.has('*') && !trusted.has(origin)) return false
 
   headers.set('access-control-allow-origin', origin)
   headers.set('access-control-allow-credentials', 'true')
@@ -80,7 +98,7 @@ app.get('/', (c) => {
     name: 'seb-backend',
     status: 'ok',
     graphql: '/graphql',
-    bindings: ['DB', 'STORAGE', 'QUEUE'],
+    bindings: ['HYPERDRIVE', 'STORAGE', 'QUEUE'],
   })
 })
 
@@ -222,12 +240,14 @@ app.post(
       )
     }
 
-    const result = await bootstrapFirstSuperAdmin(
-      {
-        currentPassword: (body as { currentPassword: string }).currentPassword,
-        bootstrapSecret,
-      },
-      operationContext(c.env, c.req.raw.headers, c.req.url),
+    const result = await withDatabase(connectionString(c.env), (db) =>
+      bootstrapFirstSuperAdmin(
+        {
+          currentPassword: (body as { currentPassword: string }).currentPassword,
+          bootstrapSecret,
+        },
+        operationContext(c.env, db, c.req.raw.headers, c.req.url),
+      ),
     )
     return result.success ? c.json(result) : c.json(result, 403)
   },
@@ -247,8 +267,10 @@ app.use(
   }),
   async (c, next) => {
     // Reject an untrusted browser origin before Yoga parses or executes GraphQL.
+    // `*` trusts every origin — see `applyCorsHeaders` for what that costs.
     const origin = c.req.header('Origin')
-    if (origin && !allowedOrigins(c.env, c.req.url).has(origin)) {
+    const trusted = allowedOrigins(c.env, c.req.url)
+    if (origin && !trusted.has('*') && !trusted.has(origin)) {
       return c.json({ success: false, message: 'Origin is not allowed.' }, 403)
     }
     await next()
@@ -274,9 +296,16 @@ app.options('/graphql', (c) => {
 })
 
 /*
- * Uploads on a developer's machine, where there is no bucket to sign a URL for.
- * The handler refuses unless the local storage backend is the selected one, so
- * this is not a second way into a deployed environment.
+ * The preflight for an upload this Worker receives itself.
+ *
+ * Open wherever storage **relays** rather than sending the browser to a
+ * provider — locally, and deployed on Cloudinary. Deliberately so: the PUT it
+ * precedes is open in exactly those cases, and a preflight that refused where
+ * the handler accepts would kill the upload in the browser before the Worker
+ * ever saw it. It is not a second way in; it is the same way, answered.
+ *
+ * On R2 neither is open, because there the browser is sent to the bucket and
+ * this Worker never handles a byte.
  */
 app.options('/internal/storage/*', (c) => {
   /*
@@ -289,7 +318,10 @@ app.options('/internal/storage/*', (c) => {
    * browser never sends the PUT, which looks like a broken upload rather than a
    * missing header.
    */
-  if (!usesLocalStorage(c.env)) return c.notFound()
+  // The same predicate the handler this preflights uses. They have to agree:
+  // a relaying backend that answered the PUT but not the preflight would fail
+  // before the browser ever sent it.
+  if (!relaysThroughWorker(c.env)) return c.notFound()
 
   const headers = new Headers()
   if (!applyCorsHeaders(headers, c.req.header('Origin') ?? null, c.env, c.req.url)) {
@@ -304,10 +336,9 @@ app.options('/internal/storage/*', (c) => {
 })
 
 app.on(['GET', 'PUT'], '/internal/storage/*', async (c) => {
-  const response = await handleLocalStorageRequest(c.req.raw, {
-    env: c.env,
-    db: createDatabase(c.env.DB),
-  })
+  const response = await withDatabase(connectionString(c.env), (db) =>
+    handleLocalStorageRequest(c.req.raw, { env: c.env, db }),
+  )
   if (!response) return c.notFound()
 
   // The preflight only authorizes the browser to send the request; the answer
@@ -331,22 +362,32 @@ app.on(['GET', 'PUT'], '/internal/storage/*', async (c) => {
 const deliverLocalQueue = async (env: AppBindings): Promise<void> => {
   const pending = drainMemoryQueue()
   if (pending.length === 0) return
-  const db = createDatabase(env.DB)
-  for (const message of pending) {
-    // A failure leaves the document unopenable, which is the safe direction.
-    // Never the error or the body: both can name a stored object.
-    await scanDocumentVersion(db, env, message.documentVersionId)
-      .catch(() => console.error('Scanning a queued document failed'))
-  }
+  await withDatabase(connectionString(env), async (db) => {
+    for (const message of pending) {
+      // A failure leaves the document unopenable, which is the safe direction.
+      // Never the error or the body: both can name a stored object.
+      await scanDocumentVersion(db, env, message.documentVersionId)
+        .catch(() => console.error('Scanning a queued document failed'))
+    }
+  })
 }
 
 app.on(['GET', 'POST'], '/graphql', async (c) => {
   // Controllers append session cookies here. The Worker merges them into
   // Yoga's immutable response after GraphQL execution completes.
   const responseHeaders = new Headers()
-  const response = await handleGraphQLRequest(
-    c.req.raw,
-    operationContext(c.env, c.req.raw.headers, c.req.url, responseHeaders),
+  /*
+   * The connection lives exactly as long as GraphQL execution.
+   *
+   * It has to close before the response is returned rather than in a
+   * `waitUntil`: a pooled slot held past the request is one the next request
+   * cannot have, and an isolate serving many people would exhaust them.
+   */
+  const response = await withDatabase(connectionString(c.env), (db) =>
+    handleGraphQLRequest(
+      c.req.raw,
+      operationContext(c.env, db, c.req.raw.headers, c.req.url, responseHeaders),
+    ),
   )
   if (usesLocalQueue(c.env)) c.executionCtx.waitUntil(deliverLocalQueue(c.env))
 
@@ -368,52 +409,82 @@ export default {
   fetch: app.fetch,
   scheduled(_controller: ScheduledController, env: AppBindings, ctx: ExecutionContext) {
     // Cleanup is deliberately off the request path. waitUntil lets Cloudflare
-    // keep the scheduled task alive after the handler returns.
-    const db = createDatabase(env.DB)
+    // keep the scheduled task alive after the handler returns, and the
+    // connection is closed when the last job finishes rather than leaking.
     ctx.waitUntil(
-      Promise.all([
-        cleanupExpiredAuthentication(db),
-        cleanupExpiredDocumentUploads({ db, env }),
-        // Its own loaders, for the same reason a request gets its own: a
-        // scheduled run is a separate instant from anybody's request.
-        closeExpiredProgrammeCycles(
-          operationContext(env, new Headers(), 'https://scheduled.internal/'),
-        ),
-      ]).then(() => undefined),
+      withDatabase(connectionString(env), async (db) => {
+        /*
+         * One at a time, on purpose.
+         *
+         * This was a `Promise.all`, which bought no parallelism — the three
+         * share one connection, so their statements queue on it regardless —
+         * while reading as though it did. What it did buy was interleaving: a
+         * job's plain statement issued while another job's guarded write holds
+         * a `BEGIN` lands *inside* that transaction, and if the transaction has
+         * already failed, the innocent statement is refused with `25P02`. One
+         * job's lost race would take another down with it, and a scheduled run
+         * has nobody to report that to.
+         *
+         * Sequential also means a job that throws does not leave two others
+         * mid-flight on a connection about to be closed. The jobs are
+         * independent, so each is awaited on its own and a failure in one still
+         * lets the rest run.
+         */
+        const jobs: [string, () => Promise<unknown>][] = [
+          ['expired authentication', () => cleanupExpiredAuthentication(db)],
+          ['expired document uploads', () => cleanupExpiredDocumentUploads({ db, env })],
+          // Its own loaders, for the same reason a request gets its own: a
+          // scheduled run is a separate instant from anybody's request.
+          ['programme cycles past their close', () => closeExpiredProgrammeCycles(
+            operationContext(env, db, new Headers(), 'https://scheduled.internal/'),
+          )],
+        ]
+        for (const [name, run] of jobs) {
+          try {
+            await run()
+          } catch {
+            // Named, never the error: a driver message can quote the statement.
+            console.error(`Scheduled cleanup of ${name} did not finish.`)
+          }
+        }
+      }),
     )
   },
   /**
    * Consumer for queued work.
    *
-   * One kind of message exists: a request to scan a stored document. What
-   * happens next depends entirely on the environment — locally and on develop
-   * the file is accepted without being examined, and the scan history records
-   * that in as many words; in production the scanner refuses to exist at all
-   * until a real one is configured. `services/document-scanner` holds that
-   * decision, and this holds none of it.
+   * One kind of message exists: a request to scan a stored document. Which
+   * scanner examines it is `SCANNER_TRANSPORT`'s decision, and
+   * `services/document-scanner` holds it; this holds none of it.
    *
    * A message that could not be settled is left unacknowledged so the platform
    * redelivers it. The document stays unopenable until it succeeds, which is
    * the safe direction to fail in.
+   *
+   * **A permanent condition is acknowledged rather than retried.** A document
+   * version that no longer exists cannot be scanned by trying again, and the
+   * retry budget it would consume is shared with failures that a retry really
+   * can fix — a provider timeout, a rate-limited request.
    */
-  async queue(batch: MessageBatch<QueueMessage>, env: CloudflareBindings) {
-    const db = createDatabase(env.DB)
-    for (const message of batch.messages) {
-      try {
-        const recorded = await scanDocumentVersion(
-          db,
-          env as AppBindings,
-          message.body.documentVersionId,
-        )
-        if (recorded) message.ack()
-        else message.retry()
-      } catch {
-        // Never the error and never the body: a scan failure can carry the
-        // request it was making, and that request names a stored object.
-        console.error('Scanning a queued document failed', message.id)
-        message.retry()
+  async queue(messages: MessageBatch<QueueMessage>, env: CloudflareBindings) {
+    await withDatabase(connectionString(env as AppBindings), async (db) => {
+      for (const message of messages.messages) {
+        try {
+          const disposition = await scanDocumentVersion(
+            db,
+            env as AppBindings,
+            message.body.documentVersionId,
+          )
+          if (disposition === 'NOT_RECORDED') message.retry()
+          else message.ack()
+        } catch {
+          // Never the error and never the body: a scan failure can carry the
+          // request it was making, and that request names a stored object.
+          console.error('Scanning a queued document failed', message.id)
+          message.retry()
+        }
       }
-    }
+    })
   },
 }
 

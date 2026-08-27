@@ -480,8 +480,12 @@ function LoginPage() {
                   </div>
 
                   <p className="text-right text-[11px] leading-relaxed text-[#64748b]">
-                    Password recovery is not available in the portal. Contact your
-                    programme administrator for access help.
+                    <Link
+                      to="/forgot-password"
+                      className="font-semibold text-[#0f2444] hover:underline"
+                    >
+                      Forgot your password?
+                    </Link>
                   </p>
 
                   {signIn.isError ? (
@@ -755,7 +759,12 @@ function LoginPage() {
                   </div>
 
                   <p className="text-right text-[11px] leading-relaxed text-[#64748b]">
-                    Password recovery is not available yet.
+                    <Link
+                      to="/forgot-password"
+                      className="font-semibold text-[#0f2444] hover:underline"
+                    >
+                      Forgot your password?
+                    </Link>
                   </p>
 
                   {signIn.isError ? (

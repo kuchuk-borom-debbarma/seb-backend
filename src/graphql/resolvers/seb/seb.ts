@@ -2,6 +2,7 @@
 import {
   applicationById,
   applicationDraftChanges,
+  applicationFormTemplate,
   applicationFunding,
   applicationStatusExplanations,
   applicationTimeline,
@@ -28,11 +29,9 @@ import {
   submitApplication,
   updateEnterprise,
   validateApplication,
-  type ApplicationDraftInput,
   type ApplicationStatus,
   type ApplicationType,
   type BusinessSector,
-  type DocumentType,
   type EnterpriseStatus,
   type SuppliedEnterpriseProfile,
 } from '../../../services/application'
@@ -128,6 +127,11 @@ export const sebResolvers = {
       args: { applicationId: string },
       context: GraphQLContext,
     ) => applicationFunding(args.applicationId, context),
+    formTemplate: (
+      _parent: unknown,
+      args: { applicationId: string },
+      context: GraphQLContext,
+    ) => applicationFormTemplate(args.applicationId, context),
     draftChanges: (
       _parent: unknown,
       args: { applicationId: string },
@@ -162,7 +166,7 @@ export const sebResolvers = {
           applicationId: string
           expectedVersion: number
           expectedStatusVersion: number
-          draft: ApplicationDraftInput
+          answers: unknown
         }
       },
       context: GraphQLContext,
@@ -189,7 +193,7 @@ export const sebResolvers = {
       args: {
         input: {
           applicationId: string
-          documentType: DocumentType
+          fieldKey: string
           expectedDocumentVersion: number
           originalFilename: string
           contentType: string

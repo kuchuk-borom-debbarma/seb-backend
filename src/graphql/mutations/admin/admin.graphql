@@ -9,28 +9,417 @@ extend type Mutation {
   admin: AdminMutation!
 }
 
-"""The four things the office acts on, in the order a file passes through."""
+"""What the office acts on, in the order a file passes through."""
 type AdminMutation {
   """Creating and operating the programme cycles."""
   programmeCycle: AdminProgrammeCycleMutation!
 
+  """Authoring the questions a cycle asks."""
+  formTemplate: AdminFormTemplateMutation!
+
   """Working applications as they arrive, and reviewing them."""
   intake: AdminIntakeMutation!
 
-  """Partner-bank referral and the committee that decides."""
+  """Partner-bank referral, and deciding the application."""
   decision: AdminDecisionMutation!
 
   """Awards, payments, assessments and recovery."""
   funding: AdminFundingMutation!
 }
 
-"""One document a cycle requires, and the condition it is required under."""
-input ProgrammeDocumentRuleInput {
-  """Which evidence slot."""
-  documentType: DocumentType!
+"""
+One step of the form a cycle asks.
 
-  """When it becomes required. `OPTIONAL` means it is never demanded."""
-  condition: ProgrammeDocumentCondition!
+Stages are ordered as given, so moving a question between them is an edit to
+this list rather than a number to maintain.
+"""
+input FormStageInput {
+  """How the stage is addressed. `SCREAMING_SNAKE_CASE`, unique per cycle."""
+  stageKey: String!
+
+  """The heading an applicant reads."""
+  title: String!
+
+  """A paragraph introducing the stage. Omit where the title says enough."""
+  description: String
+
+  """A kebab-case token into the client's icon registry, for the stage rail."""
+  iconName: String
+
+  """Roughly how long the stage takes to fill, in minutes: 1 to 120."""
+  estimatedMinutes: Int
+}
+
+"""
+One question the cycle asks.
+
+Ordered as given within its stage. A question the applicant never sees is still
+declared here — visibility is a condition, not an omission.
+"""
+input FormFieldInput {
+  """Which stage it appears in. Must be one of `stages`."""
+  stageKey: String!
+
+  """
+  How the question is addressed everywhere: in answers, in the DOM `id`, and in
+  a validation issue. `SCREAMING_SNAKE_CASE`, unique per cycle, and **fixed for
+  a role-bound question where the role pins one** — the requested amount keeps
+  its canonical key; the date of birth may use any key.
+  """
+  fieldKey: String!
+
+  """What kind of answer it takes."""
+  fieldType: FormFieldType!
+
+  """
+  The fixed role this question plays, where it plays one.
+
+  A stable code — `"SEED_FUND_REQUESTED_PAISE"` or `"APPLICANT_DATE_OF_BIRTH"`.
+  A cycle cannot open until both are bound, because the decision's bound and
+  the age rule reach their input through them.
+  """
+  role: String
+
+  """The words the applicant reads. The cycle's, not the software's."""
+  label: String!
+
+  """A sentence of guidance under the control."""
+  helpText: String
+
+  """Whether an answer is needed."""
+  requirement: FormFieldRequirement!
+
+  """
+  `"SERVER_DERIVED"` for a value the programme office fills in, `"APPLICANT"`
+  otherwise. Defaults to `APPLICANT`. A server-derived question is never
+  accepted from an applicant, and may not sit inside a repeated group.
+  """
+  source: String
+
+  """Where it sits within its stage. Defaults to the order given."""
+  sortOrder: Int
+
+  """
+  The repeated group this question belongs to. Null when it stands alone.
+
+  Groups do not nest, so a member may not itself be a group.
+  """
+  parentFieldKey: String
+
+  """
+  The reusable structure this group expands from. `REPEAT_GROUP` only. The
+  members come from the definition — a use may not declare its own.
+  """
+  groupDefinitionKey: String
+
+  """Fewest entries a repeated group may hold."""
+  repeatMin: Int
+
+  """Most entries a repeated group may hold."""
+  repeatMax: Int
+
+  """Fewest characters."""
+  minLength: Int
+
+  """Most characters. **Required alongside `pattern`**, so a hostile answer is bounded before the expression runs."""
+  maxLength: Int
+
+  """
+  A regular expression the answer must match.
+
+  Anchored at both ends when it is compiled, so it cannot half-match. At most
+  200 characters, and screened for nested quantifiers — the expression runs on a
+  Worker's CPU budget.
+  """
+  pattern: String
+
+  """What to say when `pattern` does not match. The cycle's own words."""
+  patternMessage: String
+
+  """Smallest permitted number, for `INTEGER` and `MONEY_PAISE`."""
+  minValue: Money
+
+  """Largest permitted number, for `INTEGER` and `MONEY_PAISE`."""
+  maxValue: Money
+
+  """Earliest permitted day, for `DATE`."""
+  minDate: Date
+
+  """Latest permitted day, for `DATE`."""
+  maxDate: Date
+
+  """
+  A bound resolved against the write's own instant rather than a fixed day.
+
+  `"NOT_FUTURE"` or `"NOT_PAST"`. A stable code.
+  """
+  relativeDateBound: String
+
+  """Largest permitted upload in bytes, for a `FILE`."""
+  maxFileBytes: Int
+
+  """Ghost text inside the empty control. Only on a typed answer; at most 200 characters."""
+  placeholder: String
+
+  """An inline hint under the control, in the cycle's words. At most 500 characters."""
+  note: String
+
+  """How to colour the note: `INFO`, `WARNING`, `SUCCESS` or `DANGER`. Omit for neutral."""
+  tone: String
+
+  """
+  How wide to draw the control: `FULL`, `TWO_THIRDS`, `ONE_HALF`, `ONE_THIRD`,
+  or a character width `CHAR_2`, `CHAR_4`, `CHAR_10`, `CHAR_20`. Omit for FULL.
+  """
+  widthHint: String
+
+  """Decoration before the value — `₹` on an amount. 1 to 8 characters."""
+  prefixText: String
+
+  """Decoration after the value — `yrs` on a count. 1 to 8 characters."""
+  suffixText: String
+
+  """The HTML `autocomplete` token the control should carry, from the recognised set."""
+  autocompleteHint: String
+
+  """Whether to show characters-remaining. Needs `maxLength`; text answers only."""
+  showCharCount: Boolean
+
+  """How many rows a `LONG_TEXT` control opens with: 2 to 20."""
+  textareaRows: Int
+
+  """
+  Which control draws a choice: `RADIO`, `DROPDOWN`, `SEGMENTED` or `CARD` for
+  a single choice; `CHECKBOX_LIST` or `MULTISELECT` for a multiple one.
+  """
+  choiceStyle: String
+}
+
+"""One choice offered for a `SINGLE_CHOICE` or `MULTI_CHOICE` question."""
+input FormFieldOptionInput {
+  """Which question offers it."""
+  fieldKey: String!
+
+  """
+  That question's type, repeated.
+
+  Carried so a single-row `CHECK` can refuse an option on a question that offers
+  none, and verified by a composite foreign key so it cannot drift.
+  """
+  fieldType: FormFieldType!
+
+  """What is stored when the choice is taken."""
+  optionValue: String!
+
+  """What the applicant reads."""
+  optionLabel: String!
+
+  """A sentence under the label when the choice is drawn as a card. At most 200 characters."""
+  optionDescription: String
+
+  """A kebab-case icon token for the card rendering. A name, never markup."""
+  iconName: String
+
+  """Where it sits in the list. Defaults to the order given."""
+  sortOrder: Int
+}
+
+"""
+One comparison against an answer already given.
+
+Conditions sharing a `groupNumber` must **all** hold; separate groups are
+alternatives. The graph must be acyclic — a cyclic template renders nothing and
+cannot be repaired from the applicant's side, so it is refused here.
+"""
+input FormFieldConditionInput {
+  """The question this condition governs."""
+  fieldKey: String!
+
+  """Whether it shows the question or makes it compulsory."""
+  effect: FieldConditionEffect!
+
+  """Which set this belongs to. Members of a set are ANDed. Defaults to 1."""
+  groupNumber: Int
+
+  """Where it sits within its set. Defaults to the order given."""
+  sequenceNumber: Int
+
+  """The question whose answer is compared. Must be one this cycle declares."""
+  sourceFieldKey: String!
+
+  """
+  That question's type, repeated, for the same reason an option carries one:
+  it lets a single-row `CHECK` refuse an ordering comparison against a type
+  that has no order.
+  """
+  sourceFieldType: FormFieldType!
+
+  """How the comparison is made."""
+  operator: FieldConditionOperator!
+
+  """What to compare against. Omit for `IS_PRESENT` and `IS_ABSENT`."""
+  comparisonValue: String
+}
+
+"""
+The whole form this cycle asks.
+
+Frozen with the cycle version, so an application filled last year still reads
+against the questions it was actually asked. Editing it is a cycle revision
+carrying a required reason, and is refused on an open cycle.
+"""
+input FormTemplateInput {
+  """The steps, in the order they are filled. At least one."""
+  stages: [FormStageInput!]!
+
+  """Every question, including the members of a repeated group."""
+  fields: [FormFieldInput!]!
+
+  """The choices, for the questions that offer any."""
+  options: [FormFieldOptionInput!]!
+
+  """When each question is shown, and when it becomes compulsory."""
+  conditions: [FormFieldConditionInput!]!
+
+  """
+  Reusable structures — defined once, used by any repeated group that names
+  one. At most 16 per cycle.
+  """
+  groupDefinitions: [FormGroupDefinitionInput!]
+}
+
+"""
+A reusable structure: a set of questions defined once and used as a repeated
+group. "An Owner is a name, a date of birth, a share." Members take their
+use's stage on expansion and carry no rules between them in this version.
+"""
+input FormGroupDefinitionInput {
+  """How the structure is addressed. `SCREAMING_SNAKE_CASE`, unique per cycle."""
+  definitionKey: String!
+
+  """What the structure is called where the editor lists it."""
+  label: String!
+
+  """The questions each entry asks. At least 1, at most 24."""
+  members: [FormGroupDefinitionMemberInput!]!
+}
+
+"""
+One member of a reusable structure: a question shape without a stage. It
+becomes an ordinary question under `USE__MEMBER` on expansion, so it carries
+everything a question does except a stage, a parent, and conditions.
+"""
+input FormGroupDefinitionMemberInput {
+  """How the member is addressed inside its structure. `SCREAMING_SNAKE_CASE`."""
+  memberKey: String!
+
+  """What kind of answer it takes. Not a group, a document, or a statement."""
+  fieldType: FormFieldType!
+
+  """`APPLICANT_DATE_OF_BIRTH` on a DATE member, or omitted. The one role a group may hold."""
+  role: String
+
+  """The words the applicant reads."""
+  label: String!
+
+  """A sentence of guidance under the control."""
+  helpText: String
+
+  """Whether an answer is needed in every entry."""
+  requirement: FormFieldRequirement!
+
+  """Fewest characters."""
+  minLength: Int
+
+  """Most characters. Required alongside `pattern`."""
+  maxLength: Int
+
+  """A regular expression the answer must match. Same limits as a question's."""
+  pattern: String
+
+  """What to say when `pattern` does not match."""
+  patternMessage: String
+
+  """Smallest permitted number, for `INTEGER` and `MONEY_PAISE`."""
+  minValue: Money
+
+  """Largest permitted number, for `INTEGER` and `MONEY_PAISE`."""
+  maxValue: Money
+
+  """Earliest permitted day, for `DATE`."""
+  minDate: Date
+
+  """Latest permitted day, for `DATE`."""
+  maxDate: Date
+
+  """`"NOT_FUTURE"` or `"NOT_PAST"`, resolved at the write."""
+  relativeDateBound: String
+
+  """Ghost text inside the empty control. Typed answers only; at most 200 characters."""
+  placeholder: String
+
+  """An inline hint under the control. At most 500 characters."""
+  note: String
+
+  """How to colour the note: `INFO`, `WARNING`, `SUCCESS` or `DANGER`."""
+  tone: String
+
+  """How wide to draw the control; same closed set as a question's."""
+  widthHint: String
+
+  """Decoration before the value. 1 to 8 characters."""
+  prefixText: String
+
+  """Decoration after the value. 1 to 8 characters."""
+  suffixText: String
+
+  """The HTML `autocomplete` token, from the recognised set."""
+  autocompleteHint: String
+
+  """Whether to show characters-remaining. Needs `maxLength`; text answers only."""
+  showCharCount: Boolean
+
+  """How many rows a `LONG_TEXT` control opens with: 2 to 20."""
+  textareaRows: Int
+
+  """Which control draws a choice; same closed set as a question's."""
+  choiceStyle: String
+
+  """The choices offered, for a choice member."""
+  options: [FormGroupDefinitionMemberOptionInput!]
+}
+
+"""One choice a structure's member offers."""
+input FormGroupDefinitionMemberOptionInput {
+  """What is stored when the choice is taken."""
+  optionValue: String!
+
+  """What the applicant reads."""
+  optionLabel: String!
+
+  """A sentence under the label when the choice is drawn as a card."""
+  optionDescription: String
+
+  """A kebab-case icon token for the card rendering."""
+  iconName: String
+}
+
+"""The cycle scope and one structure, for `putGroupDefinition`."""
+input PutGroupDefinitionInput {
+  """Which cycle, at which version, and why."""
+  scope: FormTemplateScopeInput!
+
+  """The structure, complete. Replaces any structure under the same key."""
+  definition: FormGroupDefinitionInput!
+}
+
+"""The cycle scope and one structure key, for `removeGroupDefinition`."""
+input RemoveGroupDefinitionInput {
+  """Which cycle, at which version, and why."""
+  scope: FormTemplateScopeInput!
+
+  """Which structure to remove."""
+  definitionKey: String!
 }
 
 """One approved reason for one administrative action."""
@@ -169,10 +558,13 @@ input ProgrammeCyclePolicyInput {
   requiredAssessmentTypes: [AssessmentType!]!
 
   """
-  One rule per supported document type — the full set, not a subset. A
-  document that is not wanted is included with condition `OPTIONAL`.
+  The questions this cycle asks, and when each is shown.
+
+  Required: a cycle with no form has nothing for an applicant to fill in, and
+  the questions the programme itself reads — the requested amount, the category,
+  the date of birth — reach their input through a role bound here.
   """
-  documentRules: [ProgrammeDocumentRuleInput!]!
+  formTemplate: FormTemplateInput!
 
   """
   Which identity numbers the desk review collects and compares.
@@ -479,7 +871,7 @@ enum DeskReviewOutcome {
   """On to a partner bank."""
   ADVANCE_TO_BANK
 
-  """Back to the applicant, naming the sections to correct."""
+  """Back to the applicant, naming the stages to correct."""
   REQUEST_REVISION
 
   """Closed. Requires a reason from the cycle's catalogue."""
@@ -498,10 +890,13 @@ input DeskReviewCheckInput {
   internalNote: String
 }
 
-"""One section the applicant is being asked to correct."""
+"""One stage of the form the applicant is being asked to correct."""
 input AdminRevisionInput {
-  """Which part of the form. Only this section becomes editable."""
-  section: ApplicationSection!
+  """
+  Which stage of the form. Only this stage becomes editable, and it must be one
+  the application's own cycle declares.
+  """
+  stageKey: String!
 
   """A reason approved by this cycle for the `REVISION` context."""
   reasonCategoryId: ID!
@@ -602,7 +997,7 @@ input CompleteDeskReviewInput {
   applicantMessage: String
 
   """
-  The sections to correct. Required and non-empty for `REQUEST_REVISION`, and
+  The stages to correct. Required and non-empty for `REQUEST_REVISION`, and
   empty otherwise.
   """
   revisions: [AdminRevisionInput!]!
@@ -855,138 +1250,21 @@ input CorrectBankOutcomeInput {
   revisions: [AdminRevisionInput!]!
 }
 
-"""Schedules a committee meeting."""
-input CreateTtmMeetingInput {
-  """The office's reference for the meeting."""
-  meetingReference: String!
-
-  """When it is scheduled for."""
-  scheduledAt: DateTime!
-
-  """Where it is held."""
-  venue: String!
-
-  """What it is for."""
-  description: String
-}
-
-"""Changes a meeting that has not started."""
-input UpdateTtmMeetingInput {
-  """The meeting to change. Must still be a draft."""
-  meetingId: ID!
-
-  """The meeting's `currentVersion`; a mismatch refuses."""
-  expectedVersion: Int!
-
-  """The office's reference."""
-  meetingReference: String!
-
-  """When it is scheduled for."""
-  scheduledAt: DateTime!
-
-  """Where it is held."""
-  venue: String!
-
-  """What it is for."""
-  description: String
-
-  """Why it is being changed, kept in the meeting's history."""
-  reason: String!
-}
-
-"""Moves a meeting from one state to the next."""
-input TtmMeetingTransitionInput {
-  """The meeting to move on. From `AdminTtmMeeting.id`."""
-  meetingId: ID!
-
-  """The meeting's `currentVersion`; a mismatch refuses."""
-  expectedVersion: Int!
-}
-
-"""Calls off a meeting, returning its agenda items to the queue."""
-input CancelTtmMeetingInput {
-  """The meeting to call off. Anything but finalized."""
-  meetingId: ID!
-
-  """The meeting's `currentVersion`; a mismatch refuses."""
-  expectedVersion: Int!
-
-  """Why, kept in the meeting's history."""
-  reason: String!
-}
-
-"""Puts one application on a meeting's agenda."""
-input AddAgendaItemInput {
-  """The draft meeting to add to. A started meeting has a fixed agenda."""
-  meetingId: ID!
-
-  """The application to put before the committee. Must be in `TTM_REVIEW`."""
+"""Records the programme's decision on one application."""
+input DecisionInput {
+  """The application being decided. Must be in `AWAITING_DECISION`."""
   applicationId: ID!
-
-  """Which submission is before the committee."""
-  submissionId: ID!
-
-  """Which bank outcome accompanies it."""
-  bankOutcomeId: ID!
-
-  """
-  Where on the agenda, counting from 1. At most twenty active items — a
-  meeting that cannot get through its list is not a meeting.
-  """
-  position: Int!
-}
-
-"""Moves an agenda item to a different position."""
-input ReorderAgendaItemInput {
-  """The draft meeting whose agenda is being reordered."""
-  meetingId: ID!
-
-  """Which item to move."""
-  agendaItemId: ID!
-
-  """The item's `currentVersion`; a mismatch refuses."""
-  expectedVersion: Int!
-
-  """The new position, counting from 1."""
-  position: Int!
-
-  """Why, kept with the record."""
-  reason: String!
-}
-
-"""Takes an application off a meeting's agenda."""
-input RemoveAgendaItemInput {
-  """The draft meeting to take the item off."""
-  meetingId: ID!
-
-  """Which item to remove."""
-  agendaItemId: ID!
-
-  """The item's `currentVersion`; a mismatch refuses."""
-  expectedVersion: Int!
-
-  """Why, kept with the record."""
-  reason: String!
-}
-
-"""Records what the committee decided about one application."""
-input TtmDecisionInput {
-  """The application being decided. Must be in `TTM_REVIEW`."""
-  applicationId: ID!
-
-  """Which agenda item this decides."""
-  agendaItemId: ID!
 
   """The application's `statusVersion`; a mismatch refuses."""
   expectedStatusVersion: Int!
 
-  """What the committee decided."""
-  outcome: TtmDecisionOutcome!
+  """What the programme decided."""
+  outcome: DecisionOutcome!
 
-  """The committee's reference for the decision."""
+  """The office's reference for the decision."""
   decisionReference: String!
 
-  """When the committee met. May precede today, and is recorded as given."""
+  """When it was taken. May precede today, and is recorded as given."""
   decisionDate: Date!
 
   """
@@ -999,18 +1277,16 @@ input TtmDecisionInput {
   applicantConditions: String
 
   """
-  A reason approved by this cycle. Required for `DEFERRED` and `REJECTED`.
+  A reason approved by this cycle. Required for `REJECTED` and
+  `REVISION_REQUIRED`.
   """
   reasonCategoryId: ID
 
   """What the applicant is told."""
   applicantMessage: String!
 
-  """What happens next, where there is something to say."""
-  nextAction: String
-
   """
-  Sections to correct, for `REVISION_REQUIRED`. Empty otherwise.
+  Stages to correct, for `REVISION_REQUIRED`. Empty otherwise.
   """
   revisions: [AdminRevisionInput!]!
 
@@ -1022,30 +1298,27 @@ input TtmDecisionInput {
 }
 
 """
-Supersedes a committee decision already recorded.
+Supersedes a programme decision already recorded.
 
 A correction is a new decision rather than an edit.
 """
-input CorrectTtmDecisionInput {
+input CorrectDecisionInput {
   """The application whose recorded decision was wrong."""
   applicationId: ID!
 
-  """The agenda item the superseded decision was taken on."""
-  agendaItemId: ID!
-
-  """Which decision this replaces."""
+  """Which decision this replaces. Must be the application's latest."""
   supersedesDecisionId: ID!
 
   """The application's `statusVersion`; a mismatch refuses."""
   expectedStatusVersion: Int!
 
-  """What the committee actually decided."""
-  outcome: TtmDecisionOutcome!
+  """What was actually decided."""
+  outcome: DecisionOutcome!
 
-  """The committee's reference."""
+  """The office's reference."""
   decisionReference: String!
 
-  """When the committee met. May precede today, and is recorded as given."""
+  """When it was taken. May precede today, and is recorded as given."""
   decisionDate: Date!
 
   """How much is approved, in paise. Required for `APPROVED`."""
@@ -1057,7 +1330,7 @@ input CorrectTtmDecisionInput {
   """A reason approved by this cycle, where the outcome needs one."""
   reasonCategoryId: ID
 
-  """A reason approved by this cycle for `TTM_DECISION_CORRECTION`."""
+  """A reason approved by this cycle for `DECISION_CORRECTION`."""
   correctionReasonCategoryId: ID!
 
   """Why the earlier record was wrong, kept with both."""
@@ -1066,10 +1339,7 @@ input CorrectTtmDecisionInput {
   """What the applicant is told."""
   applicantMessage: String!
 
-  """What happens next."""
-  nextAction: String
-
-  """Sections to correct, where the corrected outcome asks for them."""
+  """Stages to correct, where the corrected outcome asks for them."""
   revisions: [AdminRevisionInput!]!
 
   """
@@ -1083,10 +1353,9 @@ input CorrectTtmDecisionInput {
 }
 
 """
-Partner-bank referral, and the committee that decides.
+Partner-bank referral, and deciding the application.
 
-**Use case:** the bank and committee panels on the workspace, and the screens
-under `/admin/meetings`.
+**Use case:** the bank and decision panels on the workspace.
 """
 type AdminDecisionMutation {
   """
@@ -1115,7 +1384,7 @@ type AdminDecisionMutation {
   Records what the bank wrote back.
 
   The office records what the bank said; it does not decide. A
-  `NOT_RECOMMENDED` outcome still goes to the committee, because bank feedback
+  `NOT_RECOMMENDED` outcome is still decided, because bank feedback
   is advisory evidence rather than a veto.
 
   **Refuses:** a referral already answered, and stale versions.
@@ -1137,122 +1406,39 @@ type AdminDecisionMutation {
   ): AdminWorkspaceResult!
 
   """
-  Schedules a committee meeting.
+  Records the programme's decision on one application.
 
-  **Use case:** `/admin/meetings`. Created as a draft, so its agenda can be
-  built before it starts.
-  """
-  createMeeting(
-    """When, where, and what it is for."""
-    input: CreateTtmMeetingInput!
-  ): AdminMeetingWorkspaceResult!
-
-  """
-  Changes a meeting that has not started.
-
-  **Refuses:** a meeting under way or finalized, and a stale
-  `expectedVersion`.
-  """
-  updateMeeting(
-    """Which meeting, at which version, and the replacement details."""
-    input: UpdateTtmMeetingInput!
-  ): AdminMeetingWorkspaceResult!
-
-  """
-  Calls off a meeting. Its agenda items return to the queue.
-
-  **Refuses:** a finalized meeting, and a stale `expectedVersion`.
-  """
-  cancelMeeting(
-    """Which meeting, at which version, and why."""
-    input: CancelTtmMeetingInput!
-  ): AdminMeetingWorkspaceResult!
-
-  """
-  Puts an application on a draft meeting's agenda.
-
-  **Refuses:** a meeting that is not a draft, an application not waiting for
-  the committee, and a twenty-first active item.
-  """
-  addAgendaItem(
-    """Which meeting, which application, and where on the agenda."""
-    input: AddAgendaItemInput!
-  ): AdminMeetingWorkspaceResult!
-
-  """
-  Moves an agenda item.
-
-  **Refuses:** a meeting that is not a draft, and a stale `expectedVersion`.
-  """
-  reorderAgendaItem(
-    """Which item, where to, and why."""
-    input: ReorderAgendaItemInput!
-  ): AdminMeetingWorkspaceResult!
-
-  """
-  Takes an application off the agenda, returning it to the queue.
-
-  **Refuses:** a meeting that is not a draft, and a stale `expectedVersion`.
-  """
-  removeAgendaItem(
-    """Which item, and why."""
-    input: RemoveAgendaItemInput!
-  ): AdminMeetingWorkspaceResult!
-
-  """
-  Opens the meeting. The agenda is fixed from this point.
-
-  **Refuses:** a meeting that is not a draft, and a stale `expectedVersion`.
-  """
-  startMeeting(
-    """Which meeting, at which version."""
-    input: TtmMeetingTransitionInput!
-  ): AdminMeetingWorkspaceResult!
-
-  """
-  Closes the meeting. The record becomes read-only.
-
-  **Refuses:** a meeting with an agenda item still undecided, and a stale
-  `expectedVersion`.
-  """
-  finalizeMeeting(
-    """Which meeting, at which version."""
-    input: TtmMeetingTransitionInput!
-  ): AdminMeetingWorkspaceResult!
-
-  """
-  Records what the committee decided about one application.
-
-  **Use case:** the committee panel on the workspace. Available to an approver
+  **Use case:** the decision panel on the workspace. Available to an approver
   as well as an administrator — deciding an application and administering the
   programme are separate authorities.
 
-  **Refuses:** an approved amount of zero or more than was requested; a
-  missing reason where the outcome needs one; deciding your own application
-  without `conflictAcknowledged`; and a stale `expectedStatusVersion`.
+  **Refuses:** an application not waiting to be decided; an approved amount of
+  zero or more than was requested; a missing reason where the outcome needs
+  one; deciding your own application without `conflictAcknowledged`; and a
+  stale `expectedStatusVersion`.
   """
   recordDecision(
-    """Which agenda item, what was decided, and what the applicant is told."""
-    input: TtmDecisionInput!
+    """What was decided, and what the applicant is told."""
+    input: DecisionInput!
   ): AdminWorkspaceResult!
 
   """
-  Supersedes a committee decision already recorded.
+  Supersedes a programme decision already recorded.
 
   Never an edit: the earlier decision is kept.
 
-  **Use case:** the correction panel on the committee stage of a workspace,
+  **Use case:** the correction panel on the decision stage of a workspace,
   reached once a decision exists and the record of it turns out to be wrong.
 
-  **Refuses:** a decision that is not the latest on its agenda item; an
-  application whose award has already been made, because money moved on the
-  strength of it and the correction belongs in the award record instead;
-  correcting your own application without `conflictAcknowledged`; and a stale
+  **Refuses:** a decision that is not the application's latest; an application
+  whose award has already been made, because money moved on the strength of it
+  and the correction belongs in the award record instead; correcting your own
+  application without `conflictAcknowledged`; and a stale
   `expectedStatusVersion`.
   """
   correctDecision(
     """Which decision to replace, what it should say, and why."""
-    input: CorrectTtmDecisionInput!
+    input: CorrectDecisionInput!
   ): AdminWorkspaceResult!
 }
 
@@ -1261,7 +1447,7 @@ input CreateAwardInput {
   """The application being awarded. Must be `APPROVED`."""
   applicationId: ID!
 
-  """Which committee decision approved it."""
+  """Which programme decision approved it."""
   decisionId: ID!
 
   """The application's `statusVersion`; a mismatch refuses."""
@@ -1343,11 +1529,11 @@ input RecordReleaseInput {
   """The bank's reference, for reconciliation. Unique per award."""
   externalReference: String!
 
-  """The committee approval this payment rests on."""
-  ttmApprovalReference: String!
+  """The programme approval this payment rests on."""
+  approvalReference: String!
 
-  """When the committee approved. May precede today, and is recorded as given."""
-  ttmApprovalDate: Date!
+  """When it was approved. May precede today, and is recorded as given."""
+  approvalDate: Date!
 
   """When the applicant's bank account was verified."""
   bankAccountVerifiedAt: DateTime!
@@ -1524,7 +1710,7 @@ Every ledger here is append-only, so a correction is always a new entry.
 """
 type AdminFundingMutation {
   """
-  Creates the award that follows a committee approval.
+  Creates the award that follows an approval.
 
   **Refuses:** an application without an approving decision, a duplicate
   sanction order number, and a stale `expectedStatusVersion`.
@@ -1622,4 +1808,295 @@ type AdminFundingMutation {
     """Which case, and why."""
     input: CloseRecoveryInput!
   ): AdminRecoveryWorkspaceResult!
+}
+
+"""
+Which stage of the form, and what it is called.
+
+A stage is a step an applicant works through, so its title is the heading they
+read — reworded here rather than in a deploy.
+"""
+input FormStageEditInput {
+  """Stable identifier, in the form key format. Never shown to an applicant."""
+  stageKey: String!
+
+  """The heading on the applicant's screen."""
+  title: String!
+
+  """A sentence under the heading, where the step needs explaining."""
+  description: String
+
+  """Where this step sits in the order. Absent keeps its current place."""
+  sortOrder: Int
+}
+
+"""
+Which cycle's questions are being changed, at which version, and why.
+
+The reason is kept with the version it produced. A cycle's questions decide what
+every application against it is asked, so a change to them is a change to the
+programme and the record says who made it and what for.
+"""
+input FormTemplateScopeInput {
+  """The cycle whose questions are being changed. Must still be a draft."""
+  programmeCycleId: ID!
+
+  """The cycle version the caller was looking at."""
+  expectedVersion: Int!
+
+  """Why the questions are changing. Kept on the version this creates."""
+  reason: String!
+}
+
+"""The whole form at once."""
+input ReplaceFormTemplateInput {
+  """Which cycle, at which version, and why."""
+  scope: FormTemplateScopeInput!
+
+  """Every stage, question, choice and rule the cycle will ask from now on."""
+  template: FormTemplateInput!
+}
+
+"""One stage of the form."""
+input FormStageMutationInput {
+  """Which cycle, at which version, and why."""
+  scope: FormTemplateScopeInput!
+
+  """
+  The stage to add, or the stage as it should now read.
+
+  On an update every value replaces what is stored, so a field left out is a
+  field cleared rather than one left alone.
+  """
+  stage: FormStageEditInput!
+}
+
+"""Which stage to stop asking."""
+input RemoveFormStageInput {
+  """Which cycle, at which version, and why."""
+  scope: FormTemplateScopeInput!
+
+  """
+  The stage to remove. Its questions go with it — a question naming a stage the
+  cycle no longer has is one the form cannot place.
+  """
+  stageKey: String!
+}
+
+"""
+One choice, for a question named by the mutation carrying it.
+
+Deliberately narrower than `FormFieldOptionInput`: the owning question and its
+type are already given by `field`, so restating them here would be two chances
+to disagree with it — and the disagreement would be silently resolved in favour
+of `field`.
+"""
+input FormQuestionOptionInput {
+  """What is stored when the choice is taken."""
+  optionValue: String!
+
+  """What the applicant reads."""
+  optionLabel: String!
+
+  """A sentence under the label when the choice is drawn as a card. At most 200 characters."""
+  optionDescription: String
+
+  """A kebab-case icon token for the card rendering. A name, never markup."""
+  iconName: String
+
+  """Where it sits in the list. Defaults to the order given."""
+  sortOrder: Int
+}
+
+"""
+One rule on the question named by the mutation carrying it.
+
+Narrower than `FormFieldConditionInput` for the reason `FormQuestionOptionInput`
+is: the question this governs is `field`, and saying so twice only allows the
+two to differ.
+"""
+input FormQuestionConditionInput {
+  """Whether it shows the question or makes it compulsory."""
+  effect: FieldConditionEffect!
+
+  """Which set this belongs to. Members of a set are ANDed. Defaults to 1."""
+  groupNumber: Int
+
+  """Where it sits within its set. Defaults to the order given."""
+  sequenceNumber: Int
+
+  """The question whose answer is compared. Must be one this cycle declares."""
+  sourceFieldKey: String!
+
+  """
+  That question's type, repeated, for the same reason an option carries one:
+  it lets a single-row `CHECK` refuse an ordering comparison against a type
+  that has no order.
+  """
+  sourceFieldType: FormFieldType!
+
+  """How the comparison is made."""
+  operator: FieldConditionOperator!
+
+  """What to compare against. Omit for `IS_PRESENT` and `IS_ABSENT`."""
+  comparisonValue: String
+}
+
+"""One question, with the choices it offers and the rules that reveal it."""
+input FormQuestionMutationInput {
+  """Which cycle, at which version, and why."""
+  scope: FormTemplateScopeInput!
+
+  """The question itself."""
+  field: FormFieldInput!
+
+  """
+  The choices it offers, for a question that offers any. Replaces the
+  question's current choices outright; absent means it offers none.
+  """
+  options: [FormQuestionOptionInput!]
+
+  """
+  When this question is shown, or when it becomes required. Replaces the rules
+  **on this question** outright. Rules elsewhere that read it are untouched —
+  they belong to those questions, not this one.
+  """
+  conditions: [FormQuestionConditionInput!]
+}
+
+"""Which question to stop asking."""
+input RemoveFormQuestionInput {
+  """Which cycle, at which version, and why."""
+  scope: FormTemplateScopeInput!
+
+  """
+  The question to remove. If it is a repeated group, its members go with it.
+
+  **Refused if another question's rule reads it**, naming that question: a rule
+  whose source is gone is one nothing can ever satisfy, and dropping the rule
+  quietly would make somebody else's question unconditional without being
+  asked.
+  """
+  fieldKey: String!
+}
+
+"""
+Authoring the questions a cycle asks.
+
+**Drafts only.** A cycle's questions are frozen into its version when it opens,
+and every submitted application is judged against the version it was filled
+under — so changing an open cycle's form would change what applications already
+in flight are being asked. Reword guidance on an open cycle with
+`programmeCycle.updateOpenGuidance`; to ask something different, open a new
+cycle.
+
+Every mutation here validates the **whole** resulting form, not the part that
+changed, and refuses with a sentence naming the question at fault.
+"""
+type AdminFormTemplateMutation {
+  """
+  Defines a reusable structure, or replaces the one under the same key.
+
+  **Refuses:** everything `replace` does, plus the structure grammar — more
+  than 16 structures, more than 24 members, a member that is a group, a
+  document or a statement, and an expansion that collides with a question.
+  """
+  putGroupDefinition(
+    """The cycle, and the structure."""
+    input: PutGroupDefinitionInput!
+  ): AdminCycleResult!
+
+  """
+  Removes a reusable structure.
+
+  **Refuses:** a structure still used by a repeated group — the refusal names
+  every group using it — and everything `replace` does.
+  """
+  removeGroupDefinition(
+    """The cycle, and which structure."""
+    input: RemoveGroupDefinitionInput!
+  ): AdminCycleResult!
+
+  """
+  Replaces the whole form.
+
+  **Use case:** the cycle editor's save, and importing a form from a previous
+  cycle.
+
+  **Refuses:** a cycle that is not a draft; a stale `expectedVersion`; and any
+  form the engine could not resolve — a question in no stage, a conditional
+  question with no rule saying when, a rule reading a question the cycle does
+  not ask, or questions that depend on each other in a circle.
+  """
+  replace(
+    """The cycle, and the form it will ask."""
+    input: ReplaceFormTemplateInput!
+  ): AdminCycleResult!
+
+  """
+  Adds a stage.
+
+  **Refuses:** a stage key the cycle already has, and everything `replace` does.
+  """
+  addStage(
+    """The cycle, and the stage."""
+    input: FormStageMutationInput!
+  ): AdminCycleResult!
+
+  """
+  Retitles or moves a stage.
+
+  **Refuses:** a stage key the cycle does not have, and everything `replace`
+  does.
+  """
+  updateStage(
+    """The cycle, and the stage as it should now read."""
+    input: FormStageMutationInput!
+  ): AdminCycleResult!
+
+  """
+  Stops asking a stage, and every question in it.
+
+  **Refuses:** a stage key the cycle does not have, and everything `replace`
+  does — including a rule elsewhere that read one of the removed questions.
+  """
+  removeStage(
+    """The cycle, and which stage."""
+    input: RemoveFormStageInput!
+  ): AdminCycleResult!
+
+  """
+  Adds a question.
+
+  **Use case:** a cycle that needs to ask something the last one did not.
+
+  **Refuses:** a question key the cycle already asks, and everything `replace`
+  does.
+  """
+  addQuestion(
+    """The cycle, and the question."""
+    input: FormQuestionMutationInput!
+  ): AdminCycleResult!
+
+  """
+  Rewords a question, changes its type, its rules, or the choices it offers.
+
+  **Refuses:** a question key the cycle does not ask, and everything `replace`
+  does.
+  """
+  updateQuestion(
+    """The cycle, and the question as it should now read."""
+    input: FormQuestionMutationInput!
+  ): AdminCycleResult!
+
+  """
+  Stops asking a question.
+
+  **Refuses:** a question key the cycle does not ask, and everything `replace`
+  does — notably a rule on another question that reads this one.
+  """
+  removeQuestion(
+    """The cycle, and which question."""
+    input: RemoveFormQuestionInput!
+  ): AdminCycleResult!
 }

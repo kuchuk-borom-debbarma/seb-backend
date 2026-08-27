@@ -7,18 +7,20 @@
  */
 import { sql } from 'drizzle-orm'
 import {
+  boolean,
   check,
   foreignKey,
   index,
   integer,
-  sqliteTable,
+  pgTable,
   text,
+  unique,
   uniqueIndex,
-} from 'drizzle-orm/sqlite-core'
+} from 'drizzle-orm/pg-core'
 import { coreUser } from '../core/auth'
 import { sebApplication, sebApplicationSubmission } from './application'
 import { sebProgrammeCycleReason } from './programme'
-import { deskReviewChecks, deskReviewIdentifierKinds } from '../shared'
+import { deskReviewChecks, deskReviewIdentifierKinds, instant } from '../shared'
 
 export const assignmentEventTypes = ['CLAIMED', 'RELEASED', 'REASSIGNED'] as const
 export const deskReviewCheckResults = ['PASS', 'FAIL', 'NOT_APPLICABLE'] as const
@@ -29,7 +31,7 @@ export const deskReviewOutcomes = [
 ] as const
 
 /** Every change to the current queue owner. */
-export const sebApplicationAssignmentEvent = sqliteTable(
+export const sebApplicationAssignmentEvent = pgTable(
   'seb_application_assignment_event',
   {
     id: text('id').primaryKey(),
@@ -52,7 +54,7 @@ export const sebApplicationAssignmentEvent = sqliteTable(
     actorUserId: text('actor_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     uniqueIndex('seb_application_assignment_event_version_uq').on(
@@ -81,7 +83,7 @@ export const sebApplicationAssignmentEvent = sqliteTable(
 )
 
 /** Staff-only append-only note; a correction points to the note it replaces. */
-export const sebApplicationInternalNote = sqliteTable(
+export const sebApplicationInternalNote = pgTable(
   'seb_application_internal_note',
   {
     id: text('id').primaryKey(),
@@ -93,7 +95,7 @@ export const sebApplicationInternalNote = sqliteTable(
     authoredByUserId: text('authored_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     foreignKey({
@@ -101,7 +103,7 @@ export const sebApplicationInternalNote = sqliteTable(
       foreignColumns: [table.applicationId, table.id],
       name: 'seb_application_internal_note_correction_fk',
     }).onDelete('restrict'),
-    uniqueIndex('seb_application_internal_note_application_id_uq').on(
+    unique('seb_application_internal_note_application_id_uq').on(
       table.applicationId,
       table.id,
     ),
@@ -116,7 +118,7 @@ export const sebApplicationInternalNote = sqliteTable(
 )
 
 /** Immutable final checklist and outcome for one reviewed submission. */
-export const sebDeskReview = sqliteTable(
+export const sebDeskReview = pgTable(
   'seb_desk_review',
   {
     id: text('id').primaryKey(),
@@ -131,7 +133,7 @@ export const sebDeskReview = sqliteTable(
     reviewedByUserId: text('reviewed_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
-    reviewedAt: integer('reviewed_at', { mode: 'timestamp_ms' }).notNull(),
+    reviewedAt: instant('reviewed_at').notNull(),
     /*
      * Whether the reviewer disclosed that this is their own application.
      *
@@ -142,7 +144,7 @@ export const sebDeskReview = sqliteTable(
      * here is a positional `INSERT ... SELECT`, so a column added anywhere
      * else shifts every value after it.
      */
-    conflictAcknowledged: integer('conflict_acknowledged', { mode: 'boolean' })
+    conflictAcknowledged: boolean('conflict_acknowledged')
       .notNull()
       .default(false),
   },
@@ -153,14 +155,10 @@ export const sebDeskReview = sqliteTable(
       name: 'seb_desk_review_submission_fk',
     }).onDelete('restrict'),
     uniqueIndex('seb_desk_review_submission_uq').on(table.submissionId),
-    uniqueIndex('seb_desk_review_application_id_uq').on(table.applicationId, table.id),
+    unique('seb_desk_review_application_id_uq').on(table.applicationId, table.id),
     check(
       'seb_desk_review_outcome_check',
       sql`${table.outcome} IN ('ADVANCE_TO_BANK', 'REQUEST_REVISION', 'REJECT')`,
-    ),
-    check(
-      'seb_desk_review_conflict_check',
-      sql`${table.conflictAcknowledged} IN (0, 1)`,
     ),
     check(
       'seb_desk_review_reason_check',
@@ -176,7 +174,7 @@ export const sebDeskReview = sqliteTable(
 )
 
 /** One result for every fixed checklist item in a completed review. */
-export const sebDeskReviewCheck = sqliteTable(
+export const sebDeskReviewCheck = pgTable(
   'seb_desk_review_check',
   {
     id: text('id').primaryKey(),
@@ -186,7 +184,7 @@ export const sebDeskReviewCheck = sqliteTable(
     checkType: text('check_type', { enum: deskReviewChecks }).notNull(),
     result: text('result', { enum: deskReviewCheckResults }).notNull(),
     internalNote: text('internal_note'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     uniqueIndex('seb_desk_review_check_type_uq').on(table.deskReviewId, table.checkType),
@@ -219,7 +217,7 @@ export const sebDeskReviewCheck = sqliteTable(
  * expansion by the same promoter is expected here — so it is a question that
  * must be answered rather than a refusal.
  */
-export const sebDeskReviewIdentifier = sqliteTable(
+export const sebDeskReviewIdentifier = pgTable(
   'seb_desk_review_identifier',
   {
     id: text('id').primaryKey(),
@@ -234,7 +232,7 @@ export const sebDeskReviewIdentifier = sqliteTable(
     lastFour: text('last_four').notNull(),
     /** Set when this value already existed on another case and was passed anyway. */
     matchedReason: text('matched_reason'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
     // One value of each kind per review: a reviewer reads one certificate.

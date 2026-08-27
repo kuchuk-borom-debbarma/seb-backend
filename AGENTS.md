@@ -66,13 +66,14 @@ The working agreement above covers *process*. What good code looks like here is
 [`docs/rules/security.md`](docs/rules/security.md). Read both before changing a
 service, because several of the rules exist to prevent failures that are silent:
 
-- `db.batch` maps results by column name while an awaited query maps them
-  positionally, so batching a joined read shifts every value by one and nothing
-  throws.
+- A dependent `INSERT … SELECT` has no column list, so it matches its table by
+  position. One expression too few is *accepted*, and the trailing columns take
+  their defaults.
 - A loader built at module scope is shared by every request the isolate serves,
   which is a data leak rather than a stale cache.
-- Fewer database round trips is not automatically faster; the measurements are
-  in `test/batching.test.ts` and they go both ways.
+- A statement is a network hop, so the win is folding several reads into one
+  query rather than batching them; and a plan taken against a hundred rows says
+  nothing about a hundred thousand.
 - A transport failure can carry the request it was making, so the error object
   is never what gets logged.
 

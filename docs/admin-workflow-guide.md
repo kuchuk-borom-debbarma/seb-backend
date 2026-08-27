@@ -9,7 +9,7 @@ the current administrative API. It complements the
 ## Access after sign-in
 
 Staff use the existing email/password sign-in. The portal reloads active roles
-from D1 on every request, so revocation takes effect on the next action.
+from the database on every request, so revocation takes effect on the next action.
 Sign-in requires only one active role of any kind, so the bootstrapped first
 administrator holds `SUPER_ADMIN` alone and signs in normally.
 
@@ -32,8 +32,9 @@ New staff arrive one of two ways. A super administrator grants a role directly,
 or anybody who may invite sends an invitation the person accepts themselves, in
 which case their applicant access is exchanged for the staff role. Both are
 described in the
-[administrator RBAC guide](admin-rbac.md#role-administration). Account recovery
-remains a launch blocker.
+[administrator RBAC guide](admin-rbac.md#role-administration). A staff member
+who forgets their password recovers it themselves from the sign-in screen,
+proved by a code sent to their mailbox, and a reset ends every open session.
 
 Every mutation uses one action below `mutation.admin`. Expected role loss,
 stale versions, invalid transitions, and policy failures return the normal
@@ -44,7 +45,9 @@ stale versions, invalid transitions, and policy failures return the normal
 A programme cycle is one published application window, for example “Mission
 SEP 2026”. It is not an application batch or an applicant account. It contains
 the opening/closing times, guidance, bank-roster text, jurisdiction, age and
-category rules, expansion wait, required assessments, document conditions,
+category rules, expansion wait, required assessments, the application form
+itself — its stages and questions, where a required document is a `FILE`
+question like any other and may carry the same show-when conditions — the
 reason catalogue, and funding-ceiling state.
 
 Example: Rina starts phase 1 while cycle version 2 is open. Her draft pins
@@ -56,6 +59,33 @@ guidance or a future closing time after publication, then close and eventually
 archive it. Closing stops new drafts; it does not strand existing submissions
 or official revisions. The scheduled handler closes at most 20 expired cycles
 per run. Opened cycles cannot be deleted.
+
+## Authoring the application form
+
+The questions a cycle asks are part of the cycle, authored on the cycle
+editor's form screen and changed only while the cycle is a **draft** — once a
+cycle opens, its form is frozen with everything else, and a change of question
+means a new cycle version. Editing the form is `CYCLE_ADMIN` work, which only
+a super administrator holds.
+
+The form is a sequence of **stages**, each a titled step of the applicant's
+journey, and each stage holds **questions**: text of several shapes, dates,
+amounts, choices, attestations, statements the applicant only reads, document
+uploads, and repeatable groups ("add each owner"). A question can carry
+validation limits, presentation hints (a placeholder, an inline note, a width,
+a prefix such as ₹), and conditions — "ask this only when that earlier answer
+says so". A cycle can also define a **reusable structure** once — an Owner is
+a name, a date of birth, a share — and use it in any repeated group, so the
+same set of questions is never maintained twice.
+
+Every edit is one mutation under `mutation.admin.formTemplate`
+— add, update or remove a stage or a question, put or remove a structure, or
+replace the whole form — and every one of them re-checks the **entire** form
+before anything is saved, so a removal that would orphan a rule elsewhere is
+refused with a sentence naming the question that would have been left
+unanswerable. How the whole system works — the question types, the conditions,
+the structures, the limits, and what the applicant's side does with it — is
+the subject of the [form template guide](form-template-guide.md).
 
 ## Intake queues
 
@@ -92,7 +122,7 @@ chips stay stable rather than appearing and disappearing.
 | `REVISION_RESPONSES` | `SUBMITTED`, submission number above 1 |
 | `DESK_REVIEW` | `DESK_REVIEW` |
 | `PARTNER_BANK_EVALUATION` | `PARTNER_BANK_EVALUATION` |
-| `TTM_REVIEW` | `TTM_REVIEW` |
+| `AWAITING_DECISION` | `AWAITING_DECISION` |
 | `APPROVED` / `REJECTED` / `SANCTIONED` / `DISBURSED` | the matching status |
 
 The first two queues are why this is its own vocabulary rather than a reuse of
@@ -119,14 +149,33 @@ side effect of the work rather than as a step before it.
 
 What replaced it as a gate is stronger. Advancing a stage requires transcribing
 the numbers off the documents just read, which is evidence of having read them
-in a way that pressing a button never was — see “What the reviewer writes
-down”.
+in a way that pressing a button never was — see “What the reviewer
+transcribes”.
 
 If the officer acting is also the applicant, they must acknowledge it on the
 transition that decides something: completing a desk review, or recording a
 decision. The selected product rule permits the action and retains the
 acknowledgement. TTAADC still needs to decide whether a second approval is
 required before public launch.
+
+## Analytics and filtering
+
+`admin.analytics.summary` answers "what does the intake look like right now":
+one filtered set of applications, counted along each dimension the office
+reports on — status, category, sector, district, cycle — plus the requested
+seed-fund total and average and a month-by-month submission series.
+
+It takes **the queue's own filters**, so the summary always describes exactly
+the set the queue would list: whatever combination of cycles, statuses,
+categories, sectors, and districts is chosen, the numbers and the list agree.
+Those filters accept several values at once — "Category A in West Tripura or
+Khowai" is one query, not three.
+
+The dimensions read live rows, not a reporting copy: sector and district come
+from the enterprise's current profile, category from the pinned application
+version, and the requested amount from the submitted answers. Dedicated
+indexes on submission time, sector, and district keep the grouped counts a
+seek rather than a scan.
 
 ## Frozen evidence and document safety
 
@@ -137,19 +186,24 @@ file reviewed yesterday.
 Every finalized file begins with a `PENDING` scan result and a queued request to
 scan it. A trusted consumer appends `ACCEPTED`, `REJECTED` or `ERROR`; there is
 deliberately no GraphQL "accept scan" mutation. Staff download fails closed
-unless the latest scan for the exact submitted file is `ACCEPTED` and the staff
-member currently owns the assignment.
+unless the latest scan for the exact submitted file is `ACCEPTED`. Any staff
+role that can read casework can then open it — a download is a read, and it is
+deliberately not tied to holding the file; only a draft is refused, identically
+to an application that does not exist.
 
-**No malware scanner has been chosen yet, and what that means depends on where
-you are.** On a developer's machine and on the development deployment,
-documents are accepted without being examined and the scan history records
-`NO_SCANNER_CONFIGURED` against each one — so anybody looking can tell an
-unexamined file from a checked one. Production refuses to start at all until a
-real scanner is configured. See the
+**A real scanner exists, and which one runs is configuration.** With
+`SCANNER_TRANSPORT` set to `cloudmersive` and its API key configured, every
+finalized file is genuinely examined before it becomes openable. Where no
+scanner is configured — a developer's machine, or a deployment whose key has
+not been issued yet — documents are accepted without being examined and the
+scan history records `NO_SCANNER_CONFIGURED` against each one, so anybody
+looking can tell an unexamined file from a checked one. Production refuses the
+unexamined mode outright. See the
 [document scanner service](../src/services/document-scanner/README.md).
 
-The scanner provider is not connected. Therefore staff document access and
-public launch remain blocked even though the fail-closed contract exists.
+Until the production key is issued and configured, staff document access in
+production stays effectively closed even though the fail-closed contract and
+the scanner both exist.
 
 ## Desk review and revisions
 
@@ -190,7 +244,7 @@ nothing linking them.
 
 A financial inconsistency might produce a `FINANCIAL` revision request with an
 approved reason and safe instruction: “Correct the requested amount to match
-the DPR.” Only that section becomes editable. Resubmission creates a new frozen
+the DPR.” Only that stage becomes editable. Resubmission creates a new frozen
 submission, resolves every open request, clears the former assignment, and
 returns to intake. A mistaken request is cancelled with a reason and retained;
 if no requests remain, the application returns to desk review.
@@ -201,38 +255,37 @@ events or general audit metadata.
 
 ## Offline bank evaluation
 
-After a passing desk review, the assignee freezes the bank name, branch,
+After a passing desk review, staff freeze the bank name, branch,
 referral reference/date, exact submission, and completed review. Only one open
 referral exists. An incorrect referral can be cancelled with an approved reason
 and replaced without deleting history.
 
 Staff append `RECOMMENDED`, `NOT_RECOMMENDED`, or
-`MORE_INFORMATION_REQUIRED`. Both positive and negative feedback proceed to
-TTM. More information creates section revision requests. Before TTM acts, a
-mistake is corrected with a superseding outcome and a correction reason; after
-a TTM decision, bank evidence is locked.
+`MORE_INFORMATION_REQUIRED`. Both positive and negative feedback go on to be
+decided. More information creates stage revision requests. Before the decision,
+a mistake is corrected with a superseding outcome and a correction reason; once
+a decision exists, bank evidence is locked.
 
-## TTM meetings and decisions
+## The programme decision
 
-A draft meeting has a unique reference, time, venue, description, and at most
-20 active agenda items. An agenda item pins the application, submission, and
-latest bank outcome. Staff may reorder or remove items only while the meeting
-is draft. Starting the meeting locks evidence. Finalization succeeds only when
-no active item lacks an outcome; cancellation retains meeting and agenda
-history while releasing active applications for a later agenda.
+An application that clears the bank stage waits in `AWAITING_DECISION` and is
+decided directly. There is no meeting to schedule and no agenda to build: the
+gate is holding `DECIDE`, and the decision records which submission and which
+bank outcome were read, so the file still shows what was in front of whoever
+decided it.
 
-TTM records one of:
+The decision records one of:
 
 - `APPROVED`: positive amount no greater than the submitted request, reference,
   date, conditions, and safe message;
-- `REJECTED`: approved reason and safe message;
-- `DEFERRED`: approved reason and next programme action; or
-- `REVISION_REQUIRED`: approved reason plus unique editable sections.
+- `REJECTED`: approved reason and safe message; or
+- `REVISION_REQUIRED`: approved reason plus unique editable stages, each one a
+  stage the application's own cycle declares.
 
-A correction appends a superseding decision. It is blocked after an award or
-after a rejected phase has already been retried, because downstream facts then
-require an award or recovery action rather than rewriting the programme
-decision.
+A correction appends a superseding decision, and only to the application's most
+recent one. It is blocked after an award or after a rejected phase has already
+been retried, because downstream facts then require an award or recovery action
+rather than rewriting the programme decision.
 
 ## Awards, releases, and assessments
 
@@ -245,7 +298,7 @@ Closing records whether all planned funds were released or whether the
 programme deliberately decided not to release the remainder. That disposition
 is retained in the current award and every immutable award version.
 
-One release action records both the TTM release approval and payment: amount,
+One release action records both the release approval and payment: amount,
 unique external reference, occurrence time, verified bank account, executed
 performance agreement, and physical verification when required. It cannot
 exceed the remaining sanction. The first release makes the application
@@ -284,7 +337,7 @@ compensating entries and close the case at zero balance.
 ## Visible versus internal information
 
 Applicant-visible: cycle notices, revision instructions, bank status summary,
-TTM result/conditions, sanction status, release/reversal message, assessment
+decision result/conditions, sanction status, release/reversal message, assessment
 summary, and recovery message.
 
 Internal only: correspondence notes, desk-check notes, deliberations, internal
@@ -303,17 +356,18 @@ form contents, money, bank correspondence, notes, or credentials.
 - Scan failure: the exact submitted file’s latest result is not accepted.
 - Invalid transition: the current status or prerequisite evidence does not
   permit the requested next state.
-- Constraint conflict: duplicate reference, agenda position, sanction order, or
+- Constraint conflict: duplicate reference, sanction order, or
   accounting external reference.
 
 ## Public-launch blockers
 
-Do not launch administrative operations to the public until account recovery, a
-real malware scanner, rate limits, privacy and access approval, and the
-unresolved TTAADC policy decisions in the
+Do not launch administrative operations to the public until the production
+malware-scanner key is configured, privacy and access approval is obtained,
+and the unresolved TTAADC policy decisions in the
 [policy alignment guide](policy-alignment.md) are complete.
 
-Role management, the narrower staff roles, invitations and the activity history
-are all delivered. The scanner is a **production** blocker rather than a blanket
-one: the seam and its consumer exist, and the development environments are
-usable because they record plainly that nothing examined the file.
+Role management, the narrower staff roles, invitations, the activity history,
+account recovery, and rate limiting are all delivered. The scanner is a
+**configuration** blocker rather than a missing feature: the seam, its
+consumer and a real provider exist, and the development environments are
+usable because they record plainly when nothing examined a file.

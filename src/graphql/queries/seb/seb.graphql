@@ -29,16 +29,22 @@ with a decimal library, never `parseFloat`.
 """
 scalar Money
 
-"""Whether a business is registered, and under which instrument."""
+"""Under which instrument the business is constituted."""
 enum RegistrationType {
-  """Not registered. An ordinary applicant, not an incomplete one."""
-  NONE
+  """A private limited company, holding a Corporate Identity Number."""
+  PRIVATE_LIMITED
 
-  """Registered as a company, holding a Corporate Identity Number."""
-  CIN
+  """A limited liability partnership, holding an LLPIN."""
+  LLP
 
-  """Registered as a micro, small or medium enterprise under Udyam."""
-  UDYAM
+  """
+  A sole proprietorship. No incorporation instrument exists, so a
+  registration number is optional — one it happens to hold, or nothing.
+  """
+  SOLE_PROPRIETORSHIP
+
+  """A one person company, holding a Corporate Identity Number."""
+  OPC
 }
 
 """
@@ -111,10 +117,10 @@ enum ApplicationStatus {
   """With a partner bank for its own assessment. Nothing for the applicant to do."""
   PARTNER_BANK_EVALUATION
 
-  """Before the committee that decides it."""
-  TTM_REVIEW
+  """Cleared the bank stage and waiting to be decided."""
+  AWAITING_DECISION
 
-  """Approved by the committee. The sanction order follows."""
+  """Approved. The sanction order follows."""
   APPROVED
 
   """Not approved. The reason is on the timeline."""
@@ -145,110 +151,16 @@ enum ApplicationType {
 """
 Which funding band applies.
 
-Decided by how long the business has been trading against the cycle's
-threshold, and validated at submission rather than taken on trust.
+Computed by the server at submission from the enterprise's establishment date
+against the cycle's operating-months threshold — never asked, never taken on
+trust.
 """
 enum ApplicationCategory {
-  """A newer business, under the cycle's operating-months threshold."""
+  """An established business: trading at or over the cycle's threshold (24 months by default)."""
   CATEGORY_A
 
-  """An established business, at or over that threshold."""
+  """A newer business, under that threshold."""
   CATEGORY_B
-}
-
-"""The applicant's role in the business."""
-enum ApplicantDesignation {
-  """Sole owner."""
-  PROPRIETOR
-
-  """The partner who runs the firm."""
-  MANAGING_PARTNER
-
-  """A director of the company."""
-  DIRECTOR
-
-  """Authorised to sign on the business's behalf."""
-  AUTHORIZED_SIGNATORY
-}
-
-"""The applicant's gender, recorded for programme reporting."""
-enum Gender {
-  """Recorded for programme reporting, never used to decide eligibility."""
-  MALE
-
-  """Recorded for programme reporting, never used to decide eligibility."""
-  FEMALE
-
-  """Neither, or not stated in those terms."""
-  OTHER
-}
-
-"""Whether an existing bank facility is performing."""
-enum CreditStatus {
-  """Performing normally."""
-  STANDARD
-
-  """A non-performing asset. Declared, and weighed at review."""
-  NPA
-}
-
-"""
-One slot of evidence an application can carry.
-
-Which of these are required is the programme cycle's decision, not a fixed
-list — a cycle may make any of them optional.
-"""
-enum DocumentType {
-  """Proof of who the applicant is and how old they are."""
-  IDENTITY_AGE_PROOF
-
-  """The Scheduled Tribe certificate."""
-  ST_CERTIFICATE
-
-  """Proof of where the applicant lives."""
-  ADDRESS_PROOF
-
-  """The certificate of registration, where the business holds one."""
-  BUSINESS_REGISTRATION
-
-  """The GST registration certificate, where the business holds one."""
-  GST_REGISTRATION
-
-  """The detailed project report."""
-  DPR
-
-  """Bank account details, for paying an award into."""
-  BANK_DETAILS
-
-  """A no-objection certificate, where the project needs one."""
-  NOC
-}
-
-"""
-One part of the application form.
-
-Used to say what changed, what may be edited, and which part a correction
-request or a validation issue is about.
-"""
-enum ApplicationSection {
-  """The business, as asserted for this application."""
-  ENTERPRISE
-
-  """The person applying."""
-  APPLICANT_PROFILE
-
-  """What the project costs and who pays for it."""
-  FINANCIAL
-
-  """Public money and bank credit already held."""
-  PRIOR_FUNDING
-
-  """Evidence specific to a later-phase application."""
-  EXPANSION
-
-  """The attached evidence."""
-  DOCUMENTS
-
 }
 
 """The applicant's two subjects: their businesses, and their applications."""
@@ -439,6 +351,21 @@ type SebApplicationQuery {
   ): ApplicantFundingResult!
 
   """
+  The form one of this applicant's applications is filled against.
+
+  **Use case:** `/applications/$id/form`, to render the questions.
+
+  Its own field rather than a member of `ApplicationDetail`, for two reasons:
+  the detail is invalidated on every autosave and the form is not, and hanging
+  it off `ProgrammeCycle` — which is returned in lists — would mean twenty
+  cycles' worth of fields in one response.
+  """
+  formTemplate(
+    """Whose form to read. Must belong to the signed-in applicant."""
+    applicationId: ID!
+  ): FormTemplateResult!
+
+  """
   What this draft changes relative to the last submission.
 
   **Use case:** a final check before `resubmit`, so an applicant can see they
@@ -511,7 +438,10 @@ type Enterprise {
   """Where the business operates — the block or village."""
   businessBlockOrVillage: String
 
-  """The district the business operates in."""
+  """
+  The district the business operates in, as one of the eight district codes
+  (for example `WEST_TRIPURA`).
+  """
   businessDistrict: String
 
   """Six-digit postal code for the business address."""
@@ -654,10 +584,10 @@ type ApplicationStatusGuide {
 """What a draft changes relative to the last submission."""
 type ApplicationChangedSections {
   """
-  The sections that differ. Empty means nothing has changed yet — worth showing
+  The stages that differ. Empty means nothing has changed yet — worth showing
   before a resubmission, because it usually means the applicant has not started.
   """
-  sections: [ApplicationSection!]!
+  stageKeys: [String!]!
 
   """Which submission the draft is being compared against."""
   comparedToSubmissionNumber: Int!
@@ -747,122 +677,6 @@ type ApplicationConnection {
 }
 
 """
-The business as this application asserts it.
-
-Frozen at submission, and therefore not the same as the enterprise record —
-which goes on changing afterwards.
-"""
-type EnterpriseSnapshot {
-  """The business name as given on this application."""
-  businessName: String
-
-  """When the business began trading."""
-  establishmentDate: Date
-
-  """Whether it is registered, and under which instrument."""
-  registrationType: RegistrationType
-
-  """The registration number, when there is one."""
-  registrationNumber: String
-
-  """The GSTIN, when the business holds one."""
-  gstin: String
-
-  """What the business does."""
-  businessSector: BusinessSector
-
-  """The sector in the applicant's words, used only with `OTHER`."""
-  otherBusinessSector: String
-
-  """Which funding band this application is for."""
-  applicationCategory: ApplicationCategory
-
-  """Whether majority ownership by the qualifying group was confirmed."""
-  majorityOwnershipConfirmed: Boolean
-}
-
-"""The person applying, as this application asserts them."""
-type ApplicantProfileSnapshot {
-  """Full name of the person responsible."""
-  primaryApplicantName: String
-
-  """Their role in the business."""
-  designation: ApplicantDesignation
-
-  """Date of birth, checked against the cycle's age range at submission."""
-  dateOfBirth: Date
-
-  """The applicant's gender."""
-  gender: Gender
-
-  """The applicant's block or village."""
-  businessBlockOrVillage: String
-
-  """The applicant's district."""
-  businessDistrict: String
-
-  """Six-digit postal code."""
-  businessPinCode: String
-
-  """Telephone for programme correspondence."""
-  contactNumber: String
-
-  """Address for programme correspondence."""
-  contactEmail: String
-}
-
-"""What the project costs and who pays for it. Every amount is in paise."""
-type FinancialSnapshot {
-  """What the whole project costs, in paise. The seed fund covers part of it."""
-  totalProjectCostPaise: Money
-
-  """How much seed funding is asked for, in paise."""
-  seedFundRequestedPaise: Money
-
-  """How much a bank loan is expected to cover, in paise."""
-  bankLoanProposedPaise: Money
-
-  """How much the promoter is putting in themselves, in paise."""
-  promoterContributionPaise: Money
-}
-
-"""Public money and bank credit the enterprise already had, as declared."""
-type PriorFundingSnapshot {
-  """Whether the enterprise has had government funding before."""
-  receivedGovernmentFunding: Boolean
-
-  """Which scheme it came from."""
-  governmentSchemeName: String
-
-  """How much was received, in paise."""
-  governmentFundingAmountPaise: Money
-
-  """The year it was sanctioned."""
-  governmentFundingSanctionYear: Int
-
-  """Whether the enterprise has a bank facility."""
-  hasExistingBankCredit: Boolean
-
-  """Which bank holds it."""
-  existingBankName: String
-
-  """The outstanding amount, in paise."""
-  existingCreditAmountPaise: Money
-
-  """Whether that facility is performing."""
-  existingCreditStatus: CreditStatus
-}
-
-"""Answers that decide which documents this application must carry."""
-type DocumentRequirementsSnapshot {
-  """
-  Whether a no-objection certificate applies. True makes the NOC required at
-  submission.
-  """
-  nocRequired: Boolean
-}
-
-"""
 One complete copy of the form.
 
 Every save makes a new one, so nothing an applicant wrote is ever lost and a
@@ -871,6 +685,20 @@ submission can be compared against what came before it.
 type ApplicationSnapshot {
   """This snapshot's version of the form."""
   version: Int!
+
+  """
+  What was answered at this version, keyed by `FormField.key`.
+
+  Read against the form the version is pinned to, so a submission stays
+  readable exactly as it was filled in however the cycle's questions change
+  afterwards. Documents are **not** here — a `FILE` question carries evidence,
+  which has its own versioned row.
+
+  This is what makes a submission something a person can read. Without it a
+  reviewer has the labels, the evidence and the dates, and nothing the
+  applicant actually wrote.
+  """
+  answers: JSON!
 
   """
   The cycle rule version this snapshot was taken against. What the application
@@ -890,20 +718,17 @@ type ApplicationSnapshot {
   """When this version was written."""
   createdAt: DateTime!
 
-  """The business, as this version asserts it."""
-  enterprise: EnterpriseSnapshot!
+  """When the declaration was accepted. Null until it is."""
+  declarationAcceptedAt: DateTime
 
-  """The person applying."""
-  applicantProfile: ApplicantProfileSnapshot!
-
-  """What the project costs and who pays for it."""
-  financial: FinancialSnapshot!
-
-  """Public money and bank credit already held."""
-  priorFunding: PriorFundingSnapshot!
-
-  """Answers that decide which documents are required."""
-  documents: DocumentRequirementsSnapshot!
+  """
+  The category the server computed at submission from the enterprise's
+  establishment date and the cycle's threshold: `CATEGORY_A` for an enterprise
+  trading at least that long, `CATEGORY_B` otherwise. Never asked, never
+  editable, and frozen with the snapshot. Null on drafts and on cycles that
+  set no threshold.
+  """
+  applicationCategory: ApplicationCategory
 
   """
   The earlier award's sanction order, on a later-phase application. Null on a
@@ -932,8 +757,8 @@ type ApplicationDocument {
   """Stable identifier for the slot, across every version of the file."""
   id: ID!
 
-  """Which evidence slot this fills."""
-  documentType: DocumentType!
+  """Which `FILE` question of the form this evidence answers."""
+  fieldKey: String!
 
   """
   The current version. Send back as `expectedDocumentVersion` to replace it;
@@ -960,15 +785,15 @@ type ApplicationDocument {
 """
 One change the programme office has asked for.
 
-A correction names the section it is about, and while it is open only that
-section may be edited.
+A correction names the stage it is about, and while it is open only that stage
+may be edited.
 """
 type RevisionRequest {
   """Stable identifier."""
   id: ID!
 
-  """Which part of the form is to be changed."""
-  section: ApplicationSection!
+  """Which stage of the form is to be changed, from `FormStage.key`."""
+  stageKey: String!
 
   """What the office asked for, in their words. Shown to the applicant."""
   note: String!
@@ -1033,6 +858,19 @@ type Application {
   """The current state of the form."""
   snapshot: ApplicationSnapshot!
 
+  """
+  Every answer on the current version, keyed by `FormField.key`.
+
+  Read against the form this version is pinned to, so a question the cycle has
+  since changed still reads as it was answered. Send the whole object back to
+  `saveDraft`.
+
+  A repeated group's key holds a list of entries. Documents are **not** here —
+  a `FILE` question carries evidence rather than an answer, and is read from
+  `documents`.
+  """
+  answers: JSON!
+
   """The evidence attached, including removed documents."""
   documents: [ApplicationDocument!]!
 
@@ -1043,29 +881,174 @@ type Application {
   revisionRequests: [RevisionRequest!]!
 
   """
-  Sections the applicant may change right now.
+  Stages the applicant may change right now, from `FormStage.key`.
 
-  Every section while the application is a draft, only the sections named by
-  unresolved correction requests while a revision is required, and none
-  otherwise. **Use this to decide what to disable** rather than deriving it
-  from `status` — the two will not always agree.
+  Every stage the form declares while the application is a draft, only the
+  stages named by unresolved correction requests while a revision is required,
+  and none otherwise. **Use this to decide what to disable** rather than
+  deriving it from `status` — the two will not always agree.
   """
-  editableSections: [ApplicationSection!]!
+  editableStageKeys: [String!]!
+}
+
+"""
+Every reason an answer can be refused.
+
+Closed and exhaustive, so a client can branch on one of these rather than on a
+sentence — `message` is written for the applicant and may be reworded at any
+time. A code the server can emit that is missing here is a serialization error
+rather than a value that quietly passes through, which is the point of it being
+an enum; `test/service/issue-codes.test.ts` pins the two together.
+
+Roughly half of these are structural and exist because the answers travel as a
+`JSON` scalar. When every question was a typed field, GraphQL refused a wrong
+shape before a resolver ran; it cannot now, so the engine does, and each refusal
+needs a name of its own.
+"""
+enum ValidationIssueCode {
+  """The answers were not an object of question keys at all."""
+  MALFORMED_ANSWERS
+
+  """
+  A key the cycle does not ask, or asks somewhere else — a question the office
+  records rather than the applicant, or a member answered outside its group.
+  Reload the form: it usually means the cycle moved on.
+  """
+  UNKNOWN_FIELD
+
+  """
+  A key the cycle asks that the request left out. A save replaces the whole set
+  rather than merging into it, so silence is an omission and not a clearance.
+  """
+  MISSING_SNAPSHOT_FIELD
+
+  """Evidence was written as an answer. Upload it against the slot instead."""
+  FILE_ANSWER_NOT_ALLOWED
+
+  """A statement is read, never answered. Remove the value sent against it."""
+  STATEMENT_ANSWER_NOT_ALLOWED
+
+  """More than a save will carry. Shortening the longest answers is the fix."""
+  ANSWERS_TOO_LARGE
+
+  """
+  The questions this application was filled under could not be read back, which
+  means the cycle's rows were edited outside the product.
+  """
+  TEMPLATE_UNAVAILABLE
+
+  """Not the kind of thing this question takes at all."""
+  INVALID_TYPE
+
+  """Not a real day, in `YYYY-MM-DD`."""
+  INVALID_DATE
+
+  """Not a whole number."""
+  INVALID_INTEGER
+
+  """Not a whole number of paise."""
+  INVALID_MONEY
+
+  """Neither true nor false."""
+  INVALID_BOOLEAN
+
+  """Not one of the choices this question offers."""
+  INVALID_ENUM
+
+  """Not something that could be an email address."""
+  INVALID_EMAIL
+
+  """Not something that could be a telephone number."""
+  INVALID_PHONE
+
+  """The same choice was taken twice."""
+  DUPLICATE_SELECTION
+
+  """
+  Refused by the format the cycle wrote for this question. What the applicant
+  reads comes from the cycle's own wording, because how to word a rule belongs
+  with whoever wrote it.
+  """
+  PATTERN_MISMATCH
+
+  """Fewer characters than this question accepts."""
+  TOO_SHORT
+
+  """More characters than this question accepts."""
+  TOO_LONG
+
+  """Below the smallest amount this question accepts."""
+  TOO_SMALL
+
+  """Above the largest amount this question accepts."""
+  TOO_LARGE
+
+  """Before the earliest day this question accepts."""
+  DATE_TOO_EARLY
+
+  """After the latest day this question accepts."""
+  DATE_TOO_LATE
+
+  """Fewer choices taken than this question asks for."""
+  TOO_FEW_SELECTED
+
+  """More choices taken than this question allows."""
+  TOO_MANY_SELECTED
+
+  """Fewer entries in this repeated group than it asks for."""
+  TOO_FEW_ENTRIES
+
+  """More entries in this repeated group than it allows."""
+  TOO_MANY_ENTRIES
+
+  """Left blank, and the cycle asks for it before an application can be sent."""
+  REQUIRED
+
+  """A declaration was not ticked. Nothing else counts as accepting it."""
+  MUST_BE_TRUE
+
+  """
+  Answers survive for questions the form has stopped asking. Reported once
+  against the question that controls them, rather than once each — the applicant
+  can only act on the controlling one.
+  """
+  CONDITIONAL_FIELDS
+
+  """A document this cycle asks for, given these answers, is not attached."""
+  DOCUMENT_REQUIRED
+
+  """Outside the ages this programme is open to."""
+  AGE_INELIGIBLE
+
+  """
+  The cycle sorts enterprises by how long they have traded, and this
+  enterprise has no establishment date to measure. Record it on the
+  enterprise, then submit again.
+  """
+  ESTABLISHMENT_DATE_MISSING
+
+  """More seed funding requested than this cycle awards."""
+  FUNDING_CEILING_EXCEEDED
 }
 
 """One reason an application is not ready to be sent."""
 type ValidationIssue {
-  """Which part of the form the problem is in."""
-  section: ApplicationSection!
+  """Which stage of the form the problem is in, so a client can group refusals."""
+  stageKey: String!
 
-  """Which field, as named in the input types."""
+  """
+  Which question, by `FormField.key`.
+
+  For a member of a repeated group this is `GROUP[0].MEMBER`, indexed from 0 —
+  the same string the client must put on the control's DOM `id`.
+  """
   field: String!
 
   """
   Stable machine-readable code, safe to branch on. The wording of `message`
   may change; this will not.
   """
-  code: String!
+  code: ValidationIssueCode!
 
   """What to show the applicant."""
   message: String!
@@ -1143,8 +1126,8 @@ type TimelineEvent {
   """The status after, where the event was a transition. Null otherwise."""
   toStatus: ApplicationStatus
 
-  """Which part of the form, where the event was about one. Null otherwise."""
-  section: ApplicationSection
+  """Which stage of the form, where the event was about one. Null otherwise."""
+  stageKey: String
 
   """
   What to show the applicant. Null for events that need no words beyond the
@@ -1341,6 +1324,18 @@ type ApplicationStatusGuideResult implements BaseResponse {
 
   """The guide. Null whenever `success` is false."""
   response: ApplicationStatusGuide
+}
+
+"""The application's form, or the reason it could not be read."""
+type FormTemplateResult implements BaseResponse {
+  """Whether the form was returned."""
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """The form. Null whenever `success` is false."""
+  response: FormTemplate
 }
 
 """What the draft changes, or the reason it could not be compared."""

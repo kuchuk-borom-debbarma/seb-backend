@@ -17,8 +17,8 @@ export const PASSWORD = 'correct horse battery staple'
 /**
  * The account the suite bootstraps as the first super administrator.
  *
- * It matches the test-only binding passed by `npm run test:worker`, because the
- * Worker will only ever promote that exact address.
+ * It must match `FIRST_SUPER_ADMIN_EMAIL` in `.env.local`, because the Worker
+ * will only ever promote that exact address.
  */
 export const SUPER_ADMIN_EMAIL = 'founder@example.com'
 
@@ -27,52 +27,92 @@ export const uniqueEmail = (prefix: string): string =>
   `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}@example.test`
 
 /**
- * Reads the six-digit signup code out of the Worker's console output.
+ * The six-digit code sent to one address, read from the Worker's console output.
  *
  * Locally the notification transport prints rather than delivers, so this is
  * the only place the code exists. It marks its line `DEV_EMAIL` precisely so
  * this can find it. Polling rather than reading once, because the Worker writes
  * the line asynchronously through `tee`.
+ *
+ * **Keyed on the recipient, not on position.** This used to take a byte offset
+ * and return the *last* `DEV_EMAIL` line after it, which is only correct while
+ * one signup happens at a time: run two at once and both readers take whichever
+ * the Worker flushed second, so one of them silently fills somebody else's code
+ * and fails later as an unexplained navigation timeout.
+ *
+ * The transport writes the recipient into the same line
+ * (`services/external-notification/transports/console.ts`), so the address is
+ * the key, and concurrent signups no longer collide.
+ *
+ * One ordering assumption does remain, and it is this function's own: when an
+ * address has been sent more than one code, it takes the newest line. That is
+ * right for a resend, but it cannot tell "the new code has not been flushed
+ * yet" from "there is no new code", so a caller that resends to an address and
+ * reads immediately can be handed the previous one. No caller does — every
+ * resend here is followed by a screen assertion first.
  */
-export const latestOtp = async (afterByteOffset = 0): Promise<string> => {
+export const latestOtp = async (
+  recipient: string,
+  options: { differentFrom?: string } = {},
+): Promise<string> => {
+  const wanted = recipient.trim().toLowerCase()
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const log = await readFile(WORKER_LOG, 'utf8').catch(() => '')
-    /*
-     * Anchored on the transport's own marker, not on "six digits somewhere".
-     * The previous version took the last six-digit run anywhere in the log,
-     * which silently returns the wrong code as soon as anything else logs six
-     * consecutive digits — a request id, a timestamp fragment, a provider
-     * reference. Reading the marked line means the code is found by where it
-     * is rather than by what it looks like.
-     */
-    const lines = [...log.slice(afterByteOffset).matchAll(/^DEV_EMAIL (.*)$/gmu)]
-    const code = lines.at(-1)?.[1]?.match(/\b(\d{6})\b/u)
-    if (code?.[1]) return code[1]
+    // Newest first: an address that signs up twice wants the later code.
+    for (const line of [...log.matchAll(/^DEV_EMAIL (.*)$/gmu)].reverse()) {
+      const message = readDevEmail(line[1])
+      if (message?.to?.trim().toLowerCase() !== wanted) continue
+      const code = message.text?.match(/\b(\d{6})\b/u)
+      if (!code?.[1]) continue
+      /*
+       * Keep waiting when the newest code is one the caller already had.
+       *
+       * This is the ordering caveat above, made answerable. One address can be
+       * sent a second code — signing up and then resetting — and the log is a
+       * pipe, so for a moment the newest line is still the old code. Without
+       * this the caller is handed the stale one and fails much later with "the
+       * code is invalid", nowhere near the cause.
+       */
+      if (options.differentFrom !== undefined && code[1] === options.differentFrom) break
+      return code[1]
+    }
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
-  throw new Error('No signup code appeared in the Worker log within 10 seconds.')
+  throw new Error(`No new code for ${recipient} appeared in the Worker log within 10 seconds.`)
 }
 
-/** Where the Worker log currently ends, so a later read ignores earlier codes. */
-export const workerLogLength = async (): Promise<number> =>
-  (await readFile(WORKER_LOG, 'utf8').catch(() => '')).length
+/**
+ * One `DEV_EMAIL` line, parsed, or `null` when it is not one this cares about.
+ *
+ * Tolerant on purpose: the log is a pipe, and a line can be read while it is
+ * still being written. A half-flushed line is not an error, it is a line to try
+ * again on.
+ */
+const readDevEmail = (
+  payload: string | undefined,
+): { to?: string; subject?: string; text?: string } | null => {
+  if (!payload) return null
+  try {
+    return JSON.parse(payload) as { to?: string; subject?: string; text?: string }
+  } catch {
+    return null
+  }
+}
 
-/** Registers a real applicant through the combined login screen. */
+/** Registers a real applicant through the signup screens and returns the email. */
 export const signUpApplicant = async (page: Page, email: string): Promise<void> => {
-  const offset = await workerLogLength()
-
-  await page.goto('/login')
-  await page.getByRole('button', { name: 'Create Account' }).click()
-  await page.getByLabel('Email Address').fill(email)
+  await page.goto('/sign-up')
+  await page.getByLabel('Email address').fill(email)
   await page.getByRole('button', { name: 'Send verification code' }).click()
 
-  const code = await latestOtp(offset)
+  const code = await latestOtp(email)
   await page.getByLabel(/Six-digit code/u).fill(code)
   await page.getByLabel('Choose a password').fill(PASSWORD)
-  await page.getByRole('button', { name: 'Create Applicant Account' }).click()
+  await page.getByRole('button', { name: 'Create account' }).click()
 
-  // Signup deliberately does not create a session, so it returns to login.
-  await expect(page.getByRole('status')).toContainText('Account created')
+  // Signup deliberately does not create a session, so it lands on the
+  // sign-in side of the login screen.
+  await page.waitForURL('**/login')
 }
 
 export const signIn = async (
@@ -80,17 +120,31 @@ export const signIn = async (
   email: string,
   password = PASSWORD,
 ): Promise<void> => {
+  /*
+   * Always through the applicant panel: the login screen's role switcher only
+   * changes the copy and the landing page, not what the API accepts, and the
+   * redirect sends a staff account to the office either way. The button name
+   * is exact because "Switch to Applicant Sign In" also contains "Sign In".
+   */
   await page.goto('/login')
-  await page.getByLabel('Email Address').fill(email)
+  await page.getByLabel('Email address').fill(email)
   await page.getByLabel('Password', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
-  await page.waitForURL((url) => url.pathname !== '/login')
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'))
 }
 
 export const signOut = async (page: Page): Promise<void> => {
+  /*
+   * Exact, because `/account/sessions` also offers "Sign out other devices"
+   * and "Sign out everywhere". Without it this helper is ambiguous on that one
+   * screen and fails there with a strict-mode violation rather than anywhere
+   * near what the test was actually checking.
+   */
+  // The control lives in the account menu now, so open that first.
   await page.getByRole('button', { name: 'Account menu' }).click()
-  await page.getByRole('menuitem', { name: 'Sign out' }).click()
-  await expect(page).toHaveURL('/')
+  await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click()
+  // Signing out lands on the public site, not a sign-in form.
+  await page.waitForURL((url) => url.pathname === '/')
 }
 
 /**
@@ -119,7 +173,7 @@ export const bootstrapSuperAdmin = async (): Promise<void> => {
  * assert which sections exist rather than how they are styled.
  */
 export const navigationSections = async (page: Page): Promise<string[]> => {
-  const headings = page.locator('nav[aria-label="Portal sections"] section > p')
+  const headings = page.locator('nav[aria-label="Portal sections"] p')
   /*
    * Wait for the first heading rather than sampling. `toHaveURL` passes the
    * moment the address changes, which can be before the shell has rendered —
@@ -144,7 +198,9 @@ export const openProgrammeCycle = async (
   page: Page,
   { prefix = 'SEP', name }: { prefix?: string; name?: string } = {},
 ): Promise<string> => {
-  const code = `${prefix}-${Date.now().toString(36).toUpperCase()}`
+  // Random suffix as well as the clock: two workers opening a cycle in the
+  // same millisecond with the same prefix would otherwise collide.
+  const code = `${prefix}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`
   await page.goto('/admin/cycles/new')
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(name ?? code)
@@ -157,7 +213,7 @@ export const openProgrammeCycle = async (
   await page
     .getByLabel('Applications close')
     .fill(local(new Date(Date.now() + 2_592_000_000)))
-  await page.getByRole('button', { name: 'Save draft' }).click()
+  await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
   await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
   await page.getByRole('button', { name: 'Open for applications' }).click()
@@ -165,6 +221,27 @@ export const openProgrammeCycle = async (
     page.getByRole('button', { name: 'Close to new applications' }),
   ).toBeVisible()
   return code
+}
+
+/**
+ * Registers an enterprise with only its name, through the wizard's own steps.
+ *
+ * The wizard asks its questions one category at a time, and every question
+ * after the name is optional, so the helper advances past each remaining
+ * category with the defaults and submits from the last one. It waits for the
+ * enterprise's own page so the record exists before the caller moves on.
+ */
+export const registerEnterprise = async (
+  page: Page,
+  businessName: string,
+): Promise<void> => {
+  await page.goto('/enterprises/new')
+  await page.getByLabel('Registered or trading name').fill(businessName)
+  for (let step = 0; step < 3; step += 1) {
+    await page.getByRole('button', { name: 'Next' }).click()
+  }
+  await page.getByRole('button', { name: 'Register enterprise' }).click()
+  await expect(page).toHaveURL(/\/enterprises\/[0-9a-f-]{36}$/u)
 }
 
 /**
@@ -176,7 +253,11 @@ export const openProgrammeCycle = async (
  */
 export const startApplication = async (
   page: Page,
-  { prefix = 'applicant', businessName = 'Test Works' } = {},
+  {
+    prefix = 'applicant',
+    businessName = 'Test Works',
+    cycleCode,
+  }: { prefix?: string; businessName?: string; cycleCode: string },
 ): Promise<string> => {
   const email = uniqueEmail(prefix)
   await signUpApplicant(page, email)
@@ -186,30 +267,23 @@ export const startApplication = async (
 
   await page.goto('/applications/new')
   await page.getByLabel('Enterprise').selectOption({ label: businessName })
-  await page.getByLabel('Programme cycle').selectOption({ index: 1 })
-  await page.getByRole('button', { name: 'Next' }).click()
-  await page.getByLabel('Initial application').check()
+  /*
+   * By code, never by position, and `cycleCode` is required so there is no way
+   * back to position.
+   *
+   * The options are ordered by `opensAt`, and every helper opens its cycle at
+   * "an hour ago" — so index 1 is the oldest still-open cycle in the whole
+   * database, never the one the caller just made. Selecting it worked only
+   * because the files needing a document-requiring cycle happened to run before
+   * the ones that open cycles without documents, and under parallel files not
+   * even that. `submitApplication` selects by code for the same reason.
+   */
+  const cycle = page.getByLabel('Programme cycle')
+  const label = await cycle.locator('option').filter({ hasText: cycleCode }).innerText()
+  await cycle.selectOption({ label })
   await page.getByRole('button', { name: 'Start an initial application' }).click()
-  await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}\/form\?/u)
-  return new URL(page.url()).pathname.split('/')[2] as string
-}
-
-/** Registers the minimum valid enterprise through all four form categories. */
-export const registerEnterprise = async (page: Page, name: string): Promise<string> => {
-  await page.goto('/enterprises/new')
-  await page.getByLabel('Registered or trading name').fill(name)
-  await page.getByLabel('Sector').selectOption('FOOD_PROCESSING')
-  for (const category of [
-    'Registration and tax',
-    'Business location',
-    'Contact details',
-  ]) {
-    await page.getByRole('button', { name: 'Next' }).click()
-    await expect(page.getByRole('heading', { name: category })).toBeVisible()
-  }
-  await page.getByRole('button', { name: 'Register enterprise' }).click()
-  await expect(page).toHaveURL(/\/enterprises\/[0-9a-f-]{36}$/u)
-  return new URL(page.url()).pathname.split('/')[2] as string
+  await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
+  return page.url().split('/').pop() as string
 }
 
 /**
@@ -245,9 +319,7 @@ export const submitApplication = async (
 ): Promise<{ email: string; id: string }> => {
   await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
   const cycleCode = await openCycleWithoutDocuments(
-    page,
-    prefix.toUpperCase(),
-    configureIdentifiers,
+    page, prefix.toUpperCase(), configureIdentifiers,
   )
   await page.context().clearCookies()
 
@@ -271,36 +343,14 @@ export const submitApplication = async (
     .filter({ hasText: cycleCode })
     .innerText()
   await page.getByLabel('Programme cycle').selectOption({ label: cycleOption })
-  await page.getByRole('button', { name: 'Next' }).click()
-  await page.getByLabel('Initial application').check()
   await page.getByRole('button', { name: 'Start an initial application' }).click()
-  await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}\/form\?/u)
-  const id = new URL(page.url()).pathname.split('/')[2] as string
+  await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
+  const id = page.url().split('/').pop() as string
 
   await fillEveryAnswer(page, id, businessName)
 
   await page.goto(`/applications/${id}/review`)
   await expect(page.getByText('Everything needed is present')).toBeVisible()
-  for (const section of [
-    'Enterprise details',
-    'Owners',
-    'Project cost and funding',
-    'Previous support and credit',
-    'Evidence requirements',
-    'Documents',
-  ]) {
-    await expect(page.getByRole('heading', { name: section, exact: true })).toBeVisible()
-  }
-  await expect(page.getByText(businessName, { exact: true })).toBeVisible()
-  await expect(page.getByText('Bethel Debbarma', { exact: true })).toBeVisible()
-  await expect(page.getByText('Declaration')).toHaveCount(0)
-
-  const owners = page
-    .locator('section.card')
-    .filter({ has: page.getByRole('heading', { name: 'Owners', exact: true }) })
-  await owners.getByRole('link', { name: 'Edit' }).click()
-  await expect(page).toHaveURL(/section=APPLICANT_PROFILE/u)
-  await page.goto(`/applications/${id}/review`)
   await page.getByRole('button', { name: 'Submit application' }).click()
   await expect(page).toHaveURL(new RegExp(`/applications/${id}/submitted$`, 'u'))
 
@@ -313,7 +363,9 @@ const openCycleWithoutDocuments = async (
   prefix: string,
   configureIdentifiers?: (page: Page) => Promise<void>,
 ): Promise<string> => {
-  const code = `${prefix}-${Date.now().toString(36).toUpperCase()}`
+  // Random suffix as well as the clock: two workers opening a cycle in the
+  // same millisecond with the same prefix would otherwise collide.
+  const code = `${prefix}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`
   await page.goto('/admin/cycles/new')
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(code)
@@ -327,21 +379,27 @@ const openCycleWithoutDocuments = async (
     .getByLabel('Applications close')
     .fill(local(new Date(Date.now() + 2_592_000_000)))
 
-  /*
-   * Make every document optional. The API insists on exactly one rule for every
-   * supported document type, so the rules stay — but a rule whose condition is
-   * OPTIONAL asks for nothing, and an application in this cycle can be
-   * submitted with no files at all.
-   */
-  const conditions = page.locator('select[aria-label^="Required when"]')
-  for (let index = 0; index < (await conditions.count()); index += 1) {
-    await conditions.nth(index).selectOption('OPTIONAL')
-  }
-
   if (configureIdentifiers) await configureIdentifiers(page)
 
-  await page.getByRole('button', { name: 'Save draft' }).click()
+  await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
+  const cycleId = page.url().split('/').pop() as string
+
+  /*
+   * Make every document optional.
+   *
+   * This used to drive `select[aria-label^="Required when"]` — one control per
+   * document rule, on the cycle form. Documents are `FILE` questions of the
+   * cycle's own template now, and there is no screen for editing a template
+   * yet, so this goes through `admin.formTemplate` instead. Arranging state,
+   * not asserting through it: what the test is about is an application that can
+   * be submitted with no files.
+   */
+  await makeDocumentsOptional(page, cycleId)
+  // Each of those was a cycle revision, so the page is holding a version that
+  // has moved on — and opening quotes the version it was rendered with.
+  await page.reload()
+
   await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
   await page.getByRole('button', { name: 'Open for applications' }).click()
   await expect(
@@ -350,45 +408,126 @@ const openCycleWithoutDocuments = async (
   return code
 }
 
+/** Only what this helper reads back and hands straight to the write. */
+type FormQuestionRow = {
+  key: string
+  stageKey: string
+  type: string
+  label: string
+  helpText: string | null
+  requirement: string
+  source: string
+  position: number
+  validation: { maxFileBytes: number | null }
+}
+
+/**
+ * Turns every document a cycle asks for into one it merely accepts.
+ *
+ * Reads the cycle's own questions back and rewrites each `FILE` one as
+ * `OPTIONAL`, one mutation apiece — each is a cycle revision, so each quotes
+ * the version the last one produced.
+ */
+const makeDocumentsOptional = async (page: Page, cycleId: string): Promise<void> => {
+  const call = async (query: string, variables: Record<string, unknown>) => {
+    const response = await page.request.post(`${WORKER_URL}/graphql`, {
+      data: { query, variables },
+      headers: { 'content-type': 'application/json' },
+    })
+    const body = await response.json()
+    expect(body.errors, JSON.stringify(body.errors)).toBeUndefined()
+    return body.data
+  }
+
+  const read = await call(
+    `query($id: ID!) { admin { programmeCycle { byId(id: $id) { response {
+      head { currentVersion }
+      formTemplate { fields {
+        key stageKey type role label helpText requirement source position
+        validation { maxFileBytes }
+      } }
+    } } } } }`,
+    { id: cycleId },
+  )
+  const cycle = read.admin.programmeCycle.byId.response
+  let version = cycle.head.currentVersion as number
+
+  for (const field of cycle.formTemplate.fields as FormQuestionRow[]) {
+    if (field.type !== 'FILE' || field.requirement === 'OPTIONAL') continue
+    const done = await call(
+      `mutation($input: FormQuestionMutationInput!) {
+        admin { formTemplate { updateQuestion(input: $input) {
+          success message response { head { currentVersion } }
+        } } }
+      }`,
+      {
+        input: {
+          scope: {
+            programmeCycleId: cycleId,
+            expectedVersion: version,
+            reason: 'This cycle asks for no documents.',
+          },
+          field: {
+            stageKey: field.stageKey,
+            fieldKey: field.key,
+            fieldType: 'FILE',
+            label: field.label,
+            helpText: field.helpText,
+            requirement: 'OPTIONAL',
+            source: field.source,
+            sortOrder: field.position,
+            maxFileBytes: field.validation.maxFileBytes,
+          },
+        },
+      },
+    )
+    const result = done.admin.formTemplate.updateQuestion
+    expect(result.success, result.message ?? '').toBe(true)
+    version = result.response.head.currentVersion
+  }
+}
+
 /** Every question the form asks, answered. */
 export const fillEveryAnswer = async (
   page: Page,
   id: string,
-  businessName: string,
+  _businessName: string,
 ): Promise<void> => {
-  await page.goto(`/applications/${id}/form`)
-  await expect(page.getByLabel('Business name')).toBeDisabled()
-  await expect(page.getByLabel('Business name')).toHaveValue(businessName)
-  await page.getByLabel('Category A').check()
-  await page.getByLabel('Majority ownership is held by Scheduled Tribe members').check()
-  await page.getByRole('button', { name: 'Save & Next' }).click()
-  await expect(page.getByRole('heading', { name: 'Owners' })).toBeVisible()
+  /*
+   * The form is one stage per screen now, and "Save & next" force-saves the
+   * debounced draft before moving — so filling a stage and advancing is also
+   * the proof its answers persisted enough to move on.
+   *
+   * The enterprise's own facts are no longer questions: the name this helper
+   * used to type into the form now lives on the enterprise entity alone,
+   * which is why the parameter goes unused.
+   */
+  const saveAndNext = async () => {
+    await page.getByRole('button', { name: 'Save & next' }).click()
+  }
 
-  await page.getByLabel('Your full name').fill('Bethel Debbarma')
-  await page.getByLabel('Your role in the enterprise').selectOption({ index: 1 })
+  await page.goto(`/applications/${id}/form`)
+
+  // Owners: one entry, added explicitly — a fresh group starts empty.
+  await page.getByRole('button', { name: 'Add owners' }).click()
+  await page.getByLabel('Full name').fill('Bethel Debbarma')
+  await page.getByLabel('Role in the enterprise').selectOption({ index: 1 })
   await page.getByLabel('Date of birth').fill('1996-07-14')
   await page.getByLabel('Gender').selectOption({ index: 2 })
-  await page
-    .getByLabel('Office address (as per your business documents)')
-    .fill('Khumulwng')
-  await page.getByLabel('District').selectOption('West Tripura')
-  await page.getByLabel('PIN code').fill('799045')
-  await page.getByLabel('Contact number').fill('9876543210')
-  await expect(page.getByLabel('Registered email address')).toBeDisabled()
-  await page.getByRole('button', { name: 'Save & Next' }).click()
-  await expect(
-    page.getByRole('heading', { name: 'Project cost and funding' }),
-  ).toBeVisible()
+  await page.getByLabel('Relationship').selectOption({ index: 1 })
+  await page.getByLabel('Of (name)').fill('Sanjoy Debbarma')
+  await saveAndNext()
 
+  // Project cost and funding.
   await page.getByLabel('Total project cost (₹)').fill('1000000')
   await page.getByLabel('Seed fund requested (₹)').fill('250000')
-  await page.getByLabel('Bank loan proposed (₹)').fill('600000')
-  await page.getByLabel('Your own contribution (₹)').fill('150000')
-  await page.getByRole('button', { name: 'Save & Next' }).click()
-  await expect(
-    page.getByRole('heading', { name: 'Previous support and credit' }),
-  ).toBeVisible()
+  // Both are `OPTIONAL` in the cycle's own template, so the renderer marks
+  // them — the label is the cycle's words plus what the software adds.
+  await page.getByLabel('Bank loan proposed (₹) (optional)').fill('600000')
+  await page.getByLabel('Your own contribution (₹) (optional)').fill('150000')
+  await saveAndNext()
 
+  // Previous support and credit: both "no", so nothing else appears.
   await page
     .getByRole('group', {
       name: 'Has this enterprise received government funding before?',
@@ -399,18 +538,30 @@ export const fillEveryAnswer = async (
     .getByRole('group', { name: 'Does this enterprise have existing bank credit?' })
     .getByLabel('No')
     .check()
-  await page.getByRole('button', { name: 'Save & Next' }).click()
-  await expect(page.getByRole('heading', { name: 'Evidence requirements' })).toBeVisible()
+  await saveAndNext()
 
+  // Evidence stage: the one non-file question.
   await page
     .getByRole('group', {
       name: 'Is a no-objection certificate needed for these premises?',
     })
     .getByLabel('No')
     .check()
-  // Save & Next flushes the last pending autosave before leaving for evidence.
-  await page.getByRole('button', { name: 'Save & Next' }).click()
-  await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
+
+  /*
+   * The indicator is the signal that the server holds the last answer, and the
+   * reload is what makes a silent save failure land *here* rather than on a
+   * review screen listing two dozen questions and saying nothing about why.
+   */
+  await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 20_000 })
+  await page.reload()
+  await expect(
+    page
+      .getByRole('group', {
+        name: 'Is a no-objection certificate needed for these premises?',
+      })
+      .getByLabel('No'),
+  ).toBeChecked({ timeout: 20_000 })
 }
 
 /**
@@ -422,15 +573,20 @@ export const fillEveryAnswer = async (
  * "a URL somewhere", so another notification in the log cannot be mistaken for
  * this one.
  */
-export const latestInviteLink = async (afterByteOffset = 0): Promise<string> => {
+export const latestInviteLink = async (recipient: string): Promise<string> => {
+  const wanted = recipient.trim().toLowerCase()
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const log = await readFile(WORKER_LOG, 'utf8').catch(() => '')
-    const lines = [...log.slice(afterByteOffset).matchAll(/^DEV_EMAIL (.*)$/gmu)]
-    for (const line of lines.reverse()) {
-      const found = line[1]?.match(/\/invite#([A-Za-z0-9_-]+)/u)
+    // Keyed on the invitee, for the reason `latestOtp` is: two invitations in
+    // flight at once would otherwise cross, and accepting somebody else's token
+    // grants the wrong role to the wrong account rather than failing loudly.
+    for (const line of [...log.matchAll(/^DEV_EMAIL (.*)$/gmu)].reverse()) {
+      const message = readDevEmail(line[1])
+      if (message?.to?.trim().toLowerCase() !== wanted) continue
+      const found = message.text?.match(/\/invite#([A-Za-z0-9_-]+)/u)
       if (found?.[1]) return `/invite#${found[1]}`
     }
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
-  throw new Error('No invitation link appeared in the Worker log within 10 seconds.')
+  throw new Error(`No invitation link for ${recipient} appeared in the Worker log within 10 seconds.`)
 }

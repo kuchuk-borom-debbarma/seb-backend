@@ -1,7 +1,16 @@
 /** Authorization and strict input validation for post-decision funding work. */
 import { desc, eq } from 'drizzle-orm'
-import { sebFundingAward, sebTtmDecision } from '../../../db/schema'
+import { auditActions, sebFundingAward, sebProgrammeDecision } from '../../../db/schema'
 import { parseDateOnly } from '../../application/validation'
+import {
+  answersFromRows,
+  findAnswerRows,
+  findPinnedCycleRules,
+} from '../../application/queries/form-template'
+import { findUserEmailById } from '../../application/queries/application'
+import { buildApplicationPdf, formatPaise } from '../../application/confirmation'
+import { createAuditEvent } from '../../auth/queries/auth'
+import { sendNotification } from '../../external-notification'
 import {
   cancelRecoveryWrite,
   changeAwardWrite,
@@ -15,9 +24,10 @@ import {
   recoveryWorkspace,
   reverseReleaseWrite,
 } from '../queries/funding'
-import { approvedReason, latestSubmission } from '../queries/intake'
+import { approvedReason, latestSubmission, loadApplicationHead } from '../queries/intake'
 import {
   ADMIN_REQUIRED_MESSAGE,
+  adminAudit,
   constraintSafe,
   authorizeReasonedTransition,
   currentStaff,
@@ -26,6 +36,7 @@ import {
   STALE_MESSAGE,
 } from '../support'
 import { failure, success } from '../../envelope'
+import { bestEffort } from '../../best-effort'
 import type { AdminOperationContext, AdminResult, AssessmentType, RecoveryComponent } from '../types'
 
 const positiveMoney = (value: number) => Number.isSafeInteger(value) && value > 0
@@ -40,6 +51,89 @@ export const fundingByApplication = async (
   if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
   const workspace = await fundingWorkspace(context.db, applicationId)
   return workspace ? success(workspace) : failure('No award exists for this application.')
+}
+
+/*
+ * Best effort, and deliberately after the write: a mail failure must not undo
+ * or hide an award that has already been created (the policy set by the
+ * password-change notice in `auth/controllers/account.ts`). On any failure
+ * the office gets a FAILURE audit row under its own action and a fixed log
+ * line — never the error object, which can echo the recipient into logs that
+ * are public in CI.
+ */
+const sendSanctionNotification = async (
+  context: AdminOperationContext,
+  input: {
+    applicationId: string
+    actorId: string
+    sanctionOrderNumber: string
+    sanctionDate: string
+    sanctionedAmountPaise: number
+  },
+): Promise<void> => {
+  try {
+    const [head, submission] = await Promise.all([
+      loadApplicationHead(context.db, input.applicationId),
+      latestSubmission(context.db, input.applicationId),
+    ])
+    if (!head || !submission) throw new Error('The notification cannot be addressed.')
+    const [email, rules, answerRows] = await Promise.all([
+      findUserEmailById(context.db, head.application.applicantUserId),
+      findPinnedCycleRules(
+        context.db,
+        submission.snapshot.programmeCycleId,
+        submission.snapshot.programmeCycleVersion,
+      ),
+      findAnswerRows(context.db, [submission.snapshot.id]),
+    ])
+    if (!email || !rules) throw new Error('The notification cannot be addressed.')
+    const amount = formatPaise(input.sanctionedAmountPaise)
+    const reference = head.application.referenceNumber
+    const bytes = await buildApplicationPdf({
+      referenceNumber: reference,
+      cycleCode: head.cycleCode,
+      cycleDisplayName: head.cycleDisplayName,
+      submittedAt: submission.submission.submittedAt,
+      template: rules.template,
+      answers: answersFromRows(rules.template, submission.snapshot.id, answerRows),
+      heading: 'Funding sanctioned',
+      extra: [
+        { label: 'Sanction order number', value: input.sanctionOrderNumber },
+        { label: 'Sanction date', value: input.sanctionDate },
+        { label: 'Sanctioned amount', value: amount },
+      ],
+    })
+    await sendNotification({
+      to: email,
+      subject: 'Your Mission SEP funding has been sanctioned',
+      body:
+        'Funding for your Mission SEP application has been sanctioned.\n\n'
+        + `Reference: ${reference ?? input.applicationId}\n`
+        + `Sanction order number: ${input.sanctionOrderNumber}\n`
+        + `Sanction date: ${input.sanctionDate}\n`
+        + `Sanctioned amount: ${amount}\n\n`
+        + 'A copy of the application is attached. The programme office will '
+        + 'contact you about the release of funds and the evidence each '
+        + 'release requires.',
+      attachments: [{
+        filename: `application-${reference ?? input.applicationId}.pdf`,
+        contentType: 'application/pdf',
+        bytes,
+      }],
+    }, context.env)
+  } catch {
+    // Guarded itself, so the created award can never be disturbed.
+    await bestEffort(createAuditEvent(context.db, {
+      ...adminAudit(context, {
+        actorUserId: input.actorId,
+        action: auditActions.sanctionNotificationFailed,
+        entityType: 'SEB_APPLICATION',
+        entityId: input.applicationId,
+        now: new Date(),
+      }),
+      outcome: 'FAILURE',
+    }), 'A sanction notification failed')
+  }
 }
 
 export const createFundingAward = async (
@@ -68,7 +162,20 @@ export const createFundingAward = async (
     actorId: administrator.id,
     now: new Date(),
   }))
-  return id ? success(await fundingWorkspace(context.db, input.applicationId)) : failure(STALE_MESSAGE)
+  // Read once for both the return value and the notification's amount — the
+  // sanctioned amount is copied from the decision by the write, so the input
+  // never carried it.
+  const workspace = id ? await fundingWorkspace(context.db, input.applicationId) : null
+  if (id && workspace) {
+    await bestEffort(sendSanctionNotification(context, {
+      applicationId: input.applicationId,
+      actorId: administrator.id,
+      sanctionOrderNumber: order,
+      sanctionDate: input.sanctionDate,
+      sanctionedAmountPaise: workspace.award.sanctionedAmountPaise,
+    }), 'A sanction notification failed')
+  }
+  return id ? success(workspace) : failure(STALE_MESSAGE)
 }
 
 export const changeFundingAward = async (
@@ -94,10 +201,10 @@ export const changeFundingAward = async (
   const workspace = await fundingWorkspace(context.db, input.applicationId)
   const submission = await latestSubmission(context.db, input.applicationId)
   const [approval] = workspace ? await context.db.select({
-    amount: sebTtmDecision.approvedAmountPaise,
-  }).from(sebTtmDecision)
-    .where(eq(sebTtmDecision.applicationId, input.applicationId))
-    .orderBy(desc(sebTtmDecision.createdAt)).limit(1) : []
+    amount: sebProgrammeDecision.approvedAmountPaise,
+  }).from(sebProgrammeDecision)
+    .where(eq(sebProgrammeDecision.applicationId, input.applicationId))
+    .orderBy(desc(sebProgrammeDecision.createdAt)).limit(1) : []
   const changesAmount = workspace
     ? input.sanctionedAmountPaise !== workspace.award.sanctionedAmountPaise : false
   const changesStatus = workspace ? input.status !== workspace.award.status : false
@@ -151,8 +258,8 @@ export const recordFundingRelease = async (
     amountPaise: number
     occurredAt: Date
     externalReference: string
-    ttmApprovalReference: string
-    ttmApprovalDate: string
+    approvalReference: string
+    approvalDate: string
     bankAccountVerifiedAt: Date
     performanceAgreementReference: string
     performanceAgreementExecutedAt: Date
@@ -166,14 +273,14 @@ export const recordFundingRelease = async (
   const administrator = await currentStaff(context, 'STAFF_WRITE')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const externalReference = normalizeRequiredText(input.externalReference, 100)
-  const approval = normalizeRequiredText(input.ttmApprovalReference, 100)
+  const approval = normalizeRequiredText(input.approvalReference, 100)
   const agreement = normalizeRequiredText(input.performanceAgreementReference, 100)
   const verification = normalizeOptionalText(input.physicalVerificationReference, 100)
   const message = normalizeRequiredText(input.applicantMessage, 1_000)
   const physicalTime = input.physicalVerificationCompletedAt ?? null
   if (!expectedVersion(input.expectedLedgerVersion) || !positiveMoney(input.amountPaise) ||
       !validInstant(input.occurredAt) || !externalReference || !approval ||
-      !validDate(input.ttmApprovalDate) || !validInstant(input.bankAccountVerifiedAt) ||
+      !validDate(input.approvalDate) || !validInstant(input.bankAccountVerifiedAt) ||
       !agreement || !validInstant(input.performanceAgreementExecutedAt) ||
       verification === 'INVALID' || !message ||
       (input.physicalVerificationRequired
@@ -184,7 +291,7 @@ export const recordFundingRelease = async (
   const id = await constraintSafe(() => recordReleaseWrite(context, {
     ...input,
     externalReference,
-    ttmApprovalReference: approval,
+    approvalReference: approval,
     performanceAgreementReference: agreement,
     physicalVerificationReference: verification,
     physicalVerificationCompletedAt: physicalTime,

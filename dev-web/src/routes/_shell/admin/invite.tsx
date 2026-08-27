@@ -16,12 +16,10 @@ import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
 import { CapabilityRefusal } from '#/features/portal/CapabilityRefusal'
-import {
-  InviteRoleDocument,
-  ManagedUserByEmailDocument,
-} from '#/graphql/generated/operations'
+import { InviteRoleDocument } from '#/graphql/generated/operations'
 import type { ManageableRole } from '#/graphql/generated/schema'
 import { formatDateTime } from '#/lib/format'
+import { managedUserQuery } from '#/features/access/accessQueries'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { can, type SignedInUser } from '#/lib/session'
@@ -76,11 +74,17 @@ function InvitePage({ user }: { user: SignedInUser }) {
    * The access namespace deliberately offers no listing or prefix search, so
    * this screen cannot be used to enumerate accounts.
    */
+  /*
+   * The same query definition `/admin/access` uses, not a second one.
+   *
+   * Two definitions shared one cache key and stored different shapes — this
+   * screen kept the unwrapped user, that one kept the envelope. Whichever
+   * rendered second read the other's value, and this one crashed on
+   * `subject.roles` because an envelope has no `roles`. One definition, one
+   * shape.
+   */
   const found = useQuery({
-    queryKey: ['managed-user', looked],
-    enabled: looked.length > 0,
-    queryFn: async () =>
-      unwrap((await gql(ManagedUserByEmailDocument, { email: looked })).access.user),
+    ...managedUserQuery(looked.length > 0 ? looked : undefined),
     retry: false,
   })
 
@@ -97,7 +101,7 @@ function InvitePage({ user }: { user: SignedInUser }) {
     onError: (failure) => setError(messageFor(failure)),
   })
 
-  const subject = found.data
+  const subject = found.data?.response
 
   return (
     <main className="page">
@@ -143,6 +147,18 @@ function InvitePage({ user }: { user: SignedInUser }) {
         </form>
 
         {found.isError ? <p className="field-error">{messageFor(found.error)}</p> : null}
+
+        {/*
+          An address nobody holds is an ordinary refusal, not a thrown error.
+          The shared query keeps the envelope, so a miss arrives as
+          `success: false` with a message and leaves `isError` false — say so,
+          or looking somebody up who has never signed up shows nothing at all.
+        */}
+        {found.data && !found.data.success ? (
+          <p className="field-error" role="alert">
+            {found.data.message ?? 'No account was found for that address.'}
+          </p>
+        ) : null}
       </div>
 
       {subject ? (

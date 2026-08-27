@@ -7,10 +7,15 @@
  * Built per call rather than cached, for the reason `src/index.ts` gives for
  * its own configuration: parsed on demand "so tests and local Wrangler
  * overrides can supply different bindings without global mutable
- * configuration". The suite runs `singleWorker: true`, so a cached backend
- * would be shared by every test in the run.
+ * configuration". Every test in a file shares one isolate, so a cached backend
+ * would outlive the test that configured it.
  */
 import type { AppBindings } from '../../bindings'
+import {
+  cloudinaryObjectStore,
+  cloudinaryTransport,
+  requireCloudinaryConfiguration,
+} from './transports/cloudinary'
 import { localTransport } from './transports/local'
 import { r2Transport, requireR2Configuration } from './transports/r2'
 import type { StorageBackend } from './types'
@@ -37,12 +42,137 @@ export const usesLocalStorage = (env: AppBindings): boolean => {
 }
 
 /**
+ * Which provider a deployed environment keeps documents in.
+ *
+ * Only consulted when the environment is deployed — a developer's machine keeps
+ * documents in the Worker regardless. Unset means R2, because that is what was
+ * here first and an environment already configured for it must not change store
+ * by upgrading.
+ */
+const deployedTransport = (env: AppBindings): 'r2' | 'cloudinary' => {
+  const named = (env.STORAGE_TRANSPORT ?? '').trim().toLowerCase()
+  if (named === '' || named === 'r2') return 'r2'
+  if (named === 'cloudinary') return 'cloudinary'
+  throw new Error('STORAGE_TRANSPORT must be either "r2" or "cloudinary".')
+}
+
+/**
+ * Whether the selected backend receives uploads through this Worker.
+ *
+ * R2 sends the browser to the bucket; the others relay. The storage route is
+ * open exactly when this is true, which is the whole of its security boundary —
+ * see [`route.ts`](route.ts).
+ */
+export const relaysThroughWorker = (env: AppBindings): boolean =>
+  usesLocalStorage(env) || deployedTransport(env) === 'cloudinary'
+
+/**
+ * Where the relaying route puts and gets the bytes.
+ *
+ * Local keeps them in the `STORAGE` binding, which the development runtime
+ * supplies without an account feature. Cloudinary keeps them at the provider.
+ * Never called for R2, which is never relayed.
+ */
+export const objectStore = (env: AppBindings) =>
+  usesLocalStorage(env)
+    ? bindingObjectStore(requireBucket(env.STORAGE))
+    : cloudinaryObjectStore(requireCloudinaryConfiguration(env))
+
+/**
+ * The `STORAGE` binding, or a refusal.
+ *
+ * The binding is genuinely optional — a developer's machine and the end-to-end
+ * suite declare it, the deployed configuration does not — so a caller reaching
+ * for it when it is absent is a misconfiguration, not something to assert away.
+ * Refusing here follows the rule the transports already keep: a service that
+ * cannot do the real thing says so rather than quietly doing something else.
+ */
+const requireBucket = (bucket: R2Bucket | undefined): R2Bucket => {
+  if (!bucket) {
+    throw new Error('Local document storage is selected but no STORAGE binding is configured.')
+  }
+  return bucket
+}
+
+/**
+ * Removing objects the programme has abandoned, whichever transport holds them.
+ *
+ * The sibling of `objectReader`, and it branches identically — both are for
+ * callers that must reach the real bytes rather than authorize a transfer, so
+ * both must work under every backend including the one where uploads never
+ * touch this Worker.
+ *
+ * This replaced a `documentBucket(env)` returning the `STORAGE` binding
+ * directly. **The deployed Cloudinary configuration declares no such binding**,
+ * so every caller — all of them cleanup paths — threw there instead of removing
+ * anything: an expired authorization answered the applicant with an unhandled
+ * error rather than "the upload authorization expired", and the scheduled sweep
+ * failed before closing a single intent, so refused uploads stayed at the
+ * provider indefinitely and their rows stayed claimable for ever.
+ */
+export const objectRemover = (env: AppBindings) =>
+  usesLocalStorage(env) || deployedTransport(env) === 'r2'
+    ? bindingObjectStore(requireBucket(env.STORAGE))
+    : cloudinaryObjectStore(requireCloudinaryConfiguration(env))
+
+/** The `STORAGE` binding as an object store. Backs both `local` and `r2`. */
+const bindingObjectStore = (bucket: R2Bucket) => ({
+  put: async (key: string, body: ArrayBuffer, facts: { contentType: string }) => {
+    await bucket.put(key, body, {
+      sha256: await crypto.subtle.digest('SHA-256', body),
+      httpMetadata: { contentType: facts.contentType },
+    })
+  },
+  // The bucket takes the whole batch in one call, which is what the cleanup
+  // path is written around; a provider that cannot is the one that loops.
+  remove: async (keys: string[]) => {
+    await bucket.delete(keys)
+  },
+  get: async (key: string) => {
+    const object = await bucket.get(key)
+    if (!object) return null
+    /*
+     * Carried as a header so both stores answer in the same shape, and
+     * defaulted here rather than at the caller: an object stored without
+     * a type is a real state, and the most inert type is the right answer
+     * to it wherever it is served.
+     */
+    return new Response(object.body, {
+      headers: {
+        'content-type': object.httpMetadata?.contentType ?? 'application/octet-stream',
+      },
+    })
+  },
+})
+
+/**
+ * Reading a stored object's bytes, whichever transport holds them.
+ *
+ * Distinct from `objectStore`, which exists for the relaying *route* and is
+ * documented as never being asked about R2 — that store is only reached when
+ * the browser talks to this Worker instead of to the provider. A reader has no
+ * such luxury: the malware scanner must fetch bytes under every transport,
+ * including the one where uploads bypass this Worker entirely.
+ *
+ * Only `get` is meaningful here. Writing belongs to whoever received the
+ * upload, and this is for callers that look at what already landed.
+ */
+export const objectReader = (env: AppBindings) =>
+  usesLocalStorage(env) || deployedTransport(env) === 'r2'
+    ? bindingObjectStore(requireBucket(env.STORAGE))
+    : cloudinaryObjectStore(requireCloudinaryConfiguration(env))
+
+/**
  * The backend for this environment.
  *
- * `requestUrl` is needed only by the local backend, which addresses this Worker
- * back to itself.
+ * `requestUrl` is needed by every backend that relays, which addresses this
+ * Worker back to itself.
  */
-export const storage = (env: AppBindings, requestUrl: string): StorageBackend =>
-  usesLocalStorage(env)
-    ? localTransport(new URL(requestUrl).origin, env.STORAGE)
-    : r2Transport(requireR2Configuration(env), env.STORAGE)
+export const storage = (env: AppBindings, requestUrl: string): StorageBackend => {
+  if (usesLocalStorage(env)) {
+    return localTransport(new URL(requestUrl).origin, requireBucket(env.STORAGE))
+  }
+  return deployedTransport(env) === 'cloudinary'
+    ? cloudinaryTransport(requireCloudinaryConfiguration(env), new URL(requestUrl).origin)
+    : r2Transport(requireR2Configuration(env), requireBucket(env.STORAGE))
+}

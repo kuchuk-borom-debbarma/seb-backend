@@ -1165,3 +1165,126 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Programme analytics (CYCLE_ADMIN only) ─────────────────────────────── */
+
+.analyticsStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.analyticsStat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.analyticsStatLabel {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.analyticsStatValue {
+  font-size: 20px;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.analyticsChartRow {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.donutChart {
+  width: 160px;
+  height: 160px;
+  flex-shrink: 0;
+}
+
+/* The same hues the icon badges use, applied to the marks alone — the labels
+   beside them stay in text ink, never in the series colour. */
+.donutSegment[data-color='blue'] {
+  stroke: #2563eb;
+}
+
+.donutSegment[data-color='green'] {
+  stroke: #16a34a;
+}
+
+.donutSegment[data-color='purple'] {
+  stroke: #7c3aed;
+}
+
+.donutTotal {
+  font-size: 24px;
+  font-weight: 650;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.donutCaption {
+  font-size: 11px;
+  fill: var(--text-muted);
+}
+
+.donutLegend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legendSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.legendSwatch[data-color='blue'] {
+  background: #2563eb;
+}
+
+.legendSwatch[data-color='green'] {
+  background: #16a34a;
+}
+
+.legendSwatch[data-color='purple'] {
+  background: #7c3aed;
+}
+
+.legendLabel {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.legendCount {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.analyticsEmpty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}

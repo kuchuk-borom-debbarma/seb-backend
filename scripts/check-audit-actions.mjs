@@ -14,10 +14,23 @@
  *
  * This checks the two directions that matter:
  *
- *   * every declared action appears somewhere that writes audit rows, and
+ *   * every declared action is written, and
  *   * every action written into `core_audit_event` is one the catalogue
  *     declares — which is what actually stops a typo becoming a new,
  *     unqueryable action name.
+ *
+ * **A raw string counts only where an audit row is actually built.** Accepting
+ * one anywhere in a source file would let a comment, a refusal message or a
+ * name in prose stand in for the write — the same vacuity as the catalogue
+ * itself, moved one file along, and the recovery actions were exactly a name
+ * that read as coverage. So a literal counts in one of two places: an
+ * `…action:` property on an audit-row builder, or a column inside an insert
+ * into `coreAuditEvent`. Comments are stripped before anything is looked for.
+ *
+ * A `auditActions.x` reference is accepted wherever it appears, because that
+ * form is already load-bearing: it is typed, so a name the catalogue does not
+ * declare is a TypeScript error, and several are passed positionally to a
+ * shared helper rather than named as a property.
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -53,6 +66,37 @@ const writers = sources.filter(
   (path) => path !== 'db/schema/core/audit.ts',
 )
 
+/** Comments cannot write an audit row, so they must not look like they do. */
+const withoutComments = (text) =>
+  text.replaceAll(/\/\*[\s\S]*?\*\//gu, '').replaceAll(/^[ \t]*\/\/.*$/gmu, '')
+
+/**
+ * The regions of a file that actually produce an audit row.
+ *
+ * Two shapes, and both are literal rather than inferred:
+ *
+ *   * any property whose name ends in `action` — `action`, `requestedAction`,
+ *     `failedAction` — read to the end of its value, so a name chosen by a
+ *     ternary across several lines still counts, and
+ *   * the `SELECT` inside an insert into `coreAuditEvent`, where the action is
+ *     the third column and there is no property name to key on.
+ *
+ * A property whose value itself contains a line ending in a comma is read short
+ * rather than long. That direction is deliberate: reading short fails the build
+ * with the action named, and reading long is how a nearby string gets counted
+ * as a write that never happens.
+ */
+const auditWritingRegions = (text) => {
+  const regions = []
+  for (const match of text.matchAll(/\b\w*[Aa]ction:[\s\S]*?,\n/gu)) {
+    regions.push(match[0])
+  }
+  for (const match of text.matchAll(/insert\(coreAuditEvent\)[\s\S]*?`([\s\S]*?)`/gu)) {
+    regions.push(match[1])
+  }
+  return regions
+}
+
 /*
  * An action reaches the database two ways, and both count as written:
  *
@@ -65,9 +109,11 @@ const writers = sources.filter(
  */
 const written = new Map()
 for (const path of writers) {
-  const text = readFileSync(new URL(path, root), 'utf8')
-  for (const match of text.matchAll(/'([A-Z][A-Z_]*\.[A-Z_]+)'/gu)) {
-    if (!written.has(match[1])) written.set(match[1], path)
+  const text = withoutComments(readFileSync(new URL(path, root), 'utf8'))
+  for (const region of auditWritingRegions(text)) {
+    for (const match of region.matchAll(/'([A-Z][A-Z_]*\.[A-Z_]+)'/gu)) {
+      if (!written.has(match[1])) written.set(match[1], path)
+    }
   }
   for (const match of text.matchAll(/auditActions\.(\w+)/gu)) {
     const action = byKey.get(match[1])
@@ -91,11 +137,13 @@ for (const action of [...declared].sort()) {
  * audit insert.
  */
 for (const path of writers) {
-  const text = readFileSync(new URL(path, root), 'utf8')
+  const text = withoutComments(readFileSync(new URL(path, root), 'utf8'))
   if (!text.includes('coreAuditEvent')) continue
-  for (const match of text.matchAll(/'((?:SEB|AUTH|RBAC|USER)\.[A-Z_]+)'/gu)) {
-    if (!declared.has(match[1])) {
-      problems.push(`${path} writes ${match[1]}, which the catalogue does not declare`)
+  for (const region of auditWritingRegions(text)) {
+    for (const match of region.matchAll(/'((?:SEB|AUTH|RBAC|USER)\.[A-Z_]+)'/gu)) {
+      if (!declared.has(match[1])) {
+        problems.push(`${path} writes ${match[1]}, which the catalogue does not declare`)
+      }
     }
   }
 }
@@ -108,4 +156,6 @@ if (problems.length > 0) {
   )
 }
 
-console.log(`Audit actions agree: ${declared.size} declared, all written, none stray.`)
+console.log(
+  `Audit actions agree: ${declared.size} declared, all written, none stray.`,
+)

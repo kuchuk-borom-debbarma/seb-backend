@@ -3,6 +3,7 @@
   "name": "seb-backend-test",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-21",
+  "compatibility_flags": ["nodejs_compat"],
   "rules": [
     {
       "type": "Text",
@@ -10,11 +11,18 @@
       "fallthrough": true
     }
   ],
-  "d1_databases": [
+  /*
+   * The runtime suite is small and exists to prove the things only workerd can
+   * prove — bindings, the queue consumer's ack and retry, `waitUntil` outliving
+   * a response, and the edge limits. At least one of its tests must open a real
+   * connection through this binding: the service suite runs in Node, so this is
+   * now the only place a missing `nodejs_compat` would be caught before deploy.
+   */
+  "hyperdrive": [
     {
-      "binding": "DB",
-      "database_name": "seb-backend-test",
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "binding": "HYPERDRIVE",
+      "id": "00000000000000000000000000000000",
+      "localConnectionString": "postgresql://postgres:postgres@localhost:5432/seb_backend_test"
     }
   ],
   "r2_buckets": [

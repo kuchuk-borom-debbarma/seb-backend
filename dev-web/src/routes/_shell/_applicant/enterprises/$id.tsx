@@ -22,8 +22,10 @@ import {
   Sprout,
   Trash2,
 } from 'lucide-react'
+import { districtName } from '#/features/enterprise/districts'
 import {
   EnterpriseForm,
+  REGISTRATION_TYPE_LABELS,
   type EnterpriseFormValues,
 } from '#/features/enterprise/EnterpriseForm'
 import {
@@ -68,7 +70,7 @@ function EnterpriseHeroArtwork() {
         xmlns="http://www.w3.org/2000/svg"
         style={{ width: '100%', height: '100%' }}
       >
-        {/* Soft Background Hills */}
+        {/* Soft background hills */}
         <path
           d="M0 90 Q60 65 130 85 T200 70 L200 120 L0 120 Z"
           fill="#dbeafe"
@@ -79,22 +81,22 @@ function EnterpriseHeroArtwork() {
           fill="#bfdbfe"
           fillOpacity="0.3"
         />
-        {/* Plant Stems & Leaves */}
+        {/* Plant stems and leaves */}
         <g transform="translate(130, 20)">
-          {/* Main Stem */}
+          {/* Main stem */}
           <path
             d="M35 90 Q30 50 15 15"
             stroke="#16a34a"
             strokeWidth="2.5"
             strokeLinecap="round"
           />
-          {/* Leaf 1 (Top) */}
+          {/* Leaf 1 (top) */}
           <path d="M15 15 Q24 8 28 20 C22 24 16 18 15 15 Z" fill="#86efac" />
-          {/* Leaf 2 (Right) */}
+          {/* Leaf 2 (right) */}
           <path d="M24 35 Q40 28 42 42 C34 46 25 38 24 35 Z" fill="#4ade80" />
-          {/* Leaf 3 (Left) */}
+          {/* Leaf 3 (left) */}
           <path d="M22 55 Q4 48 3 62 C12 66 21 58 22 55 Z" fill="#86efac" />
-          {/* Leaf 4 (Right Lower) */}
+          {/* Leaf 4 (right lower) */}
           <path d="M28 70 Q46 62 48 76 C40 80 29 72 28 70 Z" fill="#22c55e" />
         </g>
       </svg>
@@ -117,6 +119,8 @@ function EnterprisePage() {
   const update = useMutation({
     mutationFn: async (values: EnterpriseFormValues) => {
       const data = await gql(UpdateEnterpriseDocument, {
+        // The expected version is what makes this first-writer-wins: an edit
+        // based on a stale copy is refused rather than overwriting a newer one.
         input: { id, expectedVersion: enterprise?.currentVersion ?? 0, profile: values },
       })
       return unwrap(data.seb.enterprise.update)
@@ -133,6 +137,8 @@ function EnterprisePage() {
         input: { id, expectedVersion: enterprise?.currentVersion ?? 0, reason: null },
       })
       const result = data.seb.enterprise.softDelete
+      // A refusal carries the exact applications standing in the way, which is
+      // the whole point of showing it rather than a general message.
       setBlockers(result.blockers)
       return unwrap(result)
     },
@@ -157,7 +163,7 @@ function EnterprisePage() {
   return (
     <main className="page">
       <div className={styles.pageContainer}>
-        {/* Header Bar with Back Button and Actions */}
+        {/* Header bar with back button and actions */}
         <div className={styles.headerBar}>
           <div className={styles.titleArea}>
             <Link
@@ -207,7 +213,14 @@ function EnterprisePage() {
           )}
         </div>
 
-        {/* Error Alerts */}
+        {removed ? (
+          <p className="notice" role="status">
+            This enterprise has been removed. Its history is kept and it can be
+            restored.
+          </p>
+        ) : null}
+
+        {/* Error alerts */}
         {remove.isError ? (
           <div
             className="notice"
@@ -283,7 +296,7 @@ function EnterprisePage() {
           </>
         ) : (
           <div className={styles.profileCard}>
-            {/* Top Hero Banner */}
+            {/* Top hero banner */}
             <div className={styles.cardHero}>
               <div className={styles.cardHeroLeft}>
                 <div className={styles.heroIconBadge}>
@@ -304,7 +317,7 @@ function EnterprisePage() {
               <EnterpriseHeroArtwork />
             </div>
 
-            {/* Profile Grid Rows */}
+            {/* Profile grid rows */}
             <div className={styles.cardBody}>
               {/* Row 1: Registration, GSTIN, Sector */}
               <div className={styles.detailsRow}>
@@ -315,9 +328,11 @@ function EnterprisePage() {
                   <div className={styles.itemContent}>
                     <span className={styles.itemLabel}>Registration</span>
                     <span className={styles.itemValue}>
-                      {enterprise.registrationType === 'NONE'
-                        ? 'Not registered'
-                        : `${enterprise.registrationType} · ${enterprise.registrationNumber ?? '—'}`}
+                      {/* A sole proprietorship may hold no number; the label
+                          alone is the whole answer then. */}
+                      {enterprise.registrationNumber
+                        ? `${REGISTRATION_TYPE_LABELS[enterprise.registrationType]} · ${enterprise.registrationNumber}`
+                        : REGISTRATION_TYPE_LABELS[enterprise.registrationType]}
                     </span>
                   </div>
                 </div>
@@ -349,7 +364,7 @@ function EnterprisePage() {
                 </div>
               </div>
 
-              {/* Row 2: Established, Block or village, District */}
+              {/* Row 2: Established, Office address, District */}
               <div className={styles.detailsRow}>
                 <div className={styles.itemCol}>
                   <div className={styles.itemIconBadge}>
@@ -368,7 +383,7 @@ function EnterprisePage() {
                     <MapPin size={18} aria-hidden="true" />
                   </div>
                   <div className={styles.itemContent}>
-                    <span className={styles.itemLabel}>Block or village</span>
+                    <span className={styles.itemLabel}>Office address</span>
                     <span className={styles.itemValue}>
                       {enterprise.businessBlockOrVillage ?? '—'}
                     </span>
@@ -382,7 +397,11 @@ function EnterprisePage() {
                   <div className={styles.itemContent}>
                     <span className={styles.itemLabel}>District</span>
                     <span className={styles.itemValue}>
-                      {enterprise.businessDistrict ?? '—'}
+                      {/* The read view shows the bare district name mapped
+                          from the stored code. */}
+                      {enterprise.businessDistrict
+                        ? districtName(enterprise.businessDistrict)
+                        : '—'}
                     </span>
                   </div>
                 </div>
@@ -445,7 +464,7 @@ function EnterprisePage() {
           </div>
         )}
 
-        {/* Bottom Back Button */}
+        {/* Bottom back button */}
         <div className={styles.bottomNav}>
           <Link to="/enterprises" className={styles.bottomBackBtn}>
             <ArrowLeft size={16} aria-hidden="true" />

@@ -17,11 +17,26 @@ type AdminQuery {
   """Applications arriving, and the desk review of them."""
   intake: AdminIntakeQuery!
 
-  """Partner-bank evaluation and the committee that decides."""
-  decision: AdminDecisionQuery!
-
   """Awards, payments, assessments and recovery."""
   funding: AdminFundingQuery!
+
+  """Aggregate reporting over the intake casework."""
+  analytics: AdminAnalyticsQuery!
+}
+
+"""Reading the intake casework as aggregates rather than rows."""
+type AdminAnalyticsQuery {
+  """
+  One filtered set of applications, counted along every reporting dimension.
+
+  **Use case:** the analytics panel on `/admin`. Takes the queue's own filter
+  shape minus paging, and describes exactly the set `intake.queue` would list
+  under the same filters — the counts and the rows can never disagree.
+  """
+  summary(
+    """Filters, all optional, combined with AND. Omit for the whole intake."""
+    input: AdminIntakeAnalyticsInput
+  ): AdminAnalyticsSummaryResult!
 }
 
 """Reading the programme cycles and their rules."""
@@ -158,36 +173,6 @@ type AdminIntakeQuery {
   ): DocumentDownloadResult!
 }
 
-"""Reading committee meetings and their decisions."""
-type AdminDecisionQuery {
-  """
-  Committee meetings, newest first.
-
-  **Use case:** `/admin/meetings`.
-  """
-  meetings(
-    """How many to return, 1–100. Defaults to 20."""
-    first: Int
-
-    """The previous page's `endCursor`. Opaque; omit for the first page."""
-    after: String
-
-    """Only meetings in this state."""
-    status: TtmMeetingStatus
-  ): AdminMeetingsResult!
-
-  """
-  One meeting with its agenda and the decisions taken.
-
-  **Use case:** `/admin/meetings/$id`, both while building the agenda and
-  while recording what was decided.
-  """
-  meetingById(
-    """The meeting to open, in any state including finalized."""
-    meetingId: ID!
-  ): AdminMeetingWorkspaceResult!
-}
-
 """Reading the money on an application."""
 type AdminFundingQuery {
   """
@@ -286,6 +271,201 @@ input AdminIntakeQueueInput {
   page.
   """
   queue: AdminIntakeQueueKey
+
+  """
+  Only applications in any of these funding bands. When given and non-empty
+  this **supersedes** `category`; an empty list means no category filter.
+  """
+  categories: [ApplicationCategory!]
+
+  """
+  Only applications from enterprises in any of these sectors. When given and
+  non-empty this **supersedes** `sector`; an empty list means no sector filter.
+  """
+  sectors: [BusinessSector!]
+
+  """
+  Only applications from enterprises operating in any of these districts,
+  read live from the enterprise profile. An empty list filters nothing.
+  """
+  districts: [TripuraDistrict!]
+
+  """
+  Only applications in any of these statuses. When given and non-empty this
+  **supersedes** `status`, and it is refused alongside `queue` for the same
+  reason `status` is. An empty list means no status filter.
+  """
+  statuses: [ApplicationStatus!]
+
+  """
+  Only applications in any of these programme cycles. When given and non-empty
+  this **supersedes** `cycleId`; an empty list means no cycle filter.
+  """
+  cycleIds: [ID!]
+
+  """
+  Only applications from enterprises constituted under any of these
+  instruments, read live from the enterprise profile. An empty list filters
+  nothing.
+  """
+  registrationTypes: [RegistrationType!]
+
+  """
+  Only applications asking for at least this many paise, **inclusive**. An
+  application whose requested amount is unanswered or unreadable never
+  matches an amount bound.
+  """
+  requestedMinPaise: Money
+
+  """Only applications asking for at most this many paise, **inclusive**."""
+  requestedMaxPaise: Money
+
+  """
+  Only applications with a programme decision recorded at or after this
+  instant. A correction is a decision too: either recording puts the
+  application in the range.
+  """
+  decidedFrom: DateTime
+
+  """Only applications with a programme decision recorded at or before this instant."""
+  decidedTo: DateTime
+}
+
+"""
+The district a Tripura enterprise operates in.
+
+The same closed eight-value set the enterprise profile stores — prose
+spellings of one place would silently split a district's count in two.
+"""
+enum TripuraDistrict {
+  """Dhalai district."""
+  DHALAI
+
+  """Gomati district."""
+  GOMATI
+
+  """Khowai district."""
+  KHOWAI
+
+  """North Tripura district."""
+  NORTH_TRIPURA
+
+  """Sepahijala district."""
+  SEPAHIJALA
+
+  """South Tripura district."""
+  SOUTH_TRIPURA
+
+  """Unakoti district."""
+  UNAKOTI
+
+  """West Tripura district."""
+  WEST_TRIPURA
+}
+
+"""
+How the analytics summary is filtered: the queue's filters, minus paging.
+
+Every field is optional and they combine with AND, exactly as they do on
+`AdminIntakeQueueInput` — the summary describes the set the queue would list.
+"""
+input AdminIntakeAnalyticsInput {
+  """Only applications in this programme cycle."""
+  cycleId: ID
+
+  """
+  Only applications in any of these cycles. Supersedes `cycleId` when given
+  and non-empty; an empty list filters nothing.
+  """
+  cycleIds: [ID!]
+
+  """Only applications in this status. Mutually exclusive with `queue`."""
+  status: ApplicationStatus
+
+  """
+  Only applications in any of these statuses. Supersedes `status` when given
+  and non-empty, and is refused alongside `queue` just as `status` is.
+  """
+  statuses: [ApplicationStatus!]
+
+  """
+  Only applications in this named queue. Mutually exclusive with `status` and
+  `statuses`, which is **refused** rather than silently intersected.
+  """
+  queue: AdminIntakeQueueKey
+
+  """Only applications at this phase: 1 for a first application."""
+  phaseNumber: Int
+
+  """Only first applications, or only later phases."""
+  applicationType: ApplicationType
+
+  """Only applications this person worked last. Advisory, not ownership."""
+  assigneeUserId: ID
+
+  """Only the application with this exact reference."""
+  referenceNumber: String
+
+  """
+  Matches the **start** of a reference number or an enterprise name,
+  case-insensitively — the same prefix rule the queue applies.
+  """
+  search: String
+
+  """Only applications from enterprises in this sector."""
+  sector: BusinessSector
+
+  """
+  Only applications from enterprises in any of these sectors. Supersedes
+  `sector` when given and non-empty; an empty list filters nothing.
+  """
+  sectors: [BusinessSector!]
+
+  """Only applications in this funding band."""
+  category: ApplicationCategory
+
+  """
+  Only applications in any of these funding bands. Supersedes `category`
+  when given and non-empty; an empty list filters nothing.
+  """
+  categories: [ApplicationCategory!]
+
+  """
+  Only applications from enterprises operating in any of these districts,
+  read live from the enterprise profile. An empty list filters nothing.
+  """
+  districts: [TripuraDistrict!]
+
+  """
+  Only applications from enterprises constituted under any of these
+  instruments. An empty list filters nothing.
+  """
+  registrationTypes: [RegistrationType!]
+
+  """Only applications submitted at or after this instant."""
+  submittedFrom: DateTime
+
+  """Only applications submitted at or before this instant."""
+  submittedTo: DateTime
+
+  """
+  Only applications asking for at least this many paise, **inclusive**. An
+  unanswered or unreadable requested amount never matches an amount bound.
+  """
+  requestedMinPaise: Money
+
+  """Only applications asking for at most this many paise, **inclusive**."""
+  requestedMaxPaise: Money
+
+  """
+  Only applications with a programme decision recorded at or after this
+  instant. A correction is a decision too: either recording puts the
+  application in the range.
+  """
+  decidedFrom: DateTime
+
+  """Only applications with a programme decision recorded at or before this instant."""
+  decidedTo: DateTime
 }
 
 """Which column the queue is ordered by."""
@@ -320,8 +500,8 @@ enum AdminIntakeQueueKey {
   """Sent to a bank and awaiting its assessment. Nothing for the office to do."""
   PARTNER_BANK_EVALUATION
 
-  """Waiting for the committee."""
-  TTM_REVIEW
+  """Cleared the bank stage and waiting to be decided."""
+  AWAITING_DECISION
 
   """Approved, awaiting a sanction order."""
   APPROVED
@@ -334,21 +514,6 @@ enum AdminIntakeQueueKey {
 
   """At least partly paid."""
   DISBURSED
-}
-
-"""Where a committee meeting is in its own life."""
-enum TtmMeetingStatus {
-  """Being built. The agenda may still change."""
-  DRAFT
-
-  """Under way. Decisions are being recorded."""
-  IN_SESSION
-
-  """Closed. The record is complete and no longer editable."""
-  FINALIZED
-
-  """Called off. Its agenda items return to the queue."""
-  CANCELLED
 }
 
 """
@@ -390,24 +555,6 @@ enum ProgrammeJurisdiction {
   TTAADC
 }
 
-"""When one document becomes required."""
-enum ProgrammeDocumentCondition {
-  """Always required."""
-  ALWAYS
-
-  """Required only when the business is registered."""
-  WHEN_REGISTERED
-
-  """Required only when the business has a GSTIN."""
-  WHEN_GSTIN_PRESENT
-
-  """Required only when the applicant said a NOC applies."""
-  WHEN_NOC_REQUIRED
-
-  """Never required. Accepted if attached."""
-  OPTIONAL
-}
-
 """
 Which administrative action a reason category may be used for.
 
@@ -417,12 +564,6 @@ rejecting an application can never be offered for closing a cycle.
 enum ProgrammeReasonContext {
   """Closing a cycle to new applications."""
   CYCLE_CLOSE
-
-  """Returning an application to the shared queue. Retained for history."""
-  ASSIGNMENT_RELEASE
-
-  """Passing an application to a colleague. Retained for history."""
-  ASSIGNMENT_REASSIGN
 
   """Asking the applicant to correct a section."""
   REVISION
@@ -436,11 +577,8 @@ enum ProgrammeReasonContext {
   """Correcting a bank outcome already recorded."""
   BANK_OUTCOME_CORRECTION
 
-  """Holding an application over to a later meeting."""
-  TTM_DEFERRAL
-
-  """Correcting a committee decision already recorded."""
-  TTM_DECISION_CORRECTION
+  """Correcting a programme decision already recorded."""
+  DECISION_CORRECTION
 
   """Changing an award after it was made."""
   AWARD_AMENDMENT
@@ -470,8 +608,8 @@ enum BankOutcome {
   RECOMMENDED
 
   """
-  The bank does not support it. The application still goes to the committee —
-  bank feedback is evidence, not a veto.
+  The bank does not support it. The application is still decided by the
+  programme — bank feedback is evidence, not a veto.
   """
   NOT_RECOMMENDED
 
@@ -479,16 +617,13 @@ enum BankOutcome {
   MORE_INFORMATION_REQUIRED
 }
 
-"""What the committee decided."""
-enum TtmDecisionOutcome {
+"""What the programme decided on an application."""
+enum DecisionOutcome {
   """Approved. An award follows."""
   APPROVED
 
   """Not approved."""
   REJECTED
-
-  """Held over to a later meeting."""
-  DEFERRED
 
   """Sent back to the applicant for correction."""
   REVISION_REQUIRED
@@ -516,6 +651,114 @@ enum RecoveryComponent {
 
   """Interest charged on late recovery."""
   PENAL_INTEREST
+}
+
+"""A reusable structure a cycle defines, as the editor reads it back."""
+type FormGroupDefinition {
+  """How the structure is addressed."""
+  definitionKey: String!
+
+  """What the structure is called where the editor lists it."""
+  label: String!
+
+  """The questions each entry asks, in order."""
+  members: [FormGroupDefinitionMember!]!
+}
+
+"""One member of a reusable structure, as authored."""
+type FormGroupDefinitionMember {
+  """How the member is addressed inside its structure."""
+  memberKey: String!
+
+  """What kind of answer it takes."""
+  fieldType: FormFieldType!
+
+  """The role it plays, where it plays one."""
+  role: String
+
+  """The words the applicant reads."""
+  label: String!
+
+  """A sentence of guidance under the control."""
+  helpText: String
+
+  """Whether an answer is needed in every entry."""
+  requirement: FormFieldRequirement!
+
+  """Fewest characters."""
+  minLength: Int
+
+  """Most characters."""
+  maxLength: Int
+
+  """The format rule, where one is set."""
+  pattern: String
+
+  """What to say when the format rule does not match."""
+  patternMessage: String
+
+  """Smallest permitted number."""
+  minValue: Money
+
+  """Largest permitted number."""
+  maxValue: Money
+
+  """Earliest permitted day."""
+  minDate: Date
+
+  """Latest permitted day."""
+  maxDate: Date
+
+  """`"NOT_FUTURE"` or `"NOT_PAST"`, or null."""
+  relativeDateBound: String
+
+  """Ghost text inside the empty control."""
+  placeholder: String
+
+  """An inline hint under the control."""
+  note: String
+
+  """How to colour the note."""
+  tone: String
+
+  """How wide to draw the control."""
+  widthHint: String
+
+  """Decoration before the value."""
+  prefixText: String
+
+  """Decoration after the value."""
+  suffixText: String
+
+  """The HTML `autocomplete` token."""
+  autocompleteHint: String
+
+  """Whether to show characters-remaining."""
+  showCharCount: Boolean!
+
+  """How many rows a `LONG_TEXT` control opens with."""
+  textareaRows: Int
+
+  """Which control draws a choice."""
+  choiceStyle: String
+
+  """The choices offered, in order."""
+  options: [FormGroupDefinitionMemberOption!]!
+}
+
+"""One choice a structure's member offers, as authored."""
+type FormGroupDefinitionMemberOption {
+  """What is stored when the choice is taken."""
+  optionValue: String!
+
+  """What the applicant reads."""
+  optionLabel: String!
+
+  """A sentence under the label when the choice is drawn as a card."""
+  optionDescription: String
+
+  """A kebab-case icon token for the card rendering."""
+  iconName: String
 }
 
 """One programme cycle, as the office sees it."""
@@ -572,6 +815,48 @@ type AdminProgrammeCycle {
 }
 
 """
+The eligibility and funding rules of one cycle version.
+
+Every value is nullable because every one is genuinely optional: a cycle that
+sets no minimum age has none, and that is a decision rather than a gap. The
+editor shows them back as they are, so an unconfigured cycle is visible.
+"""
+type AdminCyclePolicy {
+  """Youngest applicant the cycle accepts, in years."""
+  minimumApplicantAge: Int
+
+  """Oldest applicant the cycle accepts, in years."""
+  maximumApplicantAge: Int
+
+  """
+  How many months of trading separates the two funding bands. At or below this
+  is `CATEGORY_A`; above it is `CATEGORY_B`.
+  """
+  categoryAMaximumMonths: Int
+
+  """How long after an award before a later phase may be applied for."""
+  expansionWaitMonths: Int
+
+  """Whether the applicant must confirm majority ownership."""
+  majorityOwnershipRequired: Boolean
+
+  """Whose rules this cycle applies."""
+  jurisdiction: ProgrammeJurisdiction
+
+  """
+  Whether a maximum award has been settled. `UNRESOLVED` is honest rather than
+  missing: no amount is checked against a ceiling nobody has approved.
+  """
+  fundingCeilingState: FundingCeilingState!
+
+  """The ceiling, in paise. Present only where the state is `RESOLVED`."""
+  fundingCeilingAmountPaise: Money
+
+  """What the ceiling is measured across. Present only where `RESOLVED`."""
+  fundingCeilingScope: FundingCeilingScope
+}
+
+"""
 One cycle with the complete rule set of its current version.
 
 **Use case:** the cycle editor, which shows every rule back so an unconfigured
@@ -581,8 +866,34 @@ type AdminCycleAggregate {
   """The cycle itself."""
   head: AdminProgrammeCycle!
 
-  """Which documents this cycle requires, and when."""
-  documentRules: [AdminDocumentRule!]!
+  """
+  The rules of this cycle's current version — the eligibility bounds, the
+  funding ceiling and whose rules apply.
+
+  **These could be written and not read**, which is the state this replaced.
+  `ProgrammeCyclePolicyInput` carries all of them and nothing returned any of
+  them, so a cycle editor had nothing to populate its fields from and had to
+  resend its own defaults on every save — which is how a settled age limit or a
+  funding ceiling gets reset without anybody choosing to.
+  """
+  policy: AdminCyclePolicy!
+
+  """
+  The questions this cycle asks, as its current version holds them.
+
+  Null only where the cycle's rows have been edited by hand. This is what the
+  cycle editor reads: an administrator cannot change a form they cannot see,
+  and until this existed the only way to look at one was to start an
+  application against the cycle.
+  """
+  formTemplate: FormTemplate
+
+  """
+  The reusable structures this cycle defines, for the editor. Empty when it
+  defines none. The expanded questions they produce appear in `formTemplate`
+  like any others; these are the editable definitions behind them.
+  """
+  groupDefinitions: [FormGroupDefinition!]!
 
   """
   Which identity numbers the desk review collects and compares.
@@ -601,18 +912,6 @@ type AdminCycleAggregate {
   none cannot be operated, since every later action must name one.
   """
   reasons: [AdminReasonCategory!]!
-}
-
-"""One document this cycle requires, and the condition it is required under."""
-type AdminDocumentRule {
-  """Stable identifier."""
-  id: ID!
-
-  """Which evidence slot."""
-  documentType: DocumentType!
-
-  """When it becomes required."""
-  condition: ProgrammeDocumentCondition!
 }
 
 """
@@ -891,6 +1190,124 @@ type AdminQueueSummary {
   queues: [AdminQueueCount!]!
 }
 
+"""How many of the filtered applications sit in one workflow status."""
+type AdminAnalyticsStatusCount {
+  """The workflow status counted."""
+  status: ApplicationStatus!
+
+  """How many of the filtered applications are in it."""
+  count: Int!
+}
+
+"""How many of the filtered applications fall in one funding band."""
+type AdminAnalyticsCategoryCount {
+  """
+  The funding band counted. Null groups the applications submitted under a
+  cycle that set no operating-months threshold, which have no band.
+  """
+  category: ApplicationCategory
+
+  """How many of the filtered applications are in it."""
+  count: Int!
+}
+
+"""How many of the filtered applications come from one sector."""
+type AdminAnalyticsSectorCount {
+  """
+  The sector counted, read live from each enterprise profile. Null groups
+  the enterprises whose profile predates the sector question.
+  """
+  sector: BusinessSector
+
+  """How many of the filtered applications are in it."""
+  count: Int!
+}
+
+"""How many of the filtered applications come from one district."""
+type AdminAnalyticsDistrictCount {
+  """
+  The district counted, read live from each enterprise profile. Null groups
+  the enterprises whose profile predates the district question.
+  """
+  district: TripuraDistrict
+
+  """How many of the filtered applications are in it."""
+  count: Int!
+}
+
+"""How many of the filtered applications belong to one programme cycle."""
+type AdminAnalyticsCycleCount {
+  """Which cycle these were applied into."""
+  cycleId: ID!
+
+  """The cycle's short code, so a chart needs no second query."""
+  cycleCode: String!
+
+  """How many of the filtered applications belong to it."""
+  count: Int!
+}
+
+"""How many of the filtered applications arrived in one calendar month."""
+type AdminAnalyticsMonthCount {
+  """The calendar month, in UTC, as `YYYY-MM`."""
+  month: String!
+
+  """How many of the filtered applications were last submitted in it."""
+  count: Int!
+}
+
+"""
+What the filtered applications asked for, in aggregate.
+
+Read from the same role-bound answer the queue's amount filter reads, with the
+same guard: an application whose requested amount is unanswered or unreadable
+contributes to none of these figures rather than failing the summary.
+"""
+type AdminAnalyticsRequested {
+  """How many of the filtered applications carry a readable requested amount."""
+  count: Int!
+
+  """Everything asked for, summed, in paise. Null when nothing is readable."""
+  totalPaise: Money
+
+  """
+  The mean ask, in paise, rounded to the nearest paisa. Null when nothing is
+  readable.
+  """
+  averagePaise: Money
+}
+
+"""
+One filtered set of applications, counted along every reporting dimension.
+
+Each dimension groups the same set independently, biggest bucket first, and
+only buckets that hold something appear — except `monthly`, which reads
+chronologically. The counts across any one dimension always sum to the same
+total the queue would report for these filters.
+"""
+type AdminAnalyticsSummary {
+  """The set by workflow status, biggest bucket first."""
+  statuses: [AdminAnalyticsStatusCount!]!
+
+  """The set by funding band, biggest bucket first."""
+  categories: [AdminAnalyticsCategoryCount!]!
+
+  """The set by enterprise sector, biggest bucket first."""
+  sectors: [AdminAnalyticsSectorCount!]!
+
+  """The set by enterprise district, biggest bucket first."""
+  districts: [AdminAnalyticsDistrictCount!]!
+
+  """The set by programme cycle, biggest bucket first."""
+  cycles: [AdminAnalyticsCycleCount!]!
+
+  """What the set asked for, in aggregate."""
+  requested: AdminAnalyticsRequested!
+
+  """The set by the month its newest submission arrived, oldest month first."""
+  monthly: [AdminAnalyticsMonthCount!]!
+}
+
 """
 One application's whole case file.
 
@@ -923,6 +1340,16 @@ type AdminWorkspace {
   """What changed between consecutive submissions."""
   submissionChanges: [AdminSubmissionChange!]!
 
+  """
+  The form this application was filled against.
+
+  Null only where the cycle's rows have been edited by hand. Every stage and
+  field named on this screen comes from here, so a reviewer choosing which
+  stages to reopen is choosing from this application's own — and the API
+  refuses any other.
+  """
+  formTemplate: FormTemplate
+
   """Every correction request, including resolved and cancelled ones."""
   revisions: [AdminRevision!]!
 
@@ -950,11 +1377,7 @@ type AdminWorkspace {
 
   """What the banks wrote back, including superseded corrections."""
   bankOutcomes: [AdminBankOutcomeRecord!]!
-
-  """This application's committee agenda items."""
-  agenda: [AdminAgendaItem!]!
-
-  """Committee decisions, including superseded corrections."""
+  """Programme decisions, including superseded corrections."""
   decisions: [AdminDecisionRecord!]!
 
   """The award, once one exists. Empty before that."""
@@ -1001,8 +1424,8 @@ type AdminSubmittedDocument {
   """The applicant's document slot it came from."""
   documentId: ID!
 
-  """Which evidence slot it fills."""
-  documentType: DocumentType!
+  """Which `FILE` question of the form it answers."""
+  fieldKey: String!
 
   """The exact version pinned."""
   documentVersion: Int!
@@ -1026,10 +1449,10 @@ type AdminSubmissionChange {
   toSubmissionNumber: Int!
 
   """
-  The sections that differ. The same comparison the applicant is shown, so
-  the two can never disagree about what changed.
+  The stages that differ. The same comparison the applicant is shown, so the
+  two can never disagree about what changed.
   """
-  sections: [ApplicationSection!]!
+  stageKeys: [String!]!
 }
 
 """One correction the office asked the applicant for."""
@@ -1037,8 +1460,8 @@ type AdminRevision {
   """Stable identifier."""
   id: ID!
 
-  """Which part of the form."""
-  section: ApplicationSection!
+  """Which stage of the form, from `FormStage.key`."""
+  stageKey: String!
 
   """What was asked for. Shown to the applicant."""
   note: String!
@@ -1207,7 +1630,7 @@ type AdminBankOutcomeRecord {
 }
 
 """
-One committee decision.
+One programme decision on an application.
 
 Never edited: a correction is a new decision superseding the earlier one.
 """
@@ -1215,13 +1638,13 @@ type AdminDecisionRecord {
   """Stable identifier."""
   id: ID!
 
-  """What the committee decided."""
-  outcome: TtmDecisionOutcome!
+  """What the programme decided."""
+  outcome: DecisionOutcome!
 
-  """The committee's reference for the decision."""
+  """The office's reference for the decision."""
   decisionReference: String!
 
-  """When the committee met, which may precede when this was recorded."""
+  """When the decision was taken, which may precede when it was recorded."""
   decisionDate: Date!
 
   """
@@ -1244,66 +1667,6 @@ type AdminDecisionRecord {
   superseding record may differ from the one it replaces.
   """
   conflictAcknowledged: Boolean!
-}
-
-"""One committee meeting."""
-type AdminTtmMeeting {
-  """Stable identifier."""
-  id: ID!
-
-  """The office's reference for the meeting."""
-  meetingReference: String!
-
-  """When it is scheduled for."""
-  scheduledAt: DateTime!
-
-  """Where it is held."""
-  venue: String!
-
-  """What it is for, where the office recorded it."""
-  description: String
-
-  """Where the meeting is in its own life, as a stable code."""
-  status: String!
-
-  """Send back as `expectedVersion` when acting."""
-  currentVersion: Int!
-}
-
-"""One application on a committee agenda."""
-type AdminAgendaItem {
-  """Stable identifier."""
-  id: ID!
-
-  """The application this item puts before the committee."""
-  applicationId: ID!
-
-  """Which submission is before the committee."""
-  submissionId: ID!
-
-  """Which bank outcome accompanies it."""
-  bankOutcomeId: ID!
-
-  """Where it sits on the agenda, counting from 1."""
-  position: Int!
-
-  """Whether the item is still active, as a stable code."""
-  status: String!
-
-  """Send back as `expectedVersion` when acting."""
-  currentVersion: Int!
-}
-
-"""One meeting with its agenda and the decisions taken."""
-type AdminMeetingWorkspace {
-  """The meeting itself."""
-  meeting: AdminTtmMeeting!
-
-  """Its agenda, in order."""
-  agenda: [AdminAgendaItem!]!
-
-  """Decisions taken at it, including superseded corrections."""
-  decisions: [AdminDecisionRecord!]!
 }
 
 """Everything about the money on one application."""
@@ -1598,6 +1961,21 @@ type AdminApplicationConnectionResult implements BaseResponse {
   response: AdminApplicationConnection
 }
 
+"""The analytics summary, or the reason there is none."""
+type AdminAnalyticsSummaryResult implements BaseResponse {
+  """Whether the summary was returned."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — an inverted date or amount range, or
+  `queue` combined with a status filter.
+  """
+  message: String
+
+  """The summary. Null whenever `success` is false."""
+  response: AdminAnalyticsSummary
+}
+
 """Every queue and its size, or the reason there is none."""
 type AdminQueueSummaryResult implements BaseResponse {
   """Whether the summary was returned."""
@@ -1624,42 +2002,6 @@ type AdminWorkspaceResult implements BaseResponse {
 
   """The case file as it now stands. Null whenever `success` is false."""
   response: AdminWorkspace
-}
-
-"""One page of committee meetings."""
-type AdminMeetingConnection {
-  """This page, newest first."""
-  nodes: [AdminTtmMeeting!]!
-
-  """Where this page sits in the whole list."""
-  pageInfo: PageInfo!
-}
-
-"""One page of meetings, or the reason there is none."""
-type AdminMeetingsResult implements BaseResponse {
-  """Whether the page was returned."""
-  success: Boolean!
-
-  """What to show when `success` is false."""
-  message: String
-
-  """The page. Null whenever `success` is false."""
-  response: AdminMeetingConnection
-}
-
-"""One meeting, or the reason the operation was refused."""
-type AdminMeetingWorkspaceResult implements BaseResponse {
-  """Whether the operation succeeded."""
-  success: Boolean!
-
-  """
-  What to show when `success` is false — a stale `expectedVersion`, an agenda
-  that is full, or a meeting whose state does not allow the change.
-  """
-  message: String
-
-  """The meeting as it now stands. Null whenever `success` is false."""
-  response: AdminMeetingWorkspace
 }
 
 """The money on one application, or the reason the operation was refused."""

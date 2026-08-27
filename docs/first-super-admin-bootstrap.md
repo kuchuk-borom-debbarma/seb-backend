@@ -142,28 +142,30 @@ cannot revoke their own. Promote a second super administrator through
 `access.grantRole` as soon as bootstrap completes, and this section becomes
 unnecessary.
 
-**Locally, use `npm run seed:super-admin`.** It creates an administrator
-directly against the local database and is the intended way back in when
-bootstrap has already been spent. The rest of this section is for a deployed
-Worker, where that script is not an option.
+There is deliberately no script for this. One existed, and it wrote a verified
+account with grants naming no granting actor — which is the right shape for a
+local database and the wrong thing to keep within reach of a deployed one. What
+follows is the manual route, and its length is the point: this is not a step
+anybody should take casually.
 
-It still applies if the sole account is lost some other way — a forgotten
-password, or a soft deletion applied directly to D1. Sign-in requires at least
+It applies if the sole account is lost some other way — a forgotten
+password, or a soft deletion applied directly to the database. Sign-in requires at least
 one active role, and bootstrap stays permanently closed once any historical
 `SUPER_ADMIN` grant exists — including a revoked one — so this route cannot
 promote a replacement. Restoring access then requires direct database access:
 
 ```sh
-npx wrangler d1 execute DB --command "
+psql "$DATABASE_URL" -c "
   INSERT INTO core_user_role_grant (id, user_id, role, grant_reason, granted_at)
-  SELECT lower(hex(randomblob(16))), id, 'SUPER_ADMIN', 'MANUAL_RECOVERY',
-         unixepoch() * 1000
+  SELECT gen_random_uuid()::text, id, 'SUPER_ADMIN', 'MANUAL_RECOVERY', now()
   FROM core_user WHERE email = 'administrator@example.com'
+  ON CONFLICT (user_id, role) WHERE revoked_at IS NULL DO NOTHING
 "
 ```
 
-The partial unique index on active grants makes this a no-op if an active
-`SUPER_ADMIN` grant already exists, so it is safe to run when unsure. Record
+The `ON CONFLICT … DO NOTHING` targets the partial unique index on active
+grants, so this is a no-op if an active `SUPER_ADMIN` grant already exists and
+it is safe to run when unsure. Record
 the recovery outside the portal: unlike every other role change, it leaves no
 audit event.
 
@@ -204,7 +206,7 @@ Revoking the first administrator therefore does not reopen this route.
   agents so credentials cannot be smuggled into retained history through HTTP
   headers.
 - After bootstrap closes, later requests fail before memory-hard password
-  verification. The guarded D1 write still repeats the permanent-lock check so
+  verification. The guarded write still repeats the permanent-lock check so
   concurrent first attempts remain atomic.
 - Passwords, configured email, bootstrap secret, password hash, and session
   credentials never enter audit metadata.

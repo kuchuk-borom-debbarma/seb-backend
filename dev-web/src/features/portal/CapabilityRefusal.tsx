@@ -37,7 +37,7 @@ export function CapabilityRefusal({
         </p>
 
         <Link to="/admin" className="button" data-variant="primary">
-          Back to dashboard
+          Back to intake
         </Link>
       </section>
     </main>

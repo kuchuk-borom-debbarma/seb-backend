@@ -20,15 +20,30 @@ Google all satisfy it, and so does this Worker.
 - **An object is immutable once written.** Nothing here replaces or edits one; a
   new document version is a new object.
 
-## Two backends, differing in one thing
+## Three backends, differing in one thing
 
 | | Receives the upload | Needs | Selected when |
 | --- | --- | --- | --- |
-| `r2` | the bucket, straight from the browser | the four `R2_*` values | `ENVIRONMENT` is anything else |
 | `local` | this Worker, which writes to the `STORAGE` binding | nothing | `ENVIRONMENT` is unset or `local` |
+| `r2` | the bucket, straight from the browser | the four `R2_*` values | deployed, and `STORAGE_TRANSPORT` is unset or `r2` |
+| `cloudinary` | this Worker, which relays to the provider | the three `CLOUDINARY_*` values | deployed, and `STORAGE_TRANSPORT` is `cloudinary` |
 
-Both return the same grant shape, so the client cannot tell which it is talking
-to. Only the host in the URL differs.
+All three return the same grant shape, so the client cannot tell which it is
+talking to. Only the host in the URL differs. `STORAGE_TRANSPORT` defaults to
+`r2` so an environment already configured for it does not change store by
+upgrading, and refuses any other value rather than picking one.
+
+**Why Cloudinary relays rather than granting.** Its upload API takes a signed
+multipart `POST` — signed *form fields*, not a signed URL with headers. A
+direct-to-provider grant would therefore change `UploadGrant` and every client
+that follows it, so the bytes come here instead and this forwards them. The cost
+is bounded: a document is held in memory once, and the programme caps one at
+2 MB.
+
+**Why its objects are `authenticated`.** A default Cloudinary upload is served
+to anyone who knows the URL. This evidence includes identity and bank documents,
+so assets are stored as `authenticated` and downloads are relayed too — no
+Cloudinary URL, signed or otherwise, ever reaches a browser.
 
 **Why the local one exists.** Signing addresses `r2.cloudflarestorage.com` for
 real, so the direct-to-bucket path needs credentials and a bucket. The `STORAGE`
@@ -70,16 +85,17 @@ acceptable is a programme rule, and it lives in
 [`application/uploads.ts`](../application/README.md). This is what lets the
 application check a file without ever holding a bucket.
 
-### The local route — receiving bytes
+### The relaying route — receiving bytes
 
-`route.ts` accepts the `PUT` when the local backend is the selected one.
+`route.ts` accepts the `PUT` when the selected backend relays rather than
+sending the browser to a provider — `local` and `cloudinary`.
 
 | | |
 | --- | --- |
 | **Entry** | `handleLocalStorageRequest(request, { db, env })` |
-| **Guard** | **refuses unless the local backend is selected** |
+| **Guard** | **refuses unless the selected backend relays** |
 | **Refuses** | an unknown or spent upload id, a size or type that disagrees, a checksum that does not match |
-| **Writes** | one object, with the digest recorded against it |
+| **Writes** | one object, through `objectStore` — the `STORAGE` binding, or the provider |
 | **Fails** | `403` for an unusable authorization, `400` for a payload that disagrees |
 
 That first check is the entire security boundary of the file. It comes first and
@@ -105,12 +121,15 @@ deployed, which is the worst kind of difference to have.
 | --- | --- | --- |
 | `storage` | `index.ts` | The backend for this environment |
 | `usesLocalStorage` | `index.ts` | Whether documents are kept by the Worker itself |
+| `relaysThroughWorker` | `index.ts` | Whether uploads arrive here rather than at the provider |
+| `objectStore` | `index.ts` | Where the relaying route puts and gets the bytes |
 | `UPLOAD_TTL_SECONDS` | `policy.ts` | How long an upload authorization lasts |
 | `StorageBackend`, `UploadGrant`, `DownloadGrant`, `UploadRequest`, `ObjectFacts`, `RequiredHeader` | `types.ts` | The interface and its shapes |
 | `handleLocalStorageRequest` | `route.ts` | Receives bytes locally; closed everywhere else |
 | `StorageRouteContext` | `route.ts` | The little the route needs — one row, one object |
 | `r2Transport`, `requireR2Configuration` | `transports/r2.ts` | The only file that knows R2 exists |
 | `localTransport` | `transports/local.ts` | The Worker standing in for a bucket |
+| `cloudinaryTransport`, `cloudinaryObjectStore`, `requireCloudinaryConfiguration` | `transports/cloudinary.ts` | The only file that knows Cloudinary exists |
 | `attachmentHeader`, `base64FromBytes`, `DOWNLOAD_TTL_SECONDS`, `LOCAL_STORAGE_PATH` | `policy.ts` | How an object is served |
 
 ## Elsewhere

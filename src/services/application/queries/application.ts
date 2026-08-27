@@ -17,10 +17,10 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm'
-import type { Database } from '../../../db'
+import { batch, changedExactlyOne, type Database, type Executor } from '../../../db'
 import {
-  applicationSections,
   coreAuditEvent,
+  coreUser,
   sebAwardAssessment,
   sebApplication,
   sebApplicationDocument,
@@ -31,6 +31,7 @@ import {
   sebApplicationQualifyingAwardVersion,
   sebApplicationSubmission,
   sebApplicationVersion,
+  sebApplicationVersionAnswer,
   sebDisbursement,
   sebEnterprise,
   sebEnterpriseVersion,
@@ -38,7 +39,6 @@ import {
   sebFundingCase,
   sebProgrammeCycle,
   sebProgrammeCycleAssessmentRule,
-  sebProgrammeCycleDocumentRule,
   sebProgrammeCycleEvent,
   sebProgrammeCycleVersion,
   sebUtilizationObligation,
@@ -46,20 +46,27 @@ import {
 } from '../../../db/schema'
 import { foldDisbursementLedger } from '../ledger'
 import { MAX_COLLECTION_ROWS } from '../pagination'
-import { changedSections } from '../sections'
+import { changedStageKeys } from '../form/answers'
+import { requiredDocumentFieldKeys } from '../form/engine'
+import {
+  answersByVersion,
+  answersFromRows,
+  answersToRows,
+  findAnswerRows,
+  findPinnedCycleRules,
+  type AnswerRow,
+} from './form-template'
 import { encodeCursor } from '../pagination'
 import { prefixMatch, prefixPattern } from '../../search'
 import {
-  d1ChangedExactlyOne,
   COUNT_MISSING,
   requireInvariant,
-  sqlDateMilliseconds,
   sqlNullable,
   type AuditRecord,
 } from '../support'
+import type { AnswerMap } from '../form/types'
 import type {
   Application,
-  ApplicationDraftInput,
   ApplicationDocument,
   ApplicationSection,
   ApplicationSnapshot,
@@ -79,7 +86,6 @@ import type {
 import {
   addUtcCalendarMonths,
   fullUtcCalendarMonths,
-  requiredDocumentTypesForSnapshot,
   type SubmissionPolicy,
 } from '../validation'
 
@@ -109,61 +115,49 @@ const programmeCycleOpenAt = (now: Date): SQL => sql`
   ${sebProgrammeCycle.status} = 'OPEN'
   AND ${sebProgrammeCycle.deletedAt} IS NULL
   AND (${sebProgrammeCycle.opensAt} IS NULL
-    OR ${sebProgrammeCycle.opensAt} <= ${now.getTime()})
+    OR ${sebProgrammeCycle.opensAt} <= ${now})
   AND (${sebProgrammeCycle.closesAt} IS NULL
-    OR ${sebProgrammeCycle.closesAt} > ${now.getTime()})
+    OR ${sebProgrammeCycle.closesAt} > ${now})
 `
 
-const snapshotFromRecord = (record: ApplicationVersionRecord): ApplicationSnapshot => ({
+/**
+ * One stored version, as the rest of the service sees it.
+ *
+ * The envelope — which version, which cycle it is pinned to, why it exists —
+ * plus the facts the server owns. **The answers are not here**: they live one
+ * row each and are read against the pinned template, because which questions
+ * exist is a cycle's decision and no longer the schema's.
+ *
+ * A caller that needs the answers asks for them explicitly. That is deliberate:
+ * a list of applications must not load a template and an answer set per row,
+ * and making the answers a separate read is what stops that happening by
+ * accident.
+ */
+/**
+ * One stored version, as a person reads it.
+ *
+ * The answers are passed in rather than read here because they live in their
+ * own rows and every caller has already loaded them — the applicant's screen
+ * for the current version, the office's for every submitted one. Making this
+ * fetch them would turn one query into one per snapshot.
+ */
+const snapshotFromRecord = (
+  record: ApplicationVersionRecord,
+  answers: AnswerMap,
+): ApplicationSnapshot => ({
+  answers,
   version: record.version,
   programmeCycleVersion: record.programmeCycleVersion,
   applicationType: record.applicationType,
   phaseNumber: record.phaseNumber,
   changeType: record.changeType,
   createdAt: record.createdAt,
-  enterprise: {
-    businessName: record.businessName,
-    establishmentDate: record.establishmentDate,
-    registrationType: record.registrationType,
-    registrationNumber: record.registrationNumber,
-    gstin: record.gstin,
-    businessSector: record.businessSector,
-    otherBusinessSector: record.otherBusinessSector,
-    applicationCategory: record.applicationCategory,
-    majorityOwnershipConfirmed: record.majorityOwnershipConfirmed,
-  },
-  applicantProfile: {
-    primaryApplicantName: record.primaryApplicantName,
-    designation: record.designation,
-    dateOfBirth: record.dateOfBirth,
-    gender: record.gender,
-    businessBlockOrVillage: record.businessBlockOrVillage,
-    businessDistrict: record.businessDistrict,
-    businessPinCode: record.businessPinCode,
-    contactNumber: record.contactNumber,
-    contactEmail: record.contactEmail,
-  },
-  financial: {
-    totalProjectCostPaise: record.totalProjectCostPaise,
-    seedFundRequestedPaise: record.seedFundRequestedPaise,
-    bankLoanProposedPaise: record.bankLoanProposedPaise,
-    promoterContributionPaise: record.promoterContributionPaise,
-  },
-  priorFunding: {
-    receivedGovernmentFunding: record.receivedGovernmentFunding,
-    governmentSchemeName: record.governmentSchemeName,
-    governmentFundingAmountPaise: record.governmentFundingAmountPaise,
-    governmentFundingSanctionYear: record.governmentFundingSanctionYear,
-    hasExistingBankCredit: record.hasExistingBankCredit,
-    existingBankName: record.existingBankName,
-    existingCreditAmountPaise: record.existingCreditAmountPaise,
-    existingCreditStatus: record.existingCreditStatus,
-  },
-  documents: { nocRequired: record.nocRequired },
+  declarationAcceptedAt: record.declarationAcceptedAt,
   priorSanctionOrderNumber: record.priorSanctionOrderNumber,
   priorSanctionDate: record.priorSanctionDate,
   priorNetDisbursedAmountPaise: record.priorNetDisbursedAmountPaise,
   continuousOperationMonths: record.continuousOperationMonths,
+  applicationCategory: record.applicationCategory,
 })
 
 const applicationBase = (head: ApplicationHeadRecord) => ({
@@ -241,12 +235,12 @@ export const findLatestSubmittedVersion = async (
   return sqlNullable(record && record.version)
 }
 
-export const listActiveDocumentTypes = async (
+export const listActiveDocumentFieldKeys = async (
   db: Database,
   applicationId: string,
 ): Promise<Set<DocumentType>> => {
   const rows = await db
-    .select({ documentType: sebApplicationDocument.documentType })
+    .select({ fieldKey: sebApplicationDocument.fieldKey })
     .from(sebApplicationDocument)
     .where(
       and(
@@ -254,7 +248,7 @@ export const listActiveDocumentTypes = async (
         isNull(sebApplicationDocument.deletedAt),
       ),
     )
-  return new Set(rows.map((row) => row.documentType))
+  return new Set(rows.map((row) => row.fieldKey))
 }
 
 const listDocuments = async (
@@ -272,10 +266,10 @@ const listDocuments = async (
       ),
     )
     .where(eq(sebApplicationDocument.applicationId, applicationId))
-    .orderBy(asc(sebApplicationDocument.documentType))
+    .orderBy(asc(sebApplicationDocument.fieldKey))
   return rows.map(({ head, version }) => ({
     id: head.id,
-    documentType: head.documentType,
+    fieldKey: head.fieldKey,
     currentVersion: head.currentVersion,
     originalFilename: version.originalFilename,
     contentType: version.contentType,
@@ -285,12 +279,12 @@ const listDocuments = async (
   }))
 }
 
-export const listOpenRevisionSections = async (
+export const listOpenRevisionStageKeys = async (
   db: Database,
   applicationId: string,
 ): Promise<Set<ApplicationSection>> => {
   const rows = await db
-    .select({ section: sebRevisionRequest.section })
+    .select({ stageKey: sebRevisionRequest.stageKey })
     .from(sebRevisionRequest)
     .where(
       and(
@@ -299,14 +293,14 @@ export const listOpenRevisionSections = async (
         isNull(sebRevisionRequest.cancelledAt),
       ),
     )
-  return new Set(rows.map((row) => row.section))
+  return new Set(rows.map((row) => row.stageKey))
 }
 
 const listRevisionRequests = async (db: Database, applicationId: string) =>
   db
     .select({
       id: sebRevisionRequest.id,
-      section: sebRevisionRequest.section,
+      stageKey: sebRevisionRequest.stageKey,
       note: sebRevisionRequest.note,
       requestedAt: sebRevisionRequest.requestedAt,
       resolvedAt: sebRevisionRequest.resolvedAt,
@@ -316,6 +310,15 @@ const listRevisionRequests = async (db: Database, applicationId: string) =>
     .where(eq(sebRevisionRequest.applicationId, applicationId))
     .orderBy(asc(sebRevisionRequest.requestedAt))
 
+/**
+ * One application as its owner sees it, answers included.
+ *
+ * The template is resolved here rather than by the caller because three things
+ * on this object are derived from it — the answers, the stages that may be
+ * edited, and therefore what the client is allowed to draw — and they have to
+ * agree. A template that will not resolve is an invariant failure rather than an
+ * empty form: the answers exist and would silently read as unanswered.
+ */
 export const loadOwnedApplication = async (
   db: Database,
   userId: string,
@@ -329,50 +332,76 @@ export const loadOwnedApplication = async (
     listDocuments(db, applicationId),
     listRevisionRequests(db, applicationId),
   ])
+  const current = requireInvariant(version, 'Application current version is missing.')
+  const rules = requireInvariant(
+    await findPinnedCycleRules(db, current.programmeCycleId, current.programmeCycleVersion),
+    'The form this application was filled against could not be read.',
+  )
+  const rows = await findAnswerRows(db, [current.id])
   return {
     ...applicationBase(head),
-    // Derived from the revision requests already read above rather than a
-    // fourth query, and from the same rule `saveApplicationDraft` enforces, so
-    // the field can never invite an edit the write path would refuse.
-    editableSections: editableSectionsFor(head.status, revisionRequests),
-    snapshot: snapshotFromRecord(requireInvariant(version, 'Application current version is missing.')),
+    // Derived from the revision requests already read above rather than another
+    // query, and from the same rule `saveApplicationDraft` enforces, so the
+    // field can never invite an edit the write path would refuse.
+    editableStageKeys: editableStageKeysFor(
+      head.status,
+      revisionRequests,
+      rules.template.stages.map((stage) => stage.key),
+    ),
+    snapshot: snapshotFromRecord(current, answersFromRows(rules.template, current.id, rows)),
+    answers: answersFromRows(rules.template, current.id, rows),
     documents,
     revisionRequests,
   }
 }
 
 /**
- * Which form sections the applicant may currently change.
+ * Which form stages the applicant may currently change.
  *
- * A draft is entirely open. While revision is required only the sections named
- * by unresolved requests may change, and every other status is read-only.
+ * A draft is entirely open. While revision is required only the stages named by
+ * unresolved requests may change, and every other status is read-only.
  */
-const editableSectionsFor = (
+const editableStageKeysFor = (
   status: ApplicationHeadRecord['status'],
   revisionRequests: ReadonlyArray<RevisionRequest>,
+  /*
+   * The stages this application's own pinned template declares.
+   *
+   * "A draft is entirely open" used to mean every member of a global enum; it
+   * now means every stage this cycle asks, which is what it should always have
+   * meant. It also resolves an inconsistency: the enum contained `EXPANSION`,
+   * so a draft advertised it as editable while the controller quietly excluded
+   * it — those facts are now the same one.
+   */
+  templateStageKeys: readonly string[],
 ): ApplicationSection[] => {
-  if (status === 'DRAFT') return [...applicationSections]
+  if (status === 'DRAFT') return [...templateStageKeys]
   if (status !== 'REVISION_REQUIRED') return []
   const open = new Set(
     revisionRequests
       .filter((request) => request.resolvedAt === null && request.cancelledAt === null)
-      .map((request) => request.section),
+      .map((request) => request.stageKey),
   )
-  return applicationSections.filter((section) => open.has(section))
+  return templateStageKeys.filter((stage) => open.has(stage))
 }
 
 /**
- * Names the sections the current draft changes relative to the last submission.
+ * Names the stages the current draft changes relative to the last submission.
  *
  * Returns null when nothing has been submitted yet, because there is nothing to
  * compare against — a first submission changes everything by definition. Uses
- * the section map shared with the administrative workspace, so an applicant
- * reviewing their resubmission sees exactly the sections a reviewer will.
+ * `changedStageKeys`, the one definition the administrative workspace also
+ * reads, so an applicant reviewing their resubmission sees exactly the stages a
+ * reviewer will.
+ *
+ * A template that no longer resolves reports no change rather than throwing:
+ * this is a review aid beside the real diff, and a cycle edited by hand must not
+ * take the application screen down with it.
  */
 export const findDraftChanges = async (
   db: Database,
   head: ApplicationHeadRecord,
-): Promise<{ sections: ApplicationSection[]; comparedToSubmissionNumber: number } | null> => {
+): Promise<{ stageKeys: ApplicationSection[]; comparedToSubmissionNumber: number } | null> => {
   const [latest] = await db
     .select({
       submissionNumber: sebApplicationSubmission.submissionNumber,
@@ -392,10 +421,23 @@ export const findDraftChanges = async (
         inArray(sebApplicationVersion.version, [latest.applicationVersion, head.currentVersion]),
       ),
     )
-  const submitted = versions.find((version) => version.version === latest.applicationVersion)!
-  const current = versions.find((version) => version.version === head.currentVersion)!
+  const submitted = versions.find((version) => version.version === latest.applicationVersion)
+  const current = versions.find((version) => version.version === head.currentVersion)
+  if (!submitted || !current) return null
+  const rules = await findPinnedCycleRules(
+    db, current.programmeCycleId, current.programmeCycleVersion,
+  )
+  if (!rules) {
+    return { stageKeys: [], comparedToSubmissionNumber: latest.submissionNumber }
+  }
+  const rows = await findAnswerRows(db, [submitted.id, current.id])
+  const byVersion = answersByVersion(rules.template, rows)
   return {
-    sections: changedSections(submitted, current),
+    stageKeys: changedStageKeys(
+      rules.template,
+      byVersion.get(submitted.id) ?? {},
+      byVersion.get(current.id) ?? {},
+    ),
     comparedToSubmissionNumber: latest.submissionNumber,
   }
 }
@@ -440,7 +482,13 @@ export const listOwnedApplications = async (
   const rows = await db
     .select({
       head: sebApplication,
-      businessName: sebApplicationVersion.businessName,
+      /*
+       * Live from the enterprise, not a frozen answer: the business name left
+       * the form when the enterprise entity became its single home, and the
+       * list should say what the enterprise is called now — the same reasoning
+       * as the queue's `currentName`.
+       */
+      businessName: sebEnterpriseVersion.name,
       cycleCode: sebProgrammeCycle.cycleCode,
       cycleYear: sebProgrammeCycle.cycleYear,
     })
@@ -450,6 +498,14 @@ export const listOwnedApplications = async (
       and(
         eq(sebApplicationVersion.applicationId, sebApplication.id),
         eq(sebApplicationVersion.version, sebApplication.currentVersion),
+      ),
+    )
+    .innerJoin(sebEnterprise, eq(sebEnterprise.id, sebApplication.enterpriseId))
+    .innerJoin(
+      sebEnterpriseVersion,
+      and(
+        eq(sebEnterpriseVersion.enterpriseId, sebEnterprise.id),
+        eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
       ),
     )
     .innerJoin(sebProgrammeCycle, eq(sebProgrammeCycle.id, sebApplication.programmeCycleId))
@@ -558,44 +614,90 @@ export const findOpenProgrammeCycle = async (
   return cycle ?? null
 }
 
+/**
+ * Just the address a notification goes to.
+ *
+ * Its own read because the alternative, `findManagedUserById`, loads a whole
+ * managed-user aggregate — roles, grants, versions — to answer a question
+ * asked on a best-effort path after every submission and decision. A hook
+ * that exists only to send mail should not pay for, or depend on, any of
+ * that.
+ */
+export const findUserEmailById = async (
+  db: Database,
+  userId: string,
+): Promise<string | null> => {
+  const [row] = await db
+    .select({ email: coreUser.email })
+    .from(coreUser)
+    .where(eq(coreUser.id, userId))
+    .limit(1)
+  return row?.email ?? null
+}
+
+/**
+ * How a cycle introduces itself on paper.
+ *
+ * `findOpenProgrammeCycle` above cannot serve this: it filters on the open
+ * window, and a decision or sanction is routinely notified after the cycle
+ * has closed — exactly when the letterhead still has to name it.
+ */
+export const findProgrammeCycleIdentity = async (
+  db: Database,
+  programmeCycleId: string,
+): Promise<{ cycleCode: string; displayName: string } | null> => {
+  const [row] = await db
+    .select({
+      cycleCode: sebProgrammeCycle.cycleCode,
+      displayName: sebProgrammeCycle.displayName,
+    })
+    .from(sebProgrammeCycle)
+    .where(eq(sebProgrammeCycle.id, programmeCycleId))
+    .limit(1)
+  return row ?? null
+}
+
 /** Loads the exact immutable rules pinned by an application snapshot. */
+/**
+ * The cycle scalars an application is judged by.
+ *
+ * Document rules are gone from here: a required document is a FILE field with
+ * an ordinary conditional requirement, so it comes back with the template
+ * rather than as a separate list. `findPinnedCycleRules` reads both together.
+ */
 export const findSubmissionPolicy = async (
   db: Database,
   cycleId: string,
   cycleVersion: number,
 ): Promise<SubmissionPolicy | null> => {
-  /*
-   * One statement, not 2. Every read here is single-table, so `db.batch` maps
-   * the results back correctly — a joined read could not go in here, because a
-   * batch is read back by column name and two columns called `id` collide.
-   */
-  const [versionRows, documentRules] = await db.batch([
-    db.select().from(sebProgrammeCycleVersion).where(and(
-      eq(sebProgrammeCycleVersion.programmeCycleId, cycleId),
-      eq(sebProgrammeCycleVersion.version, cycleVersion),
-    )).limit(1),
-    db.select({
-      documentType: sebProgrammeCycleDocumentRule.documentType,
-      condition: sebProgrammeCycleDocumentRule.condition,
-    }).from(sebProgrammeCycleDocumentRule).where(and(
-      eq(sebProgrammeCycleDocumentRule.programmeCycleId, cycleId),
-      eq(sebProgrammeCycleDocumentRule.programmeCycleVersion, cycleVersion),
-    )),
-  ])
-  const [version] = versionRows
-  if (!version || version.minimumApplicantAge === null ||
-      version.maximumApplicantAge === null || version.categoryAMaximumMonths === null ||
-      version.majorityOwnershipRequired === null || version.fundingCeilingState === null) return null
-  return {
-    minimumApplicantAge: version.minimumApplicantAge,
-    maximumApplicantAge: version.maximumApplicantAge,
-    categoryAMaximumMonths: version.categoryAMaximumMonths,
-    majorityOwnershipRequired: version.majorityOwnershipRequired,
-    fundingCeilingState: version.fundingCeilingState,
-    fundingCeilingAmountPaise: version.fundingCeilingAmountPaise,
-    fundingCeilingScope: version.fundingCeilingScope,
-    documentRules: documentRules as SubmissionPolicy['documentRules'],
-  }
+  const pinned = await findPinnedCycleRules(db, cycleId, cycleVersion)
+  return pinned?.policy ?? null
+}
+
+/**
+ * The one enterprise fact the policy rules read: when it began trading.
+ *
+ * Lean by design — the validator and the category computation need this and
+ * nothing else, and loading the whole enterprise for it would put a second
+ * full read on every submission.
+ */
+export const findEnterpriseFacts = async (
+  db: Database,
+  enterpriseId: string,
+): Promise<{ establishmentDate: string | null } | null> => {
+  const [row] = await db
+    .select({ establishmentDate: sebEnterpriseVersion.establishmentDate })
+    .from(sebEnterprise)
+    .innerJoin(
+      sebEnterpriseVersion,
+      and(
+        eq(sebEnterpriseVersion.enterpriseId, sebEnterprise.id),
+        eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
+      ),
+    )
+    .where(eq(sebEnterprise.id, enterpriseId))
+    .limit(1)
+  return row ?? null
 }
 
 export const findEnterpriseApplicationSource = async (
@@ -970,8 +1072,9 @@ const versionValues = (input: {
   changeType: 'INITIAL' | 'SAVE' | 'REVISION' | 'SUBMISSION' | 'RESUBMISSION'
   changedByUserId: string
   createdAt: Date
-  draft: ApplicationDraftInput
   expansionClaim: ExpansionClaim
+  declarationAcceptedAt: Date | null
+  applicationCategory: 'CATEGORY_A' | 'CATEGORY_B' | null
 }): typeof sebApplicationVersion.$inferInsert => ({
   id: input.id ?? crypto.randomUUID(),
   applicationId: input.applicationId,
@@ -984,16 +1087,28 @@ const versionValues = (input: {
   changeReason: null,
   changedByUserId: input.changedByUserId,
   createdAt: input.createdAt,
-  ...input.draft.enterprise,
-  ...input.draft.applicantProfile,
-  ...input.draft.financial,
-  ...input.draft.priorFunding,
+  // Server-owned, and never taken from the draft: these are derived from the
+  // qualifying award and the ledger, and re-checked against them in the write.
   ...input.expansionClaim,
-  nocRequired: input.draft.documents.nocRequired,
+  declarationAcceptedAt: input.declarationAcceptedAt,
+  // Computed by the server at submission; null on drafts. See the schema.
+  applicationCategory: input.applicationCategory,
 })
 
+/**
+ * Inserts the version, but only where the guard still holds.
+ *
+ * This used to list fifty-one values positionally, with no column list, so the
+ * order of the Drizzle table definition was load-bearing and a mis-ordered
+ * entry was a wrong value rather than an error. With the answers in their own
+ * rows there are eleven columns and they are named — which removes that whole
+ * class of mistake along with the columns.
+ *
+ * Still an `INSERT … SELECT … WHERE`, because the predicate is what makes the
+ * write lose cleanly to a concurrent one.
+ */
 const insertVersionWhere = (
-  db: Database,
+  db: Executor,
   value: typeof sebApplicationVersion.$inferInsert,
   predicate: SQL,
 ) => db.insert(sebApplicationVersion).select(sql`
@@ -1001,27 +1116,71 @@ const insertVersionWhere = (
     ${value.programmeCycleId}, ${value.programmeCycleVersion},
     ${value.applicationType}, ${value.phaseNumber}, ${value.changeType},
     ${sqlNullable(value.changeReason)}, ${value.changedByUserId},
-    ${(value.createdAt as Date).getTime()}, ${sqlNullable(value.businessName)},
-    ${sqlNullable(value.establishmentDate)}, ${sqlNullable(value.registrationType)},
-    ${sqlNullable(value.registrationNumber)}, ${sqlNullable(value.gstin)},
-    ${sqlNullable(value.businessSector)}, ${sqlNullable(value.otherBusinessSector)},
-    ${sqlNullable(value.applicationCategory)}, ${sqlNullable(value.majorityOwnershipConfirmed)},
-    ${sqlNullable(value.primaryApplicantName)}, ${sqlNullable(value.designation)},
-    ${sqlNullable(value.dateOfBirth)}, ${sqlNullable(value.gender)},
-    ${sqlNullable(value.businessBlockOrVillage)}, ${sqlNullable(value.businessDistrict)},
-    ${sqlNullable(value.businessPinCode)}, ${sqlNullable(value.contactNumber)},
-    ${sqlNullable(value.contactEmail)}, ${sqlNullable(value.totalProjectCostPaise)},
-    ${sqlNullable(value.seedFundRequestedPaise)}, ${sqlNullable(value.bankLoanProposedPaise)},
-    ${sqlNullable(value.promoterContributionPaise)}, ${sqlNullable(value.receivedGovernmentFunding)},
-    ${sqlNullable(value.governmentSchemeName)}, ${sqlNullable(value.governmentFundingAmountPaise)},
-    ${sqlNullable(value.governmentFundingSanctionYear)}, ${sqlNullable(value.hasExistingBankCredit)},
-    ${sqlNullable(value.existingBankName)}, ${sqlNullable(value.existingCreditAmountPaise)},
-    ${sqlNullable(value.existingCreditStatus)}, ${sqlNullable(value.priorSanctionOrderNumber)},
-    ${sqlNullable(value.priorSanctionDate)}, ${sqlNullable(value.priorNetDisbursedAmountPaise)},
-    ${sqlNullable(value.continuousOperationMonths)}, ${sqlNullable(value.nocRequired)}
+    ${value.createdAt},
+    ${sqlNullable(value.priorSanctionOrderNumber)},
+    ${sqlNullable(value.priorSanctionDate)},
+    ${sqlNullable(value.priorNetDisbursedAmountPaise)},
+    ${sqlNullable(value.continuousOperationMonths)},
+    ${sqlNullable(value.declarationAcceptedAt as Date | null | undefined)},
+    ${sqlNullable(value.applicationCategory)}
   FROM ${sebApplication}
   WHERE ${predicate}
 `)
+
+/**
+ * The answer rows for one version, written in a single statement.
+ *
+ * Sparse — a cleared or unanswered question produces no row — so absence is the
+ * one representation of "unanswered" in storage as well as in the engine.
+ */
+/**
+ * The answers, written only if the version they belong to was written.
+ *
+ * **Guarded, like every other statement in these transactions.** It was a
+ * plain multi-row `VALUES`, and that made it the one statement that fired
+ * whatever the guarded `INSERT` ahead of it decided. When a start or a save is
+ * legitimately refused — a stale version, an application that moved on — the
+ * version row is not written, and these rows then had no parent: the composite
+ * key aborted the transaction, so a refusal the caller was meant to receive as
+ * `false` arrived as a thrown error and reached the applicant as a failure
+ * rather than "reload and try again".
+ *
+ * One statement whatever the template asks, so a save costs one round trip
+ * regardless of how many questions the cycle declares.
+ */
+const insertAnswerRows = (
+  db: Executor,
+  input: {
+    applicationVersionId: string
+    programmeCycleId: string
+    programmeCycleVersion: number
+    rows: readonly AnswerRow[]
+    createdAt: Date
+  },
+) => {
+  if (input.rows.length === 0) return null
+  /*
+   * The first row carries the casts. Inside a bare `VALUES` list Postgres has
+   * nothing to infer a parameter's type from, and would resolve every column
+   * as `text` — which the two ordinals are not.
+   */
+  const values = input.rows.map((row, index) => index === 0
+    ? sql`(${row.fieldKey}::text, ${row.entryIndex}::int,
+        ${row.valueOrdinal}::int, ${row.valueText}::text)`
+    : sql`(${row.fieldKey}, ${row.entryIndex}, ${row.valueOrdinal}, ${row.valueText})`)
+  return db.insert(sebApplicationVersionAnswer).select(sql`
+    SELECT gen_random_uuid()::text, ${input.applicationVersionId},
+      ${input.programmeCycleId}, ${input.programmeCycleVersion},
+      answer.field_key, answer.entry_index, answer.value_ordinal, answer.value_text,
+      ${input.createdAt}
+    FROM (VALUES ${sql.join(values, sql`, `)})
+      AS answer(field_key, entry_index, value_ordinal, value_text)
+    WHERE EXISTS (
+      SELECT 1 FROM ${sebApplicationVersion}
+      WHERE ${sebApplicationVersion.id} = ${input.applicationVersionId}
+    )
+  `)
+}
 
 const eventValues = (input: {
   id?: string
@@ -1044,7 +1203,7 @@ const eventValues = (input: {
   revisionRequestId: null,
   fromStatus: sqlNullable(input.fromStatus),
   toStatus: sqlNullable(input.toStatus),
-  section: null,
+  stageKey: null,
   message: sqlNullable(input.message),
   metadataJson: null,
   createdAt: input.createdAt,
@@ -1101,12 +1260,12 @@ const expansionEvidenceStillCurrent = (input: {
             WHERE reversal.related_disbursement_id = release.id
               AND reversal.entry_type = 'REVERSAL'
           ), 0) > 0
-      ) = ${sqlDateMilliseconds(input.qualifyingReleaseAt)}
+      ) = ${sqlNullable(input.qualifyingReleaseAt)}
       AND EXISTS (
         SELECT 1 FROM ${sebDisbursement} AS release
         WHERE release.funding_award_id = qualifying_award.id
           AND release.entry_type = 'RELEASE'
-          AND release.occurred_at <= ${cutoff.getTime()}
+          AND release.occurred_at <= ${cutoff}
           AND release.amount_paise - COALESCE((
             SELECT SUM(reversal.amount_paise)
             FROM ${sebDisbursement} AS reversal
@@ -1126,16 +1285,27 @@ const expansionEvidenceStillCurrent = (input: {
 }
 
 /** Pins the exact unresolved revision-section set read by the controller. */
+/**
+ * The revision this write claims to be answering is still the open one.
+ *
+ * **The parameter name matters here in a way TypeScript could not see.** It
+ * read `input.revisionSections` while both callers pass `revisionStageKeys` —
+ * a rename that missed this one reader. The property is optional, so nothing
+ * failed to compile; it simply arrived `undefined`, the scope became empty,
+ * and `0 > 0` refused every save. **No applicant under revision could save or
+ * resubmit at all**, and each was told "The application changed. Refresh it
+ * and try again."
+ */
 const revisionScopeStillCurrent = (input: {
   head: ApplicationMutationHead
-  revisionSections?: ApplicationSection[]
+  revisionStageKeys?: ApplicationSection[]
 }): SQL | undefined => {
   if (input.head.status !== 'REVISION_REQUIRED') return undefined
-  const sections = input.revisionSections ?? []
+  const sections = input.revisionStageKeys ?? []
   const openRevision = (section: ApplicationSection) => sql`EXISTS (
     SELECT 1 FROM ${sebRevisionRequest}
     WHERE ${sebRevisionRequest.applicationId} = ${input.head.id}
-      AND ${sebRevisionRequest.section} = ${section}
+      AND ${sebRevisionRequest.stageKey} = ${section}
       AND ${sebRevisionRequest.resolvedAt} IS NULL
       AND ${sebRevisionRequest.cancelledAt} IS NULL
   )`
@@ -1143,7 +1313,7 @@ const revisionScopeStillCurrent = (input: {
     // An empty scope is never a valid revision save or resubmission.
     sql`${sections.length} > 0`,
     sql`(
-      SELECT COUNT(DISTINCT ${sebRevisionRequest.section})
+      SELECT COUNT(DISTINCT ${sebRevisionRequest.stageKey})
       FROM ${sebRevisionRequest}
       WHERE ${sebRevisionRequest.applicationId} = ${input.head.id}
         AND ${sebRevisionRequest.resolvedAt} IS NULL
@@ -1164,7 +1334,14 @@ export const insertApplicationAggregate = async (
     programmeCycleVersion: number
     applicationType: ApplicationType
     phaseNumber: number
-    draft: ApplicationDraftInput
+    /**
+     * The prefilled answers, already turned into rows by the caller.
+     *
+     * Rows rather than an `AnswerMap`, because building them needs the pinned
+     * template and the caller has already resolved it. Resolving it twice is how
+     * a save and its validation come to disagree about what the form is.
+     */
+    answerRows: readonly AnswerRow[]
     expansionClaim: ExpansionClaim
     qualifyingAwardId?: string | null
     qualifyingReleaseAt?: Date | null
@@ -1250,12 +1427,12 @@ export const insertApplicationAggregate = async (
                 WHERE reversal.related_disbursement_id = release.id
                   AND reversal.entry_type = 'REVERSAL'
               ), 0) > 0
-          ) = ${sqlDateMilliseconds(input.qualifyingReleaseAt)}
+          ) = ${sqlNullable(input.qualifyingReleaseAt)}
           AND EXISTS (
             SELECT 1 FROM ${sebDisbursement} AS release
             WHERE release.funding_award_id = ${input.qualifyingAwardId}
               AND release.entry_type = 'RELEASE'
-              AND release.occurred_at <= ${eligibleReleaseCutoff.getTime()}
+              AND release.occurred_at <= ${eligibleReleaseCutoff}
               AND release.amount_paise - COALESCE((
                 SELECT SUM(reversal.amount_paise)
                 FROM ${sebDisbursement} AS reversal
@@ -1270,8 +1447,8 @@ export const insertApplicationAggregate = async (
     .select(sql`
       SELECT ${input.applicationId}, ${input.applicantUserId}, ${input.enterpriseId},
         ${input.fundingCaseId}, ${input.programmeCycleId}, ${input.applicationType},
-        ${input.phaseNumber}, NULL, 1, ${input.now.getTime()}, ${input.now.getTime()},
-        NULL, NULL, NULL, 'DRAFT', 1, ${input.now.getTime()}, NULL, NULL, 0, NULL
+        ${input.phaseNumber}, NULL, 1, ${input.now}, ${input.now},
+        NULL, NULL, NULL, 'DRAFT', 1, ${input.now}, NULL, NULL, 0, NULL
       WHERE NOT EXISTS (
         SELECT 1 FROM ${sebApplication}
         WHERE ${sebApplication.fundingCaseId} = ${input.fundingCaseId}
@@ -1299,42 +1476,36 @@ export const insertApplicationAggregate = async (
       ${replacedLinkGuard}
     `)
     .returning({ id: sebApplication.id })
-  const insertVersion = db.insert(sebApplicationVersion).select(sql`
-    SELECT ${versionId}, ${input.applicationId}, 1, ${input.programmeCycleId},
-      ${input.programmeCycleVersion}, ${input.applicationType}, ${input.phaseNumber},
-      'INITIAL', NULL, ${input.applicantUserId}, ${input.now.getTime()},
-      ${input.draft.enterprise.businessName}, ${input.draft.enterprise.establishmentDate},
-      ${input.draft.enterprise.registrationType}, ${input.draft.enterprise.registrationNumber},
-      ${input.draft.enterprise.gstin}, ${input.draft.enterprise.businessSector},
-      ${input.draft.enterprise.otherBusinessSector}, ${input.draft.enterprise.applicationCategory},
-      ${input.draft.enterprise.majorityOwnershipConfirmed},
-      ${input.draft.applicantProfile.primaryApplicantName}, ${input.draft.applicantProfile.designation},
-      ${input.draft.applicantProfile.dateOfBirth}, ${input.draft.applicantProfile.gender},
-      ${input.draft.applicantProfile.businessBlockOrVillage},
-      ${input.draft.applicantProfile.businessDistrict}, ${input.draft.applicantProfile.businessPinCode},
-      ${input.draft.applicantProfile.contactNumber}, ${input.draft.applicantProfile.contactEmail},
-      ${input.draft.financial.totalProjectCostPaise}, ${input.draft.financial.seedFundRequestedPaise},
-      ${input.draft.financial.bankLoanProposedPaise}, ${input.draft.financial.promoterContributionPaise},
-      ${input.draft.priorFunding.receivedGovernmentFunding},
-      ${input.draft.priorFunding.governmentSchemeName},
-      ${input.draft.priorFunding.governmentFundingAmountPaise},
-      ${input.draft.priorFunding.governmentFundingSanctionYear},
-      ${input.draft.priorFunding.hasExistingBankCredit}, ${input.draft.priorFunding.existingBankName},
-      ${input.draft.priorFunding.existingCreditAmountPaise},
-      ${input.draft.priorFunding.existingCreditStatus},
-      ${input.expansionClaim.priorSanctionOrderNumber},
-      ${input.expansionClaim.priorSanctionDate},
-      ${input.expansionClaim.priorNetDisbursedAmountPaise},
-      ${input.expansionClaim.continuousOperationMonths},
-      ${input.draft.documents.nocRequired}
-    WHERE EXISTS (
-      SELECT 1 FROM ${sebApplication} WHERE ${sebApplication.id} = ${input.applicationId}
-    )
-  `)
+  const insertVersion = insertVersionWhere(
+    db,
+    versionValues({
+      id: versionId,
+      applicationId: input.applicationId,
+      version: 1,
+      programmeCycleId: input.programmeCycleId,
+      programmeCycleVersion: input.programmeCycleVersion,
+      applicationType: input.applicationType,
+      phaseNumber: input.phaseNumber,
+      changeType: 'INITIAL',
+      changedByUserId: input.applicantUserId,
+      createdAt: input.now,
+      expansionClaim: input.expansionClaim,
+      declarationAcceptedAt: null,
+      applicationCategory: null,
+    }),
+    sql`${sebApplication.id} = ${input.applicationId}`,
+  )
+  const insertAnswers = insertAnswerRows(db, {
+    applicationVersionId: versionId,
+    programmeCycleId: input.programmeCycleId,
+    programmeCycleVersion: input.programmeCycleVersion,
+    rows: input.answerRows,
+    createdAt: input.now,
+  })
   const insertEvent = db.insert(sebApplicationEvent).select(sql`
     SELECT ${eventId}, ${input.applicationId}, 'APPLICATION_STARTED',
       ${input.applicantUserId}, 1, NULL, NULL, NULL, 'DRAFT', NULL,
-      'Application draft started.', NULL, ${input.now.getTime()}
+      'Application draft started.', NULL, ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplication} WHERE ${sebApplication.id} = ${input.applicationId}
     )
@@ -1344,12 +1515,14 @@ export const insertApplicationAggregate = async (
       ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
       ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
       ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now.getTime()}
+      ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplication} WHERE ${sebApplication.id} = ${input.applicationId}
     )
   `)
-  const statements = [insertHead, insertVersion] as const
+  const statements = insertAnswers
+    ? [insertHead, insertVersion, insertAnswers] as const
+    : [insertHead, insertVersion] as const
   if (input.qualifyingAwardId) {
     const linkId = crypto.randomUUID()
     const cancelReplacedLink = replacedLink
@@ -1381,7 +1554,7 @@ export const insertApplicationAggregate = async (
           SELECT ${crypto.randomUUID()}, ${replacedLink.id}, ${input.fundingCaseId},
             ${replacedLink.currentVersion + 1}, ${input.qualifyingAwardId},
             'CANCELLED', 'CANCELLED', 'REJECTED_APPLICATION_REPLACED',
-            ${input.applicantUserId}, ${input.now.getTime()}
+            ${input.applicantUserId}, ${input.now}
           WHERE EXISTS (
             SELECT 1 FROM ${sebApplicationQualifyingAward}
             WHERE ${sebApplicationQualifyingAward.id} = ${replacedLink.id}
@@ -1393,7 +1566,7 @@ export const insertApplicationAggregate = async (
     const insertLink = db.insert(sebApplicationQualifyingAward).select(sql`
       SELECT ${linkId}, ${input.applicationId}, ${input.fundingCaseId},
         ${input.qualifyingAwardId}, 'ACTIVE', 1, ${input.applicantUserId},
-        ${input.now.getTime()}, ${input.now.getTime()}, NULL, NULL, NULL
+        ${input.now}, ${input.now}, NULL, NULL, NULL
       WHERE EXISTS (
         SELECT 1 FROM ${sebApplication} WHERE ${sebApplication.id} = ${input.applicationId}
       )
@@ -1401,7 +1574,7 @@ export const insertApplicationAggregate = async (
     const insertLinkVersion = db.insert(sebApplicationQualifyingAwardVersion).select(sql`
       SELECT ${crypto.randomUUID()}, ${linkId}, ${input.fundingCaseId}, 1,
         ${input.qualifyingAwardId}, 'ACTIVE', 'LINKED', NULL,
-        ${input.applicantUserId}, ${input.now.getTime()}
+        ${input.applicantUserId}, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebApplicationQualifyingAward}
         WHERE ${sebApplicationQualifyingAward.id} = ${linkId}
@@ -1410,7 +1583,7 @@ export const insertApplicationAggregate = async (
     const linkStatements = cancelReplacedLink && insertReplacedLinkVersion
       ? [cancelReplacedLink, insertReplacedLinkVersion, insertLink, insertLinkVersion] as const
       : [insertLink, insertLinkVersion] as const
-    const [headResult] = await db.batch([
+    const [headResult] = await batch(db, (tx) => [
       ...statements,
       ...linkStatements,
       insertEvent,
@@ -1418,7 +1591,7 @@ export const insertApplicationAggregate = async (
     ])
     return headResult.length === 1
   }
-  const [headResult] = await db.batch([...statements, insertEvent, insertAudit])
+  const [headResult] = await batch(db, (tx) => [...statements, insertEvent, insertAudit])
   return headResult.length === 1
 }
 
@@ -1427,17 +1600,19 @@ export const saveApplicationSnapshot = async (
   input: {
     head: ApplicationMutationHead
     userId: string
-    draft: ApplicationDraftInput
+    /** Built by the caller from the template it validated against. */
+    answerRows: readonly AnswerRow[]
     expansionClaim: ExpansionClaim
     qualifyingAwardId?: string | null
     qualifyingReleaseAt?: Date | null
-    revisionSections?: ApplicationSection[]
+    revisionStageKeys?: ApplicationSection[]
     programmeCycleVersion: number
     now: Date
     audit: AuditRecord
   },
 ): Promise<boolean> => {
   const nextVersion = input.head.currentVersion + 1
+  const versionId = crypto.randomUUID()
   const changeType = input.head.status === 'REVISION_REQUIRED' ? 'REVISION' : 'SAVE'
   const updateHead = db
     .update(sebApplication)
@@ -1455,9 +1630,11 @@ export const saveApplicationSnapshot = async (
         revisionScopeStillCurrent(input),
       ),
     )
+    .returning({ id: sebApplication.id })
   const insertVersion = insertVersionWhere(
     db,
     versionValues({
+      id: versionId,
       applicationId: input.head.id,
       version: nextVersion,
       programmeCycleId: input.head.programmeCycleId,
@@ -1467,16 +1644,27 @@ export const saveApplicationSnapshot = async (
       changeType,
       changedByUserId: input.userId,
       createdAt: input.now,
-      draft: input.draft,
       expansionClaim: input.expansionClaim,
+      declarationAcceptedAt: null,
+      applicationCategory: null,
     }),
     sql`${sebApplication.id} = ${input.head.id}
       AND ${sebApplication.currentVersion} = ${nextVersion}
-      AND ${sebApplication.updatedAt} = ${input.now.getTime()}`,
+      AND ${sebApplication.updatedAt} = ${input.now}`,
   )
-  // D1 batches are transactional, but a plain VALUES insert cannot see whether
-  // the guarded update won. The caller prechecked the exact head and the unique
-  // version key rolls the entire batch back if a concurrent writer won.
+  /*
+   * The answers hang off the version, which hangs off the guarded update, so a
+   * losing writer inserts no version and these rows have no parent to attach to
+   * — the foreign key rolls the whole transition back rather than leaving a set
+   * of answers pointing at nothing.
+   */
+  const insertAnswers = insertAnswerRows(db, {
+    applicationVersionId: versionId,
+    programmeCycleId: input.head.programmeCycleId,
+    programmeCycleVersion: input.programmeCycleVersion,
+    rows: input.answerRows,
+    createdAt: input.now,
+  })
   const eventValue = eventValues({
     applicationId: input.head.id,
     eventType: 'APPLICATION_SAVED',
@@ -1488,12 +1676,12 @@ export const saveApplicationSnapshot = async (
   const event = db.insert(sebApplicationEvent).select(sql`
     SELECT ${eventValue.id}, ${eventValue.applicationId}, ${eventValue.eventType},
       ${eventValue.actorUserId}, ${eventValue.applicationVersion}, NULL, NULL,
-      NULL, NULL, NULL, ${eventValue.message}, NULL, ${input.now.getTime()}
+      NULL, NULL, NULL, ${eventValue.message}, NULL, ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplication}
       WHERE ${sebApplication.id} = ${input.head.id}
         AND ${sebApplication.currentVersion} = ${nextVersion}
-        AND ${sebApplication.updatedAt} = ${input.now.getTime()}
+        AND ${sebApplication.updatedAt} = ${input.now}
     )
   `)
   const audit = db.insert(coreAuditEvent).select(sql`
@@ -1501,21 +1689,20 @@ export const saveApplicationSnapshot = async (
       ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
       ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
       ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now.getTime()}
+      ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplication}
       WHERE ${sebApplication.id} = ${input.head.id}
         AND ${sebApplication.currentVersion} = ${nextVersion}
-        AND ${sebApplication.updatedAt} = ${input.now.getTime()}
+        AND ${sebApplication.updatedAt} = ${input.now}
     )
   `)
-  const [updated] = await db.batch([
-    updateHead,
-    insertVersion,
-    event,
-    audit,
-  ])
-  return d1ChangedExactlyOne(updated)
+  const [updated] = await batch(db, () =>
+    insertAnswers
+      ? [updateHead, insertVersion, insertAnswers, event, audit] as const
+      : [updateHead, insertVersion, event, audit] as const,
+  )
+  return changedExactlyOne(updated)
 }
 
 export const setApplicationDeleted = async (
@@ -1614,12 +1801,12 @@ export const setApplicationDeleted = async (
                   WHERE reversal.related_disbursement_id = release.id
                     AND reversal.entry_type = 'REVERSAL'
                 ), 0) > 0
-            ) = ${sqlDateMilliseconds(input.restoreAwardFirstReleaseAt)}
+            ) = ${sqlNullable(input.restoreAwardFirstReleaseAt)}
             AND EXISTS (
               SELECT 1 FROM ${sebDisbursement} AS release
               WHERE release.funding_award_id = ${input.restoreAwardId}
                 AND release.entry_type = 'RELEASE'
-                AND release.occurred_at <= ${addUtcCalendarMonths(input.now, -12).getTime()}
+                AND release.occurred_at <= ${addUtcCalendarMonths(input.now, -12)}
                 AND release.amount_paise - COALESCE((
                   SELECT SUM(reversal.amount_paise)
                   FROM ${sebDisbursement} AS reversal
@@ -1637,16 +1824,20 @@ export const setApplicationDeleted = async (
             )
         )`
       : undefined
-  // This append-only audit row is the transition's unique claim. All writes in
-  // the same D1 batch require its exact ID, which is stronger than correlating
-  // them through `updated_at`: independent requests may legitimately share the
-  // same millisecond timestamp.
+  /*
+   * This append-only audit row is the transition's unique claim: it carries the
+   * whole predicate, and every other statement here requires its exact id.
+   *
+   * Stronger than correlating on `updated_at`, which independent requests may
+   * legitimately share to the millisecond — and the reason this transition,
+   * unlike the others, is ordered audit-first rather than head-first.
+   */
   const audit = db.insert(coreAuditEvent).select(sql`
     SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
       ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
       ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
       ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now.getTime()}
+      ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplication}
       WHERE ${sebApplication.id} = ${input.head.id}
@@ -1659,7 +1850,7 @@ export const setApplicationDeleted = async (
         AND ${linkStatePredicate ?? sql`1 = 1`}
         AND ${restoreEligibilityPredicate ?? sql`1 = 1`}
     )
-  `)
+  `).returning({ id: coreAuditEvent.id })
   const updateHead = db
     .update(sebApplication)
     .set(
@@ -1742,7 +1933,7 @@ export const setApplicationDeleted = async (
           ${input.deleted ? 'CANCELLED' : 'ACTIVE'},
           ${input.deleted ? 'CANCELLED' : 'CORRECTED'},
           ${input.deleted ? 'APPLICATION_DRAFT_DELETED' : 'APPLICATION_DRAFT_RESTORED'},
-          ${input.userId}, ${input.now.getTime()}
+          ${input.userId}, ${input.now}
         WHERE EXISTS (
           SELECT 1 FROM ${sebApplicationQualifyingAward}
           WHERE ${sebApplicationQualifyingAward.id} = ${link.id}
@@ -1756,7 +1947,7 @@ export const setApplicationDeleted = async (
       ${input.deleted ? 'APPLICATION_DELETED' : 'APPLICATION_RESTORED'},
       ${input.userId}, ${input.head.currentVersion}, NULL, NULL, 'DRAFT', 'DRAFT',
       NULL, ${input.deleted ? 'Application draft removed.' : 'Application draft restored.'},
-      NULL, ${input.now.getTime()}
+      NULL, ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${coreAuditEvent}
       WHERE ${coreAuditEvent.id} = ${input.audit.id}
@@ -1765,8 +1956,8 @@ export const setApplicationDeleted = async (
   const statements = updateLink && insertLinkVersion
     ? [audit, updateHead, updateLink, insertLinkVersion, event] as const
     : [audit, updateHead, event] as const
-  const [updated] = await db.batch(statements)
-  return d1ChangedExactlyOne(updated)
+  const [updated] = await batch(db, () => statements)
+  return changedExactlyOne(updated)
 }
 
 export const submitApplicationSnapshot = async (
@@ -1775,21 +1966,29 @@ export const submitApplicationSnapshot = async (
     head: ApplicationMutationHead
     currentVersion: ApplicationVersionRecord
     userId: string
-    draft: ApplicationDraftInput
+    /** Built by the caller from the template it validated against. */
+    answerRows: readonly AnswerRow[]
     expansionClaim: ExpansionClaim
     qualifyingAwardId?: string | null
     qualifyingReleaseAt?: Date | null
-    revisionSections?: ApplicationSection[]
+    revisionStageKeys?: ApplicationSection[]
     programmeCycleVersion: number
     referenceNumber: string
     resubmission: boolean
     /** From the cycle's rules, computed once by the caller that validated. */
-    requiredDocumentTypes: readonly DocumentType[]
+    requiredDocumentFieldKeys: readonly DocumentType[]
+    /**
+     * Computed by the caller from the enterprise's establishment date and the
+     * cycle's threshold; null when the cycle sets none. Part of the frozen
+     * snapshot — later enterprise edits must not re-sort a submission.
+     */
+    applicationCategory: 'CATEGORY_A' | 'CATEGORY_B' | null
     now: Date
     audit: AuditRecord
   },
 ): Promise<boolean> => {
   const nextVersion = input.head.currentVersion + 1
+  const versionId = crypto.randomUUID()
   const nextStatusVersion = input.head.statusVersion + 1
   let submissionNumber = 1
   if (input.resubmission) {
@@ -1810,7 +2009,7 @@ export const submitApplicationSnapshot = async (
   const submittedDocuments = await db
     .select({
       documentId: sebApplicationDocument.id,
-      documentType: sebApplicationDocument.documentType,
+      fieldKey: sebApplicationDocument.fieldKey,
       documentVersion: sebApplicationDocument.currentVersion,
     })
     .from(sebApplicationDocument)
@@ -1836,10 +2035,10 @@ export const submitApplicationSnapshot = async (
    * application having changed, which it had not.
    */
   const requiredDocumentsStillExist = and(
-    ...input.requiredDocumentTypes.map((documentType) => sql`EXISTS (
+    ...input.requiredDocumentFieldKeys.map((fieldKey) => sql`EXISTS (
       SELECT 1 FROM ${sebApplicationDocument}
       WHERE ${sebApplicationDocument.applicationId} = ${input.head.id}
-        AND ${sebApplicationDocument.documentType} = ${documentType}
+        AND ${sebApplicationDocument.fieldKey} = ${fieldKey}
         AND ${sebApplicationDocument.deletedAt} IS NULL
     )`),
   )
@@ -1877,9 +2076,11 @@ export const submitApplicationSnapshot = async (
         revisionScopeStillCurrent(input),
       ),
     )
+    .returning({ id: sebApplication.id })
   const formalVersion = insertVersionWhere(
     db,
     versionValues({
+      id: versionId,
       applicationId: input.head.id,
       version: nextVersion,
       programmeCycleId: input.head.programmeCycleId,
@@ -1889,17 +2090,25 @@ export const submitApplicationSnapshot = async (
       changeType: input.resubmission ? 'RESUBMISSION' : 'SUBMISSION',
       changedByUserId: input.userId,
       createdAt: input.now,
-      draft: input.draft,
       expansionClaim: input.expansionClaim,
+      declarationAcceptedAt: input.now,
+      applicationCategory: input.applicationCategory,
     }),
     sql`${sebApplication.id} = ${input.head.id}
       AND ${sebApplication.currentVersion} = ${nextVersion}
       AND ${sebApplication.statusVersion} = ${nextStatusVersion}
-      AND ${sebApplication.updatedAt} = ${input.now.getTime()}`,
+      AND ${sebApplication.updatedAt} = ${input.now}`,
   )
+  const formalAnswers = insertAnswerRows(db, {
+    applicationVersionId: versionId,
+    programmeCycleId: input.head.programmeCycleId,
+    programmeCycleVersion: input.programmeCycleVersion,
+    rows: input.answerRows,
+    createdAt: input.now,
+  })
   const submission = db.insert(sebApplicationSubmission).select(sql`
     SELECT ${submissionId}, ${input.head.id}, ${submissionNumber}, ${nextVersion},
-      ${input.userId}, ${input.now.getTime()}
+      ${input.userId}, ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplicationVersion}
       WHERE ${sebApplicationVersion.applicationId} = ${input.head.id}
@@ -1910,7 +2119,7 @@ export const submitApplicationSnapshot = async (
     db.insert(sebApplicationSubmissionDocument).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.head.id}, ${submissionId},
         ${document.documentId}, ${document.documentVersion},
-        ${document.documentType}, ${input.now.getTime()}
+        ${document.fieldKey}, ${input.now}
       WHERE EXISTS (
         SELECT 1 FROM ${sebApplicationSubmission}
         WHERE ${sebApplicationSubmission.id} = ${submissionId}
@@ -1943,7 +2152,7 @@ export const submitApplicationSnapshot = async (
       ${input.userId}, ${nextVersion}, ${submissionId}, NULL,
       ${input.resubmission ? 'REVISION_REQUIRED' : 'DRAFT'}, 'SUBMITTED', NULL,
       ${input.resubmission ? 'Application resubmitted.' : 'Application submitted.'},
-      NULL, ${input.now.getTime()}
+      NULL, ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplicationSubmission}
       WHERE ${sebApplicationSubmission.id} = ${submissionId}
@@ -1954,25 +2163,35 @@ export const submitApplicationSnapshot = async (
       ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
       ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
       ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now.getTime()}
+      ${input.now}
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplicationSubmission}
       WHERE ${sebApplicationSubmission.id} = ${submissionId}
     )
   `)
+  const answerStatements = formalAnswers ? [formalAnswers] as const : [] as const
   const statements = input.resubmission
     ? [
         updateHead,
         formalVersion,
+        ...answerStatements,
         submission,
         ...submittedDocumentPins,
         resolveRevisions,
         event,
         audit,
       ] as const
-    : [updateHead, formalVersion, submission, ...submittedDocumentPins, event, audit] as const
-  const [updated] = await db.batch(statements)
-  return d1ChangedExactlyOne(updated)
+    : [
+        updateHead,
+        formalVersion,
+        ...answerStatements,
+        submission,
+        ...submittedDocumentPins,
+        event,
+        audit,
+      ] as const
+  const [updated] = await batch(db, () => statements)
+  return changedExactlyOne(updated)
 }
 
 export const listApplicationTimeline = async (
@@ -2019,12 +2238,14 @@ export const listApplicationTimeline = async (
   const merged = [
     ...rows.map((row) => ({
       id: row.id, eventType: row.eventType, fromStatus: row.fromStatus,
-      toStatus: row.toStatus, section: row.section, message: row.message,
+      toStatus: row.toStatus, stageKey: row.stageKey, message: row.message,
       createdAt: row.createdAt,
     })),
     ...cycleRows.map((row) => ({
       id: row.id, eventType: `CYCLE_${row.eventType}`,
-      fromStatus: null, toStatus: null, section: null,
+      fromStatus: null, toStatus: null,
+      // A cycle-wide notice belongs to no stage of anybody's form.
+      stageKey: null as string | null,
       message: row.message, createdAt: row.createdAt,
     })),
   ].sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() ||

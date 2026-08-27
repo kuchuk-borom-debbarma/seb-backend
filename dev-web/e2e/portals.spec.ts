@@ -26,12 +26,13 @@ const shellSize = (page: Page) =>
   })
 
 test.describe('the applicant portal', () => {
-  test('is the root, and sign-in lands there', async ({ page }) => {
+  test('is the dashboard, and sign-in lands there', async ({ page }) => {
     const email = uniqueEmail('portal')
     await signUpApplicant(page, email)
     await signIn(page, email)
 
-    await expect(page).toHaveURL(/localhost:\d+\/$/u)
+    // The root is the public site now; the signed-in home is /dashboard.
+    await expect(page).toHaveURL(/\/dashboard$/u)
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
     await expect(sidebar(page).getByRole('link', { name: 'Enterprises' })).toBeVisible()
   })
@@ -41,7 +42,11 @@ test.describe('the applicant portal', () => {
     await signUpApplicant(page, email)
     await signIn(page, email)
 
-    for (const entry of ['Committee meetings', 'Users & access']) {
+    for (const entry of [
+      'Intake',
+      'Cycle administration',
+      'Access',
+    ]) {
       await expect(sidebar(page).getByRole('link', { name: entry })).toHaveCount(0)
     }
   })
@@ -60,18 +65,20 @@ test.describe('the applicant portal', () => {
       }),
     ).toBeVisible()
     await expect(page.getByText('This account holds')).toBeVisible()
+    // "Applicant" also appears in the shell's own chrome, so scope to the
+    // refusal card's main region.
     await expect(
-      page.getByRole('main').getByText('Applicant', { exact: true }),
+      page.getByRole('main').getByText('Applicant', { exact: true }).first(),
     ).toBeVisible()
 
     // And the navigation beside the refusal is the one that works — listing
     // four links that would every one of them refuse is the thing this
     // interface does not do.
     await expect(sidebar(page).getByRole('link', { name: 'Enterprises' })).toBeVisible()
-    await expect(sidebar(page).getByRole('link', { name: 'Dashboard' })).toHaveCount(1)
+    await expect(sidebar(page).getByRole('link', { name: 'Intake' })).toHaveCount(0)
 
     await page.getByRole('link', { name: 'Go to the applicant portal' }).click()
-    await expect(page).toHaveURL(/localhost:\d+\/$/u)
+    await expect(page).toHaveURL(/\/dashboard$/u)
   })
 })
 
@@ -86,6 +93,7 @@ test.describe('the programme office', () => {
 
   test('refuses the applicant portal to an account that is not one', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    // The root is public; the applicant portal starts at /dashboard.
     await page.goto('/dashboard')
 
     await expect(
@@ -115,23 +123,9 @@ test.describe('the programme office', () => {
     // The console opens — either administrative role does that.
     await page.goto('/admin')
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
-    const quickActions = page.locator('section').filter({
-      has: page.getByRole('heading', { name: 'Quick actions' }),
-    })
-    await expect(
-      quickActions.getByRole('link', { name: 'Schedule a meeting' }),
-    ).toBeVisible()
-    await expect(
-      quickActions.getByRole('link', { name: 'Create a programme cycle' }),
-    ).toBeVisible()
-    await expect(
-      quickActions.getByRole('link', { name: 'Invite a colleague' }),
-    ).toBeVisible()
 
     // Role management does not, and is not advertised.
-    await expect(sidebar(page).getByRole('link', { name: 'Users & access' })).toHaveCount(
-      0,
-    )
+    await expect(sidebar(page).getByRole('link', { name: 'Access' })).toHaveCount(0)
     await page.goto('/admin/access')
     await expect(
       page.getByRole('heading', {
@@ -159,19 +153,16 @@ test.describe('an account holding both', () => {
     await signIn(page, both)
 
     // Holding applicant, sign-in lands on the applicant portal.
-    await expect(page).toHaveURL(/localhost:\d+\/$/u)
+    await expect(page).toHaveURL(/\/dashboard$/u)
 
-    await sidebar(page).locator('summary').click()
-    await sidebar(page).getByRole('link', { name: 'Programme office' }).click()
+    // The crossing lives in the account menu now, so open it first each way.
+    await page.getByRole('button', { name: 'Account menu' }).click()
+    await page.getByRole('menuitem', { name: 'Programme office' }).click()
     await expect(page).toHaveURL(/\/admin$/u)
 
-    await sidebar(page).getByRole('link', { name: 'Settings' }).click()
-    await expect(page).toHaveURL(/\/settings\/general$/u)
-    await expect(sidebar(page).locator('summary')).toContainText('Programme office')
-
-    await sidebar(page).locator('summary').click()
-    await sidebar(page).getByRole('link', { name: 'Applicant' }).click()
-    await expect(page).toHaveURL(/localhost:\d+\/$/u)
+    await page.getByRole('button', { name: 'Account menu' }).click()
+    await page.getByRole('menuitem', { name: 'Applicant portal' }).click()
+    await expect(page).toHaveURL(/\/dashboard$/u)
   })
 })
 

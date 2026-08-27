@@ -1,12 +1,11 @@
 /**
  * The applicant's view of their award.
  *
- * An award only exists after the committee approves an application and the
- * programme office issues a sanction order, and neither of those screens is
- * built yet. So what is covered here is the state every application is in
- * first — nothing sanctioned — and the rule that decides whether the screen is
- * offered at all. The sanctioned path is covered once the administrative
- * console can sanction.
+ * What is covered here is the state every application is in first — nothing
+ * sanctioned — and the rule that decides whether the screen is offered at
+ * all. The sanctioned path itself — approval, the sanction order, a payment,
+ * and the applicant reading the result — is carried end to end by
+ * `journey.spec.ts`.
  */
 import { expect, test } from '@playwright/test'
 import {
@@ -17,15 +16,19 @@ import {
   startApplication,
 } from './support'
 
+/** The cycle this file opened, so its applications start in that one. */
+let cycleCode = ''
+
 test.describe('funding', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await openProgrammeCycle(page, { prefix: 'SEP-F' })
+    cycleCode = await openProgrammeCycle(page, { prefix: 'SEP-F' })
     await page.context().clearCookies()
   })
 
   test('says plainly that nothing has been sanctioned yet', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'funding',
       businessName: 'Funding Works',
     })
@@ -41,6 +44,7 @@ test.describe('funding', () => {
     page,
   }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'funding',
       businessName: 'Funding Works',
     })
@@ -49,11 +53,12 @@ test.describe('funding', () => {
     // A draft is offered the form and the check, not a funding screen that
     // could only say "nothing yet".
     await expect(page.getByRole('link', { name: 'Funding' })).toHaveCount(0)
-    await expect(page.getByRole('link', { name: 'Continue application' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Fill in the form' })).toBeVisible()
   })
 
   test('leads back to the application', async ({ page }) => {
     const id = await startApplication(page, {
+      cycleCode,
       prefix: 'funding',
       businessName: 'Funding Works',
     })

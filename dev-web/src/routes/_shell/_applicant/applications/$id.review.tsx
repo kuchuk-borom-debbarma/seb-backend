@@ -1,25 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo } from 'react'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
 import {
   ApplicationJourney,
-  sectionForField,
+  isDocumentIssue,
+  stageForField,
 } from '#/features/application/ApplicationJourney'
 import { ClosingNotice } from '#/features/application/ClosingNotice'
 import {
   applicationQuery,
   draftChangesQuery,
+  formTemplateQuery,
   loadApplication,
   validationQuery,
 } from '#/features/application/applicationQueries'
-import { ApplicationSummary } from '#/features/application/ApplicationSummary'
-import { DOCUMENT_TITLES, isDocumentIssue } from '#/features/application/documents'
-import { SECTION_TITLES, fieldLabel } from '#/features/application/draft'
+import { fieldLabel, stageTitle } from '#/features/application/draft'
+import { resolveTemplate } from '#/features/application/formTemplate'
 import {
   ResubmitApplicationDocument,
   SubmitApplicationDocument,
 } from '#/graphql/generated/operations'
-import { humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 
@@ -39,10 +40,14 @@ function ReviewPage() {
   const { data: application } = useQuery(applicationQuery(id))
   const { data: validation } = useQuery(validationQuery(id))
   const { data: changes } = useQuery(draftChangesQuery(id))
+  const { data: rawTemplate } = useQuery(formTemplateQuery(id))
+  const template = useMemo(
+    () => (rawTemplate ? resolveTemplate(rawTemplate) : null),
+    [rawTemplate],
+  )
 
   // Resubmission answers a revision request; a first submission does not.
   const resubmission = application?.status === 'REVISION_REQUIRED'
-  const canSubmit = application?.status === 'DRAFT' || resubmission
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -70,33 +75,30 @@ function ReviewPage() {
     },
   })
 
-  if (!application || !validation) return null
+  if (!application || !validation || !template) return null
 
   const issues = validation.issues
-  const changedSections = changes?.response?.sections ?? []
+  const changedStages = changes?.response?.stageKeys ?? []
 
   return (
     <main className="page">
       <PageHeader
         title="Application form"
         description={
-          !canSubmit
-            ? 'This is the read-only copy of the application and its attached documents.'
-            : resubmission
-              ? 'Your corrections are checked against the whole application, not just the sections you changed.'
-              : 'Submission freezes a copy of your answers and the documents attached to them.'
+          resubmission
+            ? 'Your corrections are checked against the whole application, not just the stages you changed.'
+            : 'Submission freezes a copy of your answers and the documents attached to them.'
         }
       />
 
       <ApplicationJourney
         applicationId={id}
+        template={template}
         activeStep="REVIEW"
-        issues={validation.issues}
-        editableSections={application.editableSections}
+        issues={issues}
+        editableStageKeys={application.editableStageKeys}
         footerStatus={
-          !canSubmit ? (
-            <span className="badge">Read only</span>
-          ) : validation.valid ? (
+          validation.valid ? (
             <span className="badge" data-tone="ok">
               Ready to submit
             </span>
@@ -111,28 +113,24 @@ function ReviewPage() {
             <Link to="/applications/$id/documents" params={{ id }} className="button">
               Back
             </Link>
-            {canSubmit ? (
-              <button
-                type="button"
-                className="button"
-                data-variant="primary"
-                disabled={!validation.valid || submit.isPending}
-                onClick={() => submit.mutate()}
-              >
-                {submit.isPending
-                  ? 'Submitting…'
-                  : resubmission
-                    ? 'Resubmit application'
-                    : 'Submit application'}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className="button"
+              data-variant="primary"
+              disabled={!validation.valid || submit.isPending}
+              onClick={() => submit.mutate()}
+            >
+              {submit.isPending
+                ? 'Submitting…'
+                : resubmission
+                  ? 'Resubmit application'
+                  : 'Submit application'}
+            </button>
           </>
         }
       >
         <div className="stack">
-          {canSubmit ? (
-            <ClosingNotice programmeCycleId={application.programmeCycleId} />
-          ) : null}
+          <ClosingNotice programmeCycleId={application.programmeCycleId} />
 
           {validation.valid ? (
             <p className="notice" data-tone="ok">
@@ -156,79 +154,77 @@ function ReviewPage() {
                   <caption className="visually-hidden">Outstanding issues</caption>
                   <thead>
                     <tr>
-                      <th scope="col">Section</th>
+                      <th scope="col">Stage</th>
                       <th scope="col">Question</th>
                       <th scope="col">What to do</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {issues.map((issue) => (
-                      <tr key={`${issue.section}-${issue.field}-${issue.code}`}>
-                        {/*
-                        Each issue links to the screen that fixes it, decided by
-                        the field rather than by the section.
-
-                        The evidence section carries two different kinds of
-                        issue: a missing file, which is fixed on the evidence
-                        screen, and the question asking whether a no-objection
-                        certificate applies at all, which is a form question
-                        like any other. Routing by section sent the second one
-                        to a screen with no such control on it — the applicant
-                        was told to fix something in a place it does not exist.
-                      */}
-                        <td>
-                          <Link
-                            to={
-                              isDocumentIssue(issue.field)
-                                ? '/applications/$id/documents'
-                                : '/applications/$id/form'
-                            }
-                            params={{ id }}
-                            search={
-                              isDocumentIssue(issue.field)
-                                ? undefined
-                                : {
-                                    section: sectionForField(issue.field) ?? 'ENTERPRISE',
-                                  }
-                            }
-                            /*
-                             * The control itself, not just the screen it is on.
-                             * Every field carries its own name as its id, so the
-                             * browser scrolls to it and focuses it on arrival —
-                             * which for a form of forty questions is the
-                             * difference between being told what is wrong and
-                             * being taken to it.
-                             */
-                            hash={issue.field}
-                          >
-                            {isDocumentIssue(issue.field)
-                              ? 'Evidence'
-                              : (SECTION_TITLES[issue.section] ??
-                                humanize(issue.section))}
-                          </Link>
-                        </td>
-                        {/* The question as the form asks it, so somebody sent to
-                          fix it is looking for the same words. */}
-                        <td className="muted">
-                          {isDocumentIssue(issue.field)
-                            ? DOCUMENT_TITLES[issue.field]
-                            : fieldLabel(issue.field)}
-                        </td>
-                        <td>{issue.message}</td>
-                      </tr>
-                    ))}
+                    {issues.map((issue) => {
+                      /*
+                       * Which screen fixes an issue is decided by the *kind of
+                       * question*, not by the stage it sits in. A stage can
+                       * carry both a missing file, fixed on the evidence
+                       * screen, and an ordinary question that decides whether
+                       * that file is wanted at all. Routing by stage sent the
+                       * second to a screen with no such control on it — the
+                       * applicant was told to fix something where it does not
+                       * exist.
+                       */
+                      const evidence = isDocumentIssue(template, issue.field)
+                      return (
+                        <tr key={`${issue.stageKey}-${issue.field}-${issue.code}`}>
+                          <td>
+                            <Link
+                              to={
+                                evidence
+                                  ? '/applications/$id/documents'
+                                  : '/applications/$id/form'
+                              }
+                              params={{ id }}
+                              search={
+                                evidence
+                                  ? undefined
+                                  : {
+                                      stage:
+                                        stageForField(template, issue.field) ??
+                                        issue.stageKey,
+                                    }
+                              }
+                              /*
+                               * The control itself, not just the screen it is
+                               * on. Every field carries its own name as its id,
+                               * so the browser scrolls to it and focuses it on
+                               * arrival — which for a form of forty questions
+                               * is the difference between being told what is
+                               * wrong and being taken to it.
+                               */
+                              hash={issue.field}
+                            >
+                              {evidence
+                                ? 'Evidence'
+                                : stageTitle(issue.stageKey, template.stages)}
+                            </Link>
+                          </td>
+                          {/* The question as the form asks it, so somebody sent
+                              to fix it is looking for the same words. */}
+                          <td className="muted">
+                            {fieldLabel(issue.field, template.fields)}
+                          </td>
+                          <td>{issue.message}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
           )}
 
-          <ApplicationSummary application={application} showEditLinks={canSubmit} />
-
           {/*
-          Before resubmitting, the applicant sees exactly which sections their
-          answers change — the same comparison a reviewer is shown.
-        */}
+            Before resubmitting, the applicant sees exactly which stages their
+            answers change — the same comparison a reviewer is shown.
+          */}
           {changes?.response ? (
             <div className="card">
               <div className="card-header">
@@ -238,17 +234,15 @@ function ReviewPage() {
                 </p>
               </div>
               <div className="card-body">
-                {changedSections.length === 0 ? (
+                {changedStages.length === 0 ? (
                   <p className="muted">
-                    Nothing has changed yet. Resubmitting without a change would send the
-                    same answers back.
+                    Nothing has changed yet. Resubmitting without a change would send
+                    the same answers back.
                   </p>
                 ) : (
                   <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
-                    {changedSections.map((section) => (
-                      <li key={section}>
-                        {SECTION_TITLES[section] ?? humanize(section)}
-                      </li>
+                    {changedStages.map((stageKey) => (
+                      <li key={stageKey}>{stageTitle(stageKey, template.stages)}</li>
                     ))}
                   </ul>
                 )}

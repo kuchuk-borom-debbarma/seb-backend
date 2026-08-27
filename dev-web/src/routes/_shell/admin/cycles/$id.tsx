@@ -4,22 +4,26 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import {
   Archive,
   ArrowLeft,
   BadgeCheck,
+  Banknote,
   Calendar,
   Check,
   CheckCircle2,
   Clock,
   FileText,
-  Folder,
+  Hourglass,
   Lock,
+  MapPin,
+  Scale,
   Search,
   ShieldCheck,
   Tag,
+  Users,
   X,
 } from 'lucide-react'
 import {
@@ -28,13 +32,20 @@ import {
   ChangeCycleClosingDocument,
   CloseCycleDocument,
   OpenCycleDocument,
+  SoftDeleteCycleDraftDocument,
+  UpdateCycleDraftDocument,
   UpdateCycleGuidanceDocument,
 } from '#/graphql/generated/operations'
-import { formatDate, formatDateTime, humanize } from '#/lib/format'
+import type { ProgrammeCycleInput } from '#/graphql/generated/schema'
+import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { can } from '#/lib/session'
+import { CycleForm } from '#/features/admin/CycleForm'
+import { toTemplateInput } from '#/features/admin/formAuthoring'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from '#/features/admin/officeGuidance'
+import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
 import styles from '#/features/admin/CycleDetails.module.css'
 
@@ -111,6 +122,8 @@ function GuidanceIllustration() {
 function AdminCyclePage() {
   const mark = useMarker()
   const { id } = Route.useParams()
+  const { user } = Route.useRouteContext()
+  const router = useRouter()
   const queryClient = useQueryClient()
   const { data } = useQuery(cycleQuery(id))
 
@@ -118,27 +131,38 @@ function AdminCyclePage() {
   const [closesAt, setClosesAt] = useState('')
   const [guidance, setGuidance] = useState<string | null>(null)
 
-  // Modal Dialog States
+  // Modal Dialog States. Removal shares the transition dialog because it takes
+  // the same shape — a version guard and a retained reason.
   const [showClosingModal, setShowClosingModal] = useState(false)
   const [showGuidanceModal, setShowGuidanceModal] = useState(false)
-  const [showEvidenceModal, setShowEvidenceModal] = useState(false)
   const [transitionAction, setTransitionAction] = useState<
-    'open' | 'close' | 'archive' | null
+    'open' | 'close' | 'archive' | 'remove' | null
   >(null)
 
   const head = data?.cycle.head
+  const policy = data?.cycle.policy
+  const template = data?.cycle.formTemplate ?? null
 
   const refresh = async () => {
     setReason('')
     setShowClosingModal(false)
     setShowGuidanceModal(false)
-    setShowEvidenceModal(false)
     setTransitionAction(null)
     await queryClient.invalidateQueries({ queryKey: ['admin-cycle', id] })
+    // The authoring screen quotes the version it read, so its copy is stale
+    // the moment a rule change bumps it here.
+    await queryClient.invalidateQueries({ queryKey: ['admin-cycle-form', id] })
     await queryClient.invalidateQueries({ queryKey: ['admin-cycles'] })
+    // The applicant-facing cycle lists change the moment a cycle opens or
+    // closes, so they are refreshed here rather than left stale.
     await queryClient.invalidateQueries({ queryKey: ['cycles'] })
   }
 
+  /**
+   * Every lifecycle transition takes the same shape: the expected version and a
+   * retained reason. One mutation covers them so a new transition cannot
+   * accidentally skip either.
+   */
   const transition = useMutation({
     mutationFn: async (action: 'open' | 'close' | 'archive') => {
       const input = { id, expectedVersion: head?.currentVersion ?? 0, reason }
@@ -193,10 +217,53 @@ function AdminCyclePage() {
     },
   })
 
-  if (!data || !head) return null
+  /**
+   * Replaces the whole rule set of a draft — the only way a cycle's rules
+   * change at all, since an open cycle admits nothing but guidance and the
+   * closing time. The form below is populated from what the cycle actually
+   * holds, so saving cannot silently reset a rule to a client default.
+   */
+  const changeDraft = useMutation({
+    mutationFn: async (cycle: ProgrammeCycleInput) => {
+      const result = await gql(UpdateCycleDraftDocument, {
+        input: { id, expectedVersion: head?.currentVersion ?? 0, reason, cycle },
+      })
+      return unwrap(result.admin.programmeCycle.updateDraft)
+    },
+    onSuccess: refresh,
+  })
 
-  const busy = transition.isPending || changeClosing.isPending || changeGuidance.isPending
-  const error = transition.error ?? changeClosing.error ?? changeGuidance.error
+  const removeDraft = useMutation({
+    mutationFn: async () => {
+      const result = await gql(SoftDeleteCycleDraftDocument, {
+        input: { id, expectedVersion: head?.currentVersion ?? 0, reason },
+      })
+      return unwrap(result.admin.programmeCycle.softDeleteDraft)
+    },
+    onSuccess: async () => {
+      await refresh()
+      // The draft is out of the default listing now, so the list — which can
+      // still show it under "Include removed drafts" — is the honest place to be.
+      await router.navigate({ to: '/admin/cycles' })
+    },
+  })
+
+  if (!data || !head || !policy) return null
+
+  const busy =
+    transition.isPending ||
+    changeClosing.isPending ||
+    changeGuidance.isPending ||
+    changeDraft.isPending ||
+    removeDraft.isPending
+  const error =
+    transition.error ??
+    changeClosing.error ??
+    changeGuidance.error ??
+    changeDraft.error ??
+    removeDraft.error
+  // Every transition needs a retained reason, so the buttons stay disabled
+  // until one is written rather than failing after the click.
   const canAct = reason.trim().length > 0 && !busy
 
   // Lifecycle stage helpers
@@ -204,6 +271,59 @@ function AdminCyclePage() {
   const isClosed = head.status === 'CLOSED'
   const isArchived = head.status === 'ARCHIVED'
   const isDraft = head.status === 'DRAFT'
+
+  /*
+   * The draft's rules, exactly as this cycle version holds them, in the shape
+   * `updateDraft` takes back. Built from the aggregate rather than from any
+   * client default — resending defaults is how a settled rule gets reset by
+   * somebody changing something else. The template is rebuilt in authoring
+   * form (structure members stripped, definitions carried) because the read
+   * returns the expanded one.
+   */
+  const draftRules: ProgrammeCycleInput | null =
+    isDraft && template && can(user, 'CYCLE_ADMIN')
+      ? {
+          cycleCode: head.cycleCode,
+          displayName: head.displayName,
+          cycleYear: head.cycleYear,
+          policyReference: head.policyReference,
+          applicantGuidance: head.applicantGuidance,
+          partnerBankGuidance: head.partnerBankGuidance,
+          opensAt: head.opensAt,
+          closesAt: head.closesAt,
+          policy: {
+            minimumApplicantAge: policy.minimumApplicantAge,
+            maximumApplicantAge: policy.maximumApplicantAge,
+            categoryAMaximumMonths: policy.categoryAMaximumMonths,
+            expansionWaitMonths: policy.expansionWaitMonths,
+            majorityOwnershipRequired: policy.majorityOwnershipRequired,
+            jurisdiction: policy.jurisdiction,
+            fundingCeilingState: policy.fundingCeilingState,
+            fundingCeilingAmountPaise: policy.fundingCeilingAmountPaise,
+            fundingCeilingScope: policy.fundingCeilingScope,
+            requiredAssessmentTypes: data.cycle.assessmentRules.map(
+              (rule) => rule.assessmentType,
+            ),
+            formTemplate: toTemplateInput(template, data.cycle.groupDefinitions),
+            identifierRules: data.cycle.identifierRules.map(
+              ({ kind, requirement, duplicatePolicy, checkType }) => ({
+                kind,
+                requirement,
+                duplicatePolicy,
+                checkType,
+              }),
+            ),
+            reasons: data.cycle.reasons.map(
+              ({ context, code, label, applicantMessageTemplate }) => ({
+                context,
+                code,
+                label,
+                applicantMessageTemplate,
+              }),
+            ),
+          },
+        }
+      : null
 
   return (
     <main className={styles.pageWrap}>
@@ -216,10 +336,7 @@ function AdminCyclePage() {
           <div className={styles.headerTextGroup}>
             <div className={styles.titleRow}>
               <h1 className={styles.cycleTitle}>{head.displayName}</h1>
-              <span
-                className={styles.statusBadge}
-                data-tone={head.status.toLowerCase()}
-              >
+              <span className={styles.statusBadge} data-tone={head.status.toLowerCase()}>
                 <span className={styles.statusDot} />
                 {humanize(head.status)}
               </span>
@@ -227,11 +344,7 @@ function AdminCyclePage() {
             <p className={styles.cycleMeta}>
               {head.cycleCode} · programme year {head.cycleYear}
             </p>
-            <p className={styles.cycleDescription}>
-              The policy applications in this programme year are judged by. Opening it
-              publishes the cycle and freezes these rules into every application started
-              while it is open.
-            </p>
+            <p className={styles.cycleDescription}>{OFFICE_LEDES.cycle}</p>
           </div>
         </div>
 
@@ -255,17 +368,22 @@ function AdminCyclePage() {
           <div className={styles.card}>
             <div className={styles.cardHeader}>
               <h2 className={styles.cardTitle}>Guidance shown to applicants</h2>
-              <button
-                type="button"
-                className={styles.outlineActionButton}
-                onClick={() => {
-                  setGuidance(head.applicantGuidance ?? '')
-                  setReason('')
-                  setShowGuidanceModal(true)
-                }}
-              >
-                Update guidance
-              </button>
+              {/* Guidance changes go through `updateOpenGuidance`, which the
+                  API accepts only while the cycle is open — a draft's guidance
+                  is edited with the rest of its rules below. */}
+              {isOpen ? (
+                <button
+                  type="button"
+                  className={styles.outlineActionButton}
+                  onClick={() => {
+                    setGuidance(head.applicantGuidance ?? '')
+                    setReason('')
+                    setShowGuidanceModal(true)
+                  }}
+                >
+                  Update guidance
+                </button>
+              ) : null}
             </div>
             <div className={styles.guidanceBody}>
               <GuidanceIllustration />
@@ -274,10 +392,22 @@ function AdminCyclePage() {
                   <p className={styles.guidanceText}>{head.applicantGuidance}</p>
                 ) : (
                   <>
-                    <div className={styles.guidancePlaceholderLine} style={{ width: '85%' }} />
-                    <div className={styles.guidancePlaceholderLine} style={{ width: '95%' }} />
-                    <div className={styles.guidancePlaceholderLine} style={{ width: '70%' }} />
-                    <div className={styles.guidancePlaceholderLine} style={{ width: '40%' }} />
+                    <div
+                      className={styles.guidancePlaceholderLine}
+                      style={{ width: '85%' }}
+                    />
+                    <div
+                      className={styles.guidancePlaceholderLine}
+                      style={{ width: '95%' }}
+                    />
+                    <div
+                      className={styles.guidancePlaceholderLine}
+                      style={{ width: '70%' }}
+                    />
+                    <div
+                      className={styles.guidancePlaceholderLine}
+                      style={{ width: '40%' }}
+                    />
                   </>
                 )}
               </div>
@@ -303,7 +433,9 @@ function AdminCyclePage() {
                         <div className={styles.countIconBadge} data-type={type}>
                           <Icon size={16} aria-hidden="true" />
                         </div>
-                        <span className={styles.countLabel}>{humanize(count.status)}</span>
+                        <span className={styles.countLabel}>
+                          {humanize(count.status)}
+                        </span>
                       </div>
                       <span className={styles.countValue}>{count.count}</span>
                     </div>
@@ -349,8 +481,11 @@ function AdminCyclePage() {
                 ))}
               </div>
             ) : (
+              /* Every cycle has at least the event that created it, so an empty
+                 history is a refused query rather than a quiet cycle. */
               <p className="muted" style={{ margin: 0, fontSize: '13px' }}>
-                No history has been recorded yet.
+                No history has been recorded. That is unexpected — a cycle always carries
+                at least the event that created it.
               </p>
             )}
           </div>
@@ -383,7 +518,13 @@ function AdminCyclePage() {
                 {/* Step 1: Open */}
                 <div
                   className={styles.lifecycleStep}
-                  data-state={isOpen || isClosed || isArchived ? 'done' : isDraft ? 'current' : 'future'}
+                  data-state={
+                    isOpen || isClosed || isArchived
+                      ? 'done'
+                      : isDraft
+                        ? 'current'
+                        : 'future'
+                  }
                 >
                   <div className={styles.stepCircle}>
                     {isOpen || isClosed || isArchived ? (
@@ -399,7 +540,9 @@ function AdminCyclePage() {
                 {/* Step 2: Close to new applications */}
                 <div
                   className={styles.lifecycleStep}
-                  data-state={isClosed || isArchived ? 'done' : isOpen ? 'current' : 'future'}
+                  data-state={
+                    isClosed || isArchived ? 'done' : isOpen ? 'current' : 'future'
+                  }
                 >
                   <div className={styles.stepCircle}>
                     {isClosed || isArchived ? (
@@ -436,41 +579,89 @@ function AdminCyclePage() {
               </div>
             </div>
 
-            {/* Lifecycle Action Bar */}
+            {/* Lifecycle Action Bars. Only the transitions the current state
+                actually permits are offered: a draft opens (or is removed); an
+                open cycle closes or moves its closing time; a closed cycle is
+                archived. */}
             {isOpen ? (
-              <div className={styles.actionBanner}>
-                <div className={styles.actionBannerLeft}>
-                  <Clock size={16} aria-hidden="true" />
-                  <span>Move the closing time</span>
+              <>
+                <div className={styles.actionBanner}>
+                  <div className={styles.actionBannerLeft}>
+                    <Clock size={16} aria-hidden="true" />
+                    <span>Move the closing time</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.outlineActionButton}
+                    onClick={() => {
+                      setClosesAt(
+                        head.closesAt
+                          ? new Date(head.closesAt).toISOString().slice(0, 16)
+                          : '',
+                      )
+                      setReason('')
+                      setShowClosingModal(true)
+                    }}
+                  >
+                    Change closing time
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className={styles.outlineActionButton}
-                  onClick={() => {
-                    setClosesAt(head.closesAt ? new Date(head.closesAt).toISOString().slice(0, 16) : '')
-                    setReason('')
-                    setShowClosingModal(true)
-                  }}
-                >
-                  Change closing time
-                </button>
-              </div>
+                <div className={styles.actionBanner}>
+                  <div className={styles.actionBannerLeft}>
+                    <Lock size={16} aria-hidden="true" />
+                    <span>Stop taking applications</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.outlineActionButton}
+                    onClick={() => {
+                      setReason('')
+                      setTransitionAction('close')
+                    }}
+                  >
+                    Close to new applications
+                  </button>
+                </div>
+              </>
             ) : isDraft ? (
-              <div className={styles.actionBanner}>
-                <div className={styles.actionBannerLeft}>
-                  <span>Draft cycle ready to open</span>
+              <>
+                <div className={styles.actionBanner}>
+                  <div className={styles.actionBannerLeft}>
+                    <span>Draft cycle ready to open</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.outlineActionButton}
+                    onClick={() => {
+                      setReason('')
+                      setTransitionAction('open')
+                    }}
+                  >
+                    Open for applications
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className={styles.outlineActionButton}
-                  onClick={() => {
-                    setReason('')
-                    setTransitionAction('open')
-                  }}
-                >
-                  Open for applications
-                </button>
-              </div>
+                {/*
+                 * Reversible, and only ever possible here: a cycle that has
+                 * been opened is part of the programme's record and the API
+                 * refuses to remove it. Restoring happens from the list,
+                 * under "Include removed drafts".
+                 */}
+                <div className={styles.actionBanner}>
+                  <div className={styles.actionBannerLeft}>
+                    <span>Not needed after all?</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.outlineActionButton}
+                    onClick={() => {
+                      setReason('')
+                      setTransitionAction('remove')
+                    }}
+                  >
+                    Remove this draft
+                  </button>
+                </div>
+              </>
             ) : isClosed ? (
               <div className={styles.actionBanner}>
                 <div className={styles.actionBannerLeft}>
@@ -498,7 +689,10 @@ function AdminCyclePage() {
                   <ShieldCheck size={18} aria-hidden="true" />
                 </div>
                 Policy frozen into this cycle
-                <Explain label="this policy" opener="What freezing a cycle's policy means">
+                <Explain
+                  label="this policy"
+                  opener="What freezing a cycle's policy means"
+                >
                   {OFFICE_HELP.frozenPolicy}
                 </Explain>
               </h2>
@@ -536,7 +730,9 @@ function AdminCyclePage() {
                     </div>
                     <span className={styles.policyKeyText}>Policy reference</span>
                   </td>
-                  <td className={styles.policyValueCell}>{head.policyReference ?? '—'}</td>
+                  <td className={styles.policyValueCell}>
+                    {head.policyReference ?? '—'}
+                  </td>
                 </tr>
 
                 {/* Version */}
@@ -550,35 +746,109 @@ function AdminCyclePage() {
                   <td className={styles.policyValueCell}>{head.currentVersion}</td>
                 </tr>
 
-                {/* Required evidence */}
+                {/*
+                 * The eligibility rules as this cycle holds them. They could be
+                 * written and not read until the admin schema returned them, so
+                 * the only way to see what a cycle enforced was to apply to it.
+                 */}
                 <tr className={styles.policyRow}>
-                  <td className={styles.policyKeyCell} style={{ verticalAlign: 'middle' }}>
+                  <td className={styles.policyKeyCell}>
                     <div className={styles.policyIconBadge}>
-                      <Folder size={18} aria-hidden="true" />
+                      <Users size={18} aria-hidden="true" />
                     </div>
-                    <span className={styles.policyKeyText}>Required evidence</span>
+                    <span className={styles.policyKeyText}>Applicant age</span>
                   </td>
                   <td className={styles.policyValueCell}>
-                    {data.cycle.documentRules.length === 0 ? (
-                      <span className="muted">None</span>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <button
-                          type="button"
-                          className={styles.outlineActionButton}
-                          onClick={() => setShowEvidenceModal(true)}
-                        >
-                          <Folder size={14} aria-hidden="true" />
-                          <span>View required evidence ({data.cycle.documentRules.length})</span>
-                        </button>
-                      </div>
-                    )}
+                    {policy.minimumApplicantAge === null &&
+                    policy.maximumApplicantAge === null
+                      ? 'Any'
+                      : `${policy.minimumApplicantAge ?? 'any'} to ${
+                          policy.maximumApplicantAge ?? 'any'
+                        }`}
+                  </td>
+                </tr>
+
+                <tr className={styles.policyRow}>
+                  <td className={styles.policyKeyCell}>
+                    <div className={styles.policyIconBadge}>
+                      <Clock size={18} aria-hidden="true" />
+                    </div>
+                    <span className={styles.policyKeyText}>Category A up to</span>
+                  </td>
+                  <td className={styles.policyValueCell}>
+                    {policy.categoryAMaximumMonths === null
+                      ? 'Not set'
+                      : `${policy.categoryAMaximumMonths} months of trading`}
+                  </td>
+                </tr>
+
+                <tr className={styles.policyRow}>
+                  <td className={styles.policyKeyCell}>
+                    <div className={styles.policyIconBadge}>
+                      <Hourglass size={18} aria-hidden="true" />
+                    </div>
+                    <span className={styles.policyKeyText}>Wait before an expansion</span>
+                  </td>
+                  <td className={styles.policyValueCell}>
+                    {policy.expansionWaitMonths === null
+                      ? 'None'
+                      : `${policy.expansionWaitMonths} months`}
+                  </td>
+                </tr>
+
+                <tr className={styles.policyRow}>
+                  <td className={styles.policyKeyCell}>
+                    <div className={styles.policyIconBadge}>
+                      <Scale size={18} aria-hidden="true" />
+                    </div>
+                    <span className={styles.policyKeyText}>Majority ownership</span>
+                  </td>
+                  <td className={styles.policyValueCell}>
+                    {policy.majorityOwnershipRequired
+                      ? 'Must be confirmed'
+                      : 'Not required'}
+                  </td>
+                </tr>
+
+                <tr className={styles.policyRow}>
+                  <td className={styles.policyKeyCell}>
+                    <div className={styles.policyIconBadge}>
+                      <MapPin size={18} aria-hidden="true" />
+                    </div>
+                    <span className={styles.policyKeyText}>Jurisdiction</span>
+                  </td>
+                  <td className={styles.policyValueCell}>
+                    {humanize(policy.jurisdiction ?? '—')}
+                  </td>
+                </tr>
+
+                {/*
+                 * `UNRESOLVED` is a real state rather than a missing one — no
+                 * amount is checked against a ceiling nobody has approved — so it
+                 * is shown in those words rather than as a blank.
+                 */}
+                <tr className={styles.policyRow}>
+                  <td className={styles.policyKeyCell}>
+                    <div className={styles.policyIconBadge}>
+                      <Banknote size={18} aria-hidden="true" />
+                    </div>
+                    <span className={styles.policyKeyText}>Funding ceiling</span>
+                  </td>
+                  <td className={styles.policyValueCell}>
+                    {policy.fundingCeilingState === 'RESOLVED'
+                      ? `${formatMoney(policy.fundingCeilingAmountPaise)} per ${humanize(
+                          policy.fundingCeilingScope ?? '',
+                        ).toLowerCase()}`
+                      : 'Not settled, so no amount is checked against one'}
                   </td>
                 </tr>
 
                 {/* Assessments an expansion must pass */}
                 <tr className={styles.policyRow}>
-                  <td className={styles.policyKeyCell} style={{ verticalAlign: 'middle' }}>
+                  <td
+                    className={styles.policyKeyCell}
+                    style={{ verticalAlign: 'middle' }}
+                  >
                     <div className={styles.policyIconBadge}>
                       <ShieldCheck size={18} aria-hidden="true" />
                     </div>
@@ -624,6 +894,109 @@ function AdminCyclePage() {
           </div>
         </div>
       </div>
+
+      {/*
+       * What this cycle asks, stage by stage — read-only here, with the
+       * door to the editor beside it. The editor is offered only to the
+       * capability the API gates it on, and only while the cycle is a
+       * draft, because that is the only time the API will accept a change.
+       */}
+      {template ? (
+        <div className={styles.card} {...mark('cycle-questions')}>
+          <div className={styles.cardHeader}>
+            <h2 className={styles.cardTitle}>Questions this cycle asks</h2>
+            {can(user, 'CYCLE_ADMIN') ? (
+              isDraft ? (
+                <Link
+                  to="/admin/cycles/$id/form"
+                  params={{ id }}
+                  className={styles.outlineActionButton}
+                >
+                  Edit the form
+                </Link>
+              ) : (
+                <span className="muted" style={{ fontSize: '13px' }}>
+                  A cycle’s questions freeze once it opens.
+                </span>
+              )
+            ) : null}
+          </div>
+          <div>
+            {template.stages.map((stage) => {
+              const asked = template.fields.filter(
+                (field) => field.stageKey === stage.key && field.repeatGroupKey === null,
+              )
+              return (
+                <section key={stage.key}>
+                  <h3>{stage.title}</h3>
+                  {stage.description ? (
+                    <p className="muted">{stage.description}</p>
+                  ) : null}
+                  <ul>
+                    {asked.map((field) => (
+                      <li key={field.key}>
+                        {field.label}
+                        {' — '}
+                        {humanize(field.type).toLowerCase()}
+                        {field.requirement === 'REQUIRED' ? ', required' : null}
+                        {field.requirement === 'CONDITIONAL'
+                          ? ', required in some answers'
+                          : null}
+                        {field.role
+                          ? `, read by the programme as ${humanize(field.role)}`
+                          : null}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {/*
+       * The rules, editable while the cycle is a draft. The whole cycle
+       * form, populated from what is stored — the same form creation uses —
+       * folded away because reading a cycle is the common case and editing
+       * its every rule is not.
+       */}
+      {draftRules ? (
+        <div className={styles.card}>
+          <details className="fieldset">
+            <summary className="disclosure">
+              <span className="eyebrow">Edit this draft’s rules</span>
+              <span className="muted">
+                Dates, eligibility, ceiling, identifiers and reasons — everything but the
+                questions, which have their own editor above.
+              </span>
+            </summary>
+            {/* Saving is a cycle revision, so it takes a retained reason like
+                every lifecycle change on this page. */}
+            <div style={{ margin: '0.75rem 0' }}>
+              <label className="field-label" htmlFor="draftReason">
+                Reason for this change
+              </label>
+              <input
+                id="draftReason"
+                className="input"
+                placeholder="Retained in the cycle's history"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              />
+            </div>
+            <CycleForm
+              // Remounted per version so a save shows back what the server
+              // now holds rather than the working copy it was opened with.
+              key={head.currentVersion}
+              initial={draftRules}
+              submitLabel="Save the draft’s rules"
+              busy={changeDraft.isPending}
+              onSubmit={(values) => changeDraft.mutate(values)}
+            />
+          </details>
+        </div>
+      ) : null}
 
       {/* Modal: Change Closing Time */}
       {showClosingModal && (
@@ -753,7 +1126,7 @@ function AdminCyclePage() {
         </div>
       )}
 
-      {/* Modal: Transition Action Confirmation (Open / Close / Archive) */}
+      {/* Modal: Transition Confirmation (Open / Close / Archive / Remove) */}
       {transitionAction && (
         <div className={styles.modalOverlay} role="dialog" aria-modal="true">
           <div className={styles.modalDialog}>
@@ -763,7 +1136,9 @@ function AdminCyclePage() {
                   ? 'Open programme cycle'
                   : transitionAction === 'close'
                     ? 'Close programme cycle'
-                    : 'Archive programme cycle'}
+                    : transitionAction === 'archive'
+                      ? 'Archive programme cycle'
+                      : 'Remove this draft'}
               </h3>
               <button
                 type="button"
@@ -779,7 +1154,9 @@ function AdminCyclePage() {
                   ? 'Opening publishes this cycle and freezes its rules into every application started while it is open.'
                   : transitionAction === 'close'
                     ? 'Closing prevents new applications from being created in this cycle.'
-                    : 'Archiving a cycle is final. Its applications will retain their history.'}
+                    : transitionAction === 'archive'
+                      ? 'Archiving a cycle is final. Its applications will retain their history.'
+                      : 'Removing takes this draft out of every default view. It can be restored from the list under "Include removed drafts".'}
               </p>
               <div>
                 <label className="field-label" htmlFor="transitionReason">
@@ -808,71 +1185,13 @@ function AdminCyclePage() {
                 className="button"
                 data-variant="primary"
                 disabled={!canAct}
-                onClick={() => transition.mutate(transitionAction)}
+                onClick={() =>
+                  transitionAction === 'remove'
+                    ? removeDraft.mutate()
+                    : transition.mutate(transitionAction)
+                }
               >
-                {transition.isPending ? 'Updating…' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Required Evidence Rules */}
-      {showEvidenceModal && (
-        <div className={styles.modalOverlay} role="dialog" aria-modal="true">
-          <div className={styles.modalDialog}>
-            <div className={styles.modalHeader}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div className={styles.policyIconBadge}>
-                  <Folder size={18} aria-hidden="true" />
-                </div>
-                <div>
-                  <h3 className={styles.modalTitle}>Required evidence</h3>
-                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
-                    {data.cycle.documentRules.length} document rules enforced in this cycle
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                className={styles.modalCloseButton}
-                onClick={() => setShowEvidenceModal(false)}
-              >
-                <X size={16} aria-hidden="true" />
-              </button>
-            </div>
-            <div className={styles.modalBody}>
-              <div className={styles.evidenceList}>
-                {data.cycle.documentRules.map((rule) => {
-                  const isAlways = rule.condition === 'ALWAYS'
-                  return (
-                    <div key={rule.documentType} className={styles.evidenceItem}>
-                      <div className={styles.evidenceItemLeft}>
-                        <FileText size={16} className={styles.evidenceDocIcon} aria-hidden="true" />
-                        <span className={styles.evidenceDocName}>{humanize(rule.documentType)}</span>
-                      </div>
-                      <span
-                        className={styles.evidenceConditionBadge}
-                        data-tone={isAlways ? 'always' : 'conditional'}
-                      >
-                        <span
-                          className={styles.pillDot}
-                          data-tone={isAlways ? 'blue' : 'purple'}
-                        />
-                        {humanize(rule.condition)}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-            <div className={styles.modalFooter}>
-              <button
-                type="button"
-                className="button"
-                onClick={() => setShowEvidenceModal(false)}
-              >
-                Close
+                {transition.isPending || removeDraft.isPending ? 'Updating…' : 'Confirm'}
               </button>
             </div>
           </div>

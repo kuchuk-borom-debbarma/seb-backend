@@ -31,7 +31,7 @@ function NewCyclePage() {
   })
 
   return (
-    <div className={styles.formContainer}>
+    <main className={styles.formContainer}>
       <div className={styles.pageHeader}>
         <Link to="/admin/cycles" className={styles.backLink}>
           <ArrowLeft size={20} className={styles.backArrowIcon} aria-hidden="true" />
@@ -60,6 +60,6 @@ function NewCyclePage() {
         onSubmit={(values) => create.mutate(values)}
         onCancel={() => router.navigate({ to: '/admin/cycles' })}
       />
-    </div>
+    </main>
   )
 }

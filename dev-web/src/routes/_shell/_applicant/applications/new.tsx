@@ -10,12 +10,11 @@ import {
   ArrowRight,
   Calendar,
   ChevronDown,
-  ExternalLink,
   Info,
   Rocket,
   TrendingUp,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { cyclesQuery } from '#/features/application/queries'
 import { useMarker } from '#/features/guide/GuideContext'
 import {
@@ -31,11 +30,7 @@ import styles from '#/features/application/StartApplication.module.css'
 
 type SetupStep = 'SETUP' | 'TYPE'
 type ApplicationKind = 'INITIAL' | 'EXPANSION'
-type Search = {
-  enterpriseId?: string
-  cycleId?: string
-  step?: SetupStep
-}
+type Search = { enterpriseId?: string; cycleId?: string }
 
 /** Only live enterprises can carry a new application. */
 const liveEnterprisesQuery = queryOptions({
@@ -51,7 +46,12 @@ const liveEnterprisesQuery = queryOptions({
   staleTime: 60_000,
 })
 
-/** Eligibility is meaningful only after the enterprise and cycle are fixed. */
+/**
+ * Expansion eligibility for one enterprise in one cycle.
+ *
+ * Only asked once both are chosen, because the API needs both to answer, and
+ * the answer is what decides whether an expansion can be offered at all.
+ */
 const eligibilityQuery = (enterpriseId: string, programmeCycleId: string) =>
   queryOptions({
     queryKey: ['expansion-eligibility', enterpriseId, programmeCycleId],
@@ -69,7 +69,6 @@ export const Route = createFileRoute('/_shell/_applicant/applications/new')({
     enterpriseId:
       typeof search.enterpriseId === 'string' ? search.enterpriseId : undefined,
     cycleId: typeof search.cycleId === 'string' ? search.cycleId : undefined,
-    step: search.step === 'SETUP' || search.step === 'TYPE' ? search.step : undefined,
   }),
   loader: async ({ context }) => {
     await Promise.all([
@@ -87,29 +86,19 @@ function StartApplicationPage() {
   const queryClient = useQueryClient()
   const mark = useMarker()
   const [kind, setKind] = useState<ApplicationKind | null>(null)
+  // Which of the two setup categories is on screen. Local state rather than a
+  // search param, so an unreachable step can never be typed into the URL.
+  const [step, setStep] = useState<SetupStep>('SETUP')
 
-  const { data: enterprises, isFetching: refreshingEnterprises } =
-    useQuery(liveEnterprisesQuery)
-  const { data: cycles, isFetching: refreshingCycles } = useQuery(cyclesQuery)
+  const { data: enterprises } = useQuery(liveEnterprisesQuery)
+  const { data: cycles } = useQuery(cyclesQuery)
 
   const open = cycles?.available ?? []
   const chosen = Boolean(
     enterprises?.some((enterprise) => enterprise.id === search.enterpriseId) &&
     open.some((cycle) => cycle.id === search.cycleId),
   )
-  const activeStep: SetupStep = search.step === 'TYPE' && chosen ? 'TYPE' : 'SETUP'
-
-  // A typed but unreachable step must not remain in history claiming the
-  // applicant is on Application type while the setup questions are on screen.
-  useEffect(() => {
-    if (search.step !== 'TYPE' || chosen || refreshingCycles || refreshingEnterprises) {
-      return
-    }
-    void navigate({
-      search: (previous) => ({ ...previous, step: 'SETUP' }),
-      replace: true,
-    })
-  }, [chosen, navigate, refreshingCycles, refreshingEnterprises, search.step])
+  const activeStep: SetupStep = step === 'TYPE' && chosen ? 'TYPE' : 'SETUP'
 
   const { data: eligibility, isFetching: checkingEligibility } = useQuery({
     ...eligibilityQuery(search.enterpriseId ?? '', search.cycleId ?? ''),
@@ -132,9 +121,8 @@ function StartApplicationPage() {
     onSuccess: async (application) => {
       await queryClient.invalidateQueries({ queryKey: ['applications'] })
       await router.navigate({
-        to: '/applications/$id/form',
+        to: '/applications/$id',
         params: { id: application.id },
-        search: { section: 'ENTERPRISE' },
       })
     },
   })
@@ -144,7 +132,6 @@ function StartApplicationPage() {
   return (
     <main className="page">
       <div className={styles.pageContainer}>
-        {/* Header with Back Arrow Link */}
         <div className={styles.headerWrap}>
           <div className={styles.titleRow}>
             <Link
@@ -162,19 +149,13 @@ function StartApplicationPage() {
           </p>
         </div>
 
-        {/* Empty States */}
         {enterprises?.length === 0 ? (
           <div className={styles.emptyCard}>
             <h3 className={styles.emptyTitle}>Register an enterprise first</h3>
             <p className={styles.emptyText}>
               An application is always made on behalf of one enterprise.
             </p>
-            <Link
-              to="/enterprises/new"
-              search={{ returnTo: 'application', cycleId: search.cycleId }}
-              className="button"
-              data-variant="primary"
-            >
+            <Link to="/enterprises/new" className="button" data-variant="primary">
               Register an enterprise
             </Link>
           </div>
@@ -191,15 +172,11 @@ function StartApplicationPage() {
           </div>
         ) : (
           <>
-            {/* Stepper Progress Bar */}
             <div className={styles.stepper} aria-label="Application setup steps">
-              {/* Step 1: Application Setup */}
               <div
                 className={`${styles.stepItem} ${chosen ? styles.stepItemInteractive : ''}`}
                 onClick={() => {
-                  if (activeStep === 'TYPE') {
-                    navigate({ search: (p) => ({ ...p, step: 'SETUP' }) })
-                  }
+                  if (activeStep === 'TYPE') setStep('SETUP')
                 }}
               >
                 <div
@@ -223,16 +200,12 @@ function StartApplicationPage() {
                 </div>
               </div>
 
-              {/* Connecting Line */}
               <div className={styles.stepDivider} />
 
-              {/* Step 2: Application Type */}
               <div
                 className={`${styles.stepItem} ${chosen ? styles.stepItemInteractive : ''}`}
                 onClick={() => {
-                  if (chosen && activeStep === 'SETUP') {
-                    navigate({ search: (p) => ({ ...p, step: 'TYPE' }) })
-                  }
+                  if (chosen && activeStep === 'SETUP') setStep('TYPE')
                 }}
               >
                 <div
@@ -267,14 +240,12 @@ function StartApplicationPage() {
               </div>
             </div>
 
-            {/* Error Message */}
             {start.isError ? (
               <p className="notice" data-tone="error" role="alert">
                 {messageFor(start.error)}
               </p>
             ) : null}
 
-            {/* Main Form Card */}
             <div className={styles.card} {...mark('start-application')}>
               <div className={styles.categoryTag}>
                 Category {activeStep === 'SETUP' ? '1 of 2' : '2 of 2'}
@@ -289,8 +260,10 @@ function StartApplicationPage() {
               </p>
 
               {activeStep === 'SETUP' ? (
+                // This pair is the whole decision, because the cycle chosen
+                // fixes the rules the application is judged by for the rest of
+                // its life.
                 <div className={styles.formGrid}>
-                  {/* Enterprise Select */}
                   <div className={styles.fieldGroup}>
                     <label className={styles.fieldLabel} htmlFor="enterprise">
                       Enterprise
@@ -298,16 +271,14 @@ function StartApplicationPage() {
                     <div className={styles.selectWrap}>
                       <select
                         id="enterprise"
-                        aria-label="Enterprise"
                         className={styles.selectInput}
                         value={search.enterpriseId ?? ''}
                         onChange={(event) => {
                           setKind(null)
-                          navigate({
+                          void navigate({
                             search: (previous) => ({
                               ...previous,
                               enterpriseId: event.target.value || undefined,
-                              step: 'SETUP',
                             }),
                           })
                         }}
@@ -323,23 +294,14 @@ function StartApplicationPage() {
                     </div>
                     <div className={styles.helperText}>
                       Need to apply for a different business?{' '}
-                      <Link
-                        to="/enterprises/new"
-                        search={{
-                          returnTo: 'application',
-                          cycleId: search.cycleId,
-                        }}
-                        className={styles.helperLink}
-                      >
+                      <Link to="/enterprises/new" className={styles.helperLink}>
                         Register another enterprise
-                        <ExternalLink size={13} aria-hidden="true" />
                       </Link>
                     </div>
                   </div>
 
                   <hr className={styles.divider} />
 
-                  {/* Programme Cycle Select */}
                   <div className={styles.fieldGroup}>
                     <label className={styles.fieldLabel} htmlFor="cycle">
                       Programme cycle
@@ -347,16 +309,14 @@ function StartApplicationPage() {
                     <div className={styles.selectWrap}>
                       <select
                         id="cycle"
-                        aria-label="Programme cycle"
                         className={styles.selectInput}
                         value={search.cycleId ?? ''}
                         onChange={(event) => {
                           setKind(null)
-                          navigate({
+                          void navigate({
                             search: (previous) => ({
                               ...previous,
                               cycleId: event.target.value || undefined,
-                              step: 'SETUP',
                             }),
                           })
                         }}
@@ -371,39 +331,36 @@ function StartApplicationPage() {
                       <ChevronDown className={styles.selectChevron} aria-hidden="true" />
                     </div>
 
-                    {selectedCycle?.closesAt ? (
+                    {selectedCycle ? (
                       <div className={styles.cycleNotice}>
                         <div className={styles.cycleIconBadge}>
                           <Calendar aria-hidden="true" />
                         </div>
                         <span>
-                          Applications close {formatDate(selectedCycle.closesAt)} —{' '}
-                          <span className={styles.relativeTime}>
-                            {formatRelative(selectedCycle.closesAt)}.
-                          </span>
+                          {selectedCycle.closesAt ? (
+                            <>
+                              Applications close {formatDate(selectedCycle.closesAt)} —{' '}
+                              <span className={styles.relativeTime}>
+                                {formatRelative(selectedCycle.closesAt)}.
+                              </span>
+                            </>
+                          ) : (
+                            'No closing date has been set.'
+                          )}
                         </span>
                       </div>
                     ) : null}
                   </div>
                 </div>
               ) : (
-                /* Step 2: Application Type Selection */
                 <div>
                   {checkingEligibility ? (
-                    <p
-                      style={{
-                        color: '#6b7280',
-                        fontSize: '13px',
-                        margin: '0 0 16px',
-                      }}
-                    >
+                    <p className="muted" style={{ fontSize: '13px', margin: '0 0 16px' }}>
                       Checking expansion eligibility…
                     </p>
                   ) : null}
 
-                  {/* 2-Column Choice Cards Grid */}
                   <div className={styles.choiceGrid}>
-                    {/* Initial Application Choice Card */}
                     <label
                       htmlFor="kind-initial"
                       className={`${styles.choiceCard} ${
@@ -450,7 +407,6 @@ function StartApplicationPage() {
                       </div>
                     </label>
 
-                    {/* Expansion Application Choice Card */}
                     <label
                       htmlFor="kind-expansion"
                       className={`${styles.choiceCard} ${
@@ -502,7 +458,10 @@ function StartApplicationPage() {
                     </label>
                   </div>
 
-                  {/* Eligibility Alert Callout */}
+                  {/*
+                    Every unmet rule is listed separately, because an applicant
+                    blocked by three things needs to see three things.
+                  */}
                   {eligibility && !eligibility.eligible ? (
                     <div className={styles.eligibilityPanel}>
                       <Info className={styles.eligibilityIcon} aria-hidden="true" />
@@ -529,7 +488,6 @@ function StartApplicationPage() {
                 </div>
               )}
 
-              {/* Card Footer Actions */}
               <div className={styles.cardFooter}>
                 {activeStep === 'SETUP' ? (
                   <>
@@ -540,11 +498,7 @@ function StartApplicationPage() {
                       type="button"
                       className={styles.nextBtn}
                       disabled={!chosen}
-                      onClick={() =>
-                        navigate({
-                          search: (previous) => ({ ...previous, step: 'TYPE' }),
-                        })
-                      }
+                      onClick={() => setStep('TYPE')}
                     >
                       Next
                       <ArrowRight size={15} aria-hidden="true" />
@@ -556,11 +510,7 @@ function StartApplicationPage() {
                       type="button"
                       className={styles.cancelBtn}
                       disabled={start.isPending}
-                      onClick={() =>
-                        navigate({
-                          search: (previous) => ({ ...previous, step: 'SETUP' }),
-                        })
-                      }
+                      onClick={() => setStep('SETUP')}
                     >
                       <ArrowLeft size={16} aria-hidden="true" />
                       Back

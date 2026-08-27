@@ -43,6 +43,74 @@ input SignInInput {
   password: String!
 }
 
+"""Begins a password reset for one address."""
+input StartPasswordResetInput {
+  """
+  The address to reset. Normalized before use, so case and surrounding spaces
+  do not stop an account being found.
+  """
+  email: String!
+}
+
+"""Finishes a password reset with the emailed code and a new password."""
+input CompletePasswordResetInput {
+  """
+  The `challengeToken` from `startPasswordReset`.
+
+  Separate from the code on purpose: the token identifies the browser that
+  asked and the code proves the mailbox was read, so a forwarded message is
+  not enough on its own.
+  """
+  challengeToken: String!
+
+  """The one-time code sent to the address."""
+  otp: String!
+
+  """The password to set. At least 8 characters."""
+  newPassword: String!
+}
+
+"""Replaces the password of the signed-in account."""
+input ChangePasswordInput {
+  """
+  The password in use now. Proves the person at the keyboard is the account
+  holder rather than somebody who found it unlocked.
+  """
+  currentPassword: String!
+
+  """The password to set. At least 8 characters."""
+  newPassword: String!
+}
+
+"""Begins moving the signed-in account to another address."""
+input StartEmailChangeInput {
+  """The address to move to. A code is sent there to prove it is reachable."""
+  newEmail: String!
+
+  """The account's current password."""
+  currentPassword: String!
+}
+
+"""Finishes a change of address with the code sent to it."""
+input CompleteEmailChangeInput {
+  """The `challengeToken` from `startEmailChange`."""
+  challengeToken: String!
+
+  """The one-time code sent to the new address."""
+  otp: String!
+}
+
+"""Sets what the signed-in person is called."""
+input ChangeDisplayNameInput {
+  """
+  The name to show. At most 120 characters; an empty value clears it.
+
+  A label rather than an identifier — it is not unique, and the address stays
+  how an account is addressed.
+  """
+  displayName: String!
+}
+
 """Signing up, signing in, and ending sessions."""
 type AuthMutation {
   """
@@ -118,4 +186,93 @@ type AuthMutation {
   afterwards.
   """
   revokeAllSessions: BooleanResult!
+
+  """
+  Sends a code to an address that has forgotten its password.
+
+  Returns a ten-minute challenge **independent of the code**, and succeeds
+  identically whether or not the address belongs to an account — so this
+  cannot be used to discover who has registered.
+
+  **Use case:** `/forgot-password`.
+  """
+  startPasswordReset(
+    """The address to reset."""
+    input: StartPasswordResetInput!
+  ): StartAccountChallengeResult!
+
+  """
+  Sets a new password and signs every device out.
+
+  **Every session ends, including any this caller holds.** A password that was
+  forgotten cannot be told apart from one that was taken, so the safe reading
+  is that somebody else knows it.
+
+  **Refuses:** a wrong or expired code, a challenge already used, and a
+  password under 8 characters.
+  """
+  completePasswordReset(
+    """The challenge, the emailed code, and the password to set."""
+    input: CompletePasswordResetInput!
+  ): BooleanResult!
+
+  """
+  Replaces the password of the signed-in account.
+
+  Other devices are signed out; this one stays, because the person is holding
+  it.
+
+  **Refuses:** a wrong current password, and a new password under 8
+  characters.
+
+  **Use case:** the security screen.
+  """
+  changePassword(
+    """The current password, and the one to set."""
+    input: ChangePasswordInput!
+  ): BooleanResult!
+
+  """
+  Sends a confirmation code to an address the account wants to move to.
+
+  Succeeds identically whether or not that address is already taken, so this
+  cannot be used to discover who has registered. The current address is told
+  that a change was asked for, so losing an account is visible to whoever
+  still reads the old mailbox.
+
+  **Note:** an outstanding role invitation is sealed against the address it
+  was issued to, so completing a change makes any unaccepted invitation
+  unusable.
+
+  **Refuses:** a wrong current password, and the address already in use here.
+  """
+  startEmailChange(
+    """The address to move to, and the account's password."""
+    input: StartEmailChangeInput!
+  ): StartAccountChallengeResult!
+
+  """
+  Moves the account to the address whose code was just proved.
+
+  Other devices are signed out. The new address counts as verified, because
+  reaching the code is what verification means.
+
+  **Refuses:** a wrong or expired code, and an address taken since the code
+  was sent.
+  """
+  completeEmailChange(
+    """The challenge and the code sent to the new address."""
+    input: CompleteEmailChangeInput!
+  ): UserResult!
+
+  """
+  Sets what the signed-in person is called.
+
+  **Use case:** the profile screen. Sending an empty value clears the name,
+  which is different from never having set one.
+  """
+  changeDisplayName(
+    """The name to show."""
+    input: ChangeDisplayNameInput!
+  ): UserResult!
 }

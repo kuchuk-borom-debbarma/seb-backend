@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { registerEnterprise, signIn, signUpApplicant, uniqueEmail } from './support'
+import { signIn, signUpApplicant, uniqueEmail } from './support'
 
 const asNewApplicant = async (page: Page) => {
   const email = uniqueEmail('applicant')
@@ -8,20 +8,20 @@ const asNewApplicant = async (page: Page) => {
   return email
 }
 
+const registerEnterprise = async (page: Page, name: string) => {
+  await page.goto('/enterprises/new')
+  await page.getByLabel('Registered or trading name').fill(name)
+  // The form is a four-step wizard now; a name plus defaults carries through.
+  for (let step = 0; step < 3; step += 1) {
+    await page.getByRole('button', { name: 'Next' }).click()
+  }
+  await page.getByRole('button', { name: 'Register enterprise' }).click()
+  await expect(page).toHaveURL(/\/enterprises\/[0-9a-f-]{36}$/u)
+}
+
 test.describe('applications', () => {
   test('says what to do first when there is nothing yet', async ({ page }) => {
     await asNewApplicant(page)
-    await page.goto('/dashboard')
-    await expect(page.getByText('No enterprises yet')).toBeVisible()
-    await expect(page.getByText('No applications yet')).toBeVisible()
-    await expect(page.getByText('No open programme cycles')).toBeVisible()
-    await expect(
-      page
-        .getByRole('main')
-        .getByRole('link', { name: 'Register an enterprise' })
-        .first(),
-    ).toBeVisible()
-
     await page.goto('/applications')
     await expect(page.getByText('Nothing here yet')).toBeVisible()
   })

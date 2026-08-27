@@ -19,7 +19,7 @@ enum ManageableRole {
   """Reads every casework screen and changes nothing."""
   REVIEWER
 
-  """Reads casework, and records and corrects the committee decision."""
+  """Reads casework, and records and corrects the programme decision."""
   APPROVER
 
   """The whole operational workflow. Cannot grant or revoke a role."""

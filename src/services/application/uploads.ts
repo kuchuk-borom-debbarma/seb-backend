@@ -11,13 +11,27 @@ import type { DocumentType } from './types'
 /**
  * The largest a document may be.
  *
- * Five megabytes is generous for a scanned certificate or a project report and
+ * Two megabytes is enough for a scanned certificate or a project report and
  * small enough that a poor connection can still finish one. It is also the
  * number the browser refuses at, so almost nothing oversized reaches the API at
- * all — `dev-web` derives its message from this same constant so the two
- * cannot drift.
+ * all — `dev-web/src/features/application/documents.ts` states the same number,
+ * and `npm run check:document-limit` fails if the two stop agreeing.
+ *
+ * **The malware scanner is what sets it.** Cloudmersive's free tier refuses a
+ * file over 2.5 MB, and a document the scanner cannot examine never becomes
+ * openable — download fails closed until an `ACCEPTED` result exists. So an
+ * upload the scanner would reject must be refused up front, where the applicant
+ * gets a useful message, rather than accepted and left permanently unreadable.
+ * Two megabytes rather than 2.5 because the provider documents "2.5 MB" without
+ * saying whether it means 2,500,000 or 2,621,440, and the gap is not worth a
+ * silently unopenable document. Raising this means checking the scanner first.
+ *
+ * The database `CHECK` on `size_bytes` is a wider backstop at 5 MiB. It is
+ * deliberately not narrowed to match: SQLite cannot alter a `CHECK` without
+ * rebuilding the table, and a bound that is merely wider than the rule costs
+ * nothing.
  */
-export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
+export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 
 /** For messages, so the limit is stated once and read everywhere. */
 export const MAX_DOCUMENT_MEGABYTES = MAX_DOCUMENT_BYTES / (1024 * 1024)
@@ -124,7 +138,14 @@ export const verifyUploadedObject = async (
   ) {
     return { valid: false, message: 'The uploaded file size does not match the authorization.' }
   }
-  if (facts.contentType !== input.contentType) {
+  /*
+   * Compared only where the backend recorded a type. A store that keeps one —
+   * R2 does — must agree with the declaration. A store that keeps none says so
+   * with `null`, and treating that as a mismatch would refuse every document it
+   * holds. Nothing is waived: the signature check below reads the actual bytes,
+   * which is the evidence this comparison is only a cheap proxy for.
+   */
+  if (facts.contentType !== null && facts.contentType !== input.contentType) {
     return { valid: false, message: 'The uploaded file type does not match the authorization.' }
   }
   if (facts.checksumSha256 !== input.checksumSha256) {

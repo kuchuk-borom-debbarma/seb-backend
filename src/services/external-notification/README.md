@@ -28,7 +28,12 @@ provider satisfies and none of them owns.
 ## The interface
 
 ```ts
-type Notification = { to: string; subject: string; body: string }
+type Notification = {
+  to: string
+  subject: string
+  body: string
+  attachments?: readonly { filename: string; contentType: string; bytes: Uint8Array }[]
+}
 type Delivery = { reference: string | null }
 
 type NotificationTransport = {
@@ -47,6 +52,18 @@ caller applies its own failure policy.
 format derives it; the caller never learns which. That is the line that keeps
 the interface agnostic — the words `type`, `html` and `trackingId` are the
 provider's, and they appear in exactly one file.
+
+`attachments` are bytes with a name, which passes the interface's own printer
+test: any carrier can do something honest with them — a printer prints them, a
+postal service encloses them. A URL instead would name a place only one
+transport could reach, and would leak where the programme keeps things. The
+console transport logs **names and byte counts only**, never content — logs
+are readable in CI on a public repository — and omits the key entirely when
+nothing is attached, so a message without attachments prints exactly the line
+it always has. The provider adapter encodes each attachment's bytes as base64
+in its request body. The three callers today attach one PDF each: the
+submission confirmation, the approval notice, and the sanction notice — see
+[`confirmation.ts`](../application/confirmation.ts).
 
 ## How each operation flows
 
@@ -87,8 +104,8 @@ The one entry point the rest of the programme calls.
 
 | | Delivers | Needs | Reference |
 | --- | --- | --- | --- |
-| `console` | nothing; prints one marked line | nothing | always `null` |
-| `pingram` | `POST https://api.pingram.io/email` | an API key and a notification type | the provider's tracking id, when readable |
+| `console` | nothing; prints one marked line, attachments as name and size only | nothing | always `null` |
+| `pingram` | `POST <base>/email`, attachments inline as base64 | an API key and a notification type | the provider's tracking id, when readable |
 
 ### The console transport and its sentinel
 
@@ -128,9 +145,17 @@ that as a delivery failure would invalidate a live code.
 | `ENVIRONMENT` | always | a var |
 | `PINGRAM_API_KEY` | `develop`, `production` | a secret |
 | `PINGRAM_NOTIFICATION_TYPE` | `develop`, `production` | a secret |
+| `PINGRAM_BASE_URL` | `develop`, `production` | a var |
+| `PINGRAM_FROM_NAME`, `PINGRAM_FROM_ADDRESS` | `develop`, `production` | vars |
 
 `PINGRAM_NOTIFICATION_TYPE` identifies the provider's own template. It is
 required by the provider, not by the programme.
+
+`PINGRAM_BASE_URL` names the region the account lives in. Unset means the
+provider's default, and a key issued against another region is refused there
+rather than delivering somewhere unexpected. The from-name and from-address are
+optional and left to the account when absent; both are provider concepts, which
+is why they are configuration here rather than anything a caller passes.
 
 Keep credentials in Cloudflare secrets, never in an env file that is checked in
 or in source.
@@ -140,7 +165,7 @@ or in source.
 The authentication service first stores a pending challenge and then calls
 `sendNotification`. If the promise rejects, it marks only that new challenge
 `DELIVERY_FAILED` and writes a safe audit event. Sibling challenges remain
-valid. Raw OTPs and message bodies are never stored in D1 or audit metadata.
+valid. Raw OTPs and message bodies are never stored in the database or audit metadata.
 
 ## Rules for any future transport
 
@@ -185,5 +210,8 @@ factory is what keeps this true: a delivering environment cannot reach it.
 ## Elsewhere
 
 - [Layering rule](../README.md) — why this service has no `queries/`
-- [Auth service](../auth/README.md) — the only current caller
+- [Auth service](../auth/README.md) — signup, recovery and password-change
+  notices
+- [Application service](../application/README.md) — the submission, approval
+  and sanction confirmations, each attaching a PDF
 - [Storage seam](../application/README.md) — the same pattern, for documents

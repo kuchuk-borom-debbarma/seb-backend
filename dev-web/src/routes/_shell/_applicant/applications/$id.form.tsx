@@ -4,29 +4,24 @@ import { ArrowLeft, ArrowRight, LogOut } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ClosingNotice } from '#/features/application/ClosingNotice'
 import {
-  APPLICATION_JOURNEY_STEPS,
+  ATTACH_EVIDENCE,
   ApplicationJourney,
   firstIncompleteStep,
   issuesForStep,
-  sectionForField,
+  journeySteps,
+  stageForField,
 } from '#/features/application/ApplicationJourney'
-import {
-  ApplicantSection,
-  DocumentsSection,
-  EnterpriseSection,
-  FinancialSection,
-  PriorFundingSection,
-  type SectionIssues,
-} from '#/features/application/DraftSections'
-import { FORM_SECTIONS, draftFromSnapshot, sameDraft } from '#/features/application/draft'
+import type { AnswerEntry, AnswerMap, AnswerValue } from '#/features/application/answers'
+import type { FieldIssues } from '#/features/application/FormControls'
+import { StageForm } from '#/features/application/FormRenderer'
+import { pruneHidden, resolveTemplate } from '#/features/application/formTemplate'
 import {
   applicationQuery,
+  formTemplateQuery,
   loadApplication,
   validationQuery,
 } from '#/features/application/applicationQueries'
 import { SaveApplicationDraftDocument } from '#/graphql/generated/operations'
-import type { ApplicationDraftInput } from '#/graphql/generated/operations'
-import type { ApplicationSection } from '#/graphql/generated/schema'
 import { formatDateTime } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
@@ -35,13 +30,56 @@ import styles from './DraftForm.module.css'
 /** Long enough that typing a sentence is one save, short enough to feel safe. */
 const AUTOSAVE_DELAY_MS = 900
 
+/*
+ * One object, so a stage with no issues gets the identical reference every
+ * render and its memo comparison holds. A fresh `{}` would defeat it.
+ */
+const EMPTY_ISSUES: FieldIssues = {}
+
+/**
+ * Whether two answer sets say the same thing.
+ *
+ * A structural compare rather than `JSON.stringify`, whose result depends on
+ * key insertion order — two identical answer sets built by different code paths
+ * would compare unequal and autosave a version that changed nothing.
+ */
+const sameAnswers = (previous: AnswerMap, next: AnswerMap): boolean => {
+  const keys = new Set([...Object.keys(previous), ...Object.keys(next)])
+  for (const key of keys) {
+    const left = previous[key]
+    const right = next[key]
+    if (Array.isArray(left) || Array.isArray(right)) {
+      if (!Array.isArray(left) || !Array.isArray(right)) return false
+      if (left.length !== right.length) return false
+      for (const [index, item] of left.entries()) {
+        const other = right[index]
+        if (item !== null && typeof item === 'object') {
+          if (other === null || typeof other !== 'object') return false
+          const members = new Set([...Object.keys(item), ...Object.keys(other)])
+          for (const member of members) {
+            if (
+              (item as Record<string, unknown>)[member] !==
+              (other as Record<string, unknown>)[member]
+            ) {
+              return false
+            }
+          }
+          continue
+        }
+        if (item !== other) return false
+      }
+      continue
+    }
+    if (left !== right) return false
+  }
+  return true
+}
+
 export const Route = createFileRoute('/_shell/_applicant/applications/$id/form')({
-  validateSearch: (
-    search: Record<string, unknown>,
-  ): { section?: ApplicationSection } => ({
-    section: FORM_SECTIONS.includes(search.section as ApplicationSection)
-      ? (search.section as ApplicationSection)
-      : undefined,
+  // The stage keys are the template's own, so the address can only be checked
+  // against them once the template is loaded — the component does that.
+  validateSearch: (search: Record<string, unknown>): { stage?: string } => ({
+    stage: typeof search.stage === 'string' ? search.stage : undefined,
   }),
   loader: ({ context, params }) => loadApplication(context.queryClient, params.id),
   component: DraftFormPage,
@@ -57,34 +95,47 @@ function DraftFormPage() {
   const queryClient = useQueryClient()
   const { data: application } = useQuery(applicationQuery(id))
   const { data: validation } = useQuery(validationQuery(id))
+  const { data: rawTemplate } = useQuery(formTemplateQuery(id))
+  const template = useMemo(
+    () => (rawTemplate ? resolveTemplate(rawTemplate) : null),
+    [rawTemplate],
+  )
 
-  const [draft, setDraft] = useState<ApplicationDraftInput | null>(null)
+  const [answers, setAnswers] = useState<AnswerMap | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   /** Whether a save is in flight, readable from inside a stale closure. */
   const inFlight = useRef(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [advanceIssueCount, setAdvanceIssueCount] = useState<number | null>(null)
+  const latest = useRef<AnswerMap | null>(null)
 
   /*
    * What was last agreed with the server. Autosave compares against this rather
    * than against the query data, because the query is refetched after a save
    * and would otherwise race the comparison.
    */
-  const persisted = useRef<ApplicationDraftInput | null>(null)
+  const persisted = useRef<AnswerMap | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Seeded once from the server, then owned locally. Re-seeding on every
   // refetch would overwrite whatever is being typed.
   useEffect(() => {
-    if (draft || !application) return
-    const initial = draftFromSnapshot(application)
-    persisted.current = initial
-    setDraft(initial)
-  }, [application, draft])
+    if (answers || !application) return
+    persisted.current = application.answers
+    /*
+     * The freshest answers, readable without waiting for a render.
+     *
+     * `answers` reaches a memoised stage as of whenever that stage last
+     * rendered; this is what a change merges against, so an edit in one stage
+     * cannot be built on a map that predates an edit in another.
+     */
+    latest.current = application.answers
+    setAnswers(application.answers)
+  }, [application, answers])
 
   const save = useMutation({
-    mutationFn: async (next: ApplicationDraftInput) => {
+    mutationFn: async (next: AnswerMap) => {
       const data = await gql(SaveApplicationDraftDocument, {
         input: {
           applicationId: id,
@@ -92,7 +143,7 @@ function DraftFormPage() {
           // rather than overwriting a newer one.
           expectedVersion: application?.currentVersion ?? 0,
           expectedStatusVersion: application?.statusVersion ?? 0,
-          draft: next,
+          answers: next,
         },
       })
       return unwrap(data.seb.application.saveDraft)
@@ -135,10 +186,10 @@ function DraftFormPage() {
    * there is no reason to spend a round trip discovering that.
    */
   const scheduleSave = useCallback(
-    (next: ApplicationDraftInput) => {
+    (next: AnswerMap) => {
       if (timer.current) clearTimeout(timer.current)
       timer.current = setTimeout(() => {
-        if (persisted.current && sameDraft(persisted.current, next)) {
+        if (persisted.current && sameAnswers(persisted.current, next)) {
           setSaveState('idle')
           return
         }
@@ -181,7 +232,7 @@ function DraftFormPage() {
    */
   const hash = useLocation({ select: (location) => location.hash })
   useEffect(() => {
-    if (!hash || !draft) return
+    if (!hash || !answers) return
     const field = document.getElementById(hash)
     if (!field) return
     // A behaviour passed here overrides the stylesheet's reduced-motion rule,
@@ -189,7 +240,7 @@ function DraftFormPage() {
     const stillness = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     field.scrollIntoView({ block: 'center', behavior: stillness ? 'auto' : 'smooth' })
     field.focus({ preventScroll: true })
-  }, [hash, draft])
+  }, [hash, answers])
 
   /*
    * Autosave is debounced, so there is a window in which the last keystroke is
@@ -206,8 +257,29 @@ function DraftFormPage() {
   }, [unsaved])
 
   const update = useCallback(
-    (next: ApplicationDraftInput) => {
-      setDraft(next)
+    (fieldKey: string, value: AnswerValue | readonly AnswerEntry[]) => {
+      /*
+       * Merged against `latest`, not against the `answers` of some render.
+       *
+       * A stage is memoised and re-renders only when an answer it reads has
+       * changed, so a stage the applicant has moved away from is still holding
+       * the map as it stood then. It used to hand that map back with one key
+       * replaced, which **discarded every answer given elsewhere since** — the
+       * applicant filled the form, the page said "Saved", and the review screen
+       * listed two dozen questions as still needed.
+       */
+      const raw = { ...(latest.current ?? {}), [fieldKey]: value } as AnswerMap
+      /*
+       * Hidden answers are cleared here, not merely left off the screen.
+       *
+       * The server prunes too, and that is what makes it correct — but if the
+       * client did not, the applicant would watch an answer vanish on the next
+       * refetch without having done anything, and the autosave comparison would
+       * see a change the applicant did not make.
+       */
+      const next = template ? pruneHidden(template, raw) : raw
+      latest.current = next
+      setAnswers(next)
       setAdvanceIssueCount(null)
       /*
        * "Saving" from the keystroke, not from the request. Autosave is
@@ -218,94 +290,101 @@ function DraftFormPage() {
       setSaveState('saving')
       scheduleSave(next)
     },
-    [scheduleSave],
+    [scheduleSave, template],
   )
 
   /**
-   * Validation issues, grouped by section and then by field.
+   * Validation issues, grouped by stage and then by field.
    *
    * Recomputed only when the report changes, so it is not rebuilt on every
-   * keystroke.
+   * keystroke — and each stage's object is stable between reports, which is
+   * what lets `StageForm` skip re-rendering on an unrelated answer.
    */
-  const issuesBySection = useMemo(() => {
-    const grouped: Record<string, SectionIssues> = {}
+  const issuesByStage = useMemo(() => {
+    const grouped: Record<string, FieldIssues> = {}
     for (const issue of validation?.issues ?? []) {
-      const section = grouped[issue.section] ?? {}
-      section[issue.field] = issue.message
-      grouped[issue.section] = section
+      const stage = grouped[issue.stageKey] ?? {}
+      stage[issue.field] = issue.message
+      grouped[issue.stageKey] = stage
     }
     return grouped
   }, [validation])
 
-  const editable = new Set<ApplicationSection>(application?.editableSections ?? [])
+  const issues = validation?.issues ?? []
+  const editable = new Set(application?.editableStageKeys ?? [])
   const readOnly = Boolean(application) && editable.size === 0
-  const hashSection = hash ? sectionForField(hash) : null
-  const incomplete = firstIncompleteStep(validation?.issues ?? [])
-  const firstEditableSection = FORM_SECTIONS.find((section) => editable.has(section))
-  const firstIncompleteFormIndex = FORM_SECTIONS.findIndex(
-    (section) => issuesForStep(validation?.issues ?? [], section).length > 0,
-  )
+  const stageKeys = template ? template.stages.map((stage) => stage.key) : []
+  const hashStage = hash && template ? stageForField(template, hash) : null
+  const incomplete = template ? firstIncompleteStep(template, issues) : null
+  const firstEditableStage = stageKeys.find((key) => editable.has(key))
+  const firstIncompleteFormIndex = template
+    ? stageKeys.findIndex((key) => issuesForStep(template, issues, key).length > 0)
+    : -1
   /*
-   * Evidence lives on its own route. Its missing files must not make all six
-   * completed answer categories appear unreachable: they remain available for
+   * Evidence lives on its own route. Its missing files must not make the
+   * completed answer stages appear unreachable: they remain available for
    * review and correction until the applicant returns to the upload step.
    */
   const lastReachableFormIndex =
-    firstIncompleteFormIndex === -1 ? FORM_SECTIONS.length - 1 : firstIncompleteFormIndex
-  const defaultSection =
-    application?.status === 'REVISION_REQUIRED' && firstEditableSection
-      ? firstEditableSection
+    firstIncompleteFormIndex === -1 ? stageKeys.length - 1 : firstIncompleteFormIndex
+  const defaultStage =
+    application?.status === 'REVISION_REQUIRED' && firstEditableStage
+      ? firstEditableStage
       : !readOnly && firstIncompleteFormIndex !== -1
-        ? FORM_SECTIONS[firstIncompleteFormIndex]!
-        : 'ENTERPRISE'
-  const requestedSection = search.section ?? hashSection
-  const requestedIndex = requestedSection ? FORM_SECTIONS.indexOf(requestedSection) : -1
-  const explicitIssueLink = hashSection !== null && hashSection === requestedSection
-  const activeSection =
-    requestedSection &&
+        ? stageKeys[firstIncompleteFormIndex]!
+        : stageKeys[0]
+  const requestedStage =
+    search.stage && stageKeys.includes(search.stage) ? search.stage : hashStage
+  const requestedIndex = requestedStage ? stageKeys.indexOf(requestedStage) : -1
+  const explicitIssueLink = hashStage !== null && hashStage === requestedStage
+  const activeStage =
+    requestedStage &&
     (readOnly ||
       application?.status === 'REVISION_REQUIRED' ||
       explicitIssueLink ||
       (requestedIndex >= 0 && requestedIndex <= lastReachableFormIndex))
-      ? requestedSection
-      : defaultSection
+      ? requestedStage
+      : defaultStage
 
   /*
-   * A valid section name can still be unreachable because an earlier category
-   * is incomplete. Keep the address honest when that happens: browser history
-   * and a copied link must name the category that is actually on screen. Field
-   * hashes remain the explicit exception and retain their requested category.
+   * A valid stage key can still be unreachable because an earlier stage is
+   * incomplete. Keep the address honest when that happens: browser history
+   * and a copied link must name the stage that is actually on screen. Field
+   * hashes remain the explicit exception and retain their requested stage.
    */
   useEffect(() => {
     if (
       !application ||
       !validation ||
-      !search.section ||
-      search.section === activeSection ||
+      !template ||
+      !activeStage ||
+      !search.stage ||
+      search.stage === activeStage ||
       explicitIssueLink
     ) {
       return
     }
     void navigate({
-      search: { section: activeSection },
+      search: { stage: activeStage },
       hash: '',
       replace: true,
     })
   }, [
-    activeSection,
+    activeStage,
     application,
     explicitIssueLink,
     navigate,
-    search.section,
+    search.stage,
+    template,
     validation,
   ])
 
   /*
    * The evidence screen is part of the same ordered journey, but it has its
-   * own route rather than a form `section`. Once the six answer categories are
-   * complete, rendering a plain `/form` address would otherwise fall through
-   * to Enterprise details even though the next reachable work is attaching
-   * files. That makes the evidence continuation appear stuck.
+   * own route rather than a form `stage`. Once the answer stages are complete,
+   * rendering a plain `/form` address would otherwise fall through to the
+   * first stage even though the next reachable work is attaching files. That
+   * makes a form-to-evidence continuation appear stuck.
    *
    * Field bookmarks, revision work and read-only browsing retain their normal
    * form behavior; only an ordinary draft resume is redirected.
@@ -313,9 +392,9 @@ function DraftFormPage() {
   const resumeAtEvidence =
     !readOnly &&
     application?.status !== 'REVISION_REQUIRED' &&
-    !search.section &&
+    !search.stage &&
     !hash &&
-    incomplete === 'ATTACH_EVIDENCE'
+    incomplete === ATTACH_EVIDENCE
   useEffect(() => {
     if (!resumeAtEvidence) return
     void router.navigate({
@@ -325,15 +404,20 @@ function DraftFormPage() {
     })
   }, [id, resumeAtEvidence, router])
 
-  if (!application || !draft || !validation || resumeAtEvidence) return null
+  if (!application || !answers || !template || !validation || resumeAtEvidence) {
+    return null
+  }
 
-  const activeIndex = FORM_SECTIONS.indexOf(activeSection)
-  const locked = !editable.has(activeSection)
+  const steps = journeySteps(template)
+  const currentStage = activeStage ?? stageKeys[0]
+  if (!currentStage) return null
+  const activeIndex = steps.indexOf(currentStage)
+  const locked = !editable.has(currentStage)
 
-  const moveTo = async (step: (typeof APPLICATION_JOURNEY_STEPS)[number]) => {
-    if (FORM_SECTIONS.includes(step as ApplicationSection)) {
-      await navigate({ search: { section: step as ApplicationSection }, hash: '' })
-    } else if (step === 'ATTACH_EVIDENCE') {
+  const moveTo = async (step: string) => {
+    if (stageKeys.includes(step)) {
+      await navigate({ search: { stage: step }, hash: '' })
+    } else if (step === ATTACH_EVIDENCE) {
       await router.navigate({
         to: '/applications/$id/documents',
         params: { id },
@@ -344,17 +428,24 @@ function DraftFormPage() {
   }
 
   const advance = async () => {
+    // The footer's save is not a different save from autosave — it flushes the
+    // same debounced write before moving, so "Save & next" is literally true.
     if (timer.current) clearTimeout(timer.current)
-    if (!locked && persisted.current && !sameDraft(persisted.current, draft)) {
+    if (
+      !locked &&
+      persisted.current &&
+      latest.current &&
+      !sameAnswers(persisted.current, latest.current)
+    ) {
       try {
-        await save.mutateAsync(draft)
+        await save.mutateAsync(latest.current)
       } catch {
         return
       }
     }
 
     const currentValidation = await queryClient.fetchQuery(validationQuery(id))
-    const outstanding = issuesForStep(currentValidation.issues, activeSection)
+    const outstanding = issuesForStep(template, currentValidation.issues, currentStage)
     if (outstanding.length > 0) {
       setAdvanceIssueCount(outstanding.length)
       const field = document.getElementById(outstanding[0]?.field ?? '')
@@ -364,7 +455,7 @@ function DraftFormPage() {
     }
 
     setAdvanceIssueCount(null)
-    const next = APPLICATION_JOURNEY_STEPS[activeIndex + 1]
+    const next = steps[activeIndex + 1]
     if (next) await moveTo(next)
   }
 
@@ -385,7 +476,7 @@ function DraftFormPage() {
           {readOnly
             ? 'This application can no longer be edited.'
             : application.status === 'REVISION_REQUIRED'
-              ? 'Only the sections the programme office asked you to correct can be changed.'
+              ? 'Only the stages the programme office asked you to correct can be changed.'
               : 'Your answers are saved as you type.'}
         </p>
       </div>
@@ -409,9 +500,10 @@ function DraftFormPage() {
 
       <ApplicationJourney
         applicationId={id}
-        activeStep={activeSection}
-        issues={validation?.issues ?? []}
-        editableSections={application.editableSections}
+        template={template}
+        activeStep={currentStage}
+        issues={issues}
+        editableStageKeys={application.editableStageKeys}
         footerLeft={
           <div className={styles.footerLeftGroup}>
             {activeIndex > 0 ? (
@@ -419,9 +511,7 @@ function DraftFormPage() {
                 type="button"
                 className={styles.backButton}
                 disabled={save.isPending}
-                onClick={() =>
-                  moveTo(APPLICATION_JOURNEY_STEPS[activeIndex - 1] ?? 'ENTERPRISE')
-                }
+                onClick={() => moveTo(steps[activeIndex - 1] ?? currentStage)}
               >
                 <ArrowLeft size={16} aria-hidden="true" />
                 <span>Back</span>
@@ -442,15 +532,15 @@ function DraftFormPage() {
             disabled={save.isPending}
             onClick={advance}
           >
-            <span>{save.isPending ? 'Saving…' : 'Save & Next'}</span>
+            <span>{save.isPending ? 'Saving…' : 'Save & next'}</span>
             <ArrowRight size={16} aria-hidden="true" />
           </button>
         }
       >
         {locked && application.status === 'REVISION_REQUIRED' ? (
           <p className="notice" data-tone="action" style={{ marginBottom: '1rem' }}>
-            No correction was requested for this category, so it must stay exactly as it
-            was submitted.
+            No correction was requested for this stage, so it must stay exactly as it was
+            submitted.
           </p>
         ) : null}
 
@@ -462,7 +552,7 @@ function DraftFormPage() {
             style={{ marginBottom: '1rem' }}
           >
             Fix {advanceIssueCount} {advanceIssueCount === 1 ? 'item' : 'items'} in this
-            category before continuing.
+            stage before continuing.
           </p>
         ) : null}
 
@@ -470,10 +560,11 @@ function DraftFormPage() {
           disabled={locked}
           style={{ border: 0, padding: 0, margin: 0, minInlineSize: 0 }}
         >
-          <SectionFields
-            section={activeSection}
-            draft={draft}
-            issues={issuesBySection[activeSection] ?? {}}
+          <StageForm
+            template={template}
+            stageKey={currentStage}
+            answers={answers}
+            issues={issuesByStage[currentStage] ?? EMPTY_ISSUES}
             disabled={locked}
             onChange={update}
           />
@@ -481,73 +572,6 @@ function DraftFormPage() {
       </ApplicationJourney>
     </main>
   )
-}
-
-/** Routes one section to its component, keeping the page free of a long switch. */
-function SectionFields({
-  section,
-  draft,
-  issues,
-  disabled,
-  onChange,
-}: {
-  section: ApplicationSection
-  draft: ApplicationDraftInput
-  issues: SectionIssues
-  disabled: boolean
-  onChange: (next: ApplicationDraftInput) => void
-}) {
-  if (section === 'ENTERPRISE') {
-    return (
-      <EnterpriseSection
-        value={draft.enterprise}
-        issues={issues}
-        disabled={disabled}
-        onChange={(value) => onChange({ ...draft, enterprise: value })}
-      />
-    )
-  }
-  if (section === 'APPLICANT_PROFILE') {
-    return (
-      <ApplicantSection
-        value={draft.applicantProfile}
-        issues={issues}
-        disabled={disabled}
-        onChange={(value) => onChange({ ...draft, applicantProfile: value })}
-      />
-    )
-  }
-  if (section === 'FINANCIAL') {
-    return (
-      <FinancialSection
-        value={draft.financial}
-        issues={issues}
-        disabled={disabled}
-        onChange={(value) => onChange({ ...draft, financial: value })}
-      />
-    )
-  }
-  if (section === 'PRIOR_FUNDING') {
-    return (
-      <PriorFundingSection
-        value={draft.priorFunding}
-        issues={issues}
-        disabled={disabled}
-        onChange={(value) => onChange({ ...draft, priorFunding: value })}
-      />
-    )
-  }
-  if (section === 'DOCUMENTS') {
-    return (
-      <DocumentsSection
-        value={draft.documents}
-        issues={issues}
-        disabled={disabled}
-        onChange={(value) => onChange({ ...draft, documents: value })}
-      />
-    )
-  }
-  return null
 }
 
 /**

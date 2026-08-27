@@ -1,3 +1,11 @@
+import type {
+  FormFieldAutocompleteHint,
+  FormFieldChoiceStyle,
+  FormFieldRole,
+  FormFieldTone,
+  FormFieldType,
+  FormFieldWidth,
+} from '../../db/schema/seb/form-template'
 import type { deskReviewIdentifierKinds } from '../../db/schema'
 import type { Envelope } from '../envelope'
 
@@ -20,14 +28,12 @@ import type {
   deskReviewChecks,
   deskReviewCheckResults,
   deskReviewOutcomes,
-  documentTypes,
   fundingCeilingScopes,
   fundingCeilingStates,
-  programmeDocumentConditions,
   programmeJurisdictions,
   programmeReasonContexts,
   recoveryComponents,
-  ttmDecisionOutcomes,
+  decisionOutcomes,
 } from '../../db/schema'
 
 /**
@@ -43,7 +49,7 @@ export const intakeQueueKeys = [
   'DESK_REVIEW',
   'REVISION_RESPONSES',
   'PARTNER_BANK_EVALUATION',
-  'TTM_REVIEW',
+  'AWAITING_DECISION',
   'APPROVED',
   'REJECTED',
   'SANCTIONED',
@@ -63,8 +69,6 @@ export type AdminOperationContext = {
 
 export type AdminResult<T> = Envelope<T>
 
-export type DocumentType = (typeof documentTypes)[number]
-export type ProgrammeDocumentCondition = (typeof programmeDocumentConditions)[number]
 export type ProgrammeReasonContext = (typeof programmeReasonContexts)[number]
 export type ProgrammeJurisdiction = (typeof programmeJurisdictions)[number]
 export type FundingCeilingState = (typeof fundingCeilingStates)[number]
@@ -74,12 +78,117 @@ export type DeskReviewCheckType = (typeof deskReviewChecks)[number]
 export type DeskReviewCheckResult = (typeof deskReviewCheckResults)[number]
 export type DeskReviewOutcome = (typeof deskReviewOutcomes)[number]
 export type BankOutcome = (typeof bankOutcomes)[number]
-export type TtmDecisionOutcome = (typeof ttmDecisionOutcomes)[number]
+export type DecisionOutcome = (typeof decisionOutcomes)[number]
 export type RecoveryComponent = (typeof recoveryComponents)[number]
 
-export type ProgrammeCycleDocumentRuleInput = {
-  documentType: DocumentType
-  condition: ProgrammeDocumentCondition
+export type FormTemplateInput = {
+  stages: Array<{
+    stageKey: string
+    title: string
+    description?: string | null
+    iconName?: string | null
+    estimatedMinutes?: number | null
+  }>
+  fields: Array<{
+    stageKey: string
+    fieldKey: string
+    fieldType: FormFieldType
+    role?: FormFieldRole | null
+    label: string
+    helpText?: string | null
+    requirement: 'REQUIRED' | 'OPTIONAL' | 'CONDITIONAL'
+    source?: 'APPLICANT' | 'SERVER_DERIVED' | null
+    sortOrder?: number | null
+    parentFieldKey?: string | null
+    /** The reusable structure this group expands from; REPEAT_GROUP only. */
+    groupDefinitionKey?: string | null
+    repeatMin?: number | null
+    repeatMax?: number | null
+    minLength?: number | null
+    maxLength?: number | null
+    pattern?: string | null
+    patternMessage?: string | null
+    minValue?: number | null
+    maxValue?: number | null
+    minDate?: string | null
+    maxDate?: string | null
+    relativeDateBound?: 'NOT_FUTURE' | 'NOT_PAST' | null
+    maxFileBytes?: number | null
+    placeholder?: string | null
+    note?: string | null
+    tone?: FormFieldTone | null
+    widthHint?: FormFieldWidth | null
+    prefixText?: string | null
+    suffixText?: string | null
+    autocompleteHint?: FormFieldAutocompleteHint | null
+    showCharCount?: boolean | null
+    textareaRows?: number | null
+    choiceStyle?: FormFieldChoiceStyle | null
+  }>
+  options: Array<{
+    fieldKey: string
+    fieldType: FormFieldType
+    optionValue: string
+    optionLabel: string
+    optionDescription?: string | null
+    iconName?: string | null
+    sortOrder?: number | null
+  }>
+  /**
+   * Reusable structures: defined once, used by any repeated group that names
+   * one. Members are question shapes without a stage — they take their use's
+   * stage on expansion — and carry no conditions in this version.
+   */
+  groupDefinitions?: Array<{
+    definitionKey: string
+    label: string
+    members: Array<{
+      memberKey: string
+      fieldType: FormFieldType
+      role?: FormFieldRole | null
+      label: string
+      helpText?: string | null
+      requirement: 'REQUIRED' | 'OPTIONAL' | 'CONDITIONAL'
+      minLength?: number | null
+      maxLength?: number | null
+      pattern?: string | null
+      patternMessage?: string | null
+      minValue?: number | null
+      maxValue?: number | null
+      minDate?: string | null
+      maxDate?: string | null
+      relativeDateBound?: 'NOT_FUTURE' | 'NOT_PAST' | null
+      placeholder?: string | null
+      note?: string | null
+      tone?: FormFieldTone | null
+      widthHint?: FormFieldWidth | null
+      prefixText?: string | null
+      suffixText?: string | null
+      autocompleteHint?: FormFieldAutocompleteHint | null
+      showCharCount?: boolean | null
+      textareaRows?: number | null
+      choiceStyle?: FormFieldChoiceStyle | null
+      options?: Array<{
+        optionValue: string
+        optionLabel: string
+        optionDescription?: string | null
+        iconName?: string | null
+      }>
+    }>
+  }>
+  conditions: Array<{
+    fieldKey: string
+    effect: 'VISIBLE_WHEN' | 'REQUIRED_WHEN'
+    groupNumber?: number | null
+    sequenceNumber?: number | null
+    sourceFieldKey: string
+    sourceFieldType: FormFieldType
+    operator:
+      | 'EQUALS' | 'NOT_EQUALS'
+      | 'GREATER_THAN' | 'GREATER_OR_EQUAL' | 'LESS_THAN' | 'LESS_OR_EQUAL'
+      | 'IS_PRESENT' | 'IS_ABSENT'
+    comparisonValue?: string | null
+  }>
 }
 
 export type ProgrammeCycleReasonInput = {
@@ -100,7 +209,15 @@ export type ProgrammeCyclePolicyInput = {
   fundingCeilingAmountPaise: number | null
   fundingCeilingScope: FundingCeilingScope | null
   requiredAssessmentTypes: AssessmentType[]
-  documentRules: ProgrammeCycleDocumentRuleInput[]
+  /**
+   * The questions this cycle asks, sent complete on every write.
+   *
+   * A replacement rather than a patch, like the rest of the policy: each write
+   * makes a new cycle version, and applications keep the version they were
+   * submitted against. Documents live here too — a required document is a
+   * FILE field with an ordinary conditional requirement.
+   */
+  formTemplate: FormTemplateInput
   /** Absent means the cycle collects nothing and compares nothing. */
   identifierRules?: ProgrammeCycleIdentifierRuleInput[]
   reasons: ProgrammeCycleReasonInput[]
@@ -138,8 +255,16 @@ export type DeskReviewIdentifierInput = {
   matchedReason?: string | null
 }
 
+/**
+ * One stage a reviewer sends back for revision.
+ *
+ * `stageKey` was a closed enum of the six sections the form used to have. It is
+ * open text now because the stages are a cycle's own, and membership is checked
+ * against the pinned template instead — which is stronger, since the enum could
+ * never tell that `EXPANSION` was not a stage of *this* cycle's form.
+ */
 export type RevisionRequestInput = {
-  section: 'ENTERPRISE' | 'APPLICANT_PROFILE' | 'FINANCIAL' | 'PRIOR_FUNDING' | 'DOCUMENTS'
+  stageKey: string
   reasonCategoryId: string
   note: string
 }

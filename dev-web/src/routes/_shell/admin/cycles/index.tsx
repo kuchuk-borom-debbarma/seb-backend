@@ -1,13 +1,21 @@
-import { queryOptions, useQuery } from '@tanstack/react-query'
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { Calendar, Plus, Search } from 'lucide-react'
 import { Pager } from '#/components/ListControls'
 import { useMarker } from '#/features/guide/GuideContext'
-import { AdminCyclesDocument } from '#/graphql/generated/operations'
+import {
+  AdminCyclesDocument,
+  RestoreCycleDraftDocument,
+} from '#/graphql/generated/operations'
 import type { ProgrammeCycleStatus } from '#/graphql/generated/schema'
 import { formatDate, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
-import { unwrap } from '#/lib/result'
+import { messageFor, unwrap } from '#/lib/result'
 import styles from '#/features/admin/Cycles.module.css'
 
 const PAGE_SIZE = 20
@@ -212,8 +220,25 @@ function CyclesBannerIllustration() {
 function AdminCyclesPage() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
+  const queryClient = useQueryClient()
   const { data } = useQuery(cyclesQuery(search))
   const mark = useMarker()
+
+  /**
+   * Puts a removed draft back. Only reachable rows are removed ones, which the
+   * list shows under "Include removed drafts" — removal itself lives on the
+   * cycle's own page, beside the reason input every change here retains.
+   */
+  const restore = useMutation({
+    mutationFn: async (cycle: { id: string; currentVersion: number }) => {
+      const result = await gql(RestoreCycleDraftDocument, {
+        id: cycle.id,
+        expectedVersion: cycle.currentVersion,
+      })
+      return unwrap(result.admin.programmeCycle.restoreDraft)
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-cycles'] }),
+  })
 
   const cycles = data?.nodes ?? []
   const totalCount = data?.pageInfo.totalCount ?? cycles.length
@@ -284,8 +309,7 @@ function AdminCyclesPage() {
               onChange={(event) =>
                 filter({
                   status: (event.target.value || undefined) as
-                    | ProgrammeCycleStatus
-                    | undefined,
+                    ProgrammeCycleStatus | undefined,
                 })
               }
             >
@@ -309,9 +333,7 @@ function AdminCyclesPage() {
               value={search.cycleYear ?? ''}
               onChange={(event) =>
                 filter({
-                  cycleYear: event.target.value
-                    ? Number(event.target.value)
-                    : undefined,
+                  cycleYear: event.target.value ? Number(event.target.value) : undefined,
                 })
               }
             >
@@ -340,6 +362,17 @@ function AdminCyclesPage() {
           </div>
         </div>
       </div>
+
+      {restore.isError ? (
+        <p
+          className="notice"
+          data-tone="error"
+          role="alert"
+          style={{ marginBottom: '1rem' }}
+        >
+          {messageFor(restore.error)}
+        </p>
+      ) : null}
 
       {/* Programme cycles List Card */}
       <div className={styles.cyclesCard}>
@@ -419,21 +452,40 @@ function AdminCyclesPage() {
                             >
                               {cycle.displayName}
                             </Link>
-                            <span className={styles.cycleCode}>
-                              {' '}
-                              · {cycle.cycleCode}
-                            </span>
+                            <span className={styles.cycleCode}> · {cycle.cycleCode}</span>
                           </div>
                         </div>
                       </td>
                       <td>{cycle.cycleYear}</td>
                       <td>
-                        <span
-                          className={styles.statusBadge}
-                          data-tone={cycle.status.toLowerCase()}
-                        >
-                          {humanize(cycle.status)}
-                        </span>
+                        {cycle.deletedAt ? (
+                          // A removed draft is out of every default view; the
+                          // state worth showing is the removal, not "Draft".
+                          <span className="row" style={{ gap: '0.5rem' }}>
+                            <span className={styles.statusBadge}>Removed</span>
+                            <button
+                              type="button"
+                              className="button"
+                              data-variant="ghost"
+                              disabled={restore.isPending}
+                              onClick={() =>
+                                restore.mutate({
+                                  id: cycle.id,
+                                  currentVersion: cycle.currentVersion,
+                                })
+                              }
+                            >
+                              Restore
+                            </button>
+                          </span>
+                        ) : (
+                          <span
+                            className={styles.statusBadge}
+                            data-tone={cycle.status.toLowerCase()}
+                          >
+                            {humanize(cycle.status)}
+                          </span>
+                        )}
                       </td>
                       <td>{formatDate(cycle.opensAt)}</td>
                       <td>{formatDate(cycle.closesAt)}</td>

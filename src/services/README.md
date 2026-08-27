@@ -1,23 +1,29 @@
 # Services
 
-Eight services hold every business rule in the Worker. GraphQL resolvers are
+Nine services hold every business rule in the Worker. GraphQL resolvers are
 thin adapters above them and hold none.
 
-Three of them own a domain. The other five exist to be *swapped*: each is an
+Four of them own a domain. The other five exist to be *swapped*: each is an
 interface the programme states in its own words, with one file per
-implementation and a factory that picks by environment. That is what lets the
-whole portal run on a developer's machine with nothing configured.
+implementation (a `transports/` directory) and a factory that picks by
+environment. That is what lets the whole portal run on a developer's machine
+with nothing configured.
 
-| Service | Owns | Size |
-| --- | --- | --- |
-| [`application/`](application/README.md) | Everything an applicant owns — enterprises, drafts, evidence, submission | 6,414 lines |
-| [`admin/`](admin/README.md) | Programme cycles and the whole post-submission staff workflow | 5,792 lines |
-| [`auth/`](auth/README.md) | Identity, sessions, signup, capabilities, and role administration | 3,269 lines |
-| [`storage/`](storage/README.md) | Where documents live: a bucket, or this Worker | 517 lines |
-| [`audit/`](audit/README.md) | Reading the history of who changed what | 450 lines |
-| [`external-notification/`](external-notification/README.md) | Getting a message to a person | 264 lines |
-| [`document-scanner/`](document-scanner/README.md) | Whether a stored document is safe to open | 168 lines |
-| [`queue/`](queue/README.md) | Work handed off to be done after the response | 161 lines |
+Sizes are deliberately not listed — they were, and every figure was stale
+within a month of being written. `wc -l` answers the question the moment it is
+asked.
+
+| Service | Owns |
+| --- | --- |
+| [`application/`](application/README.md) | Everything an applicant owns — enterprises, drafts, the form engine, evidence, submission |
+| [`admin/`](admin/README.md) | Programme cycles, form authoring, and the whole post-submission staff workflow |
+| [`auth/`](auth/README.md) | Identity, sessions, signup, account self-service, capabilities, and role administration |
+| [`audit/`](audit/README.md) | Reading the history of who changed what |
+| [`storage/`](storage/README.md) | Where documents live: a bucket, a provider, or this Worker |
+| [`external-notification/`](external-notification/README.md) | Getting a message to a person |
+| [`document-scanner/`](document-scanner/README.md) | Whether a stored document is safe to open |
+| [`queue/`](queue/README.md) | Work handed off to be done after the response |
+| [`rate-limit/`](rate-limit/README.md) | Refusing a flood before the handler pays for it |
 
 ## The layering rule
 
@@ -32,7 +38,7 @@ about this codebase.
 controllers/   authorization, input validation, orchestration,
                response envelopes, and the friendly refusal message
       │
-queries/       all Drizzle SQL, all D1 batch boundaries — and every
+queries/       all Drizzle SQL, all statement boundaries — and every
                authorization, lifecycle and version term repeated
                inside the write predicate
       │
@@ -49,8 +55,9 @@ the world can change — and the window is not theoretical. From
 `auth/controllers/access.ts:5-11`:
 
 > Every mutation requires a fresh password confirmation, and every authorization
-> term is repeated inside the guarded write, because scrypt runs outside D1 and
-> takes long enough for the caller's own authority to change while it runs.
+> term is repeated inside the guarded write, because scrypt runs outside the
+> database and takes long enough for the caller's own authority to change while
+> it runs.
 >
 > Friendly refusals are decided by controller reads so an operator learns which
 > rule stopped them; the write predicates in `queries/access.ts` are what decide
@@ -71,25 +78,27 @@ The clearest worked example is the last-super-administrator guard
 
 ### The guarded-write shape
 
-Every mutation is one `db.batch`, and it always looks like this:
+Every mutation is one statement, and it always looks like this:
 
 1. An `UPDATE … WHERE current_version = :expected` on the head row, plus every
-   term that must still hold — the owner, the status, the assignee.
-2. Each dependent `INSERT … SELECT … WHERE EXISTS (…)`, where the
-   predicate proves the head moved to the new version at this exact timestamp.
-3. `d1ChangedExactlyOne(result)` on the first statement decides the outcome.
+   term that must still hold — the owner, the status, the lifecycle — returning
+   the row it changed.
+2. Each dependent `INSERT … SELECT … FROM` that result, so a losing update
+   leaves them nothing to select.
+3. The row count of the first statement decides the outcome.
 
-A batch is one D1 transaction, so a losing request writes nothing at all — no
-partial referral, no orphaned audit row. The caller gets
+Written as one data-modifying CTE it is implicitly atomic and costs a single
+round trip. A losing request writes nothing at all — no partial referral, no
+orphaned audit row. The caller gets
 `'The record changed. Reload and try again.'`
 
 The audit row doubles as the operation's claim
 (`application/queries/application.ts:1636-1639`):
 
 > This append-only audit row is the transition's unique claim. All writes in the
-> same D1 batch require its exact ID, which is stronger than correlating them
-> through `updated_at`: independent requests may legitimately share the same
-> millisecond timestamp.
+> same statement select from the guarded update itself, which is stronger than
+> correlating them through `updated_at`: independent requests may legitimately
+> share the same timestamp.
 
 ### One rule, one definition
 
@@ -99,9 +108,10 @@ disagreed in production-shaped ways:
 
 | Rule | One definition | What went wrong with two |
 | --- | --- | --- |
-| Which documents a submission requires | `application/validation.ts:679` | A cycle asking for fewer documents validated as complete, then the write refused it with a message about the application having changed |
+| Which documents a submission requires | `application/form/engine.ts` | A cycle asking for fewer documents validated as complete, then the write refused it with a message about the application having changed |
 | Which column a queue cursor seeks | `admin/queries/intake.ts:127` | Encode and decode derived it separately; when they disagreed the cursor seeked the wrong column and returned a wrong page with no error |
-| Which form sections changed | `application/sections.ts:60` | A second copy could omit a field and report "no change" for an edit that really happened |
+| Which form stages changed | `application/form/answers.ts` | Three copies existed — a whole-draft `JSON.stringify`, a per-section one, and a field-by-field walk with a `Date` case only one of them had — so they could and did disagree |
+| Which questions are on screen | `application/form/conditions.ts`, mirrored in `dev-web/.../formTemplate.ts` | The client must decide this without a round trip per keystroke, so there are deliberately two. `test/service/client-parity.test.ts` runs both over the same templates and asserts they agree — a fixture of expected values would go on passing while both drifted the same wrong way |
 | The session token digest label | `auth/crypto.ts:124-128` | Creation, authentication and sign-out would stop recognising each other's sessions |
 | What "another usable super administrator" means | `auth/queries/access.ts:176` | The guard could be satisfied by an account that could not actually sign in |
 
@@ -109,14 +119,20 @@ disagreed in production-shaped ways:
 
 **`search.ts`** belongs to no single service. It turns typed text into an
 index-usable prefix pattern: `prefixPattern` normalizes and escapes, and
-`prefixMatch` emits `lower(column) GLOB 'term*'`. `GLOB` rather than `LIKE`
-because only `GLOB` can use a `BINARY`-collated expression index — proved with
-`EXPLAIN QUERY PLAN`, not assumed.
+`prefixMatch` emits `lower(column) LIKE 'term%' ESCAPE '\\'`, which uses an
+index because the three search indexes are declared `text_pattern_ops` — proved
+with `EXPLAIN`, not assumed.
 
-The header states the product constraint it carries (`search.ts:10-13`):
+**The escaping is the security-relevant half.** `%`, `_` and `\\` are `LIKE`'s
+metacharacters, and a single unescaped `%` as a search term matches every row in
+the table, inside a page whose count claims to describe the filter. That is
+measured, not theoretical, and `test/service/search.test.ts` asserts it against a
+real database.
 
-> Prefix only. That is a real limit and the interface says so: a control that
-> offers "search" and silently means "starts with" is a lie.
+Prefix only is now a choice rather than a limit — `pg_trgm` would serve
+substring search — and the interface still has to say "starts with", because a
+control that offers "search" and silently means something narrower is a lie
+whether the narrowing was forced or chosen.
 
 **`support.ts` holds what is genuinely one service's**: its refusal messages,
 its capability preamble, its audit-row builder. Not the envelope — `success` and
@@ -143,8 +159,8 @@ Three, all defined in `auth/controllers/auth.ts`:
 | Guard | Accepts | Used by |
 | --- | --- | --- |
 | `authenticatedApplicant` | `APPLICANT` only | every `seb.*` operation |
-| `authenticatedAdministrator` | `ADMIN` or `SUPER_ADMIN` | every `admin.*` operation |
-| `authenticatedSuperAdministrator` | `SUPER_ADMIN` only | the four `access.*` operations |
+| `authenticatedWithCapability` | whichever roles `capabilities.ts` says hold the named capability | every `admin.*` operation, via `currentStaff` |
+| `authenticatedSuperAdministrator` | `SUPER_ADMIN` only | the `access.*` operations |
 
 Sign-in accepts anyone holding at least one active role, so the narrower
 applicant check is what keeps applicant operations closed to an administrator

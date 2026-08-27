@@ -78,7 +78,7 @@ const faqData: FaqItem[] = [
   {
     category: 'tracks',
     q: 'What is the difference between Category A and Category B?',
-    a: 'Category A is tailored for New Startups and early ventures operating for 0 to 24 months, focusing on capital asset creation. Category B is designed for Existing Operating Enterprises active for more than 24 months that require technological modernization and capacity expansion.',
+    a: 'Category A is designed for Existing Operating Enterprises active for 24 months or more that require technological modernization and capacity expansion. Category B is tailored for New Startups and early ventures operating for under 24 months, focusing on capital asset creation.',
   },
   {
     category: 'tracks',

@@ -22,7 +22,7 @@ export type FundingWorkspace = NonNullable<
 
 /**
  * Refuses when nothing has been sanctioned, which is the ordinary state before
- * a committee approves, so the caller reads the message rather than unwrapping.
+ * the programme approves, so the caller reads the message rather than unwrapping.
  */
 export const fundingWorkspaceQuery = (applicationId: string) =>
   queryOptions({

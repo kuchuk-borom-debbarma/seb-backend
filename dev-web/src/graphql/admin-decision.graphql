@@ -1,8 +1,9 @@
-# Decisions: the partner bank's evaluation and the committee's ruling.
+# Decisions: the partner bank's evaluation and the programme's ruling.
 #
 # Both are recorded rather than made here — the bank writes to the programme
-# office and the committee meets — so every operation names the external
-# reference and date of the real document it is recording.
+# office, and the decision is taken on the strength of what is on the file — so
+# every operation names the external reference and date of the real document it
+# is recording.
 
 mutation ReferToBank($input: BankReferralInput!) {
   admin {
@@ -52,129 +53,7 @@ mutation CorrectBankOutcome($input: CorrectBankOutcomeInput!) {
   }
 }
 
-fragment MeetingWorkspaceRecord on AdminMeetingWorkspace {
-  meeting {
-    id
-    meetingReference
-    scheduledAt
-    venue
-    description
-    status
-    currentVersion
-  }
-  agenda { id applicationId submissionId bankOutcomeId position status currentVersion }
-  decisions {
-    id
-    outcome
-    decisionReference
-    decisionDate
-    approvedAmountPaise
-    applicantMessage
-    createdAt
-    conflictAcknowledged
-  }
-}
-
-query TtmMeetings($first: Int, $after: String, $status: TtmMeetingStatus) {
-  admin {
-    decision {
-      meetings(first: $first, after: $after, status: $status) {
-        success
-        message
-        response {
-          nodes {
-            id
-            meetingReference
-            scheduledAt
-            venue
-            description
-            status
-            currentVersion
-          }
-          pageInfo { endCursor hasNextPage totalCount }
-        }
-      }
-    }
-  }
-}
-
-query TtmMeeting($meetingId: ID!) {
-  admin {
-    decision {
-      meetingById(meetingId: $meetingId) {
-        success
-        message
-        response { ...MeetingWorkspaceRecord }
-      }
-    }
-  }
-}
-
-mutation CreateMeeting($input: CreateTtmMeetingInput!) {
-  admin {
-    decision {
-      createMeeting(input: $input) { success message response { ...MeetingWorkspaceRecord } }
-    }
-  }
-}
-
-mutation UpdateMeeting($input: UpdateTtmMeetingInput!) {
-  admin {
-    decision {
-      updateMeeting(input: $input) { success message response { ...MeetingWorkspaceRecord } }
-    }
-  }
-}
-
-mutation CancelMeeting($input: CancelTtmMeetingInput!) {
-  admin {
-    decision {
-      cancelMeeting(input: $input) { success message response { ...MeetingWorkspaceRecord } }
-    }
-  }
-}
-
-mutation StartMeeting($input: TtmMeetingTransitionInput!) {
-  admin {
-    decision {
-      startMeeting(input: $input) { success message response { ...MeetingWorkspaceRecord } }
-    }
-  }
-}
-
-mutation FinalizeMeeting($input: TtmMeetingTransitionInput!) {
-  admin {
-    decision {
-      finalizeMeeting(input: $input) { success message response { ...MeetingWorkspaceRecord } }
-    }
-  }
-}
-
-mutation AddAgendaItem($input: AddAgendaItemInput!) {
-  admin {
-    decision {
-      addAgendaItem(input: $input) { success message response { ...MeetingWorkspaceRecord } }
-    }
-  }
-}
-
-mutation ReorderAgendaItem($input: ReorderAgendaItemInput!) {
-  admin {
-    decision {
-      reorderAgendaItem(input: $input) { success message response { ...MeetingWorkspaceRecord } }
-    }
-  }
-}
-
-mutation RemoveAgendaItem($input: RemoveAgendaItemInput!) {
-  admin {
-    decision {
-      removeAgendaItem(input: $input) { success message response { ...MeetingWorkspaceRecord } }
-    }
-  }
-}
-
-mutation RecordDecision($input: TtmDecisionInput!) {
+mutation RecordDecision($input: DecisionInput!) {
   admin {
     decision {
       recordDecision(input: $input) {
@@ -186,7 +65,7 @@ mutation RecordDecision($input: TtmDecisionInput!) {
   }
 }
 
-mutation CorrectDecision($input: CorrectTtmDecisionInput!) {
+mutation CorrectDecision($input: CorrectDecisionInput!) {
   admin {
     decision {
       correctDecision(input: $input) {

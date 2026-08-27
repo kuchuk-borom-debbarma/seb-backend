@@ -986,3 +986,44 @@ th.numeric {
   font-variant-numeric: tabular-nums;
   color: var(--ink-faint);
 }
+
+/* ---------------------------------------------------------------------------
+ * Template presentation: the closed tokens a cycle's author may set on a
+ * question. The renderer emits data attributes and these map them to styles —
+ * an unrecognised token matches nothing and falls back to the defaults.
+ */
+.field-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+.field-note[data-tone='INFO'] { color: var(--text-secondary); }
+.field-note[data-tone='WARNING'] { color: #92400e; }
+.field-note[data-tone='DANGER'] { color: #991b1b; }
+.field-note[data-tone='SUCCESS'] { color: var(--brand); }
+
+.affix-row { display: flex; align-items: center; gap: 8px; }
+.affix-row .input { flex: 1; min-width: 0; }
+.affix { color: var(--text-muted); font-size: 0.9375rem; white-space: nowrap; }
+
+/* Fluid spans resolve against the form column; character widths against the
+ * expected answer, GOV.UK style. */
+[data-width='TWO_THIRDS'] { max-width: 66%; }
+[data-width='ONE_HALF'] { max-width: 50%; }
+[data-width='ONE_THIRD'] { max-width: 33%; }
+[data-width='CHAR_2'] .input { max-width: 5ch; }
+[data-width='CHAR_4'] .input { max-width: 7ch; }
+[data-width='CHAR_10'] .input { max-width: 13ch; }
+[data-width='CHAR_20'] .input { max-width: 23ch; }
+
+.choice-cards .choice-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.choice-cards .choice-card:hover { border-color: var(--border-strong); }
+.choice-cards .choice-card .field-hint { display: block; margin-top: 2px; }

@@ -54,18 +54,17 @@ query OfficeDashboard {
         message
         response { queues { queue count } }
       }
-    }
-    decision {
-      meetings(first: 5) {
+      decisionQueue: queue(input: { queue: AWAITING_DECISION, first: 5, order: OLDEST_WAITING }) {
         success
         message
         response {
           nodes {
             id
-            meetingReference
-            scheduledAt
-            venue
+            referenceNumber
+            enterpriseName
+            cycleCode
             status
+            submittedAt
           }
           pageInfo { totalCount }
         }

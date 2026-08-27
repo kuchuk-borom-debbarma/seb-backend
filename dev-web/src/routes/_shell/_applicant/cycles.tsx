@@ -171,9 +171,11 @@ function CyclesPage() {
   const { data } = useQuery(cyclesQuery)
   const available = data?.available ?? []
   const openIds = new Set(available.map((cycle) => cycle.id))
-  // History is everything with work in it that is not currently startable
+  // History is everything with work in it that is not currently startable, so
+  // a closed cycle appears here and never carries a "start" action.
   const history = (data?.mine ?? []).filter((cycle) => !openIds.has(cycle.id))
-  const [showGuidance, setShowGuidance] = useState(false)
+  // Which cycle's guidance is unfolded, so two open cycles toggle separately.
+  const [guidanceFor, setGuidanceFor] = useState<string | null>(null)
 
   return (
     <main className="page">
@@ -273,9 +275,15 @@ function CyclesPage() {
                           <button
                             type="button"
                             className={styles.guidanceLink}
-                            onClick={() => setShowGuidance(!showGuidance)}
+                            onClick={() =>
+                              setGuidanceFor(
+                                guidanceFor === cycle.id ? null : cycle.id,
+                              )
+                            }
                           >
-                            {showGuidance ? 'Hide guidance' : 'View guidance'}
+                            {guidanceFor === cycle.id
+                              ? 'Hide guidance'
+                              : 'View guidance'}
                             <ExternalLink size={13} aria-hidden="true" />
                           </button>
                         ) : (
@@ -285,7 +293,7 @@ function CyclesPage() {
                     </div>
                   </div>
 
-                  {showGuidance && cycle.applicantGuidance ? (
+                  {guidanceFor === cycle.id && cycle.applicantGuidance ? (
                     <div
                       className="notice"
                       data-tone="action"
