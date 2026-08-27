@@ -674,8 +674,11 @@ input CycleClosingInput {
   """The cycle's `currentVersion`; a mismatch refuses."""
   expectedVersion: Int!
 
-  """The new closing time."""
-  closesAt: DateTime!
+  """
+  The new closing time — or null to remove it, leaving the cycle open until
+  the office closes it.
+  """
+  closesAt: DateTime
 
   """Why, kept in the cycle's history."""
   reason: String!
@@ -743,9 +746,9 @@ type AdminProgrammeCycleMutation {
   ): AdminCycleResult!
 
   """
-  Moves an open cycle's closing time.
+  Moves or removes an open cycle's closing time.
 
-  **Use case:** extending a deadline. Closing stops new drafts; it strands
+  **Use case:** extending a deadline, or lifting it entirely. Closing stops new drafts; it strands
   neither existing submissions nor official correction requests.
   """
   changeClosingTime(

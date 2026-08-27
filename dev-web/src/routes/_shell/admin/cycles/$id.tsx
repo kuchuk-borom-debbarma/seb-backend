@@ -189,12 +189,14 @@ function AdminCyclePage() {
   })
 
   const changeClosing = useMutation({
-    mutationFn: async () => {
+    // Null removes the closing time: the cycle takes applications until the
+    // office closes it.
+    mutationFn: async (nextClosesAt: string | null) => {
       const result = await gql(ChangeCycleClosingDocument, {
         input: {
           id,
           expectedVersion: head?.currentVersion ?? 0,
-          closesAt: new Date(closesAt).toISOString(),
+          closesAt: nextClosesAt,
           reason,
         },
       })
@@ -1070,9 +1072,18 @@ function AdminCyclePage() {
               <button
                 type="button"
                 className="button"
+                disabled={!canAct}
+                title="The cycle stays open until the office closes it."
+                onClick={() => changeClosing.mutate(null)}
+              >
+                Remove the closing time
+              </button>
+              <button
+                type="button"
+                className="button"
                 data-variant="primary"
                 disabled={!canAct || !closesAt}
-                onClick={() => changeClosing.mutate()}
+                onClick={() => changeClosing.mutate(new Date(closesAt).toISOString())}
               >
                 {changeClosing.isPending ? 'Updating…' : 'Change closing time'}
               </button>

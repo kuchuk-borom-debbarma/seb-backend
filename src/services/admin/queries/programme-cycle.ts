@@ -889,7 +889,8 @@ export const reviseOpenProgrammeCycle = async (
     expectedVersion: number
     applicantGuidance?: string
     partnerBankGuidance?: string
-    closesAt?: Date
+    /** Undefined keeps the stored time; null removes it. */
+    closesAt?: Date | null
     changeType: 'GUIDANCE_CHANGED' | 'CLOSING_CHANGED'
     reason: string
     message: string
@@ -901,7 +902,7 @@ export const reviseOpenProgrammeCycle = async (
   const nextVersion = input.expectedVersion + 1
   const guidance = input.applicantGuidance ?? input.aggregate.head.applicantGuidance
   const bankGuidance = input.partnerBankGuidance ?? input.aggregate.head.partnerBankGuidance
-  const closesAt = input.closesAt ?? input.aggregate.head.closesAt
+  const closesAt = input.closesAt === undefined ? input.aggregate.head.closesAt : input.closesAt
   const update = context.db
     .update(sebProgrammeCycle)
     .set({
