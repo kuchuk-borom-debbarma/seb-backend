@@ -32,6 +32,8 @@ import {
   setDocumentDeleted,
 } from '../../src/services/application/queries/document'
 import { setEnterpriseDeleted } from '../../src/services/application/queries/enterprise'
+import { confirmationPdfResponse } from '../../src/services/application/confirmation-link'
+import { createDigest } from '../../src/services/auth/crypto'
 import { auditRecord } from '../../src/services/application/support'
 import { MAX_DOCUMENT_BYTES } from '../../src/services/application/uploads'
 import type { EnterpriseProfileInput } from '../../src/services/application/types'
@@ -3417,7 +3419,7 @@ describe('the submission confirmation email', () => {
         to: string
         subject: string
         text: string
-        attachments?: { filename: string; bytes: number; content?: unknown }[]
+        attachments?: { filename: string; url: string; content?: unknown }[]
       })
     log.mockRestore()
 
@@ -3433,9 +3435,120 @@ describe('the submission confirmation email', () => {
     expect(mail?.attachments).toHaveLength(1)
     const attachment = mail!.attachments![0]!
     expect(attachment.filename).toMatch(/^application-SEP-\d{4}-[0-9A-HJKMNP-TV-Z]{8}\.pdf$/u)
-    expect(attachment.bytes).toBeGreaterThan(0)
-    // Names and sizes only — the document itself must never reach a log.
+    /*
+     * A signed link, because the provider attaches by URL: it must name the
+     * route, carry the application it was signed over, and expire. The
+     * document itself must never reach a log.
+     */
+    expect(attachment.url).toContain('/confirmation-pdf?')
+    expect(attachment.url).toContain('application=')
+    expect(attachment.url).toContain('signature=')
     expect(attachment).not.toHaveProperty('content')
+    expect(attachment).not.toHaveProperty('bytes')
+  })
+
+  it('serves the linked PDF, and refuses a forged or expired link', async () => {
+    const { applicant, application, saved } = await readyToSubmit()
+
+    /*
+     * Before anything is submitted, even a correctly signed link has nothing
+     * to serve — the copy is of a submission, not of a draft.
+     */
+    const early = String(Date.now() + 60_000)
+    const unsubmitted = await confirmationPdfResponse(activeDatabase(), env, {
+      application: application.id,
+      expires: early,
+      signature: await createDigest(
+        env.AUTH_SECRET, 'application-confirmation-link', `${application.id}.${early}`,
+      ),
+    })
+    expect(unsubmitted.status).toBe(403)
+
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    await graphql(SUBMIT(application.id, saved.currentVersion), {}, applicant.cookie)
+    const mail = log.mock.calls
+      .map((call) => String(call[0]))
+      .filter((line) => line.startsWith('DEV_EMAIL '))
+      .map((line) => JSON.parse(line.slice('DEV_EMAIL '.length)) as {
+        attachments?: { url: string }[]
+      })
+      .find((each) => each.attachments?.length)
+    log.mockRestore()
+
+    const url = new URL(mail!.attachments![0]!.url)
+    const query = {
+      application: url.searchParams.get('application') ?? undefined,
+      expires: url.searchParams.get('expires') ?? undefined,
+      signature: url.searchParams.get('signature') ?? undefined,
+    }
+    const served = await confirmationPdfResponse(activeDatabase(), env, query)
+    expect(served.status).toBe(200)
+    expect(served.headers.get('content-type')).toBe('application/pdf')
+    const body = new Uint8Array(await served.arrayBuffer())
+    // %PDF — the served bytes are a document, not an error page.
+    expect([...body.slice(0, 4)]).toEqual([0x25, 0x50, 0x44, 0x46])
+
+    const forged = await confirmationPdfResponse(activeDatabase(), env, {
+      ...query,
+      signature: 'not-the-signature',
+    })
+    expect(forged.status).toBe(403)
+    const expired = await confirmationPdfResponse(activeDatabase(), env, {
+      ...query,
+      expires: '1',
+    })
+    expect(expired.status).toBe(403)
+
+    // A link with pieces missing, or an expiry that is not a number, is
+    // refused before anything is looked up.
+    expect((await confirmationPdfResponse(activeDatabase(), env, {})).status).toBe(403)
+    expect(
+      (await confirmationPdfResponse(activeDatabase(), env, { ...query, expires: 'soon' }))
+        .status,
+    ).toBe(403)
+
+    // Signed correctly over an application that does not exist: same refusal.
+    const ghostId = crypto.randomUUID()
+    const ghost = await confirmationPdfResponse(activeDatabase(), env, {
+      application: ghostId,
+      expires: early,
+      signature: await createDigest(
+        env.AUTH_SECRET, 'application-confirmation-link', `${ghostId}.${early}`,
+      ),
+    })
+    expect(ghost.status).toBe(403)
+  })
+
+  it('hands the owner a signed copy link, and nobody else', async () => {
+    const { applicant, application, saved } = await readyToSubmit()
+    const COPY = `query { seb { application { submittedCopy(applicationId: "${application.id}") {
+      success message response { url } } } } }`
+
+    // Before submission there is no copy to link to.
+    const early = await graphql<any>(COPY, {}, applicant.cookie)
+    expect(early.data.seb.application.submittedCopy).toMatchObject({
+      success: false, message: 'The application has not been submitted yet.',
+    })
+
+    const submit = await graphql<any>(
+      SUBMIT(application.id, saved.currentVersion), {}, applicant.cookie,
+    )
+    expect(submit.data.seb.application.submit.success).toBe(true)
+
+    // The owner gets the same signed route the emailed attachment uses.
+    const owned = await graphql<any>(COPY, {}, applicant.cookie)
+    expect(owned.data.seb.application.submittedCopy.success).toBe(true)
+    const url = owned.data.seb.application.submittedCopy.response.url as string
+    expect(url).toContain('/confirmation-pdf?')
+    expect(url).toContain(`application=${application.id}`)
+    expect(url).toContain('signature=')
+
+    // Somebody else's session is told the application does not exist.
+    const stranger = await applicantSession()
+    const refused = await graphql<any>(COPY, {}, stranger.cookie)
+    expect(refused.data.seb.application.submittedCopy).toMatchObject({
+      success: false, message: 'The application was not found.',
+    })
   })
 
   it('still submits when the confirmation cannot be sent, and audits the failure', async () => {

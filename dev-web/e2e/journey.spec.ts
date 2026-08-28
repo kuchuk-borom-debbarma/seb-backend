@@ -36,7 +36,8 @@ test('an application is carried from submission to payment', async ({ page }) =>
   ).toBeVisible()
 
   await page.getByRole('button', { name: 'Start desk review' }).click()
-  await expect(page.getByRole('heading', { name: /desk review/iu })).toBeVisible()
+  await page.getByRole('button', { name: 'Open desk review' }).click()
+  await expect(page.getByRole('heading', { name: /desk review/iu }).first()).toBeVisible()
 
   // --- Desk review --------------------------------------------------------
   for (const check of [
@@ -54,6 +55,7 @@ test('an application is carried from submission to payment', async ({ page }) =>
   // Not applicable: this is an initial application, and the API refuses a pass
   // or a fail on the expansion check for one.
   await page.locator('input[name="EXPANSION_EVIDENCE"]').last().check()
+  await page.getByRole('button', { name: 'Next: What documents say' }).click()
 
   /*
    * Passing a check means having read the document, so the numbers on them are
@@ -65,6 +67,7 @@ test('an application is carried from submission to payment', async ({ page }) =>
   await page.getByLabel('Bank account number').fill('50010000411')
   await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
 
+  await page.getByRole('button', { name: 'Next: Outcome' }).click()
   await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
   await page.getByRole('button', { name: 'Complete the review' }).click()
 
@@ -179,6 +182,7 @@ test('the decision asks for a correction rather than settling it', async ({ page
   // --- Through desk review and the bank, so it is ready to be decided ------
   await page.goto(`/admin/applications/${id}`)
   await page.getByRole('button', { name: 'Start desk review' }).click()
+  await page.getByRole('button', { name: 'Open desk review' }).click()
   for (const check of [
     'IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION',
     'FORM_COMPLETENESS', 'DOCUMENT_COMPLETENESS', 'ANSWER_DOCUMENT_CONSISTENCY',
@@ -187,10 +191,12 @@ test('the decision asks for a correction rather than settling it', async ({ page
     await page.locator(`input[name="${check}"]`).first().check()
   }
   await page.locator('input[name="EXPANSION_EVIDENCE"]').last().check()
+  await page.getByRole('button', { name: 'Next: What documents say' }).click()
   await page.getByLabel('Scheduled Tribe certificate number').fill(`TR/ST/2026-T${unique}`)
   await page.getByLabel('Identity document number').fill(`4117${unique}`)
   await page.getByLabel('Bank account number').fill(`5001${unique}`)
   await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
+  await page.getByRole('button', { name: 'Next: Outcome' }).click()
   await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
   await page.getByRole('button', { name: 'Complete the review' }).click()
   await expect(

@@ -1309,6 +1309,33 @@ type AdminAnalyticsSummary {
 }
 
 """
+One stop on an enterprise’s journey through the programme: an application,
+placed by its phase and the cycle that hosted it.
+"""
+type AdminCaseHistoryEntry {
+  """Which application."""
+  id: ID!
+
+  """Its reference, or null while it was never submitted."""
+  referenceNumber: String
+
+  """Initial or expansion."""
+  applicationType: ApplicationType!
+
+  """Which funding phase of this enterprise it pursued."""
+  phaseNumber: Int!
+
+  """Where it stands."""
+  status: ApplicationStatus!
+
+  """The cycle that hosted the attempt."""
+  cycleCode: String!
+
+  """When the attempt began."""
+  createdAt: DateTime!
+}
+
+"""
 One application's whole case file.
 
 Returned in a single request so the screen cannot show two moments at once.
@@ -1327,6 +1354,14 @@ type AdminWorkspace {
 
   """The cycle's name."""
   cycleDisplayName: String
+
+  """
+  The enterprise’s whole journey with the programme, oldest attempt first —
+  every application of this funding case, this one included. A reviewer reads
+  where this attempt sits: a first try, a retry after a rejection, or a later
+  phase after funding.
+  """
+  caseHistory: [AdminCaseHistoryEntry!]!
 
   """Every formal submission, oldest first."""
   submissions: [AdminSubmission!]!

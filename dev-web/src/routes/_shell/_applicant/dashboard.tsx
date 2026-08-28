@@ -72,6 +72,15 @@ function ApplicantDashboard() {
   const applications = data?.applications.pageInfo.totalCount ?? 0
   const enterprises = data?.enterprises.pageInfo.totalCount ?? 0
   const cycles = data?.cycles ?? []
+  /*
+   * What the hero's one button should honestly say. An application already in
+   * the cycle makes "Apply" a lie; no enterprise makes it a dead end. The
+   * answer comes from the same single dashboard query, not another call.
+   */
+  const applicationInCycle = (cycleId: string) =>
+    data?.applications.nodes.find(
+      (application) => application.programmeCycleId === cycleId,
+    ) ?? null
   const revisions = data?.revisions.nodes ?? []
   const drafts = data?.drafts.nodes ?? []
   const attention = [...revisions, ...drafts]
@@ -97,10 +106,11 @@ function ApplicantDashboard() {
         label: 'Continue your application',
       } as const
     }
-    if (firstCycle && firstEnterprise) {
+    const startable = cycles.find((cycle) => applicationInCycle(cycle.id) === null)
+    if (startable && firstEnterprise) {
       return {
         to: '/applications/new',
-        search: { cycleId: firstCycle.id, enterpriseId: firstEnterprise.id },
+        search: { cycleId: startable.id, enterpriseId: firstEnterprise.id },
         label: 'Start an application',
       } as const
     }
@@ -131,20 +141,37 @@ function ApplicantDashboard() {
                   {firstCycle.displayName} is open
                 </span>
                 <p className={styles.cycleHeroDates}>
-                  Applications close {formatDateTime(firstCycle.closesAt)} ·{' '}
-                  <span className={styles.cycleHeroRelative}>
-                    {formatRelative(firstCycle.closesAt)}
-                  </span>
+                  {firstCycle.closesAt ? (
+                    <>
+                      Applications close {formatDateTime(firstCycle.closesAt)} ·{' '}
+                      <span className={styles.cycleHeroRelative}>
+                        {formatRelative(firstCycle.closesAt)}
+                      </span>
+                    </>
+                  ) : (
+                    'Open until closed by the office.'
+                  )}
                 </p>
               </div>
-              <Link
-                to="/applications/new"
-                search={{ cycleId: firstCycle.id }}
-                className={styles.cycleHeroButton}
-              >
-                Apply in this cycle
-                <ArrowRight size={15} aria-hidden="true" />
-              </Link>
+              {applicationInCycle(firstCycle.id) ? (
+                <Link
+                  to="/applications/$id"
+                  params={{ id: applicationInCycle(firstCycle.id)!.id }}
+                  className={styles.cycleHeroButton}
+                >
+                  View your application
+                  <ArrowRight size={15} aria-hidden="true" />
+                </Link>
+              ) : enterprises > 0 ? (
+                <Link
+                  to="/applications/new"
+                  search={{ cycleId: firstCycle.id }}
+                  className={styles.cycleHeroButton}
+                >
+                  Apply in this cycle
+                  <ArrowRight size={15} aria-hidden="true" />
+                </Link>
+              ) : null}
             </section>
           ) : (
             <section className={styles.cycleHero} aria-label="Active cycle">
@@ -310,19 +337,22 @@ function ApplicantDashboard() {
                 aria-hidden="true"
               />
             </Link>
-            <Link to="/applications/new" className={styles.getStartedItem}>
-              <div className={styles.getStartedItemLeft}>
-                <div className={styles.getStartedIconBadge} data-color="green">
-                  <FilePlus2 aria-hidden="true" />
+            {cycles.some((cycle) => applicationInCycle(cycle.id) === null) &&
+            enterprises > 0 ? (
+              <Link to="/applications/new" className={styles.getStartedItem}>
+                <div className={styles.getStartedItemLeft}>
+                  <div className={styles.getStartedIconBadge} data-color="green">
+                    <FilePlus2 aria-hidden="true" />
+                  </div>
+                  <span className={styles.getStartedLabel}>Start an application</span>
                 </div>
-                <span className={styles.getStartedLabel}>Start an application</span>
-              </div>
-              <ChevronRight
-                className={styles.getStartedChevron}
-                size={16}
-                aria-hidden="true"
-              />
-            </Link>
+                <ChevronRight
+                  className={styles.getStartedChevron}
+                  size={16}
+                  aria-hidden="true"
+                />
+              </Link>
+            ) : null}
             <Link to="/cycles" className={styles.getStartedItem}>
               <div className={styles.getStartedItemLeft}>
                 <div className={styles.getStartedIconBadge} data-color="purple">

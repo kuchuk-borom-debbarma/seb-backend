@@ -109,6 +109,16 @@ query IntakeWorkspace($applicationId: ID!) {
           submissions { id submissionNumber applicationVersion submittedAt }
           submissionChanges { fromSubmissionNumber toSubmissionNumber stageKeys }
           formTemplate { ...FormTemplateFields }
+          snapshots { version answers }
+          caseHistory {
+            id
+            referenceNumber
+            applicationType
+            phaseNumber
+            status
+            cycleCode
+            createdAt
+          }
           documents {
             id
             submissionId

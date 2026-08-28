@@ -11,7 +11,7 @@
  * sections unlock for them — so what is chosen here decides exactly what they
  * are allowed to change.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, ChevronLeft, ChevronRight, ClipboardCheck, X } from 'lucide-react'
 import { reasonsFor, type ReasonCategory } from '#/features/admin/workspaceQueries'
 import type {
@@ -262,6 +262,16 @@ export function DeskReviewForm({
    * refusal through the interface, so the two sides cannot drift apart quietly.
    */
   const flagged = Boolean(error?.includes('already recorded against'))
+
+  /*
+   * A duplicate refusal is answered on the documents tab — the reason field
+   * sits beside the number that raised it — but the refusal arrives on the
+   * outcome tab, where Complete was pressed. Take the reviewer to the field
+   * instead of leaving them with a message about a control they cannot see.
+   */
+  useEffect(() => {
+    if (flagged) setActiveTab('documents')
+  }, [flagged])
 
   const revisionReasons = useMemo(() => reasonsFor(reasons, 'REVISION'), [reasons])
   const rejectionReasons = useMemo(() => reasonsFor(reasons, 'REJECTION'), [reasons])
@@ -841,6 +851,31 @@ export function DeskReviewForm({
               </div>
             ) : null}
 
+            {outcome === 'ADVANCE_TO_BANK'
+              ? (() => {
+                  const blocking = CHECKS.filter((check) =>
+                    check.type === 'EXPANSION_EVIDENCE'
+                      ? false
+                      : results[check.type] !== 'PASS',
+                  )
+                  return blocking.length > 0 ? (
+                    <p
+                      className="notice"
+                      data-tone="error"
+                      role="alert"
+                      style={{ marginTop: '1rem' }}
+                    >
+                      <span className="notice-title">
+                        A bank referral needs every check affirmatively passed
+                      </span>
+                      Not yet: {blocking.map((check) => check.title).join(', ')}. N/A
+                      qualifies only for expansion evidence on an initial application —
+                      go back to the checks and settle these first.
+                    </p>
+                  ) : null
+                })()
+              : null}
+
             {outcome && outcome !== 'ADVANCE_TO_BANK' ? (
               <div style={{ marginTop: '1rem' }}>
                 <label className="field-label" htmlFor="applicant-message">
@@ -947,11 +982,14 @@ export function DeskReviewModal({
   open,
   onClose,
   hasReview,
+  submitted,
   ...formProps
 }: {
   open: boolean
   onClose: () => void
   hasReview: boolean
+  /** The submitted application, readable beside the checks it is judged by. */
+  submitted?: React.ReactNode
 } & Parameters<typeof DeskReviewForm>[0]) {
   if (!open) return null
 
@@ -996,6 +1034,20 @@ export function DeskReviewModal({
             review cannot be left half-saved. Closing this leaves the application exactly
             where it is.
           </p>
+
+          {/*
+            What is being judged, readable where it is judged. A review form
+            without the application in view asked the reviewer to attest to
+            documents from memory.
+          */}
+          {submitted ? (
+            <details className={styles.submittedDetails} open>
+              <summary className={styles.submittedSummary}>
+                The submitted application
+              </summary>
+              <div className={styles.submittedScroll}>{submitted}</div>
+            </details>
+          ) : null}
 
           <DeskReviewForm {...formProps} onCancel={onClose} />
         </div>

@@ -15,6 +15,7 @@ export {
   startExpansionApplication,
   startInitialApplication,
   submitApplication,
+  submittedApplicationCopy,
   validateApplication,
 } from './controllers/application'
 export { applicationFunding } from './controllers/funding'

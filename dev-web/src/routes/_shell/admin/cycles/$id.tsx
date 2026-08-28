@@ -135,6 +135,7 @@ function AdminCyclePage() {
   // the same shape — a version guard and a retained reason.
   const [showClosingModal, setShowClosingModal] = useState(false)
   const [showGuidanceModal, setShowGuidanceModal] = useState(false)
+  const [draftReasonMissing, setDraftReasonMissing] = useState(false)
   const [transitionAction, setTransitionAction] = useState<
     'open' | 'close' | 'archive' | 'remove' | null
   >(null)
@@ -143,11 +144,13 @@ function AdminCyclePage() {
   const policy = data?.cycle.policy
   const template = data?.cycle.formTemplate ?? null
 
+  /*
+   * Refetches, and only refetches. It used to close every modal too — so a
+   * refusal wired through it closed the dialog mid-error, and the message
+   * landed at the page top where the overlay had been. Success closes its
+   * own modal with `settle`; failure keeps it open with the refusal inside.
+   */
   const refresh = async () => {
-    setReason('')
-    setShowClosingModal(false)
-    setShowGuidanceModal(false)
-    setTransitionAction(null)
     await queryClient.invalidateQueries({ queryKey: ['admin-cycle', id] })
     // The authoring screen quotes the version it read, so its copy is stale
     // the moment a rule change bumps it here.
@@ -163,6 +166,14 @@ function AdminCyclePage() {
    * retained reason. One mutation covers them so a new transition cannot
    * accidentally skip either.
    */
+  const settle = async () => {
+    await refresh()
+    setReason('')
+    setShowClosingModal(false)
+    setShowGuidanceModal(false)
+    setTransitionAction(null)
+  }
+
   const transition = useMutation({
     mutationFn: async (action: 'open' | 'close' | 'archive') => {
       const input = { id, expectedVersion: head?.currentVersion ?? 0, reason }
@@ -177,16 +188,22 @@ function AdminCyclePage() {
       const result = await gql(ArchiveCycleDocument, { input })
       return unwrap(result.admin.programmeCycle.archive)
     },
-    onSuccess: refresh,
+    onSuccess: settle,
+    // A refusal usually means the version moved — an edit on the form screen
+    // is a revision too. Refetch so the next attempt quotes the fresh one,
+    // while the dialog stays to show the refusal.
+    onError: refresh,
   })
 
   const changeClosing = useMutation({
-    mutationFn: async () => {
+    // Null removes the closing time: the cycle takes applications until the
+    // office closes it.
+    mutationFn: async (nextClosesAt: string | null) => {
       const result = await gql(ChangeCycleClosingDocument, {
         input: {
           id,
           expectedVersion: head?.currentVersion ?? 0,
-          closesAt: new Date(closesAt).toISOString(),
+          closesAt: nextClosesAt,
           reason,
         },
       })
@@ -194,8 +211,9 @@ function AdminCyclePage() {
     },
     onSuccess: async () => {
       setClosesAt('')
-      await refresh()
+      await settle()
     },
+    onError: refresh,
   })
 
   const changeGuidance = useMutation({
@@ -213,8 +231,9 @@ function AdminCyclePage() {
     },
     onSuccess: async () => {
       setGuidance(null)
-      await refresh()
+      await settle()
     },
+    onError: refresh,
   })
 
   /**
@@ -230,7 +249,8 @@ function AdminCyclePage() {
       })
       return unwrap(result.admin.programmeCycle.updateDraft)
     },
-    onSuccess: refresh,
+    onSuccess: settle,
+    onError: refresh,
   })
 
   const removeDraft = useMutation({
@@ -241,11 +261,12 @@ function AdminCyclePage() {
       return unwrap(result.admin.programmeCycle.softDeleteDraft)
     },
     onSuccess: async () => {
-      await refresh()
+      await settle()
       // The draft is out of the default listing now, so the list — which can
       // still show it under "Include removed drafts" — is the honest place to be.
       await router.navigate({ to: '/admin/cycles' })
     },
+    onError: refresh,
   })
 
   if (!data || !head || !policy) return null
@@ -481,11 +502,11 @@ function AdminCyclePage() {
                 ))}
               </div>
             ) : (
-              /* Every cycle has at least the event that created it, so an empty
-                 history is a refused query rather than a quiet cycle. */
+              /* Events record lifecycle transitions — opening, closing, a
+                 guidance change — so a draft that has never moved has none. */
               <p className="muted" style={{ margin: 0, fontSize: '13px' }}>
-                No history has been recorded. That is unexpected — a cycle always carries
-                at least the event that created it.
+                No lifecycle events yet. The first appears when this cycle is opened;
+                every change after that is recorded here with its reason.
               </p>
             )}
           </div>
@@ -719,7 +740,9 @@ function AdminCyclePage() {
                     </div>
                     <span className={styles.policyKeyText}>Applications close</span>
                   </td>
-                  <td className={styles.policyValueCell}>{formatDate(head.closesAt)}</td>
+                  <td className={styles.policyValueCell}>
+                    {head.closesAt ? formatDate(head.closesAt) : 'Open until closed by the office'}
+                  </td>
                 </tr>
 
                 {/* Policy reference */}
@@ -905,6 +928,15 @@ function AdminCyclePage() {
         <div className={styles.card} {...mark('cycle-questions')}>
           <div className={styles.cardHeader}>
             <h2 className={styles.cardTitle}>Questions this cycle asks</h2>
+            {/* Any officer may look; the preview renders with the applicant's
+                own components, so what it shows is what they get. */}
+            <Link
+              to="/admin/cycles/$id/preview"
+              params={{ id }}
+              className={styles.outlineActionButton}
+            >
+              View as an applicant
+            </Link>
             {can(user, 'CYCLE_ADMIN') ? (
               isDraft ? (
                 <Link
@@ -982,8 +1014,26 @@ function AdminCyclePage() {
                 className="input"
                 placeholder="Retained in the cycle's history"
                 value={reason}
-                onChange={(event) => setReason(event.target.value)}
+                onChange={(event) => {
+                  setReason(event.target.value)
+                  if (event.target.value.trim()) setDraftReasonMissing(false)
+                }}
               />
+              {/*
+                Said here, where the person is looking — the page-top banner
+                sits folds away when this form is deep in the details. The
+                obvious case never travels to the server.
+              */}
+              {draftReasonMissing ? (
+                <p className="notice" data-tone="error" role="alert" style={{ marginTop: '0.5rem' }}>
+                  Write a reason for this change first — it is kept in the
+                  cycle&rsquo;s history with the edit.
+                </p>
+              ) : changeDraft.error ? (
+                <p className="notice" data-tone="error" role="alert" style={{ marginTop: '0.5rem' }}>
+                  {messageFor(changeDraft.error)}
+                </p>
+              ) : null}
             </div>
             <CycleForm
               // Remounted per version so a save shows back what the server
@@ -992,7 +1042,14 @@ function AdminCyclePage() {
               initial={draftRules}
               submitLabel="Save the draft’s rules"
               busy={changeDraft.isPending}
-              onSubmit={(values) => changeDraft.mutate(values)}
+              onSubmit={(values) => {
+                if (!reason.trim()) {
+                  setDraftReasonMissing(true)
+                  document.getElementById('draftReason')?.focus()
+                  return
+                }
+                changeDraft.mutate(values)
+              }}
             />
           </details>
         </div>
@@ -1038,6 +1095,11 @@ function AdminCyclePage() {
                   onChange={(event) => setReason(event.target.value)}
                 />
               </div>
+              {changeClosing.error ? (
+                <p className="notice" data-tone="error" role="alert" style={{ margin: 0 }}>
+                  {messageFor(changeClosing.error)}
+                </p>
+              ) : null}
             </div>
             <div className={styles.modalFooter}>
               <button
@@ -1051,9 +1113,18 @@ function AdminCyclePage() {
               <button
                 type="button"
                 className="button"
+                disabled={!canAct}
+                title="The cycle stays open until the office closes it."
+                onClick={() => changeClosing.mutate(null)}
+              >
+                Remove the closing time
+              </button>
+              <button
+                type="button"
+                className="button"
                 data-variant="primary"
                 disabled={!canAct || !closesAt}
-                onClick={() => changeClosing.mutate()}
+                onClick={() => changeClosing.mutate(new Date(closesAt).toISOString())}
               >
                 {changeClosing.isPending ? 'Updating…' : 'Change closing time'}
               </button>
@@ -1170,6 +1241,13 @@ function AdminCyclePage() {
                   onChange={(event) => setReason(event.target.value)}
                 />
               </div>
+              {/* The refusal belongs where the click happened — rendered only
+                  at the page top, it hid behind this very overlay. */}
+              {transition.error || removeDraft.error ? (
+                <p className="notice" data-tone="error" role="alert" style={{ margin: 0 }}>
+                  {messageFor(transition.error ?? removeDraft.error)}
+                </p>
+              ) : null}
             </div>
             <div className={styles.modalFooter}>
               <button

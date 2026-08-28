@@ -15,6 +15,8 @@ import {
   loadApplication,
   validationQuery,
 } from '#/features/application/applicationQueries'
+import { AnswerSummary } from '#/features/application/AnswerSummary'
+import { formatBytes } from '#/features/application/documents'
 import { fieldLabel, stageTitle } from '#/features/application/draft'
 import { resolveTemplate } from '#/features/application/formTemplate'
 import {
@@ -79,6 +81,11 @@ function ReviewPage() {
 
   const issues = validation.issues
   const changedStages = changes?.response?.stageKeys ?? []
+  const documents = application.documents.filter((document) => !document.deletedAt)
+  // On a first submission every stage is open to edits; on a resubmission
+  // only the stages the correction request named.
+  const editable = (stageKey: string) =>
+    !resubmission || application.editableStageKeys.includes(stageKey)
 
   return (
     <main className="page">
@@ -220,6 +227,82 @@ function ReviewPage() {
               </div>
             </div>
           )}
+
+          {/*
+            The whole application, read back. Submission is the applicant's
+            signature on these answers; asking for it without showing them
+            asks for a signature on an unread page.
+          */}
+          <section className="card">
+            <div className="card-header">
+              <div>
+                <p className="eyebrow">Your answers, read back</p>
+                <h2 style={{ marginTop: '0.25rem' }}>What you are about to submit</h2>
+              </div>
+            </div>
+            <div className="card-body">
+              <AnswerSummary
+                template={template}
+                answers={application.answers}
+                stageAction={(stageKey) =>
+                  editable(stageKey) ? (
+                    <Link
+                      to="/applications/$id/form"
+                      params={{ id }}
+                      search={{ stage: stageKey }}
+                      className="button"
+                      data-variant="ghost"
+                    >
+                      Edit
+                    </Link>
+                  ) : null
+                }
+              />
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="card-header">
+              <div>
+                <p className="eyebrow">Documents attached</p>
+                <h2 style={{ marginTop: '0.25rem' }}>
+                  {documents.length} {documents.length === 1 ? 'document' : 'documents'}
+                </h2>
+              </div>
+              <Link to="/applications/$id/documents" params={{ id }} className="button">
+                Change documents
+              </Link>
+            </div>
+            {documents.length === 0 ? (
+              <div className="card-body">
+                <p className="muted">No documents are attached.</p>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table className="table">
+                  <caption className="visually-hidden">Documents attached</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Document</th>
+                      <th scope="col">File</th>
+                      <th scope="col">Size</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {documents.map((document) => (
+                      <tr key={document.id}>
+                        <td>
+                          {template.byKey.get(document.fieldKey)?.label ?? document.fieldKey}
+                        </td>
+                        <td className="tabular">{document.originalFilename}</td>
+                        <td className="tabular">{formatBytes(document.sizeBytes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
 
           {/*
             Before resubmitting, the applicant sees exactly which stages their

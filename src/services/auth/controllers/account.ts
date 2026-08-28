@@ -29,7 +29,7 @@
  */
 import { z } from 'zod'
 import { auditActions } from '../../../db/schema'
-import { sendNotification } from '../../external-notification'
+import { notificationDelivery, sendNotification } from '../../external-notification'
 import { failure, success } from '../../envelope'
 import {
   createDigest,
@@ -297,7 +297,11 @@ export const startPasswordReset = async (
     failedAction: auditActions.passwordResetNotificationFailed,
   })
   return success(
-    { challengeToken: issued.challengeToken, expiresAt: issued.expiresAt },
+    {
+      challengeToken: issued.challengeToken,
+      expiresAt: issued.expiresAt,
+      delivery: notificationDelivery(context.env),
+    },
     START_RESET_MESSAGE,
   )
 }
@@ -470,7 +474,11 @@ export const startEmailChange = async (
   }
 
   return success(
-    { challengeToken: issued.challengeToken, expiresAt: issued.expiresAt },
+    {
+      challengeToken: issued.challengeToken,
+      expiresAt: issued.expiresAt,
+      delivery: notificationDelivery(context.env),
+    },
     START_EMAIL_CHANGE_MESSAGE,
   )
 }

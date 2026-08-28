@@ -6,8 +6,6 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
-  User,
-  ShieldCheck,
   Info,
   LockKeyhole,
   HelpCircle,
@@ -68,7 +66,7 @@ interface StorySlide {
   desc: string
 }
 
-type Challenge = { challengeToken: string; expiresAt: string }
+type Challenge = { challengeToken: string; expiresAt: string; delivery: string }
 
 const applicantSlides: StorySlide[] = [
   {
@@ -339,56 +337,20 @@ function LoginPage() {
             {/* Form Header Area */}
             <div className="w-full max-w-md mx-auto my-auto py-2">
               <div className="text-center">
-                {/* Role Switcher (Clean segmented bar, no pills) */}
-                <div className="w-full">
-                  <div className="grid grid-cols-2 gap-1 rounded-lg bg-[#f1f5f9] p-1 border border-[#e2e8f0]">
-                    <button
-                      type="button"
-                      disabled={isAuthenticationPending}
-                      onClick={() => handleRoleChange('applicant')}
-                      className={`flex min-h-[44px] items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-md transition-all cursor-pointer disabled:cursor-wait disabled:opacity-60 ${
-                        role === 'applicant'
-                          ? 'bg-white text-[#0f2444] shadow-xs'
-                          : 'text-[#64748b] hover:text-[#0f2444]'
-                      }`}
-                    >
-                      <User className="size-3.5" />
-                      <span>Applicant</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={isAuthenticationPending}
-                      onClick={() => handleRoleChange('admin')}
-                      className={`flex min-h-[44px] items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-md transition-all cursor-pointer disabled:cursor-wait disabled:opacity-60 ${
-                        role === 'admin'
-                          ? 'bg-[#0f2444] text-white shadow-xs'
-                          : 'text-[#64748b] hover:text-[#0f2444]'
-                      }`}
-                    >
-                      <ShieldCheck className="size-3.5" />
-                      <span>Administrator</span>
-                    </button>
-                  </div>
-                </div>
 
                 <h1 className="mt-4 font-serif text-xl sm:text-2xl font-bold tracking-tight text-[#1e293b]">
-                  {role === 'admin'
-                    ? 'Administrator Sign In'
-                    : isSignUp
-                      ? challenge
-                        ? 'Verify Applicant Email'
-                        : 'Create Applicant Account'
-                      : 'Applicant Sign In'}
+                  {isSignUp
+                    ? challenge
+                      ? 'Verify Your Email'
+                      : 'Create Account'
+                    : 'Sign In'}
                 </h1>
                 <p className="mt-1 text-xs text-[#64748b]">
-                  {role === 'admin'
-                    ? 'Enter your official administrator email and password'
-                    : isSignUp
-                      ? challenge
-                        ? 'Enter the code and choose the password for your account'
-                        : 'Verify your email address to begin your application'
-                      : 'Sign in to manage and submit your seed grant application'}
+                  {isSignUp
+                    ? challenge
+                      ? 'Enter the code and choose the password for your account'
+                      : 'Verify your email address to begin your application'
+                    : 'Sign in with your email and password'}
                 </p>
               </div>
 
@@ -546,9 +508,19 @@ function LoginPage() {
                       <div className="flex items-start gap-2">
                         <Info className="mt-0.5 size-3.5 shrink-0 text-[#1d4ed8]" />
                         <p className="text-[10.5px] leading-relaxed text-[#1e40af]">
-                          <strong>Read the code from the server console.</strong> This
-                          local build prints the six-digit code to Wrangler instead of
-                          emailing it. It expires {formatRelative(challenge.expiresAt)}.
+                          {challenge.delivery === 'CONSOLE' ? (
+                            <>
+                              <strong>Read the code from the server console.</strong>{' '}
+                              This development server prints the six-digit code to its
+                              log instead of emailing it.
+                            </>
+                          ) : (
+                            <>
+                              <strong>Check your inbox.</strong> We emailed a six-digit
+                              code to the address you entered.
+                            </>
+                          )}{' '}
+                          It expires {formatRelative(challenge.expiresAt)}.
                         </p>
                       </div>
                     </div>
@@ -781,7 +753,7 @@ function LoginPage() {
                     disabled={signIn.isPending}
                     className="w-full min-h-[48px] rounded-lg bg-[#0f2444] hover:bg-[#1e3a66] active:bg-[#0c1d37] text-white py-3 px-4 text-xs sm:text-sm font-semibold shadow-xs transition-colors disabled:opacity-75 cursor-pointer"
                   >
-                    {signIn.isPending ? 'Signing in...' : 'Sign In as Applicant'}
+                    {signIn.isPending ? 'Signing in...' : 'Sign In'}
                   </button>
                 </form>
               )}

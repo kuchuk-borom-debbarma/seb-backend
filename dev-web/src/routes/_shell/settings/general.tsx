@@ -16,7 +16,7 @@ export const Route = createFileRoute('/_shell/settings/general')({
   component: GeneralSettings,
 })
 
-type Challenge = { challengeToken: string; expiresAt: string }
+type Challenge = { challengeToken: string; expiresAt: string; delivery: string }
 
 function GeneralSettings() {
   const { user } = Route.useRouteContext()
@@ -267,11 +267,19 @@ function ConfirmEmailStep({
         confirm.mutate()
       }}
     >
-      <p className="notice" data-tone="action">
-        <span className="notice-title">Read the code from the server console</span>
-        This development build prints the six-digit code to the Wrangler output instead of
-        emailing it. It expires {formatRelative(challenge.expiresAt)}.
-      </p>
+      {challenge.delivery === 'CONSOLE' ? (
+        <p className="notice" data-tone="action">
+          <span className="notice-title">Read the code from the server console</span>
+          This development server prints the six-digit code to its log instead of
+          emailing it. It expires {formatRelative(challenge.expiresAt)}.
+        </p>
+      ) : (
+        <p className="notice" data-tone="action">
+          <span className="notice-title">Check the new address&rsquo;s inbox</span>
+          We emailed a six-digit code to the new address. It expires{' '}
+          {formatRelative(challenge.expiresAt)}.
+        </p>
+      )}
 
       <div>
         <label className="field-label" htmlFor="email-otp">

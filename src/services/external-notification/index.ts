@@ -43,6 +43,17 @@ const DELIVERING_ENVIRONMENTS = new Set(['develop', 'production'])
  * must never do. The refusal reaches the applicant as "the code could not be
  * sent", which is true.
  */
+/**
+ * How a code sent through this seam reaches the person: really emailed on a
+ * delivering environment, printed to the worker log everywhere else. The
+ * screens that say "check your inbox" or "read the console" ask this instead
+ * of guessing from their build.
+ */
+export const notificationDelivery = (env: AppBindings): 'EMAIL' | 'CONSOLE' => {
+  const environment = (env.ENVIRONMENT ?? '').trim().toLowerCase()
+  return DELIVERING_ENVIRONMENTS.has(environment) ? 'EMAIL' : 'CONSOLE'
+}
+
 export const notificationTransport = (env: AppBindings): NotificationTransport => {
   const environment = (env.ENVIRONMENT ?? '').trim().toLowerCase()
   if (!DELIVERING_ENVIRONMENTS.has(environment)) return consoleTransport()

@@ -54,17 +54,22 @@ export const myEnterprises = async (
   const first = pageSize(input.first)
   const cursor = decodeCursor(input.after, 'updatedAt')
   if (first === null || cursor === 'INVALID') return failure('Invalid pagination input.')
-  return success(
-    await listOwnedEnterprises(context.db, {
-      userId: applicant.id,
-      first,
-      cursor,
-      includeDeleted: input.includeDeleted === true,
-      status: input.status,
-      sector: input.sector,
-      search: input.search,
-    }),
-  )
+  const page = await listOwnedEnterprises(context.db, {
+    userId: applicant.id,
+    first,
+    cursor,
+    includeDeleted: input.includeDeleted === true,
+    status: input.status,
+    sector: input.sector,
+    search: input.search,
+  })
+  const limit = maxEnterprisesPerUser(context.env.SEB_MAX_ENTERPRISE_PER_USER)
+  return success({
+    ...page,
+    // A misconfigured limit refuses registration too, so zero — which hides
+    // the register door — tells the screen the same thing the write would.
+    maximumPerApplicant: limit.ok ? limit.limit : 0,
+  })
 }
 
 export const enterpriseById = async (

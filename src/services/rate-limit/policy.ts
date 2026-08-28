@@ -249,9 +249,26 @@ export const REQUEST_BUDGET: RateLimitBucket = {
   periodSeconds: 60,
 }
 
+/*
+ * The emailed application copy.
+ *
+ * Unauthenticated by design — it is opened from an inbox — and the valid
+ * path rebuilds a PDF, which is real CPU. The signature already keeps
+ * strangers at the cheap 403; this bounds what one holder of a valid link
+ * (or one address probing signatures) can spend. Ten a minute is far above
+ * any person re-opening their own copy.
+ */
+export const CONFIRMATION_PDF: RateLimitBucket = {
+  binding: 'RL_CONFIRMATION_PDF_IP',
+  dimension: 'IP',
+  limit: 10,
+  periodSeconds: 60,
+}
+
 /** Every bucket the policy declares, including the request budget. */
 export const allBuckets = (): readonly RateLimitBucket[] => [
   REQUEST_BUDGET,
+  CONFIRMATION_PDF,
   ...Object.values(RATE_LIMIT_POLICY).flat(),
 ]
 

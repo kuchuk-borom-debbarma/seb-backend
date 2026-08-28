@@ -8,10 +8,10 @@ import {
   CirclePlus,
   ExternalLink,
   FileText,
-  Info,
 } from 'lucide-react'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
+import { applicantDashboardQuery } from '#/features/dashboard/dashboardQueries'
 import { cyclesQuery } from '#/features/application/queries'
 import { formatDate, formatRelative, humanize } from '#/lib/format'
 import styles from '#/features/application/Cycles.module.css'
@@ -169,6 +169,17 @@ function CycleIllustration() {
 
 function CyclesPage() {
   const { data } = useQuery(cyclesQuery)
+  /*
+   * Same single dashboard query the dashboard itself uses — shared cache, so
+   * navigating here usually costs no request — read for what the one honest
+   * button per cycle is: already applied, able to apply, or nothing.
+   */
+  const { data: mine } = useQuery(applicantDashboardQuery)
+  const applicationInCycle = (cycleId: string) =>
+    mine?.applications.nodes.find(
+      (application) => application.programmeCycleId === cycleId,
+    ) ?? null
+  const holdsEnterprise = (mine?.enterprises.pageInfo.totalCount ?? 0) > 0
   const available = data?.available ?? []
   const openIds = new Set(available.map((cycle) => cycle.id))
   // History is everything with work in it that is not currently startable, so
@@ -194,6 +205,21 @@ function CyclesPage() {
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Open for new applications</h2>
 
+          {/*
+            The one rule that surprises people, said before they meet it as a
+            refusal: windows run in parallel, but an enterprise applies in one.
+          */}
+          {available.length > 1 ? (
+            <p className="notice" data-tone="action">
+              <span className="notice-title">
+                {available.length} windows are open — your enterprise applies in one
+              </span>
+              The programme funds an enterprise one phase at a time, so one live
+              application, whichever cycle you choose. Compare their closing dates and
+              guidance, then apply in the one that suits your enterprise.
+            </p>
+          ) : null}
+
           {available.length === 0 ? (
             <div className={styles.emptyCard}>
               <h3 className={styles.emptyTitle}>No cycle is open</h3>
@@ -210,14 +236,25 @@ function CyclesPage() {
                   <span className={styles.pillTag}>{cycle.cycleCode}</span>
                   <h3 className={styles.cycleTitle}>{cycle.displayName}</h3>
 
-                  <Link
-                    to="/applications/new"
-                    search={{ cycleId: cycle.id }}
-                    className={styles.applyBtn}
-                  >
-                    Apply in this cycle
-                    <ArrowRight size={15} aria-hidden="true" />
-                  </Link>
+                  {applicationInCycle(cycle.id) ? (
+                    <Link
+                      to="/applications/$id"
+                      params={{ id: applicationInCycle(cycle.id)!.id }}
+                      className={styles.applyBtn}
+                    >
+                      View your application
+                      <ArrowRight size={15} aria-hidden="true" />
+                    </Link>
+                  ) : holdsEnterprise ? (
+                    <Link
+                      to="/applications/new"
+                      search={{ cycleId: cycle.id }}
+                      className={styles.applyBtn}
+                    >
+                      Apply in this cycle
+                      <ArrowRight size={15} aria-hidden="true" />
+                    </Link>
+                  ) : null}
 
                   <div className={styles.infoList}>
                     <div className={styles.infoRow}>
@@ -312,22 +349,6 @@ function CyclesPage() {
             ))
           )}
         </section>
-
-        {/* Bottom Stay Informed Callout Panel */}
-        <div className={styles.stayInformedCard}>
-          <div className={styles.informedLeft}>
-            <Info className={styles.informedIcon} aria-hidden="true" />
-            <div className={styles.informedTextGroup}>
-              <h4 className={styles.informedTitle}>Stay informed</h4>
-              <p className={styles.informedText}>
-                We&apos;ll notify you when new programme cycles are announced.
-              </p>
-            </div>
-          </div>
-          <Link to="/settings/security" className={styles.informedButton}>
-            Manage notifications
-          </Link>
-        </div>
 
         {/* Past Cycles History */}
         {history.length > 0 ? (

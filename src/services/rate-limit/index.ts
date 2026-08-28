@@ -32,7 +32,7 @@ import { memoryRateLimitTransport } from './transports/memory'
 import { unlimitedRateLimitTransport } from './transports/unlimited'
 import type { RateLimitTransport } from './types'
 
-export { allBuckets, bucketsFor, REQUEST_BUDGET } from './policy'
+export { allBuckets, bucketsFor, CONFIRMATION_PDF, REQUEST_BUDGET } from './policy'
 export { operationSubject, requestIdentity } from './identity'
 export type * from './types'
 

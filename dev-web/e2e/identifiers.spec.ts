@@ -54,6 +54,7 @@ const expectStatus = async (page: Page, status: string) => {
 const openReview = async (page: Page, id: string) => {
   await page.goto(`/admin/applications/${id}`)
   await page.getByRole('button', { name: 'Start desk review' }).click()
+  await page.getByRole('button', { name: 'Open desk review' }).click()
   for (const check of [
     'IDENTITY_KYC',
     'ST_ELIGIBILITY',
@@ -67,6 +68,7 @@ const openReview = async (page: Page, id: string) => {
     await page.locator(`input[name="${check}"]`).first().check()
   }
   await page.locator('input[name="EXPANSION_EVIDENCE"]').last().check()
+  await page.getByRole('button', { name: 'Next: What documents say' }).click()
 }
 
 test.describe('what one cycle asks for', () => {
@@ -103,6 +105,7 @@ test.describe('what one cycle asks for', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await openReview(page, id)
 
+    await page.getByRole('button', { name: 'Next: Outcome' }).click()
     await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
 
     /*
@@ -153,6 +156,7 @@ test.describe('what one cycle asks for', () => {
     await page.getByLabel('Identity document number').fill('771100001111')
     await page.getByLabel('Bank account number').fill('50010000771')
     await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
+    await page.getByRole('button', { name: 'Next: Outcome' }).click()
     await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
     await page.getByRole('button', { name: 'Complete the review' }).click()
     await expectStatus(page, 'Partner bank evaluation')
@@ -172,6 +176,7 @@ test.describe('what one cycle asks for', () => {
     await page.getByLabel('Identity document number').fill('772200002222')
     await page.getByLabel('Bank account number').fill('50010000772')
     await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
+    await page.getByRole('button', { name: 'Next: Outcome' }).click()
     await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
     await page.getByRole('button', { name: 'Complete the review' }).click()
 
@@ -182,6 +187,7 @@ test.describe('what one cycle asks for', () => {
   test('shows an empty rule set back as the setting it is', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin/cycles/new')
+    await page.getByRole('button', { name: /Desk review & Reasons/u }).click()
 
     // Remove every rule. A cycle that collects nothing is legitimate, and it is
     // indistinguishable from one somebody forgot to configure — so it says so
@@ -198,6 +204,7 @@ test.describe('what one cycle asks for', () => {
   test('is reachable and labelled for somebody working by keyboard', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin/cycles/new')
+    await page.getByRole('button', { name: /Desk review & Reasons/u }).click()
 
     // Every control in the rule editor is named. An unlabelled select in a row
     // of four identical-looking selects is unusable without sight of the

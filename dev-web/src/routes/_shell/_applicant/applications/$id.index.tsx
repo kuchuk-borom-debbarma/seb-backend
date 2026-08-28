@@ -343,6 +343,15 @@ function ApplicationPage() {
               </Link>
             ) : editableStages.length > 0 ? (
               <>
+                {application.firstSubmittedAt ? (
+                  <Link
+                    to="/applications/$id/submitted"
+                    params={{ id }}
+                    className="button"
+                  >
+                    View submitted application
+                  </Link>
+                ) : null}
                 <Link
                   to="/applications/$id/documents"
                   params={{ id }}
@@ -364,6 +373,20 @@ function ApplicationPage() {
                   <ArrowRight size={15} aria-hidden="true" />
                 </Link>
               </>
+            ) : application.firstSubmittedAt ? (
+              /*
+               * Read-only after submission is not invisible: the copy the
+               * office sees stays one obvious click away, with the documents
+               * beside it — not hidden behind a document icon.
+               */
+              <Link
+                to="/applications/$id/submitted"
+                params={{ id }}
+                className={styles.primaryCta}
+              >
+                View submitted application
+                <ArrowRight size={15} aria-hidden="true" />
+              </Link>
             ) : null}
           </div>
         </div>

@@ -97,21 +97,37 @@ function EnterprisesPage() {
   const filter = (change: Partial<Search>) =>
     navigate({ search: (previous) => ({ ...previous, ...change, after: undefined }) })
 
+  /*
+   * The cap is the programme's, read off the same response as the list. At a
+   * cap of one, the screen stops speaking in plurals: there is no list to
+   * manage and nothing further to register — just the applicant's enterprise.
+   */
+  const cap = data?.maximumPerApplicant ?? null
+  const held = data?.pageInfo.totalCount ?? 0
+  const single = cap === 1 && held >= 1
+  const canRegister = cap === null || held < cap
+
   return (
     <main className="page">
       <PageHeader
-        title="Enterprises"
-        description="Each application is made on behalf of one enterprise. Register it here first."
+        title={single ? 'My enterprise' : 'Enterprises'}
+        description={
+          single
+            ? 'Every application is made on behalf of this enterprise.'
+            : 'Each application is made on behalf of one enterprise. Register it here first.'
+        }
         actions={
-          <Link
-            to="/enterprises/new"
-            className="button"
-            data-variant="primary"
-            {...mark('enterprise-list')}
-          >
-            <CirclePlus size={15} aria-hidden="true" />
-            Register an enterprise
-          </Link>
+          canRegister ? (
+            <Link
+              to="/enterprises/new"
+              className="button"
+              data-variant="primary"
+              {...mark('enterprise-list')}
+            >
+              <CirclePlus size={15} aria-hidden="true" />
+              Register an enterprise
+            </Link>
+          ) : null
         }
       />
 
@@ -251,7 +267,9 @@ function EnterprisesPage() {
         ) : (
           <div className={styles.tableCard}>
             <div className={styles.cardHeader}>
-              <h2 className={styles.cardTitle}>Your enterprises</h2>
+              <h2 className={styles.cardTitle}>
+                {single ? 'My enterprise' : 'Your enterprises'}
+              </h2>
             </div>
             <div className={styles.tableWrap}>
               <table className={styles.table}>

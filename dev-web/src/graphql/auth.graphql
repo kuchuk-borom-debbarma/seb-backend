@@ -21,7 +21,7 @@ mutation StartApplicantSignup($email: String!) {
     startApplicantSignup(input: { email: $email }) {
       success
       message
-      response { challengeToken expiresAt }
+      response { challengeToken expiresAt delivery }
     }
   }
 }
@@ -67,7 +67,7 @@ mutation StartPasswordReset($email: String!) {
     startPasswordReset(input: { email: $email }) {
       success
       message
-      response { challengeToken expiresAt }
+      response { challengeToken expiresAt delivery }
     }
   }
 }
@@ -97,7 +97,7 @@ mutation StartEmailChange($newEmail: String!, $currentPassword: String!) {
     startEmailChange(input: { newEmail: $newEmail, currentPassword: $currentPassword }) {
       success
       message
-      response { challengeToken expiresAt }
+      response { challengeToken expiresAt delivery }
     }
   }
 }

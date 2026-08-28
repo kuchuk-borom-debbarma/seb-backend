@@ -1,13 +1,9 @@
 /** Input validation and authorization for bank evidence and the decision. */
 import { auditActions } from '../../../db/schema'
 import { parseDateOnly } from '../../application/validation'
-import {
-  answersFromRows,
-  findAnswerRows,
-  findPinnedCycleRules,
-} from '../../application/queries/form-template'
 import { findUserEmailById } from '../../application/queries/application'
-import { buildApplicationPdf, formatPaise } from '../../application/confirmation'
+import { formatPaise } from '../../application/confirmation'
+import { confirmationPdfUrl } from '../../application/confirmation-link'
 import { createAuditEvent } from '../../auth/queries/auth'
 import { sendNotification } from '../../external-notification'
 import {
@@ -32,6 +28,7 @@ import {
   STALE_MESSAGE,
 } from '../support'
 import { revisionRequestProblem } from '../revisions'
+import { sendRevisionRequestNotification } from '../notifications'
 import { failure, success } from '../../envelope'
 import { bestEffort } from '../../best-effort'
 import type {
@@ -137,6 +134,14 @@ export const recordBankOutcome = async (
     actorId: administrator.id,
     now: new Date(),
   }))
+  if (changed && input.outcome === 'MORE_INFORMATION_REQUIRED') {
+    await bestEffort(sendRevisionRequestNotification(context, {
+      applicationId: input.applicationId,
+      actorId: administrator.id,
+      applicantMessage: summary,
+      revisions: input.revisions,
+    }), 'A revision notification failed')
+  }
   return changed ? success(await loadWorkspace(context.db, input.applicationId)) : failure(STALE_MESSAGE)
 }
 
@@ -216,6 +221,14 @@ export const correctBankOutcome = async (
     actorId: administrator.id,
     now: new Date(),
   }))
+  if (changed && input.outcome === 'MORE_INFORMATION_REQUIRED') {
+    await bestEffort(sendRevisionRequestNotification(context, {
+      applicationId: input.applicationId,
+      actorId: administrator.id,
+      applicantMessage: summary,
+      revisions: input.revisions,
+    }), 'A revision notification failed')
+  }
   return changed ? success(await loadWorkspace(context.db, input.applicationId)) : failure(STALE_MESSAGE)
 }
 
@@ -269,31 +282,16 @@ const sendApprovalNotification = async (
   },
 ): Promise<void> => {
   try {
-    const [email, rules, answerRows] = await Promise.all([
-      findUserEmailById(context.db, input.applicantUserId),
-      findPinnedCycleRules(
-        context.db, input.snapshot.programmeCycleId, input.snapshot.programmeCycleVersion,
-      ),
-      findAnswerRows(context.db, [input.snapshot.id]),
-    ])
-    if (!email || !rules) throw new Error('The notification cannot be addressed.')
+    const email = await findUserEmailById(context.db, input.applicantUserId)
+    if (!email) throw new Error('The notification cannot be addressed.')
     const amount = input.approvedAmountPaise !== null
       ? formatPaise(input.approvedAmountPaise)
       : null
-    const bytes = await buildApplicationPdf({
-      referenceNumber: input.referenceNumber,
-      cycleCode: input.cycleCode,
-      cycleDisplayName: input.cycleDisplayName,
-      submittedAt: input.submittedAt,
-      template: rules.template,
-      answers: answersFromRows(rules.template, input.snapshot.id, answerRows),
-      heading: 'Application approved',
-      extra: [
-        { label: 'Decision reference', value: input.decisionReference },
-        { label: 'Decision date', value: input.decisionDate },
-        ...(amount !== null ? [{ label: 'Approved amount', value: amount }] : []),
-      ],
-    })
+    // The decision's specifics travel in the body; the attachment is the
+    // submitted application, fetched by the provider from this signed link.
+    const url = await confirmationPdfUrl(
+      context.env, context.requestUrl, input.applicationId, new Date(),
+    )
     await sendNotification({
       to: email,
       subject: 'Your Mission SEP application has been approved',
@@ -308,7 +306,7 @@ const sendApprovalNotification = async (
       attachments: [{
         filename: `application-${input.referenceNumber ?? input.applicationId}.pdf`,
         contentType: 'application/pdf',
-        bytes,
+        url,
       }],
     }, context.env)
   } catch {
@@ -412,6 +410,14 @@ export const recordDecision = async (
     actorId: administrator.id,
     now: new Date(),
   }))
+  if (changed && input.outcome === 'REVISION_REQUIRED') {
+    await bestEffort(sendRevisionRequestNotification(context, {
+      applicationId: input.applicationId,
+      actorId: administrator.id,
+      applicantMessage: message,
+      revisions: input.revisions,
+    }), 'A revision notification failed')
+  }
   if (changed && input.outcome === 'APPROVED') {
     await bestEffort(sendApprovalNotification(context, {
       applicationId: input.applicationId,
@@ -512,5 +518,13 @@ export const correctDecision = async (
     actorId: administrator.id,
     now: new Date(),
   }))
+  if (changed && input.outcome === 'REVISION_REQUIRED') {
+    await bestEffort(sendRevisionRequestNotification(context, {
+      applicationId: input.applicationId,
+      actorId: administrator.id,
+      applicantMessage: message,
+      revisions: input.revisions,
+    }), 'A revision notification failed')
+  }
   return changed ? success(await loadWorkspace(context.db, input.applicationId)) : failure(STALE_MESSAGE)
 }

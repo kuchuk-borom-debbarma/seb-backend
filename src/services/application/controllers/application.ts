@@ -92,7 +92,7 @@ import {
   findPinnedRulesForApplication,
 } from '../queries/form-template'
 import { ROLE_CANONICAL_KEY } from '../../../db/schema'
-import { buildApplicationPdf } from '../confirmation'
+import { confirmationPdfUrl } from '../confirmation-link'
 import { sendNotification } from '../../external-notification'
 import { createAuditEvent } from '../../auth/queries/auth'
 
@@ -272,7 +272,13 @@ const startApplication = async (
       }),
     }),
   )
-  if (!inserted) return failure('Another application already exists for this phase.')
+  if (!inserted) {
+    return failure(
+      'This enterprise already has a live application for this funding phase. '
+      + 'One live application per phase, whichever cycle it is in — a new '
+      + 'attempt becomes possible if that one is rejected or cancelled.',
+    )
+  }
   return success(requireInvariant(
     await loadOwnedApplication(context.db, applicant.id, applicationId),
     'Created application could not be read.',
@@ -564,15 +570,11 @@ const sendSubmissionConfirmation = async (
       findProgrammeCycleIdentity(context.db, application.programmeCycleId),
     ])
     if (!email || !cycle) throw new Error('The confirmation cannot be addressed.')
-    const bytes = await buildApplicationPdf({
-      referenceNumber: application.referenceNumber,
-      cycleCode: cycle.cycleCode,
-      cycleDisplayName: cycle.displayName,
-      submittedAt: application.firstSubmittedAt,
-      template,
-      answers: application.answers,
-      heading: 'Application submitted',
-    })
+    // The provider attaches by URL: it fetches this signed link and encloses
+    // the PDF the route rebuilds from the frozen submission.
+    const url = await confirmationPdfUrl(
+      context.env, context.requestUrl, application.id, new Date(),
+    )
     await sendNotification({
       to: email,
       subject: 'Your Mission SEP application has been submitted',
@@ -586,7 +588,7 @@ const sendSubmissionConfirmation = async (
       attachments: [{
         filename: `application-${application.referenceNumber ?? application.id}.pdf`,
         contentType: 'application/pdf',
-        bytes,
+        url,
       }],
     }, context.env)
   } catch {
@@ -777,6 +779,28 @@ export const applicationDraftChanges = async (
   return changes
     ? success(changes)
     : failure('This application has not been submitted yet, so there is nothing to compare.')
+}
+
+/**
+ * A fresh signed link to the PDF copy of the submitted application — the same
+ * document the confirmation email attaches, built from the same frozen
+ * submission, so the screen and the inbox can never disagree.
+ */
+export const submittedApplicationCopy = async (
+  applicationId: string,
+  context: ApplicationOperationContext,
+): Promise<SebResult<{ url: string }>> => {
+  const applicant = await currentApplicant(context)
+  if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
+  if (!(await findOwnedApplicationHead(context.db, applicant.id, applicationId, true))) {
+    return failure('The application was not found.')
+  }
+  if (!(await findLatestSubmittedVersion(context.db, applicationId))) {
+    return failure('The application has not been submitted yet.')
+  }
+  return success({
+    url: await confirmationPdfUrl(context.env, context.requestUrl, applicationId, new Date()),
+  })
 }
 
 export const applicationTimeline = async (

@@ -12,6 +12,7 @@ import {
   ApplicationFundingDocument,
   ApplicationTimelineDocument,
   DraftChangesDocument,
+  SubmittedCopyDocument,
   ValidateApplicationDocument,
 } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
@@ -25,6 +26,20 @@ export const applicationQuery = (id: string) =>
       return unwrap(data.seb.application.byId)
     },
     staleTime: 0,
+  })
+
+/**
+ * The signed link to the PDF copy of the submitted application — the same
+ * document the confirmation email attaches. Null until first submission. The
+ * signature is minted per request, so a refetch simply mints a fresh link.
+ */
+export const submittedCopyQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['submitted-copy', id],
+    queryFn: async () => {
+      const data = await gql(SubmittedCopyDocument, { applicationId: id })
+      return data.seb.application.submittedCopy.response?.url ?? null
+    },
   })
 
 /**

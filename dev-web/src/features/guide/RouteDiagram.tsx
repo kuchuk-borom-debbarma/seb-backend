@@ -269,7 +269,6 @@ export function RouteDiagram({
   }, [])
 
   const allowedTours = TOURS.filter((tour) => canWalk(tour, user))
-  const mainTour = allowedTours[0]
 
   const activeStage: StageDetail | null =
     selectedStageIndex !== null ? STAGE_DETAILS[selectedStageIndex] ?? null : null
@@ -751,22 +750,22 @@ export function RouteDiagram({
             </p>
           </div>
 
-          {mainTour ? (
-            <div className={styles.tourItemCard}>
+          {allowedTours.map((tour) => (
+            <article key={tour.id} className={styles.tourItemCard}>
               <div className={styles.tourItemLeft}>
                 <TourIllustration />
                 <div className={styles.tourInfo}>
-                  <h4 className={styles.tourItemTitle}>{mainTour.title}</h4>
-                  <p className={styles.tourItemPromise}>{mainTour.promise}</p>
+                  <h4 className={styles.tourItemTitle}>{tour.title}</h4>
+                  <p className={styles.tourItemPromise}>{tour.promise}</p>
                   <div className={styles.tourItemMeta}>
                     <span className={styles.metaItem}>
                       <ListOrdered size={14} className={styles.metaIcon} aria-hidden="true" />
-                      <span>{mainTour.steps.length} steps</span>
+                      <span>{tour.steps.length} steps</span>
                     </span>
                     <span className={styles.metaDot}>·</span>
                     <span className={styles.metaItem}>
                       <User size={14} className={styles.metaIcon} aria-hidden="true" />
-                      <span>{mainTour.audience}</span>
+                      <span>{tour.audience}</span>
                     </span>
                   </div>
                 </div>
@@ -775,13 +774,13 @@ export function RouteDiagram({
               <button
                 type="button"
                 className={styles.walkButton}
-                onClick={() => start(mainTour.id)}
+                onClick={() => start(tour.id)}
               >
-                <span>{running?.id === mainTour.id ? 'Start again' : 'Walk this route'}</span>
+                <span>{running?.id === tour.id ? 'Start again' : 'Walk this route'}</span>
                 <ArrowRight size={14} aria-hidden="true" />
               </button>
-            </div>
-          ) : null}
+            </article>
+          ))}
 
           {allowedTours.length < TOURS.length ? (
             <p className={styles.withheldNotice}>

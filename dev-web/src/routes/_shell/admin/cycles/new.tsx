@@ -37,7 +37,7 @@ function NewCyclePage() {
           <ArrowLeft size={20} className={styles.backArrowIcon} aria-hidden="true" />
           Create a programme cycle
         </Link>
-        <p className={styles.headerSubtitle}>
+        <p className={`${styles.headerSubtitle} page-header-description`}>
           It is created as a draft. Nothing is visible to applicants until you open it.
         </p>
       </div>
@@ -55,7 +55,7 @@ function NewCyclePage() {
 
       <CycleForm
         initial={emptyCycle(new Date().getFullYear())}
-        submitLabel="Save draft"
+        submitLabel="Create draft cycle"
         busy={create.isPending}
         onSubmit={(values) => create.mutate(values)}
         onCancel={() => router.navigate({ to: '/admin/cycles' })}

@@ -3,6 +3,24 @@ import { createRouter as createTanStackRouter } from '@tanstack/react-router'
 import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query'
 import { routeTree } from './routeTree.gen'
 
+/*
+ * A deploy replaces every hashed chunk, so a tab opened before it asks for
+ * files that no longer exist and the next navigation dies with "Importing a
+ * module script failed". Vite announces exactly that moment; answering it
+ * with one reload swaps the tab onto the new version with the same URL. The
+ * session flag stops a loop if the reload itself cannot fetch the new app.
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener('vite:preloadError', (event) => {
+    const GUARD = 'chunk-reload-at'
+    const last = Number(sessionStorage.getItem(GUARD) ?? 0)
+    if (Date.now() - last < 30_000) return
+    sessionStorage.setItem(GUARD, String(Date.now()))
+    event.preventDefault()
+    window.location.reload()
+  })
+}
+
 export function getRouter() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -15,7 +33,14 @@ export function getRouter() {
          */
         staleTime: 30_000,
         retry: 1,
-        refetchOnWindowFocus: false,
+        /*
+         * On, deliberately. A lifecycle change made in a modal, another tab,
+         * or by a colleague must show the moment the officer looks back at
+         * the screen — with this off, a tab that missed one refetch showed a
+         * cycle as Closed after it had been archived, until a full reload.
+         * `staleTime` above still keeps quick tab-switches quiet.
+         */
+        refetchOnWindowFocus: true,
       },
     },
   })

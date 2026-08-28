@@ -166,22 +166,36 @@ const validateCycleInput = (input: ProgrammeCycleInput): string | null =>
   validatePolicyNumbers(input) ??
   validateFundingCeiling(input)
 
+const listOf = (items: readonly string[]): string =>
+  items.length === 1
+    ? items[0]!
+    : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]!}`
+
 const openingProblem = (cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>): string | null => {
   if (!cycle) return 'The programme cycle was not found.'
   const version = cycle.version
-  if (
-    !version.policyReference?.trim() ||
-    !version.applicantGuidance?.trim() ||
-    !version.opensAt ||
-    !version.closesAt ||
-    version.minimumApplicantAge === null ||
-    version.maximumApplicantAge === null ||
-    version.categoryAMaximumMonths === null ||
-    version.expansionWaitMonths === null ||
-    version.majorityOwnershipRequired === null ||
-    version.jurisdiction === null ||
-    version.fundingCeilingState === null
-  ) return 'Complete every cycle policy field before opening the cycle.'
+  /*
+   * Named, not counted. The officer who reads "complete every field" reopens
+   * the whole form hunting for the blank one; the refusal exists to say which
+   * it is.
+   */
+  const missing = [
+    !version.policyReference?.trim() ? 'the policy reference' : null,
+    !version.applicantGuidance?.trim() ? 'the guidance for applicants' : null,
+    !version.opensAt ? 'the opening date' : null,
+    // No closing date is a legitimate opening: the cycle takes applications
+    // until somebody closes it. "Change closing time" can still set one.
+    version.minimumApplicantAge === null ? 'the minimum applicant age' : null,
+    version.maximumApplicantAge === null ? 'the maximum applicant age' : null,
+    version.categoryAMaximumMonths === null ? 'the category threshold' : null,
+    version.expansionWaitMonths === null ? 'the expansion wait' : null,
+    version.majorityOwnershipRequired === null ? 'the ownership rule' : null,
+    version.jurisdiction === null ? 'the jurisdiction' : null,
+    version.fundingCeilingState === null ? 'the funding ceiling' : null,
+  ].filter((field): field is string => field !== null)
+  if (missing.length > 0) {
+    return `Before this cycle can open, fill in ${listOf(missing)}.`
+  }
   /*
    * Every role bound before a cycle can open.
    *
@@ -191,6 +205,10 @@ const openingProblem = (cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>): 
    * A cycle that leaves one unbound describes a form no staff screen could
    * read, so it is refused here rather than discovered later.
    */
+  if (version.closesAt && version.closesAt <= new Date()) {
+    return 'This cycle\u2019s closing time has already passed. Move it forward, '
+      + 'or remove it, before opening.'
+  }
   const boundRoles = new Set(cycle.formFields.map((field) => field.role).filter(Boolean))
   if (formFieldRoles.some((role) => !boundRoles.has(role))) {
     return 'Bind every reporting question before opening the cycle.'
@@ -317,20 +335,24 @@ export const updateOpenCycleGuidance = async (
 }
 
 export const changeOpenCycleClosingTime = async (
-  input: { id: string; expectedVersion: number; closesAt: Date; reason: string },
+  // Null removes the closing time: the cycle takes applications until the
+  // office closes it, the same open-endedness opening without one allows.
+  input: { id: string; expectedVersion: number; closesAt: Date | null; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
   const administrator = await currentStaff(context, 'CYCLE_ADMIN')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reason = normalizeRequiredText(input.reason, 500)
   const now = new Date()
-  if (!reason || input.closesAt <= now) return failure('Enter a future closing time and reason.')
+  if (!reason || (input.closesAt !== null && input.closesAt <= now)) {
+    return failure('Enter a future closing time and reason.')
+  }
   const aggregate = await loadProgrammeCycle(context.db, input.id)
   if (
     !aggregate ||
     aggregate.head.status !== 'OPEN' ||
     !aggregate.head.opensAt ||
-    input.closesAt <= aggregate.head.opensAt
+    (input.closesAt !== null && input.closesAt <= aggregate.head.opensAt)
   ) return failure('The cycle is not open or the closing time is invalid.')
   const changed = await constraintSafe(() => reviseOpenProgrammeCycle(context, {
     aggregate,
@@ -338,7 +360,9 @@ export const changeOpenCycleClosingTime = async (
     closesAt: input.closesAt,
     changeType: 'CLOSING_CHANGED',
     reason,
-    message: `The application closing time changed to ${input.closesAt.toISOString()}.`,
+    message: input.closesAt
+      ? `The application closing time changed to ${input.closesAt.toISOString()}.`
+      : 'The application closing time was removed; the cycle stays open until closed.',
     action: 'SEB.CYCLE_CLOSING_CHANGED',
     actorUserId: administrator.id,
     now,

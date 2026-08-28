@@ -44,13 +44,14 @@ test.describe('the application form', () => {
     await page.goto(`/applications/${id}/form`)
 
     // One stage renders at a time now; the journey rail names them all.
+    const rail = page.getByRole('navigation', { name: 'Form categories' })
     for (const title of [
       'Owners',
       'Project cost and funding',
       'Previous support and credit',
       'Evidence',
     ]) {
-      await expect(page.getByText(title, { exact: true }).first()).toBeVisible()
+      await expect(rail.getByText(title, { exact: true })).toBeVisible()
     }
   })
 
@@ -60,7 +61,11 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/applications/${id}/form?stage=PRIOR_FUNDING`)
+    // The field hash is the issue-link form — the one address allowed to
+    // open a stage whose predecessors are incomplete.
+    await page.goto(
+      `/applications/${id}/form?stage=PRIOR_FUNDING#RECEIVED_GOVERNMENT_FUNDING`,
+    )
 
     // The API refuses details for support that was not received, so the fields
     // are not offered until the answer calls for them.
@@ -109,7 +114,9 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(`/applications/${id}/form?stage=FINANCIAL`)
+    await page.goto(
+      `/applications/${id}/form?stage=FINANCIAL#TOTAL_PROJECT_COST_PAISE`,
+    )
 
     await page.getByLabel('Total project cost (₹)').fill('500000')
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })

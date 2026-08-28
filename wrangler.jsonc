@@ -57,7 +57,7 @@
     }
   ],
   "triggers": {
-    "crons": ["0 * * * *"]
+    "crons": ["0 */8 * * *"]
   },
   // Rate limiting. One binding per allowance, because the platform's limiter
   // takes its limit and period from configuration rather than from the call.
@@ -84,7 +84,8 @@
     { "name": "RL_RESET_VERIFY_IP", "namespace_id": "1011", "simple": { "limit": 10, "period": 60 } },
     { "name": "RL_PASSWORD_SESSION", "namespace_id": "1012", "simple": { "limit": 5, "period": 60 } },
     { "name": "RL_EMAIL_CHANGE_SESSION", "namespace_id": "1013", "simple": { "limit": 2, "period": 60 } },
-    { "name": "RL_EMAIL_VERIFY_SESSION", "namespace_id": "1014", "simple": { "limit": 10, "period": 60 } }
+    { "name": "RL_EMAIL_VERIFY_SESSION", "namespace_id": "1014", "simple": { "limit": 10, "period": 60 } },
+    { "name": "RL_CONFIRMATION_PDF_IP", "namespace_id": "1015", "simple": { "limit": 10, "period": 60 } }
   ],
   // Non-secret configuration. Credentials are never here — they are set with
   // `wrangler secret put`, which keeps them out of a public repository.
@@ -125,6 +126,9 @@
     // which has no page to receive the token in its fragment.
     "PORTAL_BASE_URL": "https://seb-web.kuchukboromd-15a.workers.dev",
     "STORAGE_TRANSPORT": "cloudinary",
+    // One enterprise per applicant is the programme's decision for this
+    // deployment; the code's default of five stays for other environments.
+    "SEB_MAX_ENTERPRISE_PER_USER": "1",
     "PINGRAM_NOTIFICATION_TYPE": "seb",
     "PINGRAM_BASE_URL": "https://api.eu.pingram.io",
     "PINGRAM_FROM_NAME": "Mission SEP",
@@ -142,11 +146,23 @@
    * administrator keeps reading as an administrator until the entry expires.
    * Do not turn this on to make the console feel faster.
    */
+  /*
+   * **Caching must be disabled ON THE HYPERDRIVE RESOURCE, not here.** A
+   * `caching` field in this file is silently ignored by wrangler — it was
+   * here once, looked reassuring, and the real config cached every read for
+   * up to a minute: archived cycles rendered as closed, and a revoked
+   * administrator would have kept reading as one. After creating or
+   * recreating the config, run
+   *
+   *   npx wrangler hyperdrive update <id> --caching-disabled
+   *
+   * and verify with `npx wrangler hyperdrive get <id>` that
+   * `caching.disabled` is true.
+   */
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "6874f5c7d25a4d588c8b656c762043bc",
-      "caching": { "disabled": true }
+      "id": "6874f5c7d25a4d588c8b656c762043bc"
     }
   ],
   // No `r2_buckets` here. R2 is not enabled on this account, and `wrangler

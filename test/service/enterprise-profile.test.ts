@@ -177,7 +177,6 @@ describe('what an enterprise may say about itself', () => {
       .toBe(`Enterprise ${fieldName} must contain at most ${maximum} characters.`)
   })
 })
-
 /**
  * The calendar arithmetic the expansion rules rest on.
  *

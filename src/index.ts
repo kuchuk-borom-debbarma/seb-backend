@@ -11,11 +11,13 @@ import {
 } from './services/auth'
 import { cleanupExpiredDocumentUploads } from './services/application'
 import { handleLocalStorageRequest } from './services/storage/route'
+import { confirmationPdfResponse } from './services/application/confirmation-link'
 import { drainMemoryQueue, usesLocalQueue, type QueueMessage } from './services/queue'
 import { scanDocumentVersion } from './services/document-scanner/consume'
 import {
   rateLimiter,
   RATE_LIMITED_MESSAGE,
+  CONFIRMATION_PDF,
   REQUEST_BUDGET,
 } from './services/rate-limit'
 import { callerAddress } from './services/rate-limit/identity'
@@ -366,6 +368,40 @@ app.on(['GET', 'PUT'], '/internal/storage/*', async (c) => {
   const headers = new Headers(response.headers)
   applyCorsHeaders(headers, c.req.header('Origin') ?? null, c.env, c.req.url)
   return new Response(response.body, { status: response.status, headers })
+})
+
+/**
+ * The emailed copy of a submitted application.
+ *
+ * The notification provider attaches by URL, so the confirmation email links
+ * here. The link authorizes itself — a signature over the application id and
+ * an expiry — and the module serves the same refusal for every way a link
+ * can be wrong. No session, deliberately: it is opened from an inbox.
+ */
+app.use('/confirmation-pdf', requestBudget)
+app.get('/confirmation-pdf', async (c) => {
+  /*
+   * Its own allowance on top of the shared budget: the valid path rebuilds
+   * a PDF, and the link is a bearer credential that outlives the email. The
+   * limiter fails closed, like every enforcement point in this service.
+   */
+  const address = callerAddress(c.req.raw.headers)
+  if (address) {
+    let allowed: boolean
+    try {
+      allowed = (await rateLimiter(c.env).consume(CONFIRMATION_PDF, address)).allowed
+    } catch {
+      allowed = false
+    }
+    if (!allowed) return c.text('Too many requests. Try again in a minute.', 429)
+  }
+  return withDatabase(connectionString(c.env), (db) =>
+    confirmationPdfResponse(db, c.env, {
+      application: c.req.query('application'),
+      expires: c.req.query('expires'),
+      signature: c.req.query('signature'),
+    }),
+  )
 })
 
 /**

@@ -13,10 +13,19 @@ const rupees = new Intl.NumberFormat('en-IN', {
   maximumFractionDigits: 2,
 })
 
+/*
+ * Pinned to India Standard Time, not the machine's zone. The server renders
+ * these strings in UTC and the browser re-renders them in the visitor's zone
+ * — two different texts for one instant, which React reports as a hydration
+ * mismatch (#418) and answers by throwing the server's DOM away. Every click
+ * during that re-render died silently. The programme is Tripura's; IST is
+ * the one honest zone to show it in, from every machine.
+ */
 const dayMonthYear = new Intl.DateTimeFormat('en-IN', {
   day: 'numeric',
   month: 'short',
   year: 'numeric',
+  timeZone: 'Asia/Kolkata',
 })
 
 const dayMonthYearTime = new Intl.DateTimeFormat('en-IN', {
@@ -25,6 +34,7 @@ const dayMonthYearTime = new Intl.DateTimeFormat('en-IN', {
   year: 'numeric',
   hour: 'numeric',
   minute: '2-digit',
+  timeZone: 'Asia/Kolkata',
 })
 
 const relative = new Intl.RelativeTimeFormat('en-IN', { numeric: 'auto' })

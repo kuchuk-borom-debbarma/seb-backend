@@ -2,13 +2,9 @@
 import { desc, eq } from 'drizzle-orm'
 import { auditActions, sebFundingAward, sebProgrammeDecision } from '../../../db/schema'
 import { parseDateOnly } from '../../application/validation'
-import {
-  answersFromRows,
-  findAnswerRows,
-  findPinnedCycleRules,
-} from '../../application/queries/form-template'
 import { findUserEmailById } from '../../application/queries/application'
-import { buildApplicationPdf, formatPaise } from '../../application/confirmation'
+import { formatPaise } from '../../application/confirmation'
+import { confirmationPdfUrl } from '../../application/confirmation-link'
 import { createAuditEvent } from '../../auth/queries/auth'
 import { sendNotification } from '../../external-notification'
 import {
@@ -77,32 +73,15 @@ const sendSanctionNotification = async (
       latestSubmission(context.db, input.applicationId),
     ])
     if (!head || !submission) throw new Error('The notification cannot be addressed.')
-    const [email, rules, answerRows] = await Promise.all([
-      findUserEmailById(context.db, head.application.applicantUserId),
-      findPinnedCycleRules(
-        context.db,
-        submission.snapshot.programmeCycleId,
-        submission.snapshot.programmeCycleVersion,
-      ),
-      findAnswerRows(context.db, [submission.snapshot.id]),
-    ])
-    if (!email || !rules) throw new Error('The notification cannot be addressed.')
+    const email = await findUserEmailById(context.db, head.application.applicantUserId)
+    if (!email) throw new Error('The notification cannot be addressed.')
     const amount = formatPaise(input.sanctionedAmountPaise)
     const reference = head.application.referenceNumber
-    const bytes = await buildApplicationPdf({
-      referenceNumber: reference,
-      cycleCode: head.cycleCode,
-      cycleDisplayName: head.cycleDisplayName,
-      submittedAt: submission.submission.submittedAt,
-      template: rules.template,
-      answers: answersFromRows(rules.template, submission.snapshot.id, answerRows),
-      heading: 'Funding sanctioned',
-      extra: [
-        { label: 'Sanction order number', value: input.sanctionOrderNumber },
-        { label: 'Sanction date', value: input.sanctionDate },
-        { label: 'Sanctioned amount', value: amount },
-      ],
-    })
+    // The sanction's specifics travel in the body; the attachment is the
+    // submitted application, fetched by the provider from this signed link.
+    const url = await confirmationPdfUrl(
+      context.env, context.requestUrl, input.applicationId, new Date(),
+    )
     await sendNotification({
       to: email,
       subject: 'Your Mission SEP funding has been sanctioned',
@@ -118,7 +97,7 @@ const sendSanctionNotification = async (
       attachments: [{
         filename: `application-${reference ?? input.applicationId}.pdf`,
         contentType: 'application/pdf',
-        bytes,
+        url,
       }],
     }, context.env)
   } catch {
@@ -250,6 +229,55 @@ export const changeFundingAward = async (
   return changed ? success(await fundingWorkspace(context.db, input.applicationId)) : failure(STALE_MESSAGE)
 }
 
+const sendReleaseNotification = async (
+  context: AdminOperationContext,
+  input: {
+    applicationId: string
+    actorId: string
+    applicantMessage: string
+    amountPaise: number
+    externalReference: string
+    occurredAt: Date
+  },
+): Promise<void> => {
+  try {
+    const head = await loadApplicationHead(context.db, input.applicationId)
+    if (!head) throw new Error('The notification cannot be addressed.')
+    const email = await findUserEmailById(context.db, head.application.applicantUserId)
+    if (!email) throw new Error('The notification cannot be addressed.')
+    const amount = formatPaise(input.amountPaise)
+    const reference = head.application.referenceNumber
+    // No attachment here: the application copy travelled with the earlier
+    // mails, and what this one carries is the payment itself.
+    await sendNotification({
+      to: email,
+      subject: 'Funds have been released for your Mission SEP application',
+      body:
+        'A release of funds has been recorded for your Mission SEP '
+        + 'application.\n\n'
+        + `${input.applicantMessage}\n\n`
+        + `Reference: ${reference ?? input.applicationId}\n`
+        + `Amount released: ${amount}\n`
+        + `Payment reference: ${input.externalReference}\n`
+        + `Released on: ${input.occurredAt.toISOString().slice(0, 10)}\n\n`
+        + 'If the payment does not reach the recorded bank account, contact '
+        + 'the programme office and quote the payment reference.',
+    }, context.env)
+  } catch {
+    // Guarded itself, so the recorded release can never be disturbed.
+    await bestEffort(createAuditEvent(context.db, {
+      ...adminAudit(context, {
+        actorUserId: input.actorId,
+        action: auditActions.releaseNotificationFailed,
+        entityType: 'SEB_APPLICATION',
+        entityId: input.applicationId,
+        now: new Date(),
+      }),
+      outcome: 'FAILURE',
+    }), 'A release notification failed')
+  }
+}
+
 export const recordFundingRelease = async (
   input: {
     awardId: string
@@ -299,6 +327,16 @@ export const recordFundingRelease = async (
     actorId: administrator.id,
     now: new Date(),
   }))
+  if (id) {
+    await bestEffort(sendReleaseNotification(context, {
+      applicationId: input.applicationId,
+      actorId: administrator.id,
+      applicantMessage: message,
+      amountPaise: input.amountPaise,
+      externalReference,
+      occurredAt: input.occurredAt,
+    }), 'A release notification failed')
+  }
   return id ? success(await fundingWorkspace(context.db, input.applicationId)) : failure(STALE_MESSAGE)
 }
 

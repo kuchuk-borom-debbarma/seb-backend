@@ -29,6 +29,7 @@ const expectStatus = async (page: Page, status: string) => {
 const openReview = async (page: Page, id: string) => {
   await page.goto(`/admin/applications/${id}`)
   await page.getByRole('button', { name: 'Start desk review' }).click()
+  await page.getByRole('button', { name: 'Open desk review' }).click()
 
   for (const check of [
     'IDENTITY_KYC',
@@ -43,6 +44,7 @@ const openReview = async (page: Page, id: string) => {
     await page.locator(`input[name="${check}"]`).first().check()
   }
   await page.locator('input[name="EXPANSION_EVIDENCE"]').last().check()
+  await page.getByRole('button', { name: 'Next: What documents say' }).click()
 }
 
 test.describe('what the documents say', () => {
@@ -53,15 +55,21 @@ test.describe('what the documents say', () => {
 
     await page.goto(`/admin/applications/${id}`)
     await page.getByRole('button', { name: 'Start desk review' }).click()
+    await page.getByRole('button', { name: 'Open desk review' }).click()
 
-    // Nothing passed yet, so nothing is being attested to.
+    // Nothing passed yet, so on the documents tab nothing is being attested to.
+    await page.getByRole('button', { name: 'Next: What documents say' }).click()
     await expect(page.getByLabel('Scheduled Tribe certificate number')).toHaveCount(0)
 
+    await page.getByRole('button', { name: 'Back to checks' }).click()
     await page.locator('input[name="ST_ELIGIBILITY"]').first().check()
+    await page.getByRole('button', { name: 'Next: What documents say' }).click()
     await expect(page.getByLabel('Scheduled Tribe certificate number')).toBeVisible()
 
     // Failing it withdraws the question rather than greying the field out.
+    await page.getByRole('button', { name: 'Back to checks' }).click()
     await page.locator('input[name="ST_ELIGIBILITY"]').nth(1).check()
+    await page.getByRole('button', { name: 'Next: What documents say' }).click()
     await expect(page.getByLabel('Scheduled Tribe certificate number')).toHaveCount(0)
   })
 
@@ -80,6 +88,7 @@ test.describe('what the documents say', () => {
     await page.getByLabel('Identity document number').fill('911100001111')
     await page.getByLabel('Bank account number').fill('50010000911')
     await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
+    await page.getByRole('button', { name: 'Next: Outcome' }).click()
     await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
     await page.getByRole('button', { name: 'Complete the review' }).click()
     await expectStatus(page, 'Partner bank evaluation')
@@ -97,6 +106,7 @@ test.describe('what the documents say', () => {
     await page.getByLabel('Identity document number').fill('922200002222')
     await page.getByLabel('Bank account number').fill('50010000922')
     await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
+    await page.getByRole('button', { name: 'Next: Outcome' }).click()
     await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
     await page.getByRole('button', { name: 'Complete the review' }).click()
 
@@ -114,6 +124,7 @@ test.describe('what the documents say', () => {
     const reason = page.getByLabel('Why this is not the same claim')
     await expect(reason).toBeVisible()
     await reason.fill('Second-phase expansion by the same promoter.')
+    await page.getByRole('button', { name: 'Next: Outcome' }).click()
     await page.getByRole('button', { name: 'Complete the review' }).click()
     await expectStatus(page, 'Partner bank evaluation')
   })

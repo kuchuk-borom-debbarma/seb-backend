@@ -49,6 +49,9 @@ import { messageFor, unwrap } from '#/lib/result'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
+import { AnswerSummary } from '#/features/application/AnswerSummary'
+import { resolveTemplate } from '#/features/application/formTemplate'
+import type { AnswerMap } from '#/features/application/answers'
 
 /** The statuses in which a sanction order can exist. */
 const FUNDED_STATUSES = new Set<string>(['APPROVED', 'SANCTIONED', 'DISBURSED'])
@@ -95,6 +98,26 @@ function WorkspacePage() {
     (revision) => !revision.resolvedAt && !revision.cancelledAt,
   )
   const latestSubmission = workspace.submissions.at(-1)
+
+  /*
+   * The submitted form, resolved once for the review dialog: the snapshot the
+   * latest submission froze, read against the same pinned template. Null when
+   * either is missing, and the dialog simply shows no read-back.
+   */
+  const submittedView = (() => {
+    if (!workspace.formTemplate || !latestSubmission) return null
+    const snapshot = workspace.snapshots.find(
+      (each) => each.version === latestSubmission.applicationVersion,
+    )
+    if (!snapshot) return null
+    const resolved = resolveTemplate(workspace.formTemplate)
+    return (
+      <AnswerSummary
+        template={resolved}
+        answers={snapshot.answers as AnswerMap}
+      />
+    )
+  })()
 
   return (
     <main className={styles.pageWrap}>
@@ -155,6 +178,7 @@ function WorkspacePage() {
 
           {mayWrite ? (
             <NextStep
+              submitted={submittedView}
               applicationId={id}
               status={application.status}
               statusVersion={application.statusVersion}
@@ -208,6 +232,65 @@ function WorkspacePage() {
 
         {/* Right Column: Submissions + Documents + Desk Reviews */}
         <div className={styles.colStack}>
+          {/*
+            Where this attempt sits in the enterprise's journey. The programme
+            funds an enterprise one phase at a time, and a reviewer placing a
+            file needs to see at a glance whether it is a first try, a retry
+            after a rejection, or a later phase after funding.
+          */}
+          <section className={styles.card}>
+            <div className={styles.cardHeader}>
+              <h2 className={styles.cardTitle}>Enterprise journey</h2>
+              <span className={styles.headerMeta}>
+                {workspace.caseHistory.length}{' '}
+                {workspace.caseHistory.length === 1 ? 'attempt' : 'attempts'}
+              </span>
+            </div>
+            <div className="stack" style={{ gap: '0.5rem' }}>
+              {workspace.caseHistory.map((attempt) => {
+                const current = attempt.id === application.id
+                return (
+                  <div
+                    key={attempt.id}
+                    className="row"
+                    style={{
+                      justifyContent: 'space-between',
+                      alignItems: 'baseline',
+                      padding: '0.4rem 0.6rem',
+                      borderRadius: '8px',
+                      border: current ? '1px solid #b7cdea' : '1px solid transparent',
+                      background: current ? '#eef4fc' : 'transparent',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <span>
+                      <strong>
+                        Phase {attempt.phaseNumber} ·{' '}
+                        {attempt.applicationType === 'INITIAL'
+                          ? 'Initial'
+                          : 'Expansion'}
+                      </strong>{' '}
+                      <span className="muted">
+                        {attempt.referenceNumber ?? 'unsubmitted draft'} · cycle{' '}
+                        {attempt.cycleCode}
+                        {current ? ' · this file' : ''}
+                      </span>
+                    </span>
+                    <span className="badge" data-tone={
+                      attempt.status === 'REJECTED' || attempt.status === 'CANCELLED'
+                        ? 'error'
+                        : ['APPROVED', 'SANCTIONED', 'DISBURSED'].includes(attempt.status)
+                          ? 'ok'
+                          : 'action'
+                    }>
+                      {humanize(attempt.status)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+
           <section className={styles.card}>
             <div className={styles.cardHeader}>
               <h2 className={styles.cardTitle}>Submissions</h2>
@@ -399,6 +482,7 @@ function NextStep({
   reviewingOwnApplication,
   hasReview,
   onChanged,
+  submitted,
 }: {
   applicationId: string
   status: string
@@ -410,6 +494,8 @@ function NextStep({
   reviewingOwnApplication: boolean
   hasReview: boolean
   onChanged: () => Promise<unknown>
+  /** The submitted application, shown inside the review dialog. */
+  submitted?: React.ReactNode
 }) {
   /*
    * Marked on every branch. Only one renders, so the "exactly one bracket on
@@ -531,6 +617,7 @@ function NextStep({
           open={modalOpen}
           onClose={() => setModalOpen(false)}
           hasReview={hasReview}
+          submitted={submitted}
           reasons={reasons}
           stages={stages}
           rules={rules}

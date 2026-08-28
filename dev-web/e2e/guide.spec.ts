@@ -21,6 +21,7 @@ import {
   startApplication,
   submitApplication,
   uniqueEmail,
+  fillOwnersStage,
 } from './support'
 
 /**
@@ -97,33 +98,42 @@ test.describe('how this works', () => {
     await expect(navigation.getByRole('link', { name: 'How this works' })).toBeVisible()
   })
 
-  test('draws the whole route, one stop per row, in order', async ({ page }) => {
+  test('draws the whole route, each stop under its desk', async ({ page }) => {
     await page.goto('/guide')
 
-    const stops = page
-      .getByRole('listitem')
-      .filter({ hasText: /Draft|Submitted|Sanctioned/u })
-    await expect(stops.first()).toBeVisible()
+    const diagram = page.getByRole('region', { name: 'Route diagram' })
+    for (const stop of ['Draft', 'Submitted', 'Sanctioned']) {
+      await expect(diagram.getByRole('heading', { name: stop, exact: true })).toBeVisible()
+    }
 
     // Eleven states, and the count on the page says the same number the
     // diagram draws rather than one read from a query.
-    await expect(page.getByText('11 states · 4 desks · 1 reference number')).toBeVisible()
+    await expect(page.getByText('11 states', { exact: true })).toBeVisible()
+    await expect(page.getByText('4 desks', { exact: true })).toBeVisible()
+    await expect(page.getByText('1 reference number', { exact: true })).toBeVisible()
 
     /*
-     * Consecutive stops must not share a row. Draft and Submitted happen one
-     * after the other; laying them side by side would say they happen at once.
+     * The diagram is a swimlane grid: a stop sits under the desk that holds
+     * it, and the file moves right as it changes hands. Submitted belongs to
+     * the programme office, so it sits to the right of the applicant's Draft.
      */
-    const draft = await page
+    const draft = await diagram
       .getByRole('heading', { name: 'Draft', exact: true })
       .boundingBox()
-    const submitted = await page
+    const submitted = await diagram
       .getByRole('heading', { name: 'Submitted', exact: true })
       .boundingBox()
-    expect(submitted?.y ?? 0).toBeGreaterThan(draft?.y ?? 0)
+    expect(submitted?.x ?? 0).toBeGreaterThan(draft?.x ?? 0)
 
-    // And a stop sits under the desk that holds it: the bank's stop is to the
-    // right of the applicant's.
-    const withBank = await page
+    // And within a desk, later work sits lower: the desk review happens after
+    // submission, so its stop is below Submitted.
+    const deskReview = await diagram
+      .getByRole('heading', { name: 'Desk review', exact: true })
+      .boundingBox()
+    expect(deskReview?.y ?? 0).toBeGreaterThan(submitted?.y ?? 0)
+
+    // The bank's stop is likewise to the right of the applicant's.
+    const withBank = await diagram
       .getByRole('heading', { name: 'With a partner bank' })
       .boundingBox()
     expect(withBank?.x ?? 0).toBeGreaterThan(draft?.x ?? 0)
@@ -373,14 +383,21 @@ test.describe('a question that explains itself', () => {
       businessName: 'Guide Works',
     })
     await page.goto(`/applications/${id}/form`)
+    // The explained question lives on the second stage of a staged form.
+    await fillOwnersStage(page)
 
     /*
      * The control must still be named by its own label. Putting the explanation
-     * inside the <label> would have made the field announce as "Category ?".
+     * inside the <label> would have made the field announce as
+     * "Seed fund requested (₹) ?".
      */
-    await expect(page.getByLabel('Category', { exact: true })).toBeVisible()
+    await expect(
+      page.getByLabel('Seed fund requested (₹)', { exact: true }),
+    ).toBeVisible()
 
-    const opener = page.getByRole('button', { name: 'Why Category is asked' })
+    const opener = page.getByRole('button', {
+      name: 'Why Seed fund requested (₹) is asked',
+    })
     await expect(opener).toHaveAttribute('aria-expanded', 'false')
 
     await opener.click()
@@ -402,8 +419,11 @@ test.describe('a question that explains itself', () => {
     })
     await page.goto(`/applications/${id}/form`)
 
-    // One explanation on a form of forty questions. An icon beside every label
-    // teaches nothing and doubles the reading.
+    // One explanation on the whole form. An icon beside every label teaches
+    // nothing and doubles the reading — so the first stage carries none at
+    // all, and the stage that holds the one explained question holds one.
+    await expect(page.getByRole('button', { name: /^Why .* is asked$/u })).toHaveCount(0)
+    await fillOwnersStage(page)
     await expect(page.getByRole('button', { name: /^Why .* is asked$/u })).toHaveCount(1)
   })
 })

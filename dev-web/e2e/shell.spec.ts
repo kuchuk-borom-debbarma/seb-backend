@@ -154,15 +154,19 @@ test.describe('on a narrow screen', () => {
     await signIn(page, SUPER_ADMIN_EMAIL)
     await page.goto('/admin')
 
-    // The links are still there, in the same order, laid out across the top
-    // rather than down the side.
+    /*
+     * The redesign folds the sidebar behind a header button on a narrow
+     * screen: a compact bar holds the emblem and "Open navigation", and the
+     * full rail slides in over the page when asked. The links survive intact;
+     * what changed is that they wait to be asked for.
+     */
     const navigation = page.getByRole('navigation', { name: 'Portal sections' })
+    await expect(navigation).toBeHidden()
+    await page.getByRole('button', { name: 'Open navigation' }).click()
     await expect(navigation).toBeVisible()
     await expect(navigation.getByRole('link', { name: 'Applications' })).toBeVisible()
-
-    // The bar takes its content height, not a share of the viewport.
-    const bar = await navigation.boundingBox()
-    expect(bar?.height ?? 0).toBeLessThan(220)
+    // Put it away again before measuring the page underneath.
+    await page.keyboard.press('Escape')
 
     // Wide content scrolls inside its own container; the body does not.
     const overflow = await page.evaluate(

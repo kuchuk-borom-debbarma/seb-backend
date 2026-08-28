@@ -121,15 +121,14 @@ export const signIn = async (
   password = PASSWORD,
 ): Promise<void> => {
   /*
-   * Always through the applicant panel: the login screen's role switcher only
-   * changes the copy and the landing page, not what the API accepts, and the
-   * redirect sends a staff account to the office either way. The button name
-   * is exact because "Switch to Applicant Sign In" also contains "Sign In".
+   * One door for everyone: the API decides by the roles the account holds,
+   * and the redirect sends a staff account to the office either way. Exact,
+   * because "Remembered it? Sign in" also contains the words.
    */
   await page.goto('/login')
   await page.getByLabel('Email address').fill(email)
   await page.getByLabel('Password', { exact: true }).fill(password)
-  await page.getByRole('button', { name: 'Sign In as Applicant' }).click()
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/login'))
 }
 
@@ -202,6 +201,9 @@ export const openProgrammeCycle = async (
   // same millisecond with the same prefix would otherwise collide.
   const code = `${prefix}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`
   await page.goto('/admin/cycles/new')
+  // Filled only after hydration settles: a fill that lands before React
+  // takes the inputs over is wiped when it does.
+  await expect(page.getByLabel('Cycle code')).toHaveValue(/^SEP-\d{4}$/u)
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(name ?? code)
   await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/07')
@@ -215,8 +217,9 @@ export const openProgrammeCycle = async (
     .fill(local(new Date(Date.now() + 2_592_000_000)))
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
-  await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
   await page.getByRole('button', { name: 'Open for applications' }).click()
+  await page.getByLabel('Reason for this action').fill('Opening for the programme year.')
+  await page.getByRole('button', { name: 'Confirm' }).click()
   await expect(
     page.getByRole('button', { name: 'Close to new applications' }),
   ).toBeVisible()
@@ -237,6 +240,15 @@ export const registerEnterprise = async (
 ): Promise<void> => {
   await page.goto('/enterprises/new')
   await page.getByLabel('Registered or trading name').fill(businessName)
+  /*
+   * The date matters even though the wizard lets it stay blank: an open
+   * cycle sorts enterprises by trading age at submission, and an enterprise
+   * without a date is refused there with ESTABLISHMENT_DATE_MISSING. Two
+   * years ago lands in CATEGORY_A under the default 24-month threshold.
+   */
+  const established = new Date()
+  established.setUTCFullYear(established.getUTCFullYear() - 2)
+  await page.getByLabel('Date established').fill(established.toISOString().slice(0, 10))
   for (let step = 0; step < 3; step += 1) {
     await page.getByRole('button', { name: 'Next' }).click()
   }
@@ -266,7 +278,12 @@ export const startApplication = async (
   await registerEnterprise(page, businessName)
 
   await page.goto('/applications/new')
-  await page.getByLabel('Enterprise').selectOption({ label: businessName })
+  // A sole enterprise arrives preselected and locked; selecting would throw.
+  const enterpriseSelect = page.getByLabel('Enterprise')
+  await expect(enterpriseSelect).toHaveValue(/./u, { timeout: 15_000 }).catch(() => {})
+  if (await enterpriseSelect.isEnabled()) {
+    await enterpriseSelect.selectOption({ label: businessName })
+  }
   /*
    * By code, never by position, and `cycleCode` is required so there is no way
    * back to position.
@@ -281,6 +298,8 @@ export const startApplication = async (
   const cycle = page.getByLabel('Programme cycle')
   const label = await cycle.locator('option').filter({ hasText: cycleCode }).innerText()
   await cycle.selectOption({ label })
+  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('radio', { name: 'Initial application' }).check()
   await page.getByRole('button', { name: 'Start an initial application' }).click()
   await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
   return page.url().split('/').pop() as string
@@ -330,7 +349,12 @@ export const submitApplication = async (
   await registerEnterprise(page, businessName)
 
   await page.goto('/applications/new')
-  await page.getByLabel('Enterprise').selectOption({ label: businessName })
+  // A sole enterprise arrives preselected and locked; selecting would throw.
+  const enterpriseSelect = page.getByLabel('Enterprise')
+  await expect(enterpriseSelect).toHaveValue(/./u, { timeout: 15_000 }).catch(() => {})
+  if (await enterpriseSelect.isEnabled()) {
+    await enterpriseSelect.selectOption({ label: businessName })
+  }
   /*
    * By code, not by position. The suite shares one database, so by the time
    * this runs there are other open cycles — ones that do require documents —
@@ -343,6 +367,8 @@ export const submitApplication = async (
     .filter({ hasText: cycleCode })
     .innerText()
   await page.getByLabel('Programme cycle').selectOption({ label: cycleOption })
+  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('radio', { name: 'Initial application' }).check()
   await page.getByRole('button', { name: 'Start an initial application' }).click()
   await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
   const id = page.url().split('/').pop() as string
@@ -367,6 +393,9 @@ const openCycleWithoutDocuments = async (
   // same millisecond with the same prefix would otherwise collide.
   const code = `${prefix}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`
   await page.goto('/admin/cycles/new')
+  // Filled only after hydration settles: a fill that lands before React
+  // takes the inputs over is wiped when it does.
+  await expect(page.getByLabel('Cycle code')).toHaveValue(/^SEP-\d{4}$/u)
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(code)
   await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/07')
@@ -379,7 +408,11 @@ const openCycleWithoutDocuments = async (
     .getByLabel('Applications close')
     .fill(local(new Date(Date.now() + 2_592_000_000)))
 
-  if (configureIdentifiers) await configureIdentifiers(page)
+  if (configureIdentifiers) {
+    // The identifier rules live on the wizard's last step.
+    await page.getByRole('button', { name: /Desk review & Reasons/u }).click()
+    await configureIdentifiers(page)
+  }
 
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
@@ -400,8 +433,9 @@ const openCycleWithoutDocuments = async (
   // has moved on — and opening quotes the version it was rendered with.
   await page.reload()
 
-  await page.getByLabel('Reason for this change').fill('Opening for the programme year.')
   await page.getByRole('button', { name: 'Open for applications' }).click()
+  await page.getByLabel('Reason for this action').fill('Opening for the programme year.')
+  await page.getByRole('button', { name: 'Confirm' }).click()
   await expect(
     page.getByRole('button', { name: 'Close to new applications' }),
   ).toBeVisible()
@@ -487,6 +521,23 @@ const makeDocumentsOptional = async (page: Page, cycleId: string): Promise<void>
   }
 }
 
+/**
+ * The first stage — one owner, every member answered — ending on "Save &
+ * next" so the journey stands on stage two. On its own for the specs that
+ * only need to get past the first screen of a staged form.
+ */
+export const fillOwnersStage = async (page: Page): Promise<void> => {
+  // One entry, added explicitly — a fresh group starts empty.
+  await page.getByRole('button', { name: 'Add owners' }).click()
+  await page.getByLabel('Full name').fill('Bethel Debbarma')
+  await page.getByLabel('Role in the enterprise').selectOption({ index: 1 })
+  await page.getByLabel('Date of birth').fill('1996-07-14')
+  await page.getByLabel('Gender').selectOption({ index: 2 })
+  await page.getByLabel('Relationship').selectOption({ index: 1 })
+  await page.getByLabel('Of (name)').fill('Sanjoy Debbarma')
+  await page.getByRole('button', { name: 'Save & next' }).click()
+}
+
 /** Every question the form asks, answered. */
 export const fillEveryAnswer = async (
   page: Page,
@@ -508,19 +559,12 @@ export const fillEveryAnswer = async (
 
   await page.goto(`/applications/${id}/form`)
 
-  // Owners: one entry, added explicitly — a fresh group starts empty.
-  await page.getByRole('button', { name: 'Add owners' }).click()
-  await page.getByLabel('Full name').fill('Bethel Debbarma')
-  await page.getByLabel('Role in the enterprise').selectOption({ index: 1 })
-  await page.getByLabel('Date of birth').fill('1996-07-14')
-  await page.getByLabel('Gender').selectOption({ index: 2 })
-  await page.getByLabel('Relationship').selectOption({ index: 1 })
-  await page.getByLabel('Of (name)').fill('Sanjoy Debbarma')
-  await saveAndNext()
+  await fillOwnersStage(page)
 
-  // Project cost and funding.
-  await page.getByLabel('Total project cost (₹)').fill('1000000')
-  await page.getByLabel('Seed fund requested (₹)').fill('250000')
+  // Project cost and funding. Exact, because the "Why … is asked" opener
+  // beside a label contains the label's own words.
+  await page.getByLabel('Total project cost (₹)', { exact: true }).fill('1000000')
+  await page.getByLabel('Seed fund requested (₹)', { exact: true }).fill('250000')
   // Both are `OPTIONAL` in the cycle's own template, so the renderer marks
   // them — the label is the cycle's words plus what the software adds.
   await page.getByLabel('Bank loan proposed (₹) (optional)').fill('600000')
