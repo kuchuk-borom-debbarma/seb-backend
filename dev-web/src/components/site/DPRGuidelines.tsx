@@ -155,7 +155,7 @@ Attach this completed DPR along with the Official Application Form.
               <div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-extrabold uppercase tracking-widest text-primary/60">
-                    Part {sec.num}
+                    DPR Pillar
                   </span>
                   <FileText className="size-5 text-primary/40" />
                 </div>

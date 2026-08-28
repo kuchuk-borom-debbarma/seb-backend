@@ -427,7 +427,7 @@ export function Hero() {
             style={{ opacity: 0 }}
           >
             <p className="text-sm font-medium tracking-wide text-white/80">
-              1. PREAMBLE &amp; POLICY OBJECTIVES
+              PREAMBLE &amp; POLICY OBJECTIVES
             </p>
             <h2 className="mt-1.5 text-4xl lg:text-[3.25rem] font-bold tracking-tight text-white leading-[1.08]">
               Core Objectives
@@ -446,16 +446,13 @@ export function Hero() {
             <div className="grid gap-3.5 sm:grid-cols-3">
               {goalCards.map((card) => (
                 <div
-                  key={card.number}
+                  key={card.title}
                   className="goals-item-card group flex flex-col justify-between rounded-2xl border border-black/5 bg-white p-6 shadow-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl"
                 >
                   <div>
                     <div className="flex items-center justify-between">
-                      <div className="flex size-8 items-center justify-center rounded-full bg-[#f1f4f8] text-[12px] font-bold text-[#181715]">
-                        {card.number}
-                      </div>
-                      <div className="text-[#0c2340]">
-                        <card.Icon className="size-7 stroke-[1.8]" />
+                      <div className="flex size-11 items-center justify-center rounded-xl bg-[#f1f4f8] text-[#0c2340]">
+                        <card.Icon className="size-6 stroke-[1.8]" />
                       </div>
                     </div>
                     <div className="mt-4">
@@ -637,7 +634,7 @@ export function Hero() {
         >
           <div>
             <p className="text-xs font-semibold tracking-wider text-white/70 uppercase">
-              1. Preamble &amp; Policy Objectives
+              Preamble &amp; Policy Objectives
             </p>
             <h2 className="mt-1 text-2xl sm:text-3xl font-bold tracking-tight text-white">
               Core Objectives
@@ -652,16 +649,13 @@ export function Hero() {
           <div className="mt-6 -mx-4 px-4 sm:-mx-6 sm:px-6 flex gap-3.5 overflow-x-auto snap-x snap-mandatory pb-3 scrollbar-none touch-pan-x">
             {goalCards.map((card) => (
               <div
-                key={card.number}
+                key={card.title}
                 className="w-[84vw] sm:w-[320px] shrink-0 snap-center flex flex-col justify-between rounded-2xl border border-black/5 bg-white p-5 shadow-xl text-[#181715]"
               >
                 <div>
                   <div className="flex items-center justify-between">
-                    <div className="flex size-8 items-center justify-center rounded-full bg-[#f1f4f8] text-[12px] font-bold text-[#181715]">
-                      {card.number}
-                    </div>
-                    <div className="text-[#0c2340]">
-                      <card.Icon className="size-6.5 stroke-[1.8]" />
+                    <div className="flex size-9.5 items-center justify-center rounded-xl bg-[#f1f4f8] text-[#0c2340]">
+                      <card.Icon className="size-5.5 stroke-[1.8]" />
                     </div>
                   </div>
                   <div className="mt-3.5">
