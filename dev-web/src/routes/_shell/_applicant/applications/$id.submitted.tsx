@@ -21,6 +21,7 @@ import {
   applicationQuery,
   draftChangesQuery,
   formTemplateQuery,
+  submittedCopyQuery,
 } from '#/features/application/applicationQueries'
 import { formatBytes } from '#/features/application/documents'
 import { resolveTemplate } from '#/features/application/formTemplate'
@@ -42,6 +43,7 @@ function SubmittedPage() {
   const { data: application } = useQuery(applicationQuery(id))
   const { data: changes } = useQuery(draftChangesQuery(id))
   const { data: rawTemplate } = useQuery(formTemplateQuery(id))
+  const { data: copyUrl } = useQuery(submittedCopyQuery(id))
   const template = useMemo(
     () => (rawTemplate ? resolveTemplate(rawTemplate) : null),
     [rawTemplate],
@@ -65,14 +67,30 @@ function SubmittedPage() {
         description="The programme office can now see it. Keep the reference number — you will be asked for it."
         actions={
           <>
-            <button
-              type="button"
-              className="button"
-              data-variant="primary"
-              onClick={() => window.print()}
-            >
-              Print this
-            </button>
+            {copyUrl ? (
+              /*
+               * The same PDF the confirmation email attaches, from the same
+               * signed route — so paper, inbox and screen cannot disagree.
+               */
+              <a
+                className="button"
+                data-variant="primary"
+                href={copyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Print this
+              </a>
+            ) : (
+              <button
+                type="button"
+                className="button"
+                data-variant="primary"
+                onClick={() => window.print()}
+              >
+                Print this
+              </button>
+            )}
             <Link to="/applications/$id" params={{ id }} className="button">
               Go to the application
             </Link>

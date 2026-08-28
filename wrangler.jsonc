@@ -52,7 +52,7 @@
     }
   ],
   "triggers": {
-    "crons": ["0 * * * *"]
+    "crons": ["0 */8 * * *"]
   },
   // Rate limiting. One binding per allowance, because the platform's limiter
   // takes its limit and period from configuration rather than from the call.

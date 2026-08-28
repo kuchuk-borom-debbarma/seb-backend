@@ -3645,7 +3645,7 @@ describe('what a reviewer read off the documents', () => {
   })
 })
 
-describe('the approval and sanction notification emails', () => {
+describe('the applicant notification emails', () => {
   /*
    * The road to a decision — desk review, bank, TTM — is proven at length in
    * the lifecycle test above. These fixtures move the head straight to the
@@ -3697,7 +3697,7 @@ describe('the approval and sanction notification emails', () => {
       applicationId: "${applicationId}", decisionId: "${decisionId}",
       expectedStatusVersion: ${expectedStatusVersion},
       sanctionOrderNumber: "SANCTION-ORDER-77", sanctionDate: "2026-06-20"
-    }) { success message response { award { id } } } } } }`
+    }) { success message response { award { id ledgerVersion } } } } } }`
 
   it('mails the applicant on approval, with the application attached', async () => {
     const { officer, applicant, submitted } = await awaitingDecision()
@@ -3794,6 +3794,126 @@ describe('the approval and sanction notification emails', () => {
     expect(sanctioned.data.admin.funding.createAward.success).toBe(true)
     expect(await failures(
       auditActions.sanctionNotificationFailed, submitted.applicationId,
+    )).toBe(1)
+  })
+
+  /** A desk review sent back for revision, ready for the mail to be watched. */
+  const revisionReviewed = async () => {
+    const officer = await signIn(['SUPER_ADMIN'])
+    const applicant = await signIn(['APPLICANT'])
+    const cycle = await openCycle(officer.cookie)
+    const submitted = await submittedApplication(
+      applicant.cookie, applicant.userId, cycle.id,
+    )
+    await graphql<any>(`mutation($input: StartDeskReviewInput!) {
+      admin { intake { startDeskReview(input: $input) { success } } }
+    }`, { input: {
+      applicationId: submitted.applicationId,
+      expectedStatusVersion: submitted.statusVersion,
+    } }, officer.cookie)
+    const revisionReason = await reasonId(cycle.id, 'REVISION')
+    const complete = () => graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
+      admin { intake { completeDeskReview(input: $input) { success message } } }
+    }`, { input: {
+      applicationId: submitted.applicationId,
+      expectedStatusVersion: submitted.statusVersion + 1,
+      outcome: 'REQUEST_REVISION', reasonCategoryId: revisionReason,
+      applicantMessage: 'The project cost figures do not add up.',
+      checks: deskCheckTypes.map((checkType) => ({
+        checkType, result: checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS',
+      })),
+      identifiers: passingIdentifiers(),
+      revisions: [{
+        stageKey: 'FINANCIAL', reasonCategoryId: revisionReason,
+        note: 'Correct the requested-funding details.',
+      }],
+    } }, officer.cookie)
+    return { applicant, submitted, complete }
+  }
+
+  it('mails the applicant when a desk review requests revision, naming the stage', async () => {
+    const { applicant, complete } = await revisionReviewed()
+    const { result, mails } = await mailedBy(complete)
+    const completed = result.data.admin.intake.completeDeskReview
+    expect(completed.success, completed.message).toBe(true)
+
+    const mail = mails.find(
+      (each) => each.subject === 'Your Mission SEP application needs changes',
+    )
+    expect(mail).toBeDefined()
+    expect(mail?.to).toBe(`${applicant.userId}@example.test`)
+    // The reviewer's message and instruction are what the applicant reads.
+    expect(mail?.text).toContain('The project cost figures do not add up.')
+    // The stage is named as the applicant sees it, not by its key.
+    expect(mail?.text).toContain(
+      '- Project cost and funding: Correct the requested-funding details.',
+    )
+    expect(mail?.attachments).toHaveLength(1)
+    expect(mail!.attachments![0]!.url).toContain('/confirmation-pdf?')
+  })
+
+  it('still records the revision request when the mail fails, and audits it', async () => {
+    const { submitted, complete } = await revisionReviewed()
+    const result = await undelivered(complete)
+    // The review stands: a mail failure must not undo or hide it.
+    expect(result.data.admin.intake.completeDeskReview.success).toBe(true)
+    expect(await failures(
+      auditActions.revisionNotificationFailed, submitted.applicationId,
+    )).toBe(1)
+  })
+
+  /** An approved, sanctioned application with its award, ready to release. */
+  const sanctionedAward = async () => {
+    const { officer, applicant, submitted } = await awaitingDecision()
+    const approved = await graphql<any>(
+      APPROVE(submitted.applicationId, submitted.statusVersion), {}, officer.cookie,
+    )
+    const decisionId = approved.data.admin.decision.recordDecision.response.decisions[0].id as string
+    const sanctioned = await graphql<any>(
+      SANCTION(submitted.applicationId, decisionId, submitted.statusVersion + 1),
+      {}, officer.cookie,
+    )
+    const award = sanctioned.data.admin.funding.createAward.response.award
+    const release = () => graphql<any>(`mutation($input: RecordReleaseInput!) {
+      admin { funding { recordRelease(input: $input) { success message } } }
+    }`, { input: {
+      awardId: award.id, applicationId: submitted.applicationId,
+      expectedLedgerVersion: award.ledgerVersion, amountPaise: '600000',
+      occurredAt: '2026-06-30T10:00:00Z', externalReference: 'PAY-REL-9',
+      approvalReference: 'REL-APPROVE-9', approvalDate: '2026-06-25',
+      bankAccountVerifiedAt: '2026-06-29T10:00:00Z',
+      performanceAgreementReference: 'PA-REL-9',
+      performanceAgreementExecutedAt: '2026-06-28T10:00:00Z',
+      physicalVerificationRequired: false, physicalVerificationReference: null,
+      physicalVerificationCompletedAt: null,
+      applicantMessage: 'The first tranche has been paid to your account.',
+    } }, officer.cookie)
+    return { applicant, submitted, release }
+  }
+
+  it('mails the applicant when funds are released, quoting the payment', async () => {
+    const { applicant, release } = await sanctionedAward()
+    const { result, mails } = await mailedBy(release)
+    const released = result.data.admin.funding.recordRelease
+    expect(released.success, released.message).toBe(true)
+
+    const mail = mails.find(
+      (each) => each.subject === 'Funds have been released for your Mission SEP application',
+    )
+    expect(mail).toBeDefined()
+    expect(mail?.to).toBe(`${applicant.userId}@example.test`)
+    // The payment reference is what the applicant quotes at the bank.
+    expect(mail?.text).toContain('PAY-REL-9')
+    expect(mail?.text).toContain('The first tranche has been paid to your account.')
+    expect(mail?.text).toContain('Released on: 2026-06-30')
+  })
+
+  it('still records the release when the mail fails, and audits the failure', async () => {
+    const { submitted, release } = await sanctionedAward()
+    const result = await undelivered(release)
+    expect(result.data.admin.funding.recordRelease.success).toBe(true)
+    expect(await failures(
+      auditActions.releaseNotificationFailed, submitted.applicationId,
     )).toBe(1)
   })
 })

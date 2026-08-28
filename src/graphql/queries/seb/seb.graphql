@@ -307,6 +307,21 @@ type SebApplicationQuery {
   ): ApplicationValidationResult!
 
   """
+  A fresh signed link to the PDF copy of the submitted application — the same
+  document the confirmation email attaches. The link expires; ask again for a
+  new one rather than storing it.
+
+  **Use case:** "Print this" / "Save a copy" on the submitted screen.
+
+  **Refuses:** an application belonging to somebody else — identically to one
+  that does not exist — and an application that has never been submitted.
+  """
+  submittedCopy(
+    """The application whose submitted copy to fetch."""
+    applicationId: ID!
+  ): SubmittedCopyResult!
+
+  """
   Whether this enterprise may start a later-phase application, and if not, why.
 
   **Use case:** deciding whether to offer expansion on `/applications/new`, and
@@ -1460,6 +1475,27 @@ type ApplicationValidationResult implements BaseResponse {
 
   """The report. Null whenever `success` is false."""
   response: ValidationReport
+}
+
+"""A signed link to the submitted application's PDF, or why there is none."""
+type SubmittedCopyResult implements BaseResponse {
+  """Whether a link could be issued."""
+  success: Boolean!
+
+  """What to show when it could not."""
+  message: String
+
+  """The link. Null whenever `success` is false."""
+  response: SubmittedCopy
+}
+
+"""Where the PDF copy of a submitted application can be fetched."""
+type SubmittedCopy {
+  """
+  The signed URL. Time-limited and bearer-authorized: opening it needs no
+  session, so treat it like the document itself.
+  """
+  url: String!
 }
 
 """Whether an expansion may start, or the reason it could not be worked out."""

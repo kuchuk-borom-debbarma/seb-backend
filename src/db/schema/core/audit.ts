@@ -111,6 +111,8 @@ export const auditActions = {
   submissionConfirmationFailed: 'SEB.SUBMISSION_CONFIRMATION_FAILED',
   approvalNotificationFailed: 'SEB.APPROVAL_NOTIFICATION_FAILED',
   sanctionNotificationFailed: 'SEB.SANCTION_NOTIFICATION_FAILED',
+  revisionNotificationFailed: 'SEB.REVISION_NOTIFICATION_FAILED',
+  releaseNotificationFailed: 'SEB.RELEASE_NOTIFICATION_FAILED',
 } as const
 
 /**

@@ -27,6 +27,7 @@ import {
   startExpansionApplication,
   startInitialApplication,
   submitApplication,
+  submittedApplicationCopy,
   updateEnterprise,
   validateApplication,
   type ApplicationStatus,
@@ -117,6 +118,11 @@ export const sebResolvers = {
       args: { applicationId: string },
       context: GraphQLContext,
     ) => validateApplication(args.applicationId, context),
+    submittedCopy: (
+      _parent: unknown,
+      args: { applicationId: string },
+      context: GraphQLContext,
+    ) => submittedApplicationCopy(args.applicationId, context),
     expansionEligibility: (
       _parent: unknown,
       args: { enterpriseId: string; programmeCycleId: string },

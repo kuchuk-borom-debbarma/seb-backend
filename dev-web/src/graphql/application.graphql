@@ -426,3 +426,17 @@ query ApplicationFunding($applicationId: ID!) {
     }
   }
 }
+
+query SubmittedCopy($applicationId: ID!) {
+  seb {
+    application {
+      submittedCopy(applicationId: $applicationId) {
+        success
+        message
+        response {
+          url
+        }
+      }
+    }
+  }
+}

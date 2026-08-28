@@ -3519,6 +3519,38 @@ describe('the submission confirmation email', () => {
     expect(ghost.status).toBe(403)
   })
 
+  it('hands the owner a signed copy link, and nobody else', async () => {
+    const { applicant, application, saved } = await readyToSubmit()
+    const COPY = `query { seb { application { submittedCopy(applicationId: "${application.id}") {
+      success message response { url } } } } }`
+
+    // Before submission there is no copy to link to.
+    const early = await graphql<any>(COPY, {}, applicant.cookie)
+    expect(early.data.seb.application.submittedCopy).toMatchObject({
+      success: false, message: 'The application has not been submitted yet.',
+    })
+
+    const submit = await graphql<any>(
+      SUBMIT(application.id, saved.currentVersion), {}, applicant.cookie,
+    )
+    expect(submit.data.seb.application.submit.success).toBe(true)
+
+    // The owner gets the same signed route the emailed attachment uses.
+    const owned = await graphql<any>(COPY, {}, applicant.cookie)
+    expect(owned.data.seb.application.submittedCopy.success).toBe(true)
+    const url = owned.data.seb.application.submittedCopy.response.url as string
+    expect(url).toContain('/confirmation-pdf?')
+    expect(url).toContain(`application=${application.id}`)
+    expect(url).toContain('signature=')
+
+    // Somebody else's session is told the application does not exist.
+    const stranger = await applicantSession()
+    const refused = await graphql<any>(COPY, {}, stranger.cookie)
+    expect(refused.data.seb.application.submittedCopy).toMatchObject({
+      success: false, message: 'The application was not found.',
+    })
+  })
+
   it('still submits when the confirmation cannot be sent, and audits the failure', async () => {
     const { applicant, application, saved } = await readyToSubmit()
     // The console transport is the wire, so making it throw is a real

@@ -50,6 +50,8 @@ import {
   STALE_MESSAGE,
 } from '../support'
 import { revisionRequestProblem } from '../revisions'
+import { sendRevisionRequestNotification } from '../notifications'
+import { bestEffort } from '../../best-effort'
 import { failure, success } from '../../envelope'
 import {
   IDENTIFIER_FOR_CHECK,
@@ -523,6 +525,14 @@ export const completeDeskReview = async (
     now: new Date(),
   }))
   if (!changed) return failure(STALE_MESSAGE)
+  if (input.outcome === 'REQUEST_REVISION') {
+    await bestEffort(sendRevisionRequestNotification(context, {
+      applicationId: input.applicationId,
+      actorId: administrator.id,
+      applicantMessage: input.applicantMessage?.trim() || null,
+      revisions: input.revisions,
+    }), 'A revision notification failed')
+  }
   return success(await loadWorkspace(context.db, input.applicationId))
 }
 

@@ -781,6 +781,28 @@ export const applicationDraftChanges = async (
     : failure('This application has not been submitted yet, so there is nothing to compare.')
 }
 
+/**
+ * A fresh signed link to the PDF copy of the submitted application — the same
+ * document the confirmation email attaches, built from the same frozen
+ * submission, so the screen and the inbox can never disagree.
+ */
+export const submittedApplicationCopy = async (
+  applicationId: string,
+  context: ApplicationOperationContext,
+): Promise<SebResult<{ url: string }>> => {
+  const applicant = await currentApplicant(context)
+  if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
+  if (!(await findOwnedApplicationHead(context.db, applicant.id, applicationId, true))) {
+    return failure('The application was not found.')
+  }
+  if (!(await findLatestSubmittedVersion(context.db, applicationId))) {
+    return failure('The application has not been submitted yet.')
+  }
+  return success({
+    url: await confirmationPdfUrl(context.env, context.requestUrl, applicationId, new Date()),
+  })
+}
+
 export const applicationTimeline = async (
   input: { applicationId: string; first?: number | null; after?: string | null },
   context: ApplicationOperationContext,

@@ -28,6 +28,7 @@ import {
   STALE_MESSAGE,
 } from '../support'
 import { revisionRequestProblem } from '../revisions'
+import { sendRevisionRequestNotification } from '../notifications'
 import { failure, success } from '../../envelope'
 import { bestEffort } from '../../best-effort'
 import type {
@@ -133,6 +134,14 @@ export const recordBankOutcome = async (
     actorId: administrator.id,
     now: new Date(),
   }))
+  if (changed && input.outcome === 'MORE_INFORMATION_REQUIRED') {
+    await bestEffort(sendRevisionRequestNotification(context, {
+      applicationId: input.applicationId,
+      actorId: administrator.id,
+      applicantMessage: summary,
+      revisions: input.revisions,
+    }), 'A revision notification failed')
+  }
   return changed ? success(await loadWorkspace(context.db, input.applicationId)) : failure(STALE_MESSAGE)
 }
 
@@ -212,6 +221,14 @@ export const correctBankOutcome = async (
     actorId: administrator.id,
     now: new Date(),
   }))
+  if (changed && input.outcome === 'MORE_INFORMATION_REQUIRED') {
+    await bestEffort(sendRevisionRequestNotification(context, {
+      applicationId: input.applicationId,
+      actorId: administrator.id,
+      applicantMessage: summary,
+      revisions: input.revisions,
+    }), 'A revision notification failed')
+  }
   return changed ? success(await loadWorkspace(context.db, input.applicationId)) : failure(STALE_MESSAGE)
 }
 
@@ -393,6 +410,14 @@ export const recordDecision = async (
     actorId: administrator.id,
     now: new Date(),
   }))
+  if (changed && input.outcome === 'REVISION_REQUIRED') {
+    await bestEffort(sendRevisionRequestNotification(context, {
+      applicationId: input.applicationId,
+      actorId: administrator.id,
+      applicantMessage: message,
+      revisions: input.revisions,
+    }), 'A revision notification failed')
+  }
   if (changed && input.outcome === 'APPROVED') {
     await bestEffort(sendApprovalNotification(context, {
       applicationId: input.applicationId,
@@ -493,5 +518,13 @@ export const correctDecision = async (
     actorId: administrator.id,
     now: new Date(),
   }))
+  if (changed && input.outcome === 'REVISION_REQUIRED') {
+    await bestEffort(sendRevisionRequestNotification(context, {
+      applicationId: input.applicationId,
+      actorId: administrator.id,
+      applicantMessage: message,
+      revisions: input.revisions,
+    }), 'A revision notification failed')
+  }
   return changed ? success(await loadWorkspace(context.db, input.applicationId)) : failure(STALE_MESSAGE)
 }
