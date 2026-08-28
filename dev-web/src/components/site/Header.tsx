@@ -276,7 +276,7 @@ export function Header() {
                 onClick={() => setMobileMenuOpen(false)}
                 className="flex min-h-[50px] w-full items-center justify-center gap-2.5 rounded-lg bg-white py-3 px-4 text-sm font-bold text-[#0c2340] shadow-md hover:bg-white/95 transition-all"
               >
-                <span>Apply for Seed Grant</span>
+                <span className="text-[#0c2340]">Apply for Seed Grant</span>
                 <CalendarPlus className="size-4 text-[#1e5296]" />
               </a>
 

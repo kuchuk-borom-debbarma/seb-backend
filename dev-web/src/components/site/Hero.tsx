@@ -613,17 +613,17 @@ export function Hero() {
                   type="button"
                   onClick={(e) => moveNotif(e, -1)}
                   aria-label="Previous notification"
-                  className="flex size-8.5 items-center justify-center rounded-full border border-[#181715]/30 bg-white/60 text-[#181715] active:bg-[#181715] active:text-[#ded8ce] cursor-pointer"
+                  className="flex size-8.5 items-center justify-center rounded-full border border-[#181715]/30 bg-white/80 text-[#181715] active:bg-[#181715] active:text-[#ded8ce] cursor-pointer shadow-2xs"
                 >
-                  <ArrowLeft className="size-3.5" strokeWidth={1.75} />
+                  <ArrowLeft className="size-3.5 text-[#181715]" strokeWidth={1.75} />
                 </button>
                 <button
                   type="button"
                   onClick={(e) => moveNotif(e, 1)}
                   aria-label="Next notification"
-                  className="flex size-8.5 items-center justify-center rounded-full border border-[#181715]/30 bg-white/60 text-[#181715] active:bg-[#181715] active:text-[#ded8ce] cursor-pointer"
+                  className="flex size-8.5 items-center justify-center rounded-full border border-[#181715]/30 bg-white/80 text-[#181715] active:bg-[#181715] active:text-[#ded8ce] cursor-pointer shadow-2xs"
                 >
-                  <ArrowRight className="size-3.5" strokeWidth={1.75} />
+                  <ArrowRight className="size-3.5 text-[#181715]" strokeWidth={1.75} />
                 </button>
               </div>
             </div>
@@ -704,10 +704,10 @@ export function Hero() {
               download="TTAADC_Mission_SEP_Policy_and_Application_Form.pdf"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-white py-2.5 px-4 text-xs font-bold text-[#0c2340] shadow-sm active:bg-white/90"
+              className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-white py-2.5 px-4 text-xs font-bold text-[#0c2340] shadow-sm active:bg-white/90 transition-colors"
             >
-              <Download className="size-3.5" />
-              <span>Download Policy PDF</span>
+              <Download className="size-3.5 text-[#0c2340]" />
+              <span className="text-[#0c2340]">Download Policy PDF</span>
             </a>
           </div>
         </section>

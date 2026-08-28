@@ -232,13 +232,13 @@
 }
 
 .navLinkActive {
-  background: #f0f2f5;
-  color: #111827;
+  background: #f0f5fc;
+  color: #4271b7;
   font-weight: 600;
 }
 
 .navLinkActive svg {
-  color: #111827;
+  color: #4271b7;
 }
 
 .navLabel {

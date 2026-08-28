@@ -12,6 +12,7 @@ import {
   ArrowRight,
   Briefcase,
   CalendarDays,
+  ChevronUp,
   CircleHelp,
   ClipboardList,
   FileText,
@@ -22,8 +23,10 @@ import {
   Menu,
   MonitorSmartphone,
   Settings,
+  Shield,
   ShieldCheck,
   UserPlus,
+  UserRound,
   Users,
   X,
   type LucideIcon,
@@ -70,6 +73,9 @@ export function PlatformNavigation({
   collapsed: boolean
   onToggleCollapsed: () => void
 }) {
+  const pathname = useLocation().pathname
+  const isSettingsActive =
+    pathname.startsWith('/settings') || pathname.startsWith('/account/')
   return (
     <nav
       className={styles.sidebar}
@@ -201,13 +207,52 @@ export function PlatformNavigation({
           activePrefixes={['/guide']}
           onNavigate={onClose}
         />
-        <NavLink
-          to="/settings/general"
-          label="Settings"
-          icon={Settings}
-          activePrefixes={['/settings', '/account/sessions']}
-          onNavigate={onClose}
-        />
+        {isSettingsActive && !collapsed ? (
+          <div>
+            <div
+              className={`${styles.navLink} ${styles.navLinkActive}`}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Settings aria-hidden="true" />
+                <span className={styles.navLabel}>Settings</span>
+              </div>
+              <ChevronUp size={16} color="#4271B7" />
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+                paddingLeft: '14px',
+                marginTop: '2px',
+              }}
+            >
+              <NavLink
+                to="/settings/general"
+                label="General"
+                icon={UserRound}
+                activePrefixes={['/settings/general']}
+                onNavigate={onClose}
+              />
+              <NavLink
+                to="/settings/security"
+                label="Security"
+                icon={Shield}
+                activePrefixes={['/settings/security', '/account/sessions']}
+                onNavigate={onClose}
+              />
+            </div>
+          </div>
+        ) : (
+          <NavLink
+            to="/settings/general"
+            label="Settings"
+            icon={Settings}
+            activePrefixes={['/settings', '/account/sessions']}
+            onNavigate={onClose}
+          />
+        )}
         <button
           type="button"
           className={`${styles.navLink} ${styles.collapse}`}

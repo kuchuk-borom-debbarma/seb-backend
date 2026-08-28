@@ -16,14 +16,16 @@
   font-family: 'Playfair Display', Georgia, serif;
 }
 
-/* Ensure landing site links and buttons are not overridden by global styles.css a { color: var(--green) } */
-a {
-  color: inherit;
-  text-decoration: none;
-}
+@layer base {
+  /* Ensure landing site links and buttons default to color: inherit instead of styles.css a { color: var(--green) }, while allowing Tailwind text-* utilities to override */
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 
-header nav a {
-  text-decoration: none !important;
+  header nav a {
+    text-decoration: none !important;
+  }
 }
 
 .site-nav-link-dark {

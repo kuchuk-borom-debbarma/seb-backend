@@ -198,8 +198,8 @@ Attach this completed DPR along with the Official Application Form.
               href="#apply"
               className="mt-6 inline-flex items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-[14px] font-bold text-[#152e4d] transition-all hover:bg-white/95"
             >
-              <span>Launch Application</span>
-              <ChevronRight className="size-4" />
+              <span className="text-[#152e4d]">Launch Application</span>
+              <ChevronRight className="size-4 text-[#152e4d]" />
             </a>
           </Reveal>
         </div>
