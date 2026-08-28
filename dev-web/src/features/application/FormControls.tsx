@@ -21,6 +21,8 @@ export function Field({
   widthHint,
   issue,
   explain,
+  icon,
+  badge,
   children,
 }: {
   id: string
@@ -34,6 +36,8 @@ export function Field({
   issue?: string
   /** Why this question is asked, for the few where the name does not say. */
   explain?: string
+  icon?: React.ReactNode
+  badge?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
@@ -43,18 +47,18 @@ export function Field({
         <label> becomes part of the field's accessible name — the select would
         have announced as "Category ?".
       */}
-      {explain ? (
-        <span className="label-row">
-          <label className="field-label" htmlFor={id}>
+      <span className="label-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-1)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          {icon ? <span style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--ink-muted)' }} aria-hidden="true">{icon}</span> : null}
+          <label className="field-label" htmlFor={id} style={{ margin: 0 }}>
             {label}
           </label>
-          <Explain label={label}>{explain}</Explain>
         </span>
-      ) : (
-        <label className="field-label" htmlFor={id}>
-          {label}
-        </label>
-      )}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          {badge}
+          {explain ? <Explain label={label}>{explain}</Explain> : null}
+        </span>
+      </span>
       {children}
       {note ? (
         <span className="field-note" {...(tone ? { 'data-tone': tone } : {})}>

@@ -188,6 +188,13 @@ cd dev-web && npm install && npm run local   # the client, on :9990
 GraphQL is at `http://localhost:9999/graphql`. The client points at the Worker
 automatically.
 
+`npm run local` checks Postgres and the Mission SEP schema before it starts
+Wrangler. It uses `DATABASE_URL` from `.env.local`, falling back to
+`postgresql://postgres:postgres@localhost:5432/seb_backend`. When the server is
+not running, start it first; when the database is new or from before the
+Postgres migration, run `npm run db:setup:local`. That command rebuilds the
+local schema, so it is not for a database whose data must be retained.
+
 ### Configuration
 
 `.env.example` is the checked-in template and documents every variable. Wrangler

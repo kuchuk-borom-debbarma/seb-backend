@@ -14,6 +14,21 @@
  * only the answers its own fields and its own condition sources use.
  */
 import { memo, useMemo } from 'react'
+import {
+  AlertCircle,
+  Briefcase,
+  Calendar,
+  Check,
+  IndianRupee,
+  Mail,
+  Percent,
+  Phone,
+  Plus,
+  Trash2,
+  User,
+  UserCheck,
+  Users,
+} from 'lucide-react'
 import type { AnswerEntry, AnswerMap, AnswerValue } from './answers'
 import { entriesOf, issuePath } from './answers'
 import { Attestation, Field, invalid, Statement, YesNoField } from './FormControls'
@@ -26,6 +41,93 @@ import {
 } from './formTemplate'
 import { formatMoney } from '#/lib/format'
 import { paiseToRupees, rupeesToPaise } from './money'
+
+/** Selects a suitable Lucide icon for recognized field roles and keys. */
+function getFieldIcon(field: FormField): React.ReactNode | undefined {
+  const key = field.key.toUpperCase()
+  const label = field.label.toLowerCase()
+
+  if (
+    field.role === 'APPLICANT_DATE_OF_BIRTH' ||
+    field.type === 'DATE' ||
+    label.includes('date of birth') ||
+    label.includes('dob')
+  ) {
+    return <Calendar size={14} />
+  }
+  if (
+    key.includes('NAME') ||
+    key.includes('PROMOTER') ||
+    label.includes('name') ||
+    label.includes('promoter')
+  ) {
+    return <User size={14} />
+  }
+  if (
+    key.includes('DESIGNATION') ||
+    key.includes('ROLE') ||
+    label.includes('role in') ||
+    label.includes('designation')
+  ) {
+    return <Briefcase size={14} />
+  }
+  if (key.includes('GENDER') || label.includes('gender')) {
+    return <UserCheck size={14} />
+  }
+  if (
+    key.includes('RELATIONSHIP') ||
+    label.includes('relationship') ||
+    label.includes('of (name)')
+  ) {
+    return <Users size={14} />
+  }
+  if (
+    field.type === 'PHONE' ||
+    key.includes('PHONE') ||
+    label.includes('phone') ||
+    label.includes('mobile')
+  ) {
+    return <Phone size={14} />
+  }
+  if (field.type === 'EMAIL' || key.includes('EMAIL') || label.includes('email')) {
+    return <Mail size={14} />
+  }
+  if (key.includes('PERCENT') || key.includes('SHARE') || label.includes('share')) {
+    return <Percent size={14} />
+  }
+  if (field.type === 'MONEY_PAISE') {
+    return <IndianRupee size={14} />
+  }
+  return undefined
+}
+
+/** Computes full years between the given date and today. */
+function computeAge(dateStr: string | null | undefined): number | null {
+  if (!dateStr || typeof dateStr !== 'string') return null
+  const parts = dateStr.trim().split('-')
+  if (parts.length !== 3) return null
+  const year = parseInt(parts[0]!, 10)
+  const month = parseInt(parts[1]!, 10) - 1
+  const day = parseInt(parts[2]!, 10)
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return null
+  const birthDate = new Date(Date.UTC(year, month, day))
+  const today = new Date()
+  let age = today.getUTCFullYear() - birthDate.getUTCFullYear()
+  const m = today.getUTCMonth() - birthDate.getUTCMonth()
+  if (m < 0 || (m === 0 && today.getUTCDate() < birthDate.getUTCDate())) {
+    age--
+  }
+  return age >= 0 && age < 130 ? age : null
+}
+
+/** Maximum date for 18+ eligibility (today - 18 years). */
+function getMaxDobDate(): string {
+  const today = new Date()
+  const maxYear = today.getUTCFullYear() - 18
+  const month = String(today.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(today.getUTCDate()).padStart(2, '0')
+  return `${maxYear}-${month}-${day}`
+}
 
 /** The label, with the cycle's own "required" mark where it demands one. */
 /**
@@ -194,7 +296,7 @@ function Question({
       )
     }
     return (
-      <Field id={id} label={label} explain={explain} issue={issue} {...fieldExtras}>
+      <Field id={id} label={label} explain={explain} issue={issue} icon={getFieldIcon(field)} {...fieldExtras}>
         <select
           id={id}
           className="select"
@@ -218,7 +320,7 @@ function Question({
     const chosen = Array.isArray(value) ? (value as readonly string[]) : []
     if (presentation.choiceStyle === 'MULTISELECT') {
       return (
-        <Field id={id} label={label} explain={explain} issue={issue} {...fieldExtras}>
+        <Field id={id} label={label} explain={explain} issue={issue} icon={getFieldIcon(field)} {...fieldExtras}>
           <select
             id={id}
             className="select"
@@ -287,6 +389,7 @@ function Question({
         id={id}
         label={moneyLabel}
         explain={explain}
+        icon={getFieldIcon(field)}
         // What the software makes of the amount as it is typed, which is not
         // the same thing as why the question is asked.
         hint={rupees.trim() === '' ? undefined : formatMoney(String(rupeesToPaise(rupees) ?? 0))}
@@ -319,7 +422,15 @@ function Question({
 
   if (field.type === 'LONG_TEXT') {
     return (
-      <Field id={id} label={label} explain={explain} issue={issue} hint={counter} {...fieldExtras}>
+      <Field
+        id={id}
+        label={label}
+        explain={explain}
+        issue={issue}
+        hint={counter}
+        icon={getFieldIcon(field)}
+        {...fieldExtras}
+      >
         <textarea
           id={id}
           className="textarea"
@@ -346,6 +457,57 @@ function Question({
             ? 'tel'
             : 'text'
 
+  const isDob =
+    field.role === 'APPLICANT_DATE_OF_BIRTH' ||
+    field.key.toUpperCase().includes('DATE_OF_BIRTH') ||
+    field.label.toLowerCase().includes('date of birth')
+
+  const effectiveMaxDate = isDob
+    ? (field.validation.maxDate ?? getMaxDobDate())
+    : field.validation.maxDate
+
+  const age = isDob ? computeAge(typeof value === 'string' ? value : null) : null
+  let ageBadge: React.ReactNode = null
+  let ageError: string | undefined = undefined
+
+  if (isDob && age !== null) {
+    if (age < 18) {
+      ageBadge = (
+        <span
+          className="badge"
+          data-tone="error"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+        >
+          <AlertCircle size={11} /> Under 18 ({age} yrs)
+        </span>
+      )
+      ageError = 'Owner must be at least 18 years old.'
+    } else if (age <= 60) {
+      ageBadge = (
+        <span
+          className="badge"
+          data-tone="ok"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+        >
+          <Check size={11} /> {age} yrs old
+        </span>
+      )
+    } else {
+      ageBadge = (
+        <span
+          className="badge"
+          data-tone="action"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+        >
+          {age} yrs (Policy: 18–60)
+        </span>
+      )
+    }
+  }
+
+  const effectiveIssue = issue ?? ageError
+  const effectiveIssues = effectiveIssue ? { ...issues, [id]: effectiveIssue } : issues
+
   const control = (
     <input
       id={id}
@@ -366,12 +528,21 @@ function Question({
       }
       {...(field.validation.maxLength ? { maxLength: field.validation.maxLength } : {})}
       {...(field.validation.minDate ? { min: field.validation.minDate } : {})}
-      {...(field.validation.maxDate ? { max: field.validation.maxDate } : {})}
-      {...invalid(issues, id)}
+      {...(effectiveMaxDate ? { max: effectiveMaxDate } : {})}
+      {...invalid(effectiveIssues, id)}
     />
   )
   return (
-    <Field id={id} label={label} explain={explain} issue={issue} hint={counter} {...fieldExtras}>
+    <Field
+      id={id}
+      label={label}
+      explain={explain}
+      issue={effectiveIssue}
+      hint={counter}
+      icon={getFieldIcon(field)}
+      badge={ageBadge}
+      {...fieldExtras}
+    >
       {presentation.prefixText || presentation.suffixText ? (
         // The affix decorates the control, never the value: aria-hidden text
         // beside the input, GOV.UK style.
@@ -409,73 +580,170 @@ function RepeatGroup({
 }) {
   const entries = entriesOf(answers, field.key)
   const members = template.membersOfGroup(field.key)
-  const atMost = field.validation.maxRepeat
+  const atMost = field.validation.maxRepeat ?? 20
   const atLeast = field.validation.minRepeat ?? 0
 
   return (
-    <fieldset className="stack" id={field.key} tabIndex={-1}>
-      <legend className="field-label">{field.label}</legend>
-      {field.helpText ? <span className="field-hint">{field.helpText}</span> : null}
-      {issues[field.key] ? (
-        <span className="field-error" id={`${field.key}-error`}>
-          {issues[field.key]}
+    <fieldset className="stack" id={field.key} tabIndex={-1} style={{ border: 0, padding: 0, margin: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
+        <div>
+          <legend className="field-label" style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--ink)' }}>
+            {field.label}
+          </legend>
+          {field.helpText ? <span className="field-hint">{field.helpText}</span> : null}
+        </div>
+        <span className="badge" data-tone="action">
+          {entries.length} {entries.length === 1 ? (field.label.toLowerCase().endsWith('s') ? field.label.toLowerCase().slice(0, -1) : field.label.toLowerCase()) : field.label.toLowerCase()}
         </span>
+      </div>
+
+      {issues[field.key] ? (
+        <p className="notice" data-tone="error" id={`${field.key}-error`} style={{ margin: 0 }}>
+          <span className="notice-title">Action Required</span>
+          {issues[field.key]}
+        </p>
       ) : null}
 
-      {entries.map((entry, index) => {
-        const entryVisible = visibleFields(template, answers, entry, field.key)
-        return (
-          <div className="card" key={index}>
-            <div className="card-header">
-              <p className="eyebrow">
-                {field.label} {index + 1}
-              </p>
-              {!disabled && entries.length > atLeast ? (
-                <button
-                  type="button"
-                  className="button"
-                  onClick={() => onChange(entries.filter((_, each) => each !== index))}
-                >
-                  Remove
-                </button>
-              ) : null}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        {entries.map((entry, index) => {
+          const entryVisible = visibleFields(template, answers, entry, field.key)
+          // Extract designation label or name if available
+          const nameValue = String(entry['OWNERS__NAME'] ?? entry['NAME'] ?? entry['name'] ?? '').trim()
+          const designationValue = String(entry['OWNERS__DESIGNATION'] ?? entry['DESIGNATION'] ?? entry['designation'] ?? '').trim()
+
+          return (
+            <div
+              className="card"
+              key={index}
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                background: 'var(--surface)',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                className="card-header"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: 'var(--space-3) var(--space-4)',
+                  background: 'var(--surface-sunken)',
+                  borderBottom: '1px solid var(--border-soft)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div
+                    style={{
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: '50%',
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--ink-secondary)',
+                    }}
+                  >
+                    <User size={15} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--ink)' }}>
+                      {nameValue || `${field.label} ${index + 1}`}
+                    </span>
+                    {index === 0 ? (
+                      <span className="badge" data-tone="ok" style={{ fontSize: '0.625rem' }}>
+                        Primary / Founder
+                      </span>
+                    ) : null}
+                    {designationValue ? (
+                      <span className="badge" style={{ fontSize: '0.625rem' }}>
+                        {designationValue.replace(/_/g, ' ')}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {!disabled && entries.length > atLeast ? (
+                  <button
+                    type="button"
+                    className="button"
+                    data-variant="danger"
+                    style={{
+                      minHeight: '1.875rem',
+                      padding: '0 var(--space-3)',
+                      fontSize: '0.75rem',
+                      gap: '4px',
+                    }}
+                    onClick={() => onChange(entries.filter((_, each) => each !== index))}
+                  >
+                    <Trash2 size={13} />
+                    <span>Remove</span>
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="card-body detail-grid" style={{ padding: 'var(--space-4)' }}>
+                {members
+                  .filter((member) => entryVisible.has(member.key) && member.type !== 'FILE')
+                  .map((member) => (
+                    <Question
+                      key={member.key}
+                      field={member}
+                      id={issuePath(member.key, field.key, index)}
+                      value={entry[member.key] ?? null}
+                      required={isRequiredWhenVisible(
+                        template,
+                        member,
+                        answers,
+                        entryVisible,
+                        entry,
+                        field.key,
+                      )}
+                      disabled={disabled}
+                      issues={issues}
+                      onChange={(next) =>
+                        onChange(
+                          entries.map((each, position) =>
+                            position === index ? { ...each, [member.key]: next } : each,
+                          ),
+                        )
+                      }
+                    />
+                  ))}
+              </div>
             </div>
-            <div className="card-body detail-grid">
-              {members
-                .filter((member) => entryVisible.has(member.key) && member.type !== 'FILE')
-                .map((member) => (
-                  <Question
-                    key={member.key}
-                    field={member}
-                    id={issuePath(member.key, field.key, index)}
-                    value={entry[member.key] ?? null}
-                    required={isRequiredWhenVisible(
-                      template, member, answers, entryVisible, entry, field.key,
-                    )}
-                    disabled={disabled}
-                    issues={issues}
-                    onChange={(next) =>
-                      onChange(
-                        entries.map((each, position) =>
-                          position === index ? { ...each, [member.key]: next } : each,
-                        ),
-                      )
-                    }
-                  />
-                ))}
-            </div>
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
 
       {!disabled && (atMost === null || entries.length < atMost) ? (
-        <button
-          type="button"
-          className="button"
-          onClick={() => onChange([...entries, {}])}
-        >
-          Add {field.label.toLowerCase()}
-        </button>
+        <div style={{ marginTop: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+          <button
+            type="button"
+            className="button"
+            style={{
+              width: '100%',
+              minHeight: '2.75rem',
+              borderStyle: 'dashed',
+              borderColor: 'var(--border-strong)',
+              background: 'var(--surface-sunken)',
+              gap: '8px',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+            }}
+            onClick={() => onChange([...entries, {}])}
+          >
+            <Plus size={16} />
+            <span>Add another {field.label.toLowerCase().endsWith('s') ? field.label.toLowerCase().slice(0, -1) : field.label.toLowerCase()}</span>
+          </button>
+          <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+            {entries.length} of {atMost} {field.label.toLowerCase()} added
+          </div>
+        </div>
       ) : null}
     </fieldset>
   )

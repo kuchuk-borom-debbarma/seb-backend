@@ -8,6 +8,14 @@ import { schema } from './schema'
 /** The schema-aware database type passed through request-scoped services. */
 export type Database = NodePgDatabase<typeof schema>
 
+/** A connection could not be established before the request must answer. */
+export class DatabaseUnavailableError extends Error {
+  constructor() {
+    super('The database is temporarily unavailable.')
+    this.name = 'DatabaseUnavailableError'
+  }
+}
+
 /**
  * A database handle inside a transaction.
  *
@@ -164,7 +172,7 @@ export const openDatabase = (connectionString: string) => {
   const connected = client.connect()
   return {
     db: drizzle(client, { schema }) as Database,
-    /** Resolves once the socket is up; awaited only where a caller must know. */
+    /** Resolves once the socket is up; `withDatabase` waits before query work. */
     ready: connected,
     close: async () => {
       // A close that throws must not fail the request it belongs to: the
@@ -172,6 +180,15 @@ export const openDatabase = (connectionString: string) => {
       await connected.catch(() => undefined)
       await client.end().catch(() => undefined)
     },
+  }
+}
+
+/** Maps a rejected initial connection to the safe request-level failure. */
+const waitForDatabase = async (ready: Promise<unknown>): Promise<void> => {
+  try {
+    await ready
+  } catch {
+    throw new DatabaseUnavailableError()
   }
 }
 
@@ -186,8 +203,9 @@ export const withDatabase = async <T>(
   connectionString: string,
   work: (db: Database) => Promise<T>,
 ): Promise<T> => {
-  const { db, close } = openDatabase(connectionString)
+  const { db, ready, close } = openDatabase(connectionString)
   try {
+    await waitForDatabase(ready)
     return await work(db)
   } finally {
     await close()

@@ -20,10 +20,10 @@
  *
  * ## What must not drift
  *
- * `hyperdrive.localConnectionString` names the Postgres this machine talks to.
- * `scripts/reset-e2e-db.mjs` prepares that same database, so changing it here
- * without changing the script gives `npm run local` and the suite a different,
- * empty database from the one that was prepared.
+ * `hyperdrive.localConnectionString` is the conventional local Postgres
+ * fallback. `npm run local` passes `DATABASE_URL` as Wrangler's Hyperdrive
+ * override after checking it is reachable, so the launcher and Worker use the
+ * same database even when a developer chooses a different local server.
  *
  * Rate-limit bindings are deliberately absent: local runs count in process, and
  * the suite turns counting off entirely. `npm run check:rate-limits` reads the
