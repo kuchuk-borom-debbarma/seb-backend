@@ -2,19 +2,26 @@ import { queryOptions, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import {
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   CirclePlus,
-  Clock3,
-  FilePenLine,
   FileText,
   Search as SearchIcon,
 } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
 import { cyclesQuery, statusGuideQuery } from '#/features/application/queries'
+import {
+  formTemplateQuery,
+  validationQuery,
+} from '#/features/application/applicationQueries'
+import { resolveTemplate } from '#/features/application/formTemplate'
+import {
+  journeySteps,
+  issuesForStep,
+  REVIEW,
+} from '#/features/application/ApplicationJourney'
 import {
   MyApplicationsDocument,
   MyEnterprisesDocument,
@@ -41,22 +48,6 @@ const STATUSES: ApplicationStatus[] = [
   'DISBURSED',
   'CANCELLED',
 ]
-
-/*
- * "Submitted" and "Under review" are different facts: one says the applicant
- * has sent it, the other that the office has picked it up. Counting a merely
- * submitted application as reviewed told the applicant work had started when
- * it had not.
- */
-const SUBMITTED_STATUSES: ApplicationStatus[] = ['SUBMITTED', 'REVISION_REQUIRED']
-const UNDER_REVIEW_STATUSES: ApplicationStatus[] = [
-  'DESK_REVIEW',
-  'PARTNER_BANK_EVALUATION',
-  'AWAITING_DECISION',
-]
-
-/** The statuses the "Approved" metric card counts as won. */
-const APPROVED_STATUSES: ApplicationStatus[] = ['APPROVED', 'SANCTIONED', 'DISBURSED']
 
 type Search = {
   after?: string
@@ -155,6 +146,32 @@ export const Route = createFileRoute('/_shell/_applicant/applications/')({
   component: ApplicationsPage,
 })
 
+function DraftProgress({ applicationId }: { applicationId: string }) {
+  const { data: rawTemplate } = useQuery(formTemplateQuery(applicationId))
+  const { data: validation } = useQuery(validationQuery(applicationId))
+
+  if (!rawTemplate || !validation) return null
+
+  const template = resolveTemplate(rawTemplate)
+  const order = journeySteps(template)
+  const totalSteps = order.length
+
+  const completedCount = order.filter((step) => {
+    if (step === REVIEW) {
+      return order.every(
+        (s) => s === REVIEW || issuesForStep(template, validation.issues, s).length === 0,
+      )
+    }
+    return issuesForStep(template, validation.issues, step).length === 0
+  }).length
+
+  return (
+    <span className={styles.draftStepsProgress}>
+      {completedCount} of {totalSteps} steps complete
+    </span>
+  )
+}
+
 function ApplicationsPage() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
@@ -182,18 +199,6 @@ function ApplicationsPage() {
     navigate({ search: (previous) => ({ ...previous, ...change, after: undefined }) })
 
   // Summary counts for the metric cards.
-  const totalCount = allApps.length
-  const draftsCount = allApps.filter((a) => a.status === 'DRAFT').length
-  const submittedCount = allApps.filter((a) =>
-    SUBMITTED_STATUSES.includes(a.status),
-  ).length
-  const underReviewCount = allApps.filter((a) =>
-    UNDER_REVIEW_STATUSES.includes(a.status),
-  ).length
-  const approvedCount = allApps.filter((a) =>
-    APPROVED_STATUSES.includes(a.status),
-  ).length
-
   // Quick lookup maps for the cycle and enterprise columns.
   const cycleMap = new Map((cycles?.mine ?? []).map((c) => [c.id, c]))
   const enterpriseMap = new Map((enterprises ?? []).map((e) => [e.id, e]))
@@ -235,90 +240,6 @@ function ApplicationsPage() {
       />
 
       <div className={styles.pageContainer} {...mark('application-list')}>
-        <section className={styles.metrics} aria-label="Application summary metrics">
-          <button
-            type="button"
-            className={`${styles.metricCard} ${!search.status ? styles.metricCardActive : ''}`}
-            onClick={() => filter({ status: undefined })}
-          >
-            <div className={styles.metricIconBadge} data-color="blue">
-              <FileText aria-hidden="true" />
-            </div>
-            <div className={styles.metricInfo}>
-              <span className={styles.metricLabel}>Total applications</span>
-              <strong className={styles.metricValue}>{totalCount}</strong>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className={`${styles.metricCard} ${search.status === 'DRAFT' ? styles.metricCardActive : ''}`}
-            onClick={() => filter({ status: 'DRAFT' })}
-          >
-            <div className={styles.metricIconBadge} data-color="amber">
-              <FilePenLine aria-hidden="true" />
-            </div>
-            <div className={styles.metricInfo}>
-              <span className={styles.metricLabel}>Drafts</span>
-              <strong className={styles.metricValue}>{draftsCount}</strong>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className={`${styles.metricCard} ${
-              search.status && SUBMITTED_STATUSES.includes(search.status)
-                ? styles.metricCardActive
-                : ''
-            }`}
-            onClick={() => filter({ status: 'SUBMITTED' })}
-          >
-            <div className={styles.metricIconBadge} data-color="blue">
-              <FileText aria-hidden="true" />
-            </div>
-            <div className={styles.metricInfo}>
-              <span className={styles.metricLabel}>Submitted</span>
-              <strong className={styles.metricValue}>{submittedCount}</strong>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className={`${styles.metricCard} ${
-              search.status && UNDER_REVIEW_STATUSES.includes(search.status)
-                ? styles.metricCardActive
-                : ''
-            }`}
-            onClick={() => filter({ status: 'DESK_REVIEW' })}
-          >
-            <div className={styles.metricIconBadge} data-color="purple">
-              <Clock3 aria-hidden="true" />
-            </div>
-            <div className={styles.metricInfo}>
-              <span className={styles.metricLabel}>Under review</span>
-              <strong className={styles.metricValue}>{underReviewCount}</strong>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className={`${styles.metricCard} ${
-              search.status && APPROVED_STATUSES.includes(search.status)
-                ? styles.metricCardActive
-                : ''
-            }`}
-            onClick={() => filter({ status: 'APPROVED' })}
-          >
-            <div className={styles.metricIconBadge} data-color="green">
-              <CheckCircle2 aria-hidden="true" />
-            </div>
-            <div className={styles.metricInfo}>
-              <span className={styles.metricLabel}>Approved</span>
-              <strong className={styles.metricValue}>{approvedCount}</strong>
-            </div>
-          </button>
-        </section>
-
         <div className={styles.controlsBar}>
           <div className={styles.searchWrap}>
             <SearchIcon className={styles.searchIcon} aria-hidden="true" />
@@ -592,12 +513,19 @@ function ApplicationsPage() {
                           </div>
                         </td>
                         <td className={styles.td}>
-                          <span
-                            className={styles.statusPill}
-                            data-status={application.status}
-                          >
-                            {labelFor(application.status)}
-                          </span>
+                          <div className={styles.cellStack}>
+                            <div>
+                              <span
+                                className={styles.statusPill}
+                                data-status={application.status}
+                              >
+                                {labelFor(application.status)}
+                              </span>
+                            </div>
+                            {application.status === 'DRAFT' ? (
+                              <DraftProgress applicationId={application.id} />
+                            ) : null}
+                          </div>
                         </td>
                         <td className={styles.td}>
                           <div className={styles.cellStack}>

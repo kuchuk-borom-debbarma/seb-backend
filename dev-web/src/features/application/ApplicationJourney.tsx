@@ -214,8 +214,9 @@ function withMinutes(description: string, minutes?: number | null): string {
 }
 
 function stepLabel(step: ApplicationJourneyStep, stageTitle?: string): string {
-  if (step === ATTACH_EVIDENCE) return 'Attach evidence'
+  if (step === ATTACH_EVIDENCE) return 'Attach documents'
   if (step === REVIEW) return 'Review and submit'
+  if (stageTitle?.toUpperCase() === 'EVIDENCE' || step === 'DOCUMENTS') return 'NOC'
   return stageTitle ?? humanize(step)
 }
 
@@ -225,10 +226,17 @@ function stepDescription(
   stageDescription?: string | null,
 ): string {
   if (step === ATTACH_EVIDENCE) {
-    return 'Attach each document required by this cycle and by the answers in the form.'
+    return 'Attach a PDF, JPEG or PNG for each document, up to 2 MB.'
   }
   if (step === REVIEW) {
     return 'Check every answer and document before creating the formal submission.'
+  }
+  if (
+    stageTitle?.toUpperCase() === 'EVIDENCE' ||
+    stageTitle?.toUpperCase() === 'NOC' ||
+    step === 'DOCUMENTS'
+  ) {
+    return stageDescription ?? 'Answer the NOC questions for this application.'
   }
   return (
     stageDescription ??

@@ -10,7 +10,7 @@
  * that — so the wording changes as well as the tone.
  */
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Clock, Hourglass } from 'lucide-react'
+import { AlertTriangle, CalendarClock, Hourglass } from 'lucide-react'
 import { cyclesQuery } from '#/features/application/queries'
 import { formatDateTime, formatRelative } from '#/lib/format'
 import styles from './ClosingNotice.module.css'
@@ -34,7 +34,7 @@ export function ClosingNotice({ programmeCycleId }: { programmeCycleId: string }
     return (
       <div className={styles.noticeCard} data-tone="error" role="alert">
         <div className={styles.iconBadge}>
-          <AlertTriangle aria-hidden="true" />
+          <AlertTriangle aria-hidden="true" size={20} />
         </div>
         <div className={styles.noticeContent}>
           <h3 className={styles.noticeTitle}>This cycle has closed</h3>
@@ -63,7 +63,7 @@ export function ClosingNotice({ programmeCycleId }: { programmeCycleId: string }
       aria-label="Cycle closing notice"
     >
       <div className={styles.iconBadge}>
-        {soon ? <Hourglass aria-hidden="true" /> : <Clock aria-hidden="true" />}
+        {soon ? <Hourglass aria-hidden="true" size={20} /> : <CalendarClock aria-hidden="true" size={20} />}
       </div>
       <div className={styles.noticeContent}>
         <h3 className={styles.noticeTitle}>

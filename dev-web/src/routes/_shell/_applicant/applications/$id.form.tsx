@@ -6,7 +6,6 @@ import { ClosingNotice } from '#/features/application/ClosingNotice'
 import {
   ATTACH_EVIDENCE,
   ApplicationJourney,
-  firstIncompleteStep,
   issuesForStep,
   journeySteps,
   stageForField,
@@ -315,102 +314,45 @@ function DraftFormPage() {
   const readOnly = Boolean(application) && editable.size === 0
   const stageKeys = template ? template.stages.map((stage) => stage.key) : []
   const hashStage = hash && template ? stageForField(template, hash) : null
-  const incomplete = template ? firstIncompleteStep(template, issues) : null
   const firstEditableStage = stageKeys.find((key) => editable.has(key))
   const firstIncompleteFormIndex = template
     ? stageKeys.findIndex((key) => issuesForStep(template, issues, key).length > 0)
     : -1
+
   /*
-   * Evidence lives on its own route. Its missing files must not make the
-   * completed answer stages appear unreachable: they remain available for
-   * review and correction until the applicant returns to the upload step.
+   * Initial stage to open when not explicitly requested in the URL.
+   * Captured so the form opens at the right place on entry, but never jumps
+   * automatically while the applicant is actively editing.
    */
-  const lastReachableFormIndex =
-    firstIncompleteFormIndex === -1 ? stageKeys.length - 1 : firstIncompleteFormIndex
-  const defaultStage =
-    application?.status === 'REVISION_REQUIRED' && firstEditableStage
+  const initialStage =
+    hashStage ??
+    (application?.status === 'REVISION_REQUIRED' && firstEditableStage
       ? firstEditableStage
       : !readOnly && firstIncompleteFormIndex !== -1
         ? stageKeys[firstIncompleteFormIndex]!
-        : stageKeys[0]
-  const requestedStage =
-    search.stage && stageKeys.includes(search.stage) ? search.stage : hashStage
-  const requestedIndex = requestedStage ? stageKeys.indexOf(requestedStage) : -1
-  const explicitIssueLink = hashStage !== null && hashStage === requestedStage
-  const activeStage =
-    requestedStage &&
-    (readOnly ||
-      application?.status === 'REVISION_REQUIRED' ||
-      explicitIssueLink ||
-      (requestedIndex >= 0 && requestedIndex <= lastReachableFormIndex))
-      ? requestedStage
-      : defaultStage
+        : stageKeys[0])
 
-  /*
-   * A valid stage key can still be unreachable because an earlier stage is
-   * incomplete. Keep the address honest when that happens: browser history
-   * and a copied link must name the stage that is actually on screen. Field
-   * hashes remain the explicit exception and retain their requested stage.
-   */
+  // Sync initial stage into search params so the active stage is fixed and persistent.
   useEffect(() => {
-    if (
-      !application ||
-      !validation ||
-      !template ||
-      !activeStage ||
-      !search.stage ||
-      search.stage === activeStage ||
-      explicitIssueLink
-    ) {
-      return
+    if (!template || !stageKeys.length || search.stage) return
+    if (initialStage) {
+      void navigate({
+        search: { stage: initialStage },
+        replace: true,
+      })
     }
-    void navigate({
-      search: { stage: activeStage },
-      hash: '',
-      replace: true,
-    })
-  }, [
-    activeStage,
-    application,
-    explicitIssueLink,
-    navigate,
-    search.stage,
-    template,
-    validation,
-  ])
+  }, [template, stageKeys.length, search.stage, initialStage, navigate])
 
-  /*
-   * The evidence screen is part of the same ordered journey, but it has its
-   * own route rather than a form `stage`. Once the answer stages are complete,
-   * rendering a plain `/form` address would otherwise fall through to the
-   * first stage even though the next reachable work is attaching files. That
-   * makes a form-to-evidence continuation appear stuck.
-   *
-   * Field bookmarks, revision work and read-only browsing retain their normal
-   * form behavior; only an ordinary draft resume is redirected.
-   */
-  const resumeAtEvidence =
-    !readOnly &&
-    application?.status !== 'REVISION_REQUIRED' &&
-    !search.stage &&
-    !hash &&
-    incomplete === ATTACH_EVIDENCE
-  useEffect(() => {
-    if (!resumeAtEvidence) return
-    void router.navigate({
-      to: '/applications/$id/documents',
-      params: { id },
-      replace: true,
-    })
-  }, [id, resumeAtEvidence, router])
+  const currentStage =
+    search.stage && stageKeys.includes(search.stage)
+      ? search.stage
+      : (initialStage ?? stageKeys[0])
 
-  if (!application || !answers || !template || !validation || resumeAtEvidence) {
+  if (!application || !answers || !template || !validation || !currentStage) {
     return null
   }
 
   const steps = journeySteps(template)
-  const currentStage = activeStage ?? stageKeys[0]
-  if (!currentStage) return null
   const activeIndex = steps.indexOf(currentStage)
   const locked = !editable.has(currentStage)
 
@@ -462,23 +404,17 @@ function DraftFormPage() {
   return (
     <main className={styles.pageShell}>
       <div className={styles.headerWrap}>
-        <div className={styles.titleRow}>
-          <Link
-            to="/applications"
-            className={styles.backBtn}
-            aria-label="Back to applications"
-          >
-            <ArrowLeft size={18} aria-hidden="true" />
-          </Link>
+        <div className={styles.headerLeft}>
           <h1 className={styles.pageTitle}>Application form</h1>
+          <p className={styles.pageDescription}>
+            {readOnly
+              ? 'This application can no longer be edited.'
+              : application.status === 'REVISION_REQUIRED'
+                ? 'Only the stages the programme office asked you to correct can be changed.'
+                : 'Your answers are saved as you type.'}
+          </p>
         </div>
-        <p className={styles.pageDescription}>
-          {readOnly
-            ? 'This application can no longer be edited.'
-            : application.status === 'REVISION_REQUIRED'
-              ? 'Only the stages the programme office asked you to correct can be changed.'
-              : 'Your answers are saved as you type.'}
-        </p>
+        <FormArtwork />
       </div>
 
       {saveError ? (
@@ -606,4 +542,81 @@ function SaveIndicator({ state, savedAt }: { state: SaveState; savedAt: string |
     )
   }
   return null
+}
+
+export function FormArtwork() {
+  return (
+    <svg
+      width="130"
+      height="85"
+      viewBox="0 0 130 85"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={styles.headerArtwork}
+      aria-hidden="true"
+    >
+      <circle cx="98" cy="38" r="28" fill="#FEF3C7" opacity="0.6" />
+      <circle cx="38" cy="52" r="22" fill="#EBF3FC" opacity="0.7" />
+
+      {/* Clipboard board */}
+      <rect
+        x="52"
+        y="14"
+        width="54"
+        height="66"
+        rx="6"
+        fill="#FFFFFF"
+        stroke="#CBD5E1"
+        strokeWidth="1.5"
+      />
+
+      {/* Clip at top */}
+      <rect x="68" y="10" width="22" height="7" rx="2" fill="#CBD5E1" stroke="#94A3B8" strokeWidth="1.2" />
+      <path
+        d="M74 10C74 7.5 76 5.5 79 5.5C82 5.5 84 7.5 84 10"
+        stroke="#94A3B8"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+
+      {/* Checklist items */}
+      <rect x="59" y="27" width="8" height="8" rx="2" stroke="#4271B7" strokeWidth="1.4" fill="#F0F5FC" />
+      <path
+        d="M61 31L63.5 33.5L68 28.5"
+        stroke="#4271B7"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <line x1="72" y1="31" x2="96" y2="31" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" />
+
+      <rect x="59" y="41" width="8" height="8" rx="2" stroke="#4271B7" strokeWidth="1.4" fill="#F0F5FC" />
+      <path
+        d="M61 45L63.5 47.5L68 42.5"
+        stroke="#4271B7"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <line x1="72" y1="45" x2="92" y2="45" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" />
+
+      <rect x="59" y="55" width="8" height="8" rx="2" stroke="#4271B7" strokeWidth="1.4" fill="#F0F5FC" />
+      <path
+        d="M61 59L63.5 61.5L68 56.5"
+        stroke="#4271B7"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <line x1="72" y1="59" x2="88" y2="59" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" />
+
+      {/* Potted plant */}
+      <path d="M110 60H124L121 78H113L110 60Z" fill="#FFFFFF" stroke="#94A3B8" strokeWidth="1.4" />
+      <path d="M117 60C117 52 111 48 109 48C109 54 113 60 117 60Z" fill="#23814C" opacity="0.85" />
+      <path d="M117 60C117 50 124 46 126 46C126 53 121 60 117 60Z" fill="#23814C" />
+
+      {/* Ground baseline */}
+      <line x1="42" y1="80" x2="128" y2="80" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
 }

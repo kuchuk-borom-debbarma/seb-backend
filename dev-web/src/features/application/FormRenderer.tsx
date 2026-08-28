@@ -13,21 +13,14 @@
  * every test, and would get steadily slower as cycles grow — so each stage takes
  * only the answers its own fields and its own condition sources use.
  */
-import { memo, useMemo } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
-  Briefcase,
   Calendar,
   Check,
-  IndianRupee,
-  Mail,
-  Percent,
-  Phone,
-  Plus,
+  ChevronUp,
   Trash2,
-  User,
-  UserCheck,
-  Users,
+  UserPlus,
 } from 'lucide-react'
 import type { AnswerEntry, AnswerMap, AnswerValue } from './answers'
 import { entriesOf, issuePath } from './answers'
@@ -39,67 +32,7 @@ import {
   type FormField,
   type ResolvedTemplate,
 } from './formTemplate'
-import { formatMoney } from '#/lib/format'
 import { paiseToRupees, rupeesToPaise } from './money'
-
-/** Selects a suitable Lucide icon for recognized field roles and keys. */
-function getFieldIcon(field: FormField): React.ReactNode | undefined {
-  const key = field.key.toUpperCase()
-  const label = field.label.toLowerCase()
-
-  if (
-    field.role === 'APPLICANT_DATE_OF_BIRTH' ||
-    field.type === 'DATE' ||
-    label.includes('date of birth') ||
-    label.includes('dob')
-  ) {
-    return <Calendar size={14} />
-  }
-  if (
-    key.includes('NAME') ||
-    key.includes('PROMOTER') ||
-    label.includes('name') ||
-    label.includes('promoter')
-  ) {
-    return <User size={14} />
-  }
-  if (
-    key.includes('DESIGNATION') ||
-    key.includes('ROLE') ||
-    label.includes('role in') ||
-    label.includes('designation')
-  ) {
-    return <Briefcase size={14} />
-  }
-  if (key.includes('GENDER') || label.includes('gender')) {
-    return <UserCheck size={14} />
-  }
-  if (
-    key.includes('RELATIONSHIP') ||
-    label.includes('relationship') ||
-    label.includes('of (name)')
-  ) {
-    return <Users size={14} />
-  }
-  if (
-    field.type === 'PHONE' ||
-    key.includes('PHONE') ||
-    label.includes('phone') ||
-    label.includes('mobile')
-  ) {
-    return <Phone size={14} />
-  }
-  if (field.type === 'EMAIL' || key.includes('EMAIL') || label.includes('email')) {
-    return <Mail size={14} />
-  }
-  if (key.includes('PERCENT') || key.includes('SHARE') || label.includes('share')) {
-    return <Percent size={14} />
-  }
-  if (field.type === 'MONEY_PAISE') {
-    return <IndianRupee size={14} />
-  }
-  return undefined
-}
 
 /** Computes full years between the given date and today. */
 function computeAge(dateStr: string | null | undefined): number | null {
@@ -189,17 +122,27 @@ function Question({
    * author's styling decision; absence means the renderer's defaults.
    */
   const presentation = field.presentation
+  const isYearField =
+    field.key.toUpperCase().includes('YEAR') || field.label.toLowerCase().includes('year')
+  const isSchemeField =
+    field.key.toUpperCase().includes('SCHEME') || field.label.toLowerCase().includes('scheme')
+
   const fieldExtras = {
     note: presentation.note,
     tone: presentation.tone,
-    widthHint: presentation.widthHint,
+    widthHint: isYearField ? undefined : presentation.widthHint,
   }
   const autoComplete = presentation.autocompleteHint
     ? { autoComplete: presentation.autocompleteHint }
     : {}
+
   const placeholder = presentation.placeholder
     ? { placeholder: presentation.placeholder }
-    : {}
+    : isYearField
+      ? { placeholder: 'Select year' }
+      : isSchemeField
+        ? { placeholder: 'Select scheme' }
+        : {}
   /* Characters remaining, only where the cycle asked and a cap exists. */
   const counter =
     presentation.showCharCount && field.validation.maxLength
@@ -296,7 +239,7 @@ function Question({
       )
     }
     return (
-      <Field id={id} label={label} explain={explain} issue={issue} icon={getFieldIcon(field)} {...fieldExtras}>
+      <Field id={id} label={label} explain={explain} issue={issue} {...fieldExtras}>
         <select
           id={id}
           className="select"
@@ -320,7 +263,7 @@ function Question({
     const chosen = Array.isArray(value) ? (value as readonly string[]) : []
     if (presentation.choiceStyle === 'MULTISELECT') {
       return (
-        <Field id={id} label={label} explain={explain} issue={issue} icon={getFieldIcon(field)} {...fieldExtras}>
+        <Field id={id} label={label} explain={explain} issue={issue} {...fieldExtras}>
           <select
             id={id}
             className="select"
@@ -382,37 +325,47 @@ function Question({
     )
   }
 
+function formatRupeesWithCommas(value: string): string {
+  if (!value) return ''
+  const [whole, decimal] = value.split('.')
+  const lastThree = whole ? whole.slice(-3) : ''
+  const otherNumbers = whole ? whole.slice(0, -3) : ''
+  const formattedWhole =
+    otherNumbers !== ''
+      ? otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + lastThree
+      : lastThree
+  return decimal !== undefined ? `${formattedWhole}.${decimal}` : formattedWhole
+}
+
   if (field.type === 'MONEY_PAISE') {
     const rupees = paiseToRupees(value)
+    const displayVal = rupees ? `₹${formatRupeesWithCommas(rupees)}` : ''
     return (
       <Field
         id={id}
         label={moneyLabel}
         explain={explain}
-        icon={getFieldIcon(field)}
-        // What the software makes of the amount as it is typed, which is not
-        // the same thing as why the question is asked.
-        hint={rupees.trim() === '' ? undefined : formatMoney(String(rupeesToPaise(rupees) ?? 0))}
+        hint={counter}
         issue={issue}
         {...fieldExtras}
       >
         <input
           id={id}
           className="input tabular"
-          type="number"
-          min={0}
-          step="0.01"
+          type="text"
+          inputMode="numeric"
           disabled={disabled}
-          value={rupees}
-          {...placeholder}
+          value={displayVal}
+          placeholder={field.presentation.placeholder ?? '₹0'}
+          style={{ width: '100%', minHeight: '44px', padding: '10px 14px', fontSize: '14px' }}
           onChange={(event) => {
-            /*
-             * Something that is not an amount leaves the answer alone. It used
-             * to become `NaN`, which JSON sends as `null` — so a stray
-             * character cleared what they had typed rather than being ignored.
-             */
-            const paise = rupeesToPaise(event.target.value)
-            if (paise !== undefined) onChange(paise)
+            const raw = event.target.value.replace(/[^0-9.]/g, '')
+            const paise = rupeesToPaise(raw)
+            if (raw === '') {
+              onChange(null)
+            } else if (paise !== undefined) {
+              onChange(paise)
+            }
           }}
           {...invalid(issues, id)}
         />
@@ -428,7 +381,6 @@ function Question({
         explain={explain}
         issue={issue}
         hint={counter}
-        icon={getFieldIcon(field)}
         {...fieldExtras}
       >
         <textarea
@@ -532,6 +484,31 @@ function Question({
       {...invalid(effectiveIssues, id)}
     />
   )
+  if (isYearField) {
+    return (
+      <Field
+        id={id}
+        label={label}
+        explain={explain}
+        issue={effectiveIssue}
+        hint={counter}
+        badge={ageBadge}
+        {...fieldExtras}
+      >
+        <YearPicker
+          id={id}
+          value={typeof value === 'number' ? value : value ? parseInt(String(value), 10) : null}
+          disabled={disabled}
+          minYear={1901}
+          maxYear={2026}
+          placeholder={presentation.placeholder ?? 'Select year'}
+          issues={effectiveIssues}
+          onChange={(next) => onChange(next)}
+        />
+      </Field>
+    )
+  }
+
   return (
     <Field
       id={id}
@@ -539,7 +516,6 @@ function Question({
       explain={explain}
       issue={effectiveIssue}
       hint={counter}
-      icon={getFieldIcon(field)}
       badge={ageBadge}
       {...fieldExtras}
     >
@@ -560,6 +536,216 @@ function Question({
       )}
     </Field>
   )
+}
+
+function YearPicker({
+  id,
+  value,
+  disabled,
+  minYear = 1901,
+  maxYear = 2026,
+  placeholder = 'Select year',
+  issues,
+  onChange,
+}: {
+  id: string
+  value: number | null | undefined
+  disabled: boolean
+  minYear?: number
+  maxYear?: number
+  placeholder?: string
+  issues: FieldIssues
+  onChange: (next: number | null) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [query, setQuery] = useState<string>(value !== null && value !== undefined ? String(value) : '')
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setQuery(value !== null && value !== undefined ? String(value) : '')
+  }, [value])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const years = useMemo(() => {
+    const list: number[] = []
+    for (let y = maxYear; y >= minYear; y--) {
+      list.push(y)
+    }
+    return list
+  }, [minYear, maxYear])
+
+  const filteredYears = useMemo(() => {
+    if (!query) return years
+    const q = query.trim()
+    return years.filter((y) => String(y).includes(q))
+  }, [years, query])
+
+  const handleSelect = (year: number) => {
+    onChange(year)
+    setQuery(String(year))
+    setIsOpen(false)
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 4)
+    setQuery(raw)
+    setIsOpen(true)
+    if (raw === '') {
+      onChange(null)
+    } else {
+      const num = parseInt(raw, 10)
+      if (raw.length === 4) {
+        if (num >= minYear && num <= maxYear) {
+          onChange(num)
+        } else {
+          onChange(num)
+        }
+      } else {
+        onChange(null)
+      }
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      setIsOpen(false)
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setIsOpen(true)
+    } else if (e.key === 'Enter') {
+      if (filteredYears.length > 0 && isOpen) {
+        e.preventDefault()
+        handleSelect(filteredYears[0]!)
+      }
+    }
+  }
+
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative', width: '100%' }}>
+      <div style={{ position: 'relative', width: '100%' }}>
+        <input
+          id={id}
+          className="input tabular"
+          type="text"
+          inputMode="numeric"
+          disabled={disabled}
+          value={query}
+          placeholder={placeholder}
+          style={{ width: '100%', minHeight: '44px', padding: '10px 38px 10px 14px', fontSize: '14px' }}
+          onClick={() => !disabled && setIsOpen(true)}
+          onFocus={() => !disabled && setIsOpen(true)}
+          onChange={handleInputChange}
+          onKeyDown={handleKeyDown}
+          autoComplete="off"
+          {...invalid(issues, id)}
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="Toggle year selection"
+          disabled={disabled}
+          onClick={() => !disabled && setIsOpen((prev) => !prev)}
+          style={{
+            position: 'absolute',
+            right: '8px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            background: 'transparent',
+            border: 'none',
+            padding: '4px',
+            color: 'var(--ink-muted)',
+            display: 'flex',
+            alignItems: 'center',
+            cursor: disabled ? 'default' : 'pointer',
+          }}
+        >
+          <Calendar size={16} />
+        </button>
+      </div>
+
+      {isOpen && !disabled && (
+        <div
+          ref={listRef}
+          role="listbox"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            maxHeight: '220px',
+            overflowY: 'auto',
+            background: '#ffffff',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
+            zIndex: 100,
+            padding: '4px',
+          }}
+        >
+          {filteredYears.length === 0 ? (
+            <div style={{ padding: '8px 12px', fontSize: '13px', color: 'var(--ink-muted)' }}>
+              No matching years ({minYear}–{maxYear})
+            </div>
+          ) : (
+            filteredYears.map((yr) => {
+              const isSelected = value === yr
+              return (
+                <button
+                  key={yr}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '8px 12px',
+                    fontSize: '13.5px',
+                    fontWeight: isSelected ? 600 : 400,
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: isSelected ? '#ebf3fc' : 'transparent',
+                    color: isSelected ? 'var(--brand)' : 'var(--ink)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isSelected) e.currentTarget.style.background = '#f8fafc'
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isSelected) e.currentTarget.style.background = 'transparent'
+                  }}
+                  onClick={() => handleSelect(yr)}
+                >
+                  <span>{yr}</span>
+                  {isSelected && <span style={{ fontSize: '12px', color: 'var(--brand)' }}>✓</span>}
+                </button>
+              )
+            })
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function getInitials(name: string, fallback: string): string {
+  if (!name) return fallback
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return fallback
+  if (parts.length === 1) return (parts[0]?.[0] ?? fallback).toUpperCase()
+  return ((parts[0]?.[0] ?? '') + (parts[parts.length - 1]?.[0] ?? '')).toUpperCase()
 }
 
 /** A block the applicant may fill in more than once. */
@@ -585,16 +771,44 @@ function RepeatGroup({
 
   return (
     <fieldset className="stack" id={field.key} tabIndex={-1} style={{ border: 0, padding: 0, margin: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
-        <div>
-          <legend className="field-label" style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--ink)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <legend className="field-label" style={{ fontSize: '1.0625rem', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>
             {field.label}
           </legend>
-          {field.helpText ? <span className="field-hint">{field.helpText}</span> : null}
+          <span
+            className="badge"
+            style={{
+              borderColor: '#d8e6f8',
+              background: '#ebf3fc',
+              color: 'var(--brand)',
+              fontSize: '0.75rem',
+              fontWeight: 500,
+              padding: '2px 8px',
+            }}
+          >
+            {entries.length} {entries.length === 1 ? (field.label.toLowerCase().endsWith('s') ? field.label.toLowerCase().slice(0, -1) : field.label.toLowerCase()) : field.label.toLowerCase()}
+          </span>
         </div>
-        <span className="badge" data-tone="action">
-          {entries.length} {entries.length === 1 ? (field.label.toLowerCase().endsWith('s') ? field.label.toLowerCase().slice(0, -1) : field.label.toLowerCase()) : field.label.toLowerCase()}
-        </span>
+        {!disabled && (atMost === null || entries.length < atMost) ? (
+          <button
+            type="button"
+            className="button"
+            title={`Add another ${field.label}`}
+            style={{
+              width: '32px',
+              height: '32px',
+              padding: 0,
+              borderRadius: '6px',
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              color: 'var(--ink)',
+            }}
+            onClick={() => onChange([...entries, {}])}
+          >
+            <UserPlus size={16} />
+          </button>
+        ) : null}
       </div>
 
       {issues[field.key] ? (
@@ -617,8 +831,8 @@ function RepeatGroup({
               key={index}
               style={{
                 border: '1px solid var(--border)',
-                borderRadius: 'var(--radius)',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                borderRadius: '12px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
                 background: 'var(--surface)',
                 overflow: 'hidden',
               }}
@@ -629,64 +843,70 @@ function RepeatGroup({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: 'var(--space-3) var(--space-4)',
+                  padding: '12px 18px',
                   background: 'var(--surface-sunken)',
                   borderBottom: '1px solid var(--border-soft)',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div
                     style={{
-                      width: '28px',
-                      height: '28px',
+                      width: '32px',
+                      height: '32px',
                       borderRadius: '50%',
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
+                      background: '#e2e8f0',
+                      color: '#334155',
+                      fontSize: '12px',
+                      fontWeight: 600,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      color: 'var(--ink-secondary)',
+                      flexShrink: 0,
                     }}
                   >
-                    <User size={15} />
+                    {getInitials(nameValue, String(index + 1))}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--ink)' }}>
+                    <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--ink)' }}>
                       {nameValue || `${field.label} ${index + 1}`}
                     </span>
                     {index === 0 ? (
-                      <span className="badge" data-tone="ok" style={{ fontSize: '0.625rem' }}>
+                      <span className="badge" data-tone="ok" style={{ fontSize: '0.6875rem' }}>
                         Primary / Founder
                       </span>
                     ) : null}
                     {designationValue ? (
-                      <span className="badge" style={{ fontSize: '0.625rem' }}>
+                      <span className="badge" style={{ fontSize: '0.6875rem', textTransform: 'uppercase' }}>
                         {designationValue.replace(/_/g, ' ')}
                       </span>
                     ) : null}
                   </div>
                 </div>
 
-                {!disabled && entries.length > atLeast ? (
-                  <button
-                    type="button"
-                    className="button"
-                    data-variant="danger"
-                    style={{
-                      minHeight: '1.875rem',
-                      padding: '0 var(--space-3)',
-                      fontSize: '0.75rem',
-                      gap: '4px',
-                    }}
-                    onClick={() => onChange(entries.filter((_, each) => each !== index))}
-                  >
-                    <Trash2 size={13} />
-                    <span>Remove</span>
-                  </button>
-                ) : null}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {!disabled && entries.length > atLeast ? (
+                    <button
+                      type="button"
+                      className="button"
+                      data-variant="danger"
+                      style={{
+                        minHeight: '1.875rem',
+                        padding: '0 var(--space-2)',
+                        fontSize: '0.75rem',
+                        gap: '4px',
+                      }}
+                      onClick={() => onChange(entries.filter((_, each) => each !== index))}
+                    >
+                      <Trash2 size={13} />
+                      <span>Remove</span>
+                    </button>
+                  ) : (
+                    <ChevronUp size={16} color="var(--ink-muted)" aria-hidden="true" />
+                  )}
+                </div>
               </div>
 
-              <div className="card-body detail-grid" style={{ padding: 'var(--space-4)' }}>
+              <div className="card-body detail-grid" style={{ padding: '20px' }}>
                 {members
                   .filter((member) => entryVisible.has(member.key) && member.type !== 'FILE')
                   .map((member) => (
@@ -726,21 +946,23 @@ function RepeatGroup({
             type="button"
             className="button"
             style={{
-              width: '100%',
-              minHeight: '2.75rem',
-              borderStyle: 'dashed',
-              borderColor: 'var(--border-strong)',
-              background: 'var(--surface-sunken)',
+              width: 'fit-content',
+              minHeight: '2.5rem',
+              border: '1px solid var(--brand)',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--surface)',
+              color: 'var(--brand)',
               gap: '8px',
+              padding: '0 var(--space-4)',
               fontSize: '0.875rem',
               fontWeight: 500,
             }}
             onClick={() => onChange([...entries, {}])}
           >
-            <Plus size={16} />
+            <UserPlus size={16} />
             <span>Add another {field.label.toLowerCase().endsWith('s') ? field.label.toLowerCase().slice(0, -1) : field.label.toLowerCase()}</span>
           </button>
-          <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+          <div style={{ textAlign: 'left', fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
             {entries.length} of {atMost} {field.label.toLowerCase()} added
           </div>
         </div>
@@ -786,14 +1008,69 @@ export const StageForm = memo(
       .filter((field) => visible.has(field.key) && field.type !== 'FILE')
       .filter((field) => field.source === 'APPLICANT')
 
+    const fieldGroups = useMemo(() => {
+      const nonRepeat = fields.filter((field) => field.type !== 'REPEAT_GROUP')
+      const groups: Array<{ type: 'single' | 'grid'; fields: FormField[] }> = []
+      let currentGrid: FormField[] = []
+
+      for (const field of nonRepeat) {
+        if (field.type === 'BOOLEAN' || field.type === 'STATEMENT' || field.type === 'ATTESTATION') {
+          if (currentGrid.length > 0) {
+            groups.push({ type: currentGrid.length > 1 ? 'grid' : 'single', fields: currentGrid })
+            currentGrid = []
+          }
+          groups.push({ type: 'single', fields: [field] })
+        } else if (stageKey === 'PRIOR_FUNDING' || field.requirement === 'CONDITIONAL') {
+          currentGrid.push(field)
+        } else {
+          if (currentGrid.length > 0) {
+            groups.push({ type: currentGrid.length > 1 ? 'grid' : 'single', fields: currentGrid })
+            currentGrid = []
+          }
+          groups.push({ type: 'single', fields: [field] })
+        }
+      }
+      if (currentGrid.length > 0) {
+        groups.push({ type: currentGrid.length > 1 ? 'grid' : 'single', fields: currentGrid })
+      }
+      return groups
+    }, [fields, stageKey])
+
     return (
-      <div className="stack">
-        <div className="detail-grid">
-          {fields
-            .filter((field) => field.type !== 'REPEAT_GROUP')
-            .map((field) => (
+      <div className="stack" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '28px' }}>
+        {fieldGroups.map((group, groupIdx) => {
+          if (group.type === 'grid') {
+            return (
+              <div
+                key={groupIdx}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: '20px',
+                  width: '100%',
+                }}
+              >
+                {group.fields.map((field) => (
+                  <Question
+                    key={field.key}
+                    field={field}
+                    id={field.key}
+                    value={(answers[field.key] ?? null) as AnswerValue}
+                    required={isRequiredWhenVisible(template, field, answers, visible)}
+                    disabled={disabled}
+                    issues={issues}
+                    onChange={(next) => onChange(field.key, next)}
+                  />
+                ))}
+              </div>
+            )
+          }
+
+          const field = group.fields[0]
+          if (!field) return null
+          return (
+            <div key={field.key} style={{ width: '100%' }}>
               <Question
-                key={field.key}
                 field={field}
                 id={field.key}
                 value={(answers[field.key] ?? null) as AnswerValue}
@@ -802,8 +1079,10 @@ export const StageForm = memo(
                 issues={issues}
                 onChange={(next) => onChange(field.key, next)}
               />
-            ))}
-        </div>
+            </div>
+          )
+        })}
+
         {fields
           .filter((field) => field.type === 'REPEAT_GROUP')
           .map((field) => (

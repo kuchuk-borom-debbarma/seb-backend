@@ -48,15 +48,15 @@ export function Field({
         have announced as "Category ?".
       */}
       <span className="label-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-1)' }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
           {icon ? <span style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--ink-muted)' }} aria-hidden="true">{icon}</span> : null}
           <label className="field-label" htmlFor={id} style={{ margin: 0 }}>
             {label}
           </label>
+          {explain ? <Explain label={label}>{explain}</Explain> : null}
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           {badge}
-          {explain ? <Explain label={label}>{explain}</Explain> : null}
         </span>
       </span>
       {children}
@@ -139,36 +139,41 @@ export function YesNoField({
      * did nothing for every yes/no question on the form. tabIndex makes it
      * focusable as well as scrollable, so arriving here also moves the caret.
      */
-    <fieldset className="choice-field" id={name} tabIndex={-1} disabled={disabled}>
+    <fieldset className="choice-field" id={name} tabIndex={-1} disabled={disabled} style={{ border: 0, padding: 0, margin: 0 }}>
       {/*
         Beside the question, never inside the legend: a control in there becomes
         part of the group's accessible name, and the fieldset would announce as
         "Is a no-objection certificate needed for these premises? ?".
       */}
       {explain ? (
-        <span className="label-row">
-          <legend className="field-label">{question}</legend>
+        <span className="label-row" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '10px' }}>
+          <legend className="field-label" style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--ink)', margin: 0 }}>
+            {question}
+          </legend>
           <Explain label={question}>{explain}</Explain>
         </span>
       ) : (
-        <legend className="field-label">{question}</legend>
+        <legend className="field-label" style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '10px' }}>
+          {question}
+        </legend>
       )}
-      <div className="choice-row">
+      <div className="choice-row" style={{ display: 'flex', gap: '32px', alignItems: 'center', minHeight: 'auto' }}>
         {ANSWERS.map((answer) => (
-          <label className="choice" key={answer.label}>
+          <label className="choice" key={answer.label} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9375rem', fontWeight: 500, color: 'var(--ink)' }}>
             <input
               type="radio"
               name={name}
               checked={value === answer.value}
               onChange={() => onAnswer(answer.value)}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--brand)', cursor: 'pointer', margin: 0 }}
               {...(issue ? { 'aria-describedby': `${name}-error` } : {})}
             />
-            {answer.label}
+            <span>{answer.label}</span>
           </label>
         ))}
       </div>
       {issue ? (
-        <span className="field-error" id={`${name}-error`}>
+        <span className="field-error" id={`${name}-error`} style={{ fontSize: '0.78125rem', color: 'var(--danger)', marginTop: '6px', display: 'block', fontWeight: 500 }}>
           {issue}
         </span>
       ) : hint ? (

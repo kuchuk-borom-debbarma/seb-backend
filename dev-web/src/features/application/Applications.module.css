@@ -21,105 +21,6 @@
 }
 
 /* ==========================================================================
-   4 Top Metric Counter Cards
-   ========================================================================== */
-
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.metricCard {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 18px 20px;
-  border: 1px solid #e9eaec;
-  border-radius: 14px;
-  background: #ffffff;
-  color: var(--text);
-  text-decoration: none;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-  cursor: pointer;
-  text-align: left;
-}
-
-.metricCard:hover {
-  border-color: #d1d5db;
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.06);
-}
-
-.metricCardActive {
-  border-color: #93c5fd;
-  background: #f8faff;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
-}
-
-.metricIconBadge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  flex-shrink: 0;
-  transition: transform 0.2s ease;
-}
-
-.metricCard:hover .metricIconBadge {
-  transform: scale(1.05);
-}
-
-.metricIconBadge[data-color='blue'] {
-  background: #edf5ff;
-  color: #2563eb;
-}
-
-.metricIconBadge[data-color='amber'] {
-  background: #fef8ee;
-  color: #d97706;
-}
-
-.metricIconBadge[data-color='purple'] {
-  background: #f3effc;
-  color: #7c3aed;
-}
-
-.metricIconBadge[data-color='green'] {
-  background: #edf7ee;
-  color: #16a34a;
-}
-
-.metricIconBadge svg {
-  width: 22px;
-  height: 22px;
-  stroke-width: 1.8;
-}
-
-.metricInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.metricLabel {
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.metricValue {
-  color: #111827;
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ==========================================================================
    Search & Filter Controls Bar
    ========================================================================== */
 
@@ -295,45 +196,49 @@
   width: fit-content;
   margin-top: 4px;
   padding: 2px 8px;
-  border-radius: 6px;
-  background: #edf5ff;
-  color: #2563eb;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--brand);
   font-size: 11.5px;
   font-weight: 500;
 }
 
 .typeBadge[data-type='EXPANSION'] {
-  background: #f3effc;
-  color: #7c3aed;
+  border-color: var(--purple);
+  color: var(--purple);
+  background: transparent;
 }
 
 .cycleName {
-  color: #111827;
+  color: var(--ink);
   font-size: 13.5px;
   font-weight: 600;
 }
 
 .cycleCloses {
-  color: #6b7280;
+  color: var(--ink-muted);
   font-size: 12px;
 }
 
 .enterpriseName {
-  color: #111827;
+  color: var(--ink);
   font-size: 13.5px;
   font-weight: 600;
 }
 
 .enterpriseRef {
-  color: #6b7280;
+  color: var(--ink-muted);
   font-size: 12px;
 }
 
 .statusPill {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
-  border-radius: 9999px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -342,32 +247,44 @@
 .statusPill[data-status='APPROVED'],
 .statusPill[data-status='SANCTIONED'],
 .statusPill[data-status='DISBURSED'] {
-  background: #eef7ee;
-  color: #16a34a;
+  border-color: #23814C;
+  color: #23814C;
+  background: transparent;
 }
 
 .statusPill[data-status='DRAFT'] {
-  background: #fef8ee;
-  color: #d97706;
+  border-color: #E2C43A;
+  color: #a88d15;
+  background: transparent;
 }
 
-.statusPill[data-status='SUBMITTED'],
+.statusPill[data-status='SUBMITTED'] {
+  border-color: #4271B7;
+  color: #4271B7;
+  background: transparent;
+}
+
 .statusPill[data-status='DESK_REVIEW'],
 .statusPill[data-status='PARTNER_BANK_EVALUATION'],
+.statusPill[data-status='AWAITING_DECISION'],
 .statusPill[data-status='TTM_REVIEW'] {
-  background: #f3effc;
-  color: #7c3aed;
+  border-color: #7A6A8E;
+  color: #7A6A8E;
+  background: transparent;
 }
 
-.statusPill[data-status='REVISION_REQUIRED'] {
-  background: #fff4ed;
-  color: #ea580c;
-}
-
+.statusPill[data-status='REVISION_REQUIRED'],
 .statusPill[data-status='REJECTED'],
 .statusPill[data-status='CANCELLED'] {
-  background: #fef2f2;
-  color: #dc2626;
+  border-color: #C92929;
+  color: #C92929;
+  background: transparent;
+}
+
+.draftStepsProgress {
+  font-size: 11.5px;
+  color: #6b7280;
+  white-space: nowrap;
 }
 
 .dateText {

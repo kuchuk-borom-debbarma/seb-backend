@@ -227,27 +227,32 @@
 .statusPill {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
-  border-radius: 9999px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
 }
 
 .statusPill[data-status='ACTIVE'] {
-  background: #eef7ee;
-  color: #16a34a;
+  border-color: #23814C;
+  color: #23814C;
+  background: transparent;
 }
 
 .statusPill[data-status='PROPOSED'] {
-  background: #fef8ee;
-  color: #d97706;
+  border-color: #E2C43A;
+  color: #a88d15;
+  background: transparent;
 }
 
 .statusPill[data-status='INACTIVE'],
 .statusPill[data-status='REMOVED'] {
-  background: #fef2f2;
-  color: #dc2626;
+  border-color: #C92929;
+  color: #C92929;
+  background: transparent;
 }
 
 .actionLink {
