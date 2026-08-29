@@ -17,7 +17,10 @@
  * type and size — before a single byte is written.
  */
 import { eq } from 'drizzle-orm'
-import { sebDocumentUploadIntent } from '../../db/schema'
+import {
+  sebCyclePolicyUploadIntent,
+  sebDocumentUploadIntent,
+} from '../../db/schema'
 import type { AppBindings } from '../../bindings'
 import type { Database } from '../../db'
 import { objectStore, relaysThroughWorker } from './index'
@@ -68,11 +71,25 @@ const putObject = async (
   context: StorageRouteContext,
   uploadId: string,
 ): Promise<Response> => {
-  const [intent] = await context.db
+  /*
+   * Two kinds of retained authorization exist — an applicant's document and a
+   * cycle's policy PDF — and a signed PUT carries only the upload id, so both
+   * tables answer for it. The ids are UUIDs minted by one `crypto.randomUUID`,
+   * so a collision between the tables is not a case to design for.
+   */
+  const [documentIntent] = await context.db
     .select()
     .from(sebDocumentUploadIntent)
     .where(eq(sebDocumentUploadIntent.id, uploadId))
     .limit(1)
+  const [policyIntent] = documentIntent
+    ? [undefined]
+    : await context.db
+        .select()
+        .from(sebCyclePolicyUploadIntent)
+        .where(eq(sebCyclePolicyUploadIntent.id, uploadId))
+        .limit(1)
+  const intent = documentIntent ?? policyIntent
 
   // A missing intent and a spent one are refused identically, so the path
   // cannot be used to discover which upload ids exist.

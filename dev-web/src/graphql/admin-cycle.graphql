@@ -3,7 +3,6 @@ fragment AdminCycleHead on AdminProgrammeCycle {
   cycleCode
   displayName
   cycleYear
-  policyReference
   applicantGuidance
   partnerBankGuidance
   status
@@ -76,6 +75,15 @@ query AdminCycleById($id: ID!) {
           groupDefinitions { ...GroupDefinitionFields }
           assessmentRules { id assessmentType requiredOutcome }
           reasons { id context code label applicantMessageTemplate }
+          policyDocument {
+            id
+            currentVersion
+            originalFilename
+            sizeBytes
+            uploadedAt
+            scanStatus
+            versions { version operation originalFilename sizeBytes uploadedAt scanStatus }
+          }
         }
       }
       counts(id: $id) {
@@ -138,18 +146,6 @@ mutation ArchiveCycle($input: CycleTransitionInput!) {
   }
 }
 
-mutation ChangeCycleClosing($input: CycleClosingInput!) {
-  admin {
-    programmeCycle {
-      changeClosingTime(input: $input) {
-        success
-        message
-        response { head { ...AdminCycleHead } }
-      }
-    }
-  }
-}
-
 mutation UpdateCycleGuidance($input: CycleGuidanceInput!) {
   admin {
     programmeCycle {
@@ -195,6 +191,43 @@ mutation RestoreCycleDraft($id: ID!, $expectedVersion: Int!) {
         success
         message
         response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}
+
+mutation IssuePolicyDocumentUpload($input: IssuePolicyDocumentUploadInput!) {
+  admin {
+    programmeCycle {
+      issuePolicyDocumentUpload(input: $input) {
+        success
+        message
+        response { uploadId uploadUrl expiresAt requiredHeaders { name value } }
+      }
+    }
+  }
+}
+
+mutation FinalizePolicyDocumentUpload($input: FinalizePolicyDocumentUploadInput!) {
+  admin {
+    programmeCycle {
+      finalizePolicyDocumentUpload(input: $input) {
+        success
+        message
+        response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}
+
+# Fetched on click, never cached: the URL expires in minutes.
+query PolicyDocumentDownloadUrl($cycleId: ID!, $version: Int) {
+  admin {
+    programmeCycle {
+      policyDocumentDownloadUrl(cycleId: $cycleId, version: $version) {
+        success
+        message
+        response { downloadUrl expiresAt }
       }
     }
   }

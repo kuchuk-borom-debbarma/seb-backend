@@ -5,6 +5,7 @@ export {
   applicationStatusExplanations,
   applicationTimeline,
   availableProgrammeCycles,
+  cyclePolicyDocumentDownloadUrl,
   expansionEligibility,
   myApplications,
   myProgrammeCycles,

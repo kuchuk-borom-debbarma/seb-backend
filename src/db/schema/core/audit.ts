@@ -74,6 +74,8 @@ export const auditActions = {
   documentRestored: 'SEB.DOCUMENT_RESTORED',
   cycleCreated: 'SEB.CYCLE_CREATED',
   cycleUpdated: 'SEB.CYCLE_UPDATED',
+  cyclePolicyUploadIssued: 'SEB.CYCLE_POLICY_UPLOAD_ISSUED',
+  cyclePolicyFinalized: 'SEB.CYCLE_POLICY_FINALIZED',
   cycleOpened: 'SEB.CYCLE_OPENED',
   cycleGuidanceChanged: 'SEB.CYCLE_GUIDANCE_CHANGED',
   cycleClosingChanged: 'SEB.CYCLE_CLOSING_CHANGED',

@@ -15,6 +15,7 @@ import { formFieldRoles } from '../../../db/schema/seb/form-template'
 import { formTemplateProblem } from '../form-template-input'
 import { expandGroupDefinitions } from '../group-definitions'
 import { decodeAdminCursor, adminPageSize } from '../pagination'
+import { findCyclePolicyDocument } from '../queries/policy-document'
 import {
   findExpiredOpenCycles,
   insertProgrammeCycle,
@@ -171,7 +172,10 @@ const listOf = (items: readonly string[]): string =>
     ? items[0]!
     : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]!}`
 
-const openingProblem = (cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>): string | null => {
+const openingProblem = (
+  cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>,
+  policyDocument: Awaited<ReturnType<typeof findCyclePolicyDocument>>,
+): string | null => {
   if (!cycle) return 'The programme cycle was not found.'
   const version = cycle.version
   /*
@@ -180,7 +184,9 @@ const openingProblem = (cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>): 
    * it is.
    */
   const missing = [
-    !version.policyReference?.trim() ? 'the policy reference' : null,
+    policyDocument === null
+      ? 'the policy document (the order or circular this cycle implements)'
+      : null,
     !version.applicantGuidance?.trim() ? 'the guidance for applicants' : null,
     !version.opensAt ? 'the opening date' : null,
     // No closing date is a legitimate opening: the cycle takes applications
@@ -195,6 +201,19 @@ const openingProblem = (cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>): 
   ].filter((field): field is string => field !== null)
   if (missing.length > 0) {
     return `Before this cycle can open, fill in ${listOf(missing)}.`
+  }
+  /*
+   * A document nobody can download must not gate-pass: applicants and staff
+   * both fail closed on anything but an ACCEPTED scan, so a cycle opened on a
+   * pending or rejected file would publish a link that only ever refuses.
+   */
+  if (policyDocument !== null && policyDocument.scanStatus === 'PENDING') {
+    return 'The policy document is still being checked for malware. '
+      + 'Try again in a moment.'
+  }
+  if (policyDocument !== null && policyDocument.scanStatus !== 'ACCEPTED') {
+    return 'The policy document failed its malware check. '
+      + 'Upload a clean copy before opening.'
   }
   /*
    * Every role bound before a cycle can open.
@@ -220,7 +239,12 @@ const openingProblem = (cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>): 
     return 'Define the assessment requirements before opening the cycle.'
   }
   const contexts = new Set(cycle.reasons.map((reason) => reason.context))
-  if (programmeReasonContexts.some((context) => !contexts.has(context))) {
+  // CYCLE_CLOSE is exempt: closing and archiving take free-text reasons, and
+  // the scheduled close writes its own literal, so no flow ever consumes a
+  // CYCLE_CLOSE catalogue entry. Requiring one made officers invent it.
+  const consumedContexts = programmeReasonContexts
+    .filter((context) => context !== 'CYCLE_CLOSE')
+  if (consumedContexts.some((context) => !contexts.has(context))) {
     return 'Define at least one approved reason for every administrative action.'
   }
   return null
@@ -274,7 +298,10 @@ export const openProgrammeCycle = async (
   const administrator = await currentStaff(context, 'CYCLE_ADMIN')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const aggregate = await loadProgrammeCycle(context.db, input.id)
-  const problem = openingProblem(aggregate)
+  const problem = openingProblem(
+    aggregate,
+    await findCyclePolicyDocument(context.db, input.id),
+  )
   if (problem) return failure(problem)
   if (!aggregate || aggregate.head.status !== 'DRAFT' || aggregate.head.deletedAt) {
     return failure('Only an active draft cycle can be opened.')

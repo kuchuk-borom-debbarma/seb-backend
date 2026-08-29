@@ -12,6 +12,7 @@ import {
   documentScanStatuses,
   sebApplicationDocumentScan,
   sebApplicationDocumentVersion,
+  sebCyclePolicyDocumentScan,
 } from '../../db/schema'
 import { constraintSafe } from './support'
 
@@ -50,5 +51,36 @@ export const recordDocumentScanResult = async (
     scannedAt: input.scannedAt,
     createdAt: new Date(),
   }).returning({ id: sebApplicationDocumentScan.id }))
+  return inserted !== null && inserted.length === 1
+}
+
+/**
+ * The cycle policy document's twin of `recordDocumentScanResult`, against its
+ * own scan table. Same append-only sequence, same refusal to record without an
+ * existing PENDING row — a verdict with no request would mean the finalize
+ * that should have created the row never happened.
+ */
+export const recordPolicyDocumentScanResult = async (
+  db: Database,
+  input: DocumentScanResult,
+): Promise<boolean> => {
+  if (!input.scannerReference.trim() || Number.isNaN(input.scannedAt.getTime())) return false
+  const [latest] = await db
+    .select({ sequence: sebCyclePolicyDocumentScan.sequenceNumber })
+    .from(sebCyclePolicyDocumentScan)
+    .where(eq(sebCyclePolicyDocumentScan.documentVersionId, input.documentVersionId))
+    .orderBy(desc(sebCyclePolicyDocumentScan.sequenceNumber))
+    .limit(1)
+  if (!latest) return false
+  const inserted = await constraintSafe(() => db.insert(sebCyclePolicyDocumentScan).values({
+    id: crypto.randomUUID(),
+    documentVersionId: input.documentVersionId,
+    sequenceNumber: latest.sequence + 1,
+    status: input.status,
+    scannerReference: input.scannerReference.trim(),
+    safeMessage: input.safeMessage?.trim() || null,
+    scannedAt: input.scannedAt,
+    createdAt: new Date(),
+  }).returning({ id: sebCyclePolicyDocumentScan.id }))
   return inserted !== null && inserted.length === 1
 }

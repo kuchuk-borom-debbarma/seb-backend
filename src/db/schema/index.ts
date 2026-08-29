@@ -26,6 +26,12 @@ import {
   sebApplicationSubmissionDocument,
   sebDocumentUploadIntent,
 } from './seb/document'
+import {
+  sebCyclePolicyDocument,
+  sebCyclePolicyDocumentScan,
+  sebCyclePolicyDocumentVersion,
+  sebCyclePolicyUploadIntent,
+} from './seb/policy-document'
 import { sebEnterprise, sebEnterpriseVersion } from './seb/enterprise'
 import {
   sebApplicationQualifyingAward,
@@ -66,6 +72,7 @@ export * from './core/auth'
 export * from './seb/application'
 export * from './seb/case'
 export * from './seb/document'
+export * from './seb/policy-document'
 export * from './seb/decision'
 export * from './seb/answer'
 export * from './seb/enterprise'
@@ -116,6 +123,10 @@ export const schema = {
   sebApplicationSubmissionDocument,
   sebApplicationDocumentScan,
   sebDocumentUploadIntent,
+  sebCyclePolicyDocument,
+  sebCyclePolicyDocumentVersion,
+  sebCyclePolicyDocumentScan,
+  sebCyclePolicyUploadIntent,
   sebRevisionRequest,
   sebApplicationEvent,
   sebApplicationAssignmentEvent,

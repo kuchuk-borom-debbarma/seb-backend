@@ -20,15 +20,11 @@ import {
   ChevronRight,
   ClipboardCheck,
   FileText,
-  Globe,
   IndianRupee,
   Info,
-  Map,
-  MapPin,
   Plus,
   ShieldCheck,
   Trash2,
-  Users,
 } from 'lucide-react'
 import type {
   AssessmentType,
@@ -66,10 +62,10 @@ const ASSESSMENT_TYPES: AssessmentType[] = [
 ]
 
 const REASON_CONTEXTS: ProgrammeReasonContext[] = [
-  'CYCLE_CLOSE',
   // Assignment release and reassignment left the product, and their reason
-  // contexts left the API's enum with them.
-
+  // contexts left the API's enum with them. CYCLE_CLOSE stays in the enum but
+  // is not offered here: closing takes a free-text reason, so a catalogue
+  // entry for it was demanded of officers and then never consumed.
   'REVISION',
   'REJECTION',
   'BANK_REFERRAL_CANCEL',
@@ -159,7 +155,6 @@ export const emptyCycle = (year: number): ProgrammeCycleInput => ({
   cycleCode: `SEP-${year}`,
   displayName: `Mission SEP ${year}`,
   cycleYear: year,
-  policyReference: null,
   applicantGuidance: null,
   partnerBankGuidance: null,
   opensAt: null,
@@ -289,7 +284,7 @@ export function CycleForm({
           <h2 className={styles.infoTitle}>A cycle is created as a draft</h2>
           <p className={styles.infoText}>
             Nothing here reaches applicants until you open it — and it can only be opened
-            once the policy reference, applicant guidance, the opening date, every eligibility
+            once the policy PDF, applicant guidance, the opening date, every eligibility
             field, at least one assessment, and a reason for every administrative action
             are all present.
           </p>
@@ -393,56 +388,30 @@ export function CycleForm({
               </div>
             </div>
 
-            {/* Row 2: Policy reference */}
+            {/* Row 2: Policy document pointer. The upload itself lives on the
+                cycle page — a draft must exist before a file can belong to it. */}
+            <span className={styles.fieldHint}>
+              After creating the draft, upload the order or circular this cycle
+              implements (as a PDF) on the cycle&rsquo;s page. The cycle cannot be
+              opened without it.
+            </span>
+
+            {/* Row 3: Opening date. There is no closing input: a cycle takes
+                applications until the office closes it. */}
             <div className={styles.fieldGroup}>
-              <label className={styles.fieldLabel} htmlFor="policyReference">
-                Policy reference
+              <label className={styles.fieldLabel} htmlFor="opensAt">
+                Applications open
               </label>
               <input
-                id="policyReference"
+                id="opensAt"
                 className={styles.inputField}
-                placeholder="Enter policy reference"
-                value={values.policyReference ?? ''}
-                onChange={(event) => set('policyReference', event.target.value || null)}
+                type="datetime-local"
+                value={toLocalInput(values.opensAt)}
+                onChange={(event) => set('opensAt', toInstant(event.target.value))}
               />
               <span className={styles.fieldHint}>
-                The order or circular this cycle implements. Required before the cycle can
-                be opened.
+                Applications stay open until the office closes the cycle.
               </span>
-            </div>
-
-            {/* Row 3: Opens & Closes Dates */}
-            <div className={styles.formGrid2}>
-              <div className={styles.fieldGroup}>
-                <label className={styles.fieldLabel} htmlFor="opensAt">
-                  Applications open
-                </label>
-                <input
-                  id="opensAt"
-                  className={styles.inputField}
-                  type="datetime-local"
-                  value={toLocalInput(values.opensAt)}
-                  onChange={(event) => set('opensAt', toInstant(event.target.value))}
-                />
-              </div>
-
-              <div className={styles.fieldGroup}>
-                <label className={styles.fieldLabel} htmlFor="closesAt">
-                  Applications close{' '}
-                  <span className={styles.optionalHint}>(optional)</span>
-                </label>
-                <input
-                  id="closesAt"
-                  className={styles.inputField}
-                  type="datetime-local"
-                  value={toLocalInput(values.closesAt)}
-                  onChange={(event) => set('closesAt', toInstant(event.target.value))}
-                />
-                <p className={styles.fieldHint}>
-                  Leave it blank and the cycle takes applications until the office closes
-                  it. It can be set or removed later from the cycle&rsquo;s page.
-                </p>
-              </div>
             </div>
 
             {/* Row 4: Applicant Guidance */}
@@ -562,104 +531,13 @@ export function CycleForm({
               </div>
             </div>
 
-            {/* Jurisdiction Selectable Choice Cards */}
-            <div className={styles.fieldGroup}>
-              <span className={styles.fieldLabel}>Jurisdiction</span>
-              <div className={styles.choiceCardsGrid}>
-                {/* Option 1: Not stated */}
-                <div
-                  className={styles.choiceCard}
-                  data-selected={values.policy.jurisdiction === null ? 'true' : undefined}
-                  onClick={() => setPolicy('jurisdiction', null)}
-                  role="radio"
-                  aria-checked={values.policy.jurisdiction === null}
-                  tabIndex={0}
-                >
-                  <div className={styles.choiceCardLeft}>
-                    <div className={styles.radioIndicator}>
-                      {values.policy.jurisdiction === null ? (
-                        <div className={styles.radioDot} />
-                      ) : null}
-                    </div>
-                    <span className={styles.choiceCardText}>Not stated</span>
-                  </div>
-                  <Globe size={18} className={styles.choiceCardIcon} aria-hidden="true" />
-                </div>
-
-                {/* Option 2: TTAADC areas */}
-                <div
-                  className={styles.choiceCard}
-                  data-selected={
-                    values.policy.jurisdiction === 'TTAADC' ? 'true' : undefined
-                  }
-                  onClick={() => setPolicy('jurisdiction', 'TTAADC')}
-                  role="radio"
-                  aria-checked={values.policy.jurisdiction === 'TTAADC'}
-                  tabIndex={0}
-                >
-                  <div className={styles.choiceCardLeft}>
-                    <div className={styles.radioIndicator}>
-                      {values.policy.jurisdiction === 'TTAADC' ? (
-                        <div className={styles.radioDot} />
-                      ) : null}
-                    </div>
-                    <span className={styles.choiceCardText}>TTAADC areas</span>
-                  </div>
-                  <MapPin
-                    size={18}
-                    className={styles.choiceCardIcon}
-                    aria-hidden="true"
-                  />
-                </div>
-
-                {/* Option 3: Tripura */}
-                <div
-                  className={styles.choiceCard}
-                  data-selected={
-                    values.policy.jurisdiction === 'TRIPURA' ? 'true' : undefined
-                  }
-                  onClick={() => setPolicy('jurisdiction', 'TRIPURA')}
-                  role="radio"
-                  aria-checked={values.policy.jurisdiction === 'TRIPURA'}
-                  tabIndex={0}
-                >
-                  <div className={styles.choiceCardLeft}>
-                    <div className={styles.radioIndicator}>
-                      {values.policy.jurisdiction === 'TRIPURA' ? (
-                        <div className={styles.radioDot} />
-                      ) : null}
-                    </div>
-                    <span className={styles.choiceCardText}>Tripura</span>
-                  </div>
-                  <Map size={18} className={styles.choiceCardIcon} aria-hidden="true" />
-                </div>
-              </div>
-            </div>
-
-            {/* Majority ST Ownership Required Checkbox Card */}
-            <div
-              className={styles.fullCheckboxCard}
-              data-selected={values.policy.majorityOwnershipRequired ? 'true' : undefined}
-              onClick={() =>
-                setPolicy(
-                  'majorityOwnershipRequired',
-                  !values.policy.majorityOwnershipRequired,
-                )
-              }
-              role="checkbox"
-              aria-checked={values.policy.majorityOwnershipRequired ?? false}
-              tabIndex={0}
-            >
-              <div className={styles.checkboxIndicator}>
-                {values.policy.majorityOwnershipRequired ? (
-                  <Check size={13} aria-hidden="true" />
-                ) : null}
-              </div>
-              <Users size={18} className={styles.choiceCardIcon} aria-hidden="true" />
-              <span className={styles.choiceCardText}>
-                Majority ST ownership required
-              </span>
-            </div>
+            {/* Fixed policy, stated rather than asked. The values still travel
+                in the input (the API refuses nulls at opening); only the choice
+                left the screen — every SEP cycle is TTAADC, majority-ST. */}
+            <span className={styles.fieldHint}>
+              This cycle applies to TTAADC areas and requires majority ST
+              ownership.
+            </span>
           </div>
         </div>
       )}

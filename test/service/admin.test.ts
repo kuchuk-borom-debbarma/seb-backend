@@ -38,6 +38,7 @@ import {
   recordScan,
   graphql,
   openCycle,
+  seedPolicyDocument,
   signIn,
   submittedApplication,
   testPolicy,
@@ -119,7 +120,7 @@ const cycleRefusedFor = async (
   }`, { input: {
     cycleCode: `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
     displayName: 'Mission SEP Administrative Test', cycleYear: 2026,
-    policyReference: 'TTAADC/MSEP/2026', applicantGuidance: 'Applicant guide.',
+    applicantGuidance: 'Applicant guide.',
     partnerBankGuidance: 'Published partner-bank roster.',
     opensAt: new Date(Date.now() - 1_000).toISOString(),
     closesAt: new Date(Date.now() + 86_400_000).toISOString(),
@@ -737,7 +738,7 @@ describe('Mission SEP administration', () => {
        */
       const CREATE_CYCLE = `mutation { admin { programmeCycle { create(input: {
         cycleCode: "SEP-GATE", displayName: "Gate probe", cycleYear: 2026,
-        policyReference: "TTAADC/MSEP/2026", applicantGuidance: "Guide.",
+        applicantGuidance: "Guide.",
         partnerBankGuidance: "Roster.",
         opensAt: "2026-01-01T00:00:00.000Z", closesAt: "2026-02-01T00:00:00.000Z",
         policy: { requiredAssessmentTypes: [], reasons: [], formTemplate: ${emptyFormTemplate} }
@@ -795,7 +796,6 @@ describe('Mission SEP administration', () => {
       cycleCode: `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
       displayName: 'Mission SEP 2026 Test',
       cycleYear: 2026,
-      policyReference: 'TTAADC/MSEP/2026',
       applicantGuidance: 'Read the policy and submit complete evidence.',
       partnerBankGuidance: 'Partner-bank roster maintained by TTAADC.',
       opensAt: new Date(Date.now() - 1_000).toISOString(),
@@ -813,6 +813,7 @@ describe('Mission SEP administration', () => {
     expect(created.data?.admin.programmeCycle.create.success).toBe(true)
     const head = created.data?.admin.programmeCycle.create.response.head
     if (!head) throw new Error('Cycle creation failed.')
+    await seedPolicyDocument(head.id)
 
     const opened = await graphql<{
       admin: { programmeCycle: { open: { success: boolean; response: { head: { status: string; currentVersion: number } } } } }
@@ -854,7 +855,6 @@ describe('Mission SEP administration', () => {
       cycleCode: code,
       displayName: 'Mission SEP Draft',
       cycleYear: 2027,
-      policyReference: null,
       applicantGuidance: null,
       partnerBankGuidance: null,
       opensAt: null,
@@ -886,7 +886,7 @@ describe('Mission SEP administration', () => {
     }`, { input: { id: head.id, expectedVersion: 1, reason: 'Publish' } }, administrator.cookie)
     expect(incomplete.data.admin.programmeCycle.open).toMatchObject({
       success: false,
-      message: 'Before this cycle can open, fill in the policy reference, the guidance for applicants, the opening date, the minimum applicant age, the maximum applicant age, the category threshold, the expansion wait, the ownership rule, the jurisdiction and the funding ceiling.',
+      message: 'Before this cycle can open, fill in the policy document (the order or circular this cycle implements), the guidance for applicants, the opening date, the minimum applicant age, the maximum applicant age, the category threshold, the expansion wait, the ownership rule, the jurisdiction and the funding ceiling.',
     })
 
     const deleted = await graphql<any>(`mutation($input: CycleTransitionInput!) {
@@ -904,7 +904,6 @@ describe('Mission SEP administration', () => {
     const complete = {
       ...draft,
       displayName: 'Mission SEP 2027',
-      policyReference: 'TTAADC/MSEP/2027',
       applicantGuidance: 'Read the 2027 policy before applying.',
       partnerBankGuidance: 'Published 2027 partner-bank roster.',
       opensAt: new Date(Date.now() - 1_000).toISOString(),
@@ -921,6 +920,7 @@ describe('Mission SEP administration', () => {
       head: { currentVersion: 2, displayName: 'Mission SEP 2027' },
     })
 
+    await seedPolicyDocument(head.id)
     const opened = await graphql<any>(`mutation($input: CycleTransitionInput!) {
       admin { programmeCycle { open(input: $input) { response { head { status currentVersion } } } } }
     }`, { input: { id: head.id, expectedVersion: 2, reason: 'Publish approved cycle' } }, administrator.cookie)
@@ -961,13 +961,13 @@ describe('Mission SEP administration', () => {
     }`, { input: secondDraft }, administrator.cookie)
     const secondHead = secondCreated.data.admin.programmeCycle.create.response.head
     const secondUpdated = await graphql<any>(`mutation($input: UpdateProgrammeCycleInput!) {
-      admin { programmeCycle { updateDraft(input: $input) { response { head { currentVersion policyReference opensAt closesAt } } } } }
+      admin { programmeCycle { updateDraft(input: $input) { response { head { currentVersion opensAt closesAt } } } } }
     }`, { input: {
       id: secondHead.id, expectedVersion: 1, reason: 'Clarify draft name',
       cycle: { ...secondDraft, displayName: 'Future policy draft revised' },
     } }, administrator.cookie)
     expect(secondUpdated.data.admin.programmeCycle.updateDraft.response.head).toMatchObject({
-      currentVersion: 2, policyReference: null, opensAt: null, closesAt: null,
+      currentVersion: 2, opensAt: null, closesAt: null,
     })
 
     const listed = await graphql<any>(`query($id: ID!) { admin {
@@ -1010,7 +1010,7 @@ describe('Mission SEP administration', () => {
     const base = {
       cycleCode: `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
       displayName: 'Policy validation', cycleYear: 2028,
-      policyReference: 'TTAADC/MSEP/2028', applicantGuidance: 'Guidance',
+      applicantGuidance: 'Guidance',
       partnerBankGuidance: 'Roster',
       opensAt: new Date(Date.now() + 86_400_000).toISOString(),
       closesAt: new Date(Date.now() + 172_800_000).toISOString(), policy: testPolicy(),
@@ -1143,11 +1143,32 @@ describe('Mission SEP administration', () => {
         policy: candidate.policy,
       })
       const head = result.data.admin.programmeCycle.create.response.head
+      // Seeded so the refusal under test is the one about its own collection,
+      // not the earlier missing-policy-document one.
+      await seedPolicyDocument(head.id)
       const opened = await graphql<any>(`mutation($input: CycleTransitionInput!) {
         admin { programmeCycle { open(input: $input) { success message } } }
       }`, { input: { id: head.id, expectedVersion: 1, reason: 'Publish' } }, administrator.cookie)
       expect(opened.data.admin.programmeCycle.open).toMatchObject({ success: false, message: candidate.message })
     }
+
+    // CYCLE_CLOSE is the one context opening does not demand: closing takes a
+    // free-text reason, so a catalogue entry for it is never consumed.
+    const withoutCycleClose = await create({
+      ...base, cycleCode: `SEP-NOCC-${crypto.randomUUID().slice(0, 5).toUpperCase()}`,
+      policy: {
+        ...testPolicy(),
+        reasons: (testPolicy().reasons as { context: string }[]).filter(
+          (reason) => reason.context !== 'CYCLE_CLOSE',
+        ),
+      },
+    })
+    const withoutCycleCloseHead = withoutCycleClose.data.admin.programmeCycle.create.response.head
+    await seedPolicyDocument(withoutCycleCloseHead.id)
+    const openedWithoutCycleClose = await graphql<any>(`mutation($input: CycleTransitionInput!) {
+      admin { programmeCycle { open(input: $input) { success message } } }
+    }`, { input: { id: withoutCycleCloseHead.id, expectedVersion: 1, reason: 'Publish' } }, administrator.cookie)
+    expect(openedWithoutCycleClose.data.admin.programmeCycle.open).toMatchObject({ success: true })
 
     const mutable = await create({
       ...base, cycleCode: `SEP-STATE-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
@@ -1171,6 +1192,7 @@ describe('Mission SEP administration', () => {
       expect(result.errors, query).toBeUndefined()
       expect(JSON.stringify(result.data), query).toContain('"success":false')
     }
+    await seedPolicyDocument(mutableHead.id)
     const openedMutable = await graphql<any>(`mutation($input: CycleTransitionInput!) {
       admin { programmeCycle { open(input: $input) { response { head { currentVersion } } } } }
     }`, { input: { id: mutableHead.id, expectedVersion: 1, reason: 'Publish' } }, administrator.cookie)
@@ -1456,6 +1478,77 @@ describe('Mission SEP administration', () => {
     // not simply refusing everything.
     expect((await advance({})).data.admin.intake.completeDeskReview)
       .toMatchObject({ success: true })
+  })
+
+  /*
+   * The workspace serves the reasons of the cycle version the application is
+   * pinned to, and those stay valid across cycle revisions. Before the
+   * workspace carried them, pickers read the cycle's *current* version — and
+   * because a revision re-mints every reason row with a fresh id, one
+   * guidance edit made every picker offer ids the API refused.
+   */
+  it('serves pinned-version reasons that survive a cycle revision', async () => {
+    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const cycle = await openCycle(administrator.cookie)
+    const application = await submittedApplication(
+      administrator.cookie, administrator.userId, cycle.id,
+    )
+    // Revise the open cycle so its current version moves past the pinned one.
+    const revised = await graphql<any>(`mutation($input: CycleGuidanceInput!) {
+      admin { programmeCycle { updateOpenGuidance(input: $input) { success response { head { currentVersion } } } } }
+    }`, { input: {
+      id: cycle.id, expectedVersion: 2,
+      applicantGuidance: 'Guidance edited after submission.',
+      partnerBankGuidance: 'Published partner-bank roster.',
+      reason: 'Routine wording change.',
+    } }, administrator.cookie)
+    expect(revised.data.admin.programmeCycle.updateOpenGuidance.success).toBe(true)
+
+    const workspace = await graphql<any>(`query {
+      admin { intake { workspace(applicationId: "${application.applicationId}") {
+        response { reasons { id context code label } }
+      } } }
+    }`, {}, administrator.cookie)
+    const reasons = workspace.data.admin.intake.workspace.response.reasons
+    expect(reasons.length).toBeGreaterThan(0)
+    const workspaceReason = reasons.find(
+      (reason: { context: string }) => reason.context === 'REVISION',
+    )
+    expect(workspaceReason).toBeDefined()
+
+    await graphql<any>(`mutation($input: StartDeskReviewInput!) {
+      admin { intake { startDeskReview(input: $input) { success } } }
+    }`, { input: { applicationId: application.applicationId, expectedStatusVersion: 2 } }, administrator.cookie)
+    const request = (reasonCategoryId: string) => graphql<any>(`mutation($input: CompleteDeskReviewInput!) {
+      admin { intake { completeDeskReview(input: $input) { success message } } }
+    }`, { input: {
+      conflictAcknowledged: true,
+      applicationId: application.applicationId, expectedStatusVersion: 3,
+      outcome: 'REQUEST_REVISION', reasonCategoryId,
+      applicantMessage: 'Please correct the financial section.',
+      checks: deskCheckTypes.map((checkType) => ({
+        checkType, result: checkType === 'EXPANSION_EVIDENCE' ? 'NOT_APPLICABLE' : 'PASS',
+      })),
+      identifiers: passingIdentifiers(),
+      revisions: [{
+        stageKey: 'FINANCIAL', reasonCategoryId,
+        note: 'Correct the requested-funding details.',
+      }],
+    } }, administrator.cookie)
+
+    // The re-minted current-version id is exactly what drifting pickers
+    // offered; it must still be refused, not quietly accepted.
+    const currentVersionRow = await env.DB.prepare(`SELECT id FROM seb_programme_cycle_reason
+      WHERE programme_cycle_id = ? AND programme_cycle_version = 3 AND context = 'REVISION' LIMIT 1`)
+      .bind(cycle.id).first<{ id: string }>()
+    expect(currentVersionRow).not.toBeNull()
+    expect(currentVersionRow!.id).not.toBe(workspaceReason.id)
+    const drifting = await request(currentVersionRow!.id)
+    expect(drifting.data.admin.intake.completeDeskReview.success).toBe(false)
+
+    const pinned = await request(workspaceReason.id)
+    expect(pinned.data.admin.intake.completeDeskReview,
+      pinned.data.admin.intake.completeDeskReview.message).toMatchObject({ success: true })
   })
 
   it('retains cancelled revisions and replaced bank referrals', async () => {

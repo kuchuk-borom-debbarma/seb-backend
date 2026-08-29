@@ -33,11 +33,14 @@ import {
   correctDecision,
   createFundingAward,
   createProgrammeCycle,
+  cyclePolicyDownloadUrl,
+  finalizeCyclePolicyUpload,
   fundingByApplication,
   intakeByReference,
   intakeQueue,
   intakeQueues,
   intakeWorkspace,
+  issueCyclePolicyUpload,
   openProgrammeCycle,
   openRecoveryCase,
   programmeCycleApplicationCounts,
@@ -57,6 +60,10 @@ import {
   updateDraftProgrammeCycleController,
   updateOpenCycleGuidance,
 } from '../../../services/admin'
+import {
+  findCyclePolicyDocument,
+  listCyclePolicyDocumentVersions,
+} from '../../../services/admin/queries/policy-document'
 import type { StaffMember } from '../../../loaders'
 import type { GraphQLContext } from '../../types'
 import { snapshotRecordToPublic } from '../../../services/application/queries/application'
@@ -94,6 +101,7 @@ export const adminResolvers = {
   AdminProgrammeCycleQuery: {
     list: (_parent: unknown, args: Parameters<typeof programmeCycles>[0], context: GraphQLContext) => programmeCycles(args, context),
     byId: (_parent: unknown, args: { id: string }, context: GraphQLContext) => programmeCycleById(args.id, context),
+    policyDocumentDownloadUrl: (_parent: unknown, args: { cycleId: string; version?: number | null }, context: GraphQLContext) => cyclePolicyDownloadUrl(args, context),
     counts: (_parent: unknown, args: { id: string }, context: GraphQLContext) => programmeCycleApplicationCounts(args.id, context),
     events: (_parent: unknown, args: { id: string; first?: number }, context: GraphQLContext) => programmeCycleEvents(args, context),
   },
@@ -182,6 +190,8 @@ export const adminResolvers = {
     create: (_parent: unknown, args: Args<Parameters<typeof createProgrammeCycle>[0]>, context: GraphQLContext) => createProgrammeCycle(args.input, context),
     updateDraft: (_parent: unknown, args: Args<{ id: string; expectedVersion: number; reason: string; cycle: Parameters<typeof createProgrammeCycle>[0] }>, context: GraphQLContext) => updateDraftProgrammeCycleController({ ...args.input.cycle, id: args.input.id, expectedVersion: args.input.expectedVersion, reason: args.input.reason }, context),
     open: (_parent: unknown, args: Args<Parameters<typeof openProgrammeCycle>[0]>, context: GraphQLContext) => openProgrammeCycle(args.input, context),
+    issuePolicyDocumentUpload: (_parent: unknown, args: Args<Parameters<typeof issueCyclePolicyUpload>[0]>, context: GraphQLContext) => issueCyclePolicyUpload(args.input, context),
+    finalizePolicyDocumentUpload: (_parent: unknown, args: Args<{ uploadId: string }>, context: GraphQLContext) => finalizeCyclePolicyUpload(args.input.uploadId, context),
     updateOpenGuidance: (_parent: unknown, args: Args<Parameters<typeof updateOpenCycleGuidance>[0]>, context: GraphQLContext) => updateOpenCycleGuidance(args.input, context),
     changeClosingTime: (_parent: unknown, args: Args<Parameters<typeof changeOpenCycleClosingTime>[0]>, context: GraphQLContext) => changeOpenCycleClosingTime(args.input, context),
     close: (_parent: unknown, args: Args<Parameters<typeof closeProgrammeCycle>[0]>, context: GraphQLContext) => closeProgrammeCycle(args.input, context),
@@ -268,6 +278,34 @@ export const adminResolvers = {
       options: parent.formFieldOptions as never,
       conditions: parent.formFieldConditions as never,
     }),
+    // Read here rather than folded into `loadProgrammeCycle`: the document
+    // lives beside the cycle, not inside its versioned rule set, and only the
+    // screens that select this field pay for the extra reads.
+    policyDocument: async (
+      parent: { head: { id: string } },
+      _args: unknown,
+      context: GraphQLContext,
+    ) => {
+      const current = await findCyclePolicyDocument(context.db, parent.head.id)
+      if (!current) return null
+      const versions = await listCyclePolicyDocumentVersions(context.db, parent.head.id)
+      return {
+        id: current.head.id,
+        currentVersion: current.head.currentVersion,
+        originalFilename: current.version.originalFilename,
+        sizeBytes: current.version.sizeBytes,
+        uploadedAt: current.version.createdAt,
+        scanStatus: current.scanStatus,
+        versions: versions.map((version) => ({
+          version: version.version,
+          operation: version.operation,
+          originalFilename: version.originalFilename,
+          sizeBytes: version.sizeBytes,
+          uploadedAt: version.createdAt,
+          scanStatus: version.scanStatus,
+        })),
+      }
+    },
   },
   AdminWorkspace: {
     notes: (parent: { internalNotes?: unknown[] }) => parent.internalNotes ?? [],

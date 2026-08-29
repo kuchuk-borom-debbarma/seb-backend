@@ -35,8 +35,11 @@ const COMPLETE: SuppliedEnterpriseProfile = {
   contactEmail: 'contact@example.test',
 }
 
+/** A fixed instant, threaded the way each write threads its own. */
+const NOW = new Date('2026-08-29T12:00:00Z')
+
 const supplied = (overrides: Partial<SuppliedEnterpriseProfile> = {}) =>
-  normalizeEnterpriseProfile({ ...COMPLETE, ...overrides })
+  normalizeEnterpriseProfile({ ...COMPLETE, ...overrides }, NOW)
 
 describe('what an enterprise may say about itself', () => {
   it('accepts a complete profile', () => {
@@ -82,7 +85,7 @@ describe('what an enterprise may say about itself', () => {
     const { value, message } = normalizeEnterpriseProfile({
       name: 'Bare Minimum Weaves',
       registrationType: 'SOLE_PROPRIETORSHIP',
-    })
+    }, NOW)
     expect(message).toBeNull()
     expect(value).toMatchObject({ businessSector: null, gstin: null, contactEmail: null })
   })
@@ -118,6 +121,14 @@ describe('what an enterprise may say about itself', () => {
     expect(message).toBeNull()
   })
 
+  // A date-only value parses to UTC midnight, so the day of the write itself
+  // is never refused as future, whatever the hour.
+  it('accepts an enterprise established today', () => {
+    const { value, message } = supplied({ establishmentDate: '2026-08-29' })
+    expect(message).toBeNull()
+    expect(value?.establishmentDate).toBe('2026-08-29')
+  })
+
   it.each([
     ['a name of one character', { name: 'A' }, 'Enterprise name must contain 2 to 200 characters.'],
     ['a name of nothing at all', { name: '   ' }, 'Enterprise name must contain 2 to 200 characters.'],
@@ -138,6 +149,8 @@ describe('what an enterprise may say about itself', () => {
       'Enter a real establishment date in YYYY-MM-DD format.'],
     ['a day that does not exist', { establishmentDate: '2025-02-31' },
       'Enter a real establishment date in YYYY-MM-DD format.'],
+    ['an establishment that has not happened yet', { establishmentDate: '2026-08-30' },
+      'The establishment date cannot be in the future.'],
     ['a GSTIN of the wrong shape', { gstin: 'NOT-A-GSTIN' }, 'Enter a valid GSTIN.'],
     ['a sector the programme does not list',
       { businessSector: 'CRYPTO' as never }, 'Select a valid business sector.'],

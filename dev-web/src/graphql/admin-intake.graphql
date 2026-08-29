@@ -106,6 +106,7 @@ query IntakeWorkspace($applicationId: ID!) {
           enterpriseName
           cycleCode
           cycleDisplayName
+          reasons { id context code label applicantMessageTemplate }
           submissions { id submissionNumber applicationVersion submittedAt }
           submissionChanges { fromSubmissionNumber toSubmissionNumber stageKeys }
           formTemplate { ...FormTemplateFields }

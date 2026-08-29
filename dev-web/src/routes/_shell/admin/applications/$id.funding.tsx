@@ -22,7 +22,7 @@ import { ArrowLeft, Landmark } from 'lucide-react'
 import { AwardActions } from '#/features/admin/AwardActions'
 import { RecoveryCase } from '#/features/admin/RecoveryCase'
 import { fundingWorkspaceQuery, putFunding } from '#/features/admin/fundingQueries'
-import { cycleReasonsQuery, workspaceQuery } from '#/features/admin/workspaceQueries'
+import { workspaceQuery } from '#/features/admin/workspaceQueries'
 import styles from '#/features/admin/Workspace.module.css'
 import { CreateAwardDocument } from '#/graphql/generated/operations'
 import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
@@ -44,7 +44,9 @@ function FundingPage() {
   const queryClient = useQueryClient()
   const { data: workspace } = useQuery(workspaceQuery(id))
   const { data: funding } = useQuery(fundingWorkspaceQuery(id))
-  const { data: reasons } = useQuery(cycleReasonsQuery(workspace?.cycleCode))
+  // Pinned to the same cycle version the API validates against, so the picker
+  // never offers an id a later cycle revision has re-minted.
+  const reasons = workspace?.reasons
 
   const apply = (updated: NonNullable<typeof funding>['response']) => {
     if (!updated) return

@@ -21,11 +21,17 @@
  * A closed union rather than an open payload, so a consumer can be exhaustive
  * and adding a kind is a compile error everywhere it must be handled.
  */
-export type QueueMessage = {
-  kind: 'DOCUMENT_SCAN_REQUESTED'
-  /** The immutable document version to scan. */
-  documentVersionId: string
-}
+export type QueueMessage =
+  | {
+      kind: 'DOCUMENT_SCAN_REQUESTED'
+      /** The immutable document version to scan. */
+      documentVersionId: string
+    }
+  | {
+      kind: 'POLICY_DOCUMENT_SCAN_REQUESTED'
+      /** The immutable cycle policy document version to scan. */
+      policyDocumentVersionId: string
+    }
 
 export type QueueTransport = {
   /** Which transport this is, for diagnostics. Never a binding or a secret. */

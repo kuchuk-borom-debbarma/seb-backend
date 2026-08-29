@@ -102,7 +102,7 @@ export const formatBytes = (bytes: number): string => {
  * `crypto.subtle` is only available in a secure context — HTTPS, or localhost
  * during development — which is where this runs.
  */
-const checksumOf = async (file: File): Promise<string> => {
+export const checksumOf = async (file: File): Promise<string> => {
   const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
   const bytes = new Uint8Array(digest)
   let binary = ''

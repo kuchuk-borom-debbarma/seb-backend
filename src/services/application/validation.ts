@@ -102,8 +102,26 @@ export const fullUtcCalendarMonths = (from: Date, to: Date): number => {
   return Math.max(0, months)
 }
 
+/** The establishment-date refusal, or null where the date is acceptable. */
+const establishmentDateProblem = (value: string | null, now: Date): string | null => {
+  if (value === null) return null
+  const established = parseDateOnly(value)
+  if (established === null) return 'Enter a real establishment date in YYYY-MM-DD format.'
+  // A date-only value parses to UTC midnight, so "today" always passes.
+  if (established.getTime() > now.getTime()) {
+    return 'The establishment date cannot be in the future.'
+  }
+  return null
+}
+
+/**
+ * `now` is the write's own instant, threaded in rather than read here — see
+ * the relative-bound note in `form/rules.ts` for why the validator and the
+ * write that follows it must agree about what "today" is.
+ */
 export const normalizeEnterpriseProfile = (
   input: SuppliedEnterpriseProfile,
+  now: Date,
 ): { value: EnterpriseProfileInput | null; message: string | null } => {
   const suppliedDistrict = cleanText(input.businessDistrict)
   const value: EnterpriseProfileInput = {
@@ -142,8 +160,9 @@ export const normalizeEnterpriseProfile = (
   if (value.registrationType !== 'SOLE_PROPRIETORSHIP' && value.registrationNumber === null) {
     return { value: null, message: 'Enter the registration number for this registration type.' }
   }
-  if (value.establishmentDate !== null && parseDateOnly(value.establishmentDate) === null) {
-    return { value: null, message: 'Enter a real establishment date in YYYY-MM-DD format.' }
+  const establishmentProblem = establishmentDateProblem(value.establishmentDate, now)
+  if (establishmentProblem !== null) {
+    return { value: null, message: establishmentProblem }
   }
   if (value.gstin !== null && !GSTIN_PATTERN.test(value.gstin)) {
     return { value: null, message: 'Enter a valid GSTIN.' }

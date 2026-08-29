@@ -28,13 +28,9 @@ const createDraftCycle = async (page: Page, prefix: string): Promise<string> => 
   await page.goto('/admin/cycles/new')
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(code)
-  await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/09')
   await page.getByLabel('Guidance for applicants').fill('Draft under authoring.')
   const local = (value: Date) => value.toISOString().slice(0, 16)
   await page.getByLabel('Applications open').fill(local(new Date(Date.now() - 3_600_000)))
-  await page
-    .getByLabel('Applications close')
-    .fill(local(new Date(Date.now() + 2_592_000_000)))
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
   return page.url().split('/').pop() as string
@@ -97,8 +93,44 @@ test.describe('authoring a draft cycle’s form', () => {
      * the budget guard exists to refuse.
      */
     await page.getByLabel('Most characters').fill('120')
+    await page.getByRole('button', { name: 'Add a member' }).click()
+    await page.getByLabel('Member key').fill('PHONE')
+    await page.getByLabel('Label the applicant reads').fill('Referee phone')
+    await page.getByLabel('Most characters').fill('30')
+
+    /*
+     * Reordering members edits the local draft only — the arrows need no
+     * change reason, and nothing persists until Save structure. Filtered to
+     * this structure's members: other definitions' summary rows share the
+     * class and sit above the open editor.
+     */
+    const memberRows = page
+      .locator('[class*="questionRow"]')
+      .filter({ hasText: /Referee (name|phone)/u })
+    await expect(memberRows.first()).toContainText('Referee name')
+    await page.getByRole('button', { name: 'Move Referee phone earlier' }).click()
+    await expect(memberRows.first()).toContainText('Referee phone')
+
     await page.getByRole('button', { name: 'Save structure' }).click()
-    await expect(page.getByText('REFEREE · 1 question · unused')).toBeVisible()
+    await expect(page.getByText('REFEREE · 2 questions · unused')).toBeVisible()
+
+    // The saved order is the array order, so it survives a fresh read.
+    await page.reload()
+    await expect(page.getByText('This cycle is still a draft')).toBeVisible()
+    await page.getByRole('button', { name: 'Structures' }).click()
+    await page
+      .locator('[class*="questionRow"]')
+      .filter({ hasText: 'REFEREE · 2 questions' })
+      .getByRole('button', { name: 'Edit' })
+      .click()
+    // The members come back in the saved order, phone still ahead.
+    await expect(memberRows.first()).toContainText('Referee phone')
+    await expect(memberRows.nth(1)).toContainText('Referee name')
+
+    // The reload emptied the reason input; later edits still need one.
+    await page
+      .getByLabel('Reason for these changes')
+      .fill('Authoring the programme year form.')
 
     // Used by a repeated group in the new stage.
     await page
@@ -125,12 +157,21 @@ test.describe('authoring a draft cycle’s form', () => {
     await expect(derived.getByRole('button', { name: 'Edit' })).toHaveCount(0)
     await expect(derived.getByRole('button', { name: 'Remove' })).toHaveCount(0)
 
+    /*
+     * Reordering questions is a save like any other — it rides on the reason
+     * above — and the arrows flip the rows on screen from the server's reply.
+     */
+    const stageRows = page.locator('[class*="questionRow"]')
+    await expect(stageRows.first()).toContainText('Favourite colour')
+    await page.getByRole('button', { name: 'Move Referees earlier' }).click()
+    await expect(stageRows.first()).toContainText('Referees')
+
     // Removing a structure still in use is refused in the server's own words.
     await page.getByRole('button', { name: 'Structures' }).click()
     await expect(page.getByText('used by Referees')).toBeVisible()
     await page
       .locator('[class*="questionRow"]')
-      .filter({ hasText: 'REFEREE · 1 question' })
+      .filter({ hasText: 'REFEREE · 2 questions' })
       .getByRole('button', { name: 'Remove', exact: true })
       .click()
     await expect(
@@ -154,7 +195,7 @@ test.describe('authoring a draft cycle’s form', () => {
       .filter({ hasText: 'REFEREE ·' })
       .getByRole('button', { name: 'Remove' })
       .click()
-    await expect(page.getByText('REFEREE · 1 question')).toHaveCount(0)
+    await expect(page.getByText('REFEREE · 2 questions')).toHaveCount(0)
   })
 
   test('an ordinary administrator is shown no editor and refused by the API', async ({

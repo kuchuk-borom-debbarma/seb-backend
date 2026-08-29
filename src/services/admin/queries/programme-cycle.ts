@@ -268,7 +268,10 @@ const versionValues = (
   cycleCode: input.cycleCode,
   displayName: input.displayName,
   cycleYear: input.cycleYear,
-  policyReference: input.policyReference ?? null,
+  // Dead column: the free-text reference was replaced by the versioned policy
+  // PDF in `seb_cycle_policy_document`. Written null until a later migration
+  // drops it, so the guarded insert's positional SELECT keeps its arity.
+  policyReference: null,
   applicantGuidance: input.applicantGuidance ?? null,
   partnerBankGuidance: input.partnerBankGuidance ?? null,
   status,
@@ -558,7 +561,8 @@ export const insertProgrammeCycle = async (
       cycleCode: input.cycleCode,
       displayName: input.displayName,
       cycleYear: input.cycleYear,
-      policyReference: input.policyReference ?? null,
+      // Dead column — see `versionValues`. The policy PDF replaced it.
+      policyReference: null,
       applicantGuidance: input.applicantGuidance ?? null,
       partnerBankGuidance: input.partnerBankGuidance ?? null,
       status: 'DRAFT',
@@ -633,7 +637,8 @@ export const updateDraftProgrammeCycle = async (
       cycleCode: input.cycleCode,
       displayName: input.displayName,
       cycleYear: input.cycleYear,
-      policyReference: input.policyReference ?? null,
+      // Dead column — see `versionValues`. The policy PDF replaced it.
+      policyReference: null,
       applicantGuidance: input.applicantGuidance ?? null,
       partnerBankGuidance: input.partnerBankGuidance ?? null,
       opensAt: input.opensAt ?? null,

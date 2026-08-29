@@ -599,9 +599,6 @@ input ProgrammeCycleInput {
   """The policy year, between 2000 and 9999."""
   cycleYear: Int!
 
-  """The policy document this cycle implements."""
-  policyReference: String
-
   """Guidance written for applicants, shown on the application screens."""
   applicantGuidance: String
 
@@ -684,6 +681,36 @@ input CycleClosingInput {
   reason: String!
 }
 
+"""What `issuePolicyDocumentUpload` needs to authorize one policy PDF."""
+input IssuePolicyDocumentUploadInput {
+  """Which cycle the document belongs to."""
+  cycleId: ID!
+
+  """
+  The policy document version this upload expects to replace: 0 for the first
+  upload, otherwise the current version. A mismatch refuses.
+  """
+  expectedDocumentVersion: Int!
+
+  """The file's own name, ending in `.pdf`. Stored and served back."""
+  originalFilename: String!
+
+  """The file's MIME type. Only `application/pdf` is accepted."""
+  contentType: String!
+
+  """The exact size in bytes. The stored object must match."""
+  sizeBytes: Int!
+
+  """The base64-encoded SHA-256 of the bytes. The stored object must match."""
+  checksumSha256: String!
+}
+
+"""Which authorized upload `finalizePolicyDocumentUpload` settles."""
+input FinalizePolicyDocumentUploadInput {
+  """The `uploadId` that `issuePolicyDocumentUpload` returned."""
+  uploadId: ID!
+}
+
 """
 Creating and operating programme cycles.
 
@@ -732,6 +759,39 @@ type AdminProgrammeCycleMutation {
   open(
     """Which cycle, at which version, and why."""
     input: CycleTransitionInput!
+  ): AdminCycleResult!
+
+  """
+  Authorizes uploading the cycle's policy PDF — the order or circular the
+  cycle implements.
+
+  **Use case:** the policy document card on `/admin/cycles/$id`. The browser
+  PUTs the file to the returned URL, then calls `finalizePolicyDocumentUpload`.
+  Allowed while the cycle is a draft or open; a replacement becomes a new
+  retained version.
+
+  **Refuses:** anything but a PDF, a file over the document size limit, a bad
+  checksum, a closed or archived cycle, and a stale `expectedDocumentVersion`.
+  """
+  issuePolicyDocumentUpload(
+    """The cycle, the expected version, and the file's vital statistics."""
+    input: IssuePolicyDocumentUploadInput!
+  ): UploadAuthorizationResult!
+
+  """
+  Records an uploaded policy PDF as the cycle's current policy document.
+
+  **Use case:** immediately after the PUT that `issuePolicyDocumentUpload`
+  authorized. Verifies the stored bytes match the authorization, then queues
+  the malware scan; the file stays undownloadable, and the cycle unopenable,
+  until the scan is ACCEPTED.
+
+  **Refuses:** an expired, finalized, or unknown authorization, and bytes
+  that do not match what was authorized.
+  """
+  finalizePolicyDocumentUpload(
+    """Which authorization to settle."""
+    input: FinalizePolicyDocumentUploadInput!
   ): AdminCycleResult!
 
   """

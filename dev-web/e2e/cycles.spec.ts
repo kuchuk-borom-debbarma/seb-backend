@@ -5,6 +5,7 @@ import {
   signIn,
   signUpApplicant,
   uniqueEmail,
+  uploadPolicyDocument,
 } from './support'
 
 /**
@@ -18,21 +19,20 @@ const createOpenCycle = async (page: Page, name: string) => {
   await expect(page.getByLabel('Cycle code')).toHaveValue(/^SEP-\d{4}$/u)
   await page.getByLabel('Cycle code').fill(name)
   await page.getByLabel('Name', { exact: true }).fill(name)
-  await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/01')
   await page
     .getByLabel('Guidance for applicants')
     .fill('Apply with your enterprise registration and a detailed project report.')
 
-  // An open window is what `availableProgrammeCycles` filters on, so a cycle
-  // with no dates is open in status but not accepting applications.
+  // An opening date is what `availableProgrammeCycles` filters on, so a cycle
+  // with no dates is open in status but not accepting applications. There is
+  // no closing input: the cycle takes applications until the office closes it.
   const opens = new Date(Date.now() - 60 * 60 * 1000)
-  const closes = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
   const local = (value: Date) => value.toISOString().slice(0, 16)
   await page.getByLabel('Applications open').fill(local(opens))
-  await page.getByLabel('Applications close').fill(local(closes))
 
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
+  await uploadPolicyDocument(page)
 
   await page.getByRole('button', { name: 'Open for applications' }).click()
   await page.getByLabel('Reason for this action').fill('Opening for the programme year.')
@@ -100,15 +100,12 @@ test.describe('cycle administration', () => {
     await page
       .getByLabel('Cycle code')
       .fill(`SEP-NR-${Date.now().toString(36).toUpperCase()}`)
-    await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/02')
     await page.getByLabel('Guidance for applicants').fill('Guidance.')
     const now = new Date()
     await page.getByLabel('Applications open').fill(now.toISOString().slice(0, 16))
-    await page
-      .getByLabel('Applications close')
-      .fill(new Date(Date.now() + 86_400_000).toISOString().slice(0, 16))
     await page.getByRole('button', { name: 'Create draft cycle' }).click()
     await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
+    await uploadPolicyDocument(page)
 
     // Every transition retains a reason, so the modal's confirmation is not
     // offered until one is written rather than failing after the click.

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useLocation, useRouter } from '@tanstack/react-router'
 import { ArrowLeft, ArrowRight, LogOut } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CategoryHint } from '#/features/application/CategoryHint'
 import { ClosingNotice } from '#/features/application/ClosingNotice'
 import {
   ATTACH_EVIDENCE,
@@ -493,9 +494,16 @@ function DraftFormPage() {
       ) : null}
 
       {/* Only while the application can still be sent. Telling somebody a
-          closed application is closing would be noise. */}
+          closed application is closing would be noise — and once submission
+          has stamped the category, a hint about it would be too. */}
       {!readOnly ? (
-        <ClosingNotice programmeCycleId={application.programmeCycleId} />
+        <>
+          <ClosingNotice programmeCycleId={application.programmeCycleId} />
+          <CategoryHint
+            enterpriseId={application.enterpriseId}
+            programmeCycleId={application.programmeCycleId}
+          />
+        </>
       ) : null}
 
       <ApplicationJourney

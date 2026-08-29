@@ -630,6 +630,20 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
     db, frozenSnapshot.programmeCycleId, frozenSnapshot.programmeCycleVersion,
   )
   /*
+   * The approved reasons of the same frozen cycle version. Read here, keyed by
+   * the snapshot's version, because `approvedReason` validates reason ids
+   * against exactly this version — a picker built from the cycle's *current*
+   * version would offer ids that stop validating the moment the cycle is
+   * revised, since a revision re-mints every reason row with a fresh id.
+   */
+  const reasons = await db.select().from(sebProgrammeCycleReason).where(and(
+    eq(sebProgrammeCycleReason.programmeCycleId, frozenSnapshot.programmeCycleId),
+    eq(
+      sebProgrammeCycleReason.programmeCycleVersion,
+      frozenSnapshot.programmeCycleVersion,
+    ),
+  )).orderBy(asc(sebProgrammeCycleReason.context), asc(sebProgrammeCycleReason.code))
+  /*
    * The answers each submission froze, and the form they were given against.
    *
    * Read here for the same reason the identifier rules are: the cycle version
@@ -722,6 +736,7 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
     reviews,
     reviewChecks,
     identifierRules,
+    reasons,
     formTemplate: rules?.template ?? null,
     referrals,
     bankOutcomes: bankOutcomeRows,
