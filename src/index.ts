@@ -55,8 +55,18 @@ const operationContext = (
  * isolate serves many people, and a connection held across them is a slot that
  * leaks rather than a cache that helps. Hyperdrive holds the real pool, so
  * opening one costs a hop rather than a handshake.
+ *
+ * A deployed environment may name its database directly: `DATABASE_URL`,
+ * provisioned with `wrangler secret put`, wins over the Hyperdrive binding
+ * there. Deliberately only where `ENVIRONMENT` is set — Wrangler loads
+ * `.env.local` into a local Worker's vars, and the same variable an operator
+ * keeps for the deployed database must not quietly point `npm run local` or
+ * the end-to-end suite at it. A developer's machine keeps its local database.
  */
-const connectionString = (env: AppBindings): string => env.HYPERDRIVE.connectionString
+const connectionString = (env: AppBindings): string =>
+  (env.ENVIRONMENT?.trim() && env.DATABASE_URL?.trim())
+    ? env.DATABASE_URL.trim()
+    : env.HYPERDRIVE.connectionString
 
 
 // FRONTEND_ORIGINS is parsed on demand so tests and local Wrangler overrides can

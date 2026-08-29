@@ -18,6 +18,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import pg from 'pg'
+import { loadRepositoryEnv } from './load-env.mjs'
+
+loadRepositoryEnv()
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const connectionString = process.env.DATABASE_URL

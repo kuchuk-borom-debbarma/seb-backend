@@ -24,6 +24,17 @@ export type AppBindings = CloudflareBindings & {
    */
   ENVIRONMENT?: string
   /**
+   * The database, named directly.
+   *
+   * Read by the database scripts (`db:setup:local`, `db:apply`) from
+   * `.env.local`, and by a **deployed** Worker when provisioned with
+   * `wrangler secret put DATABASE_URL` — there it wins over the Hyperdrive
+   * binding. A local Worker ignores it on purpose: Wrangler loads `.env.local`
+   * into vars, and the value an operator keeps for the deployed database must
+   * not quietly become the one the dev server and the e2e suite write to.
+   */
+  DATABASE_URL?: string
+  /**
    * Turns rate limiting off, for the test suites and nothing else.
    *
    * `"true"` selects a limiter that counts nothing. The factory refuses it

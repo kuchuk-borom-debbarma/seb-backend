@@ -235,6 +235,7 @@ and why nothing in this repository does it for you.
 | `fallow` | Dead code, duplication and complexity |
 | `test:worker` | The isolated Worker the end-to-end suite drives |
 | `db:setup:local` | Applies the canonical schema to the local database |
+| `db:apply` | Runs one reviewed SQL file against the database `DATABASE_URL` names, in a transaction |
 | `db:schema:generate` | Rewrites `database/schema.sql` from the Drizzle schema |
 | `db:schema:check` | Fails if the two have diverged, or if the schema will not re-apply |
 | `check:sdl` … `check:scanner` | Nine focused guardrails: SDL descriptions, audit actions, insert arity, untyped comparisons, SQL aliases, rate-limit coverage, the document size limit, scanner and deploy configuration |
