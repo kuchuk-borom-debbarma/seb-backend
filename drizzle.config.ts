@@ -1,21 +1,30 @@
 import { defineConfig } from 'drizzle-kit'
+import { loadRepositoryEnv } from './scripts/load-env.mjs'
 
 /**
- * `database/schema.sql` is the schema, and there is no migration chain.
+ * `database/schema.sql` is the schema's canonical description, and
+ * `npm run db:schema:check` is what keeps it one — it regenerates the file
+ * from this schema and fails on any diff, so the SQL can never drift into a
+ * second opinion.
  *
- * Nothing is deployed and no database holds anything that has to survive, so
- * applying the schema means recreating it. `npm run db:schema:check` regenerates
- * that file and fails on any diff — which is what keeps it a description rather
- * than a second copy that can drift. `scripts/check-schema.mjs` says the same,
- * and `docs/rules/code.md` records why.
+ * A deployed database exists now, so changes reach it as an ordered chain
+ * under `out`: `npm run db:generate` writes the next migration from this
+ * schema's diff against the chain, and `npm run db:migrate` applies what the
+ * database `DATABASE_URL` names has not seen. The chain began after the first
+ * deployment, so `0000_baseline` describes the shape that was already there —
+ * `npm run db:baseline` marks it applied rather than running it.
  *
- * **This used to claim the check covered a migration chain under `out`.** It
- * did not: `db:schema:check` runs `drizzle-kit export` and never reads that
- * directory, so a generated baseline sat there being neither checked nor
- * applied while `npm run check` passed green over it. The directory is gone;
- * `out` stays because `drizzle-kit generate --custom` is the escape hatch for a
- * hand-written data migration, and that is the day the chain begins.
+ * `drizzle-kit push` is deliberately not offered. Rehearsed against a copy of
+ * the deployed schema it planned to drop `seb_application_case_id_uq`, a
+ * unique index two foreign keys depend on — its introspection reads this
+ * schema's FK-referenced `uniqueIndex` columns as constraints to rebuild, and
+ * it applies statement by statement with no transaction around the plan.
+ *
+ * Local scratch databases still recreate via `db:setup:local`, which is
+ * cheaper than migrating and cannot leave an old shape behind.
  */
+loadRepositoryEnv()
+
 export default defineConfig({
   dialect: 'postgresql',
   schema: './src/db/schema/index.ts',

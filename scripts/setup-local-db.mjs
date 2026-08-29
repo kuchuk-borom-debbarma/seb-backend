@@ -10,9 +10,9 @@
  * done, leaving the database on the old definition while the code assumes the
  * new one.
  *
- * Safe because nothing is deployed and no local database holds anything worth
- * keeping. The day one does, this script is the wrong tool and an ordered
- * migration chain is the right one.
+ * Safe because a local database holds nothing worth keeping. A database that
+ * does — the deployed one — moves through the ordered chain instead:
+ * `npm run db:migrate` against `database/migrations/`.
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

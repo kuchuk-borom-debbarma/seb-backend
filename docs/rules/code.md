@@ -272,16 +272,18 @@ and regenerated; `npm run db:schema:check` regenerates and fails on any
 difference, which is what keeps the file a description rather than a second
 copy that can drift.
 
-There is no migration chain, because nothing is deployed and no database holds
-anything that has to survive — applying the schema means recreating it.
+A deployed database exists now, so changes to it travel as an ordered chain
+under `database/migrations/`: `npm run db:generate` diffs the Drizzle schema
+against the chain and writes the next file, `npm run db:migrate` applies what
+the database `DATABASE_URL` names has not seen. The chain began after the
+first deployment, so its `0000_baseline` describes what was already there and
+was marked applied with `npm run db:baseline` rather than run.
 **`IF NOT EXISTS` is not a migration**: against a table already present in an
 older shape the statement is skipped and reported as success, leaving the
 database on the old definition while the code assumes the new one. That is why
-`db:setup:local` drops and rebuilds instead of guarding.
-
-The day a database exists that cannot be thrown away, this reverses and changes
-to existing tables become ordered files. Until then, adding one would be
-ceremony that hides the real rule.
+`db:setup:local` still drops and rebuilds a local scratch database instead of
+guarding — recreating is cheaper than migrating where nothing has to survive,
+and cannot leave an old shape behind.
 
 **One ordering rule survives either way.** A composite foreign key needs its
 referenced columns covered by a unique *constraint*, not a unique index, because

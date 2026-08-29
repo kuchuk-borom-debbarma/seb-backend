@@ -9,10 +9,11 @@
  * inside one transaction, so a failure half-way leaves the database as it was
  * rather than on a shape no commit describes.
  *
- * There is still no migration chain here. What this replaces is the ad-hoc
- * `psql "$DATABASE_URL" -f …` invocation, not the discipline: the file to
- * apply is written and reviewed per change, and the day changes need ordering
- * and history, a real migration chain is the right tool.
+ * Schema changes do not come through here — they travel the ordered chain
+ * under `database/migrations/` via `db:generate` and `db:migrate`. This is
+ * the escape hatch beside it, for the hand-written cases the chain's
+ * `drizzle-kit generate --custom` anticipates: a data fix, a backfill, a
+ * one-off correction — reviewed per change, applied whole or not at all.
  *
  *   npm run db:apply -- path/to/change.sql
  *

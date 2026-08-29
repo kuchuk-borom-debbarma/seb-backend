@@ -447,10 +447,11 @@ middle. Until it is enabled the interface must go on saying "starts with".
   is configured), and best-effort email notification with PDF attachments.
   Payment integration remains a public-launch blocker.
 - `database/schema.sql` is the whole schema and is generated, never hand-edited.
-  Nothing is deployed and no database holds anything worth keeping, so applying
-  it means recreating rather than patching. The day a database exists that
-  cannot be thrown away, that reverses and changes to existing tables become an
-  ordered migration chain instead.
+  A local scratch database applies it by recreating (`db:setup:local`); the
+  deployed database moves through the ordered chain under
+  `database/migrations/` instead — `db:generate` writes the next file from the
+  Drizzle schema's diff, `db:migrate` applies what is pending, and the chain's
+  `0000_baseline` records the shape that was already deployed when it began.
 - `core_user_role_grant.role` accepts five values: `APPLICANT`, `REVIEWER`,
   `APPROVER`, `ADMIN`, `SUPER_ADMIN`. The vocabulary is fixed in TypeScript and
   enforced by a `CHECK`, so adding a role is a schema change rather than a

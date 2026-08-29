@@ -235,6 +235,9 @@ and why nothing in this repository does it for you.
 | `fallow` | Dead code, duplication and complexity |
 | `test:worker` | The isolated Worker the end-to-end suite drives |
 | `db:setup:local` | Applies the canonical schema to the local database |
+| `db:generate` | Writes the next migration from the Drizzle schema's diff against the chain |
+| `db:migrate` | Applies pending migrations to the database `DATABASE_URL` names |
+| `db:baseline` | Marks migrations through a named tag as already applied, for a database that already has their shape |
 | `db:apply` | Runs one reviewed SQL file against the database `DATABASE_URL` names, in a transaction |
 | `db:schema:generate` | Rewrites `database/schema.sql` from the Drizzle schema |
 | `db:schema:check` | Fails if the two have diverged, or if the schema will not re-apply |
