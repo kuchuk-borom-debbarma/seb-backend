@@ -20,7 +20,7 @@ import { failure } from '../envelope'
  * because `services/auth` needs it too.
  */
 export { constraintSafe } from '../constraints'
-import { authenticatedWithCapability, type Capability } from '../auth'
+import { authenticatedWithPermission, type ActionOf, type Resource } from '../auth'
 import type { AdminOperationContext, AdminResult } from './types'
 
 /**
@@ -35,23 +35,25 @@ export const ADMIN_REQUIRED_MESSAGE = 'You do not have permission to do that.'
 export const STALE_MESSAGE = 'The record changed. Reload and try again.'
 
 /**
- * The caller, if they hold the capability this operation needs.
+ * The caller, if they hold the permission this operation needs.
  *
- * Named for staff rather than administrators because the office now holds four
- * roles and two of them are not administrators: a reviewer may read a
- * workspace, and an approver may record a decision, without being able to do
- * anything else. Which role carries which capability is decided in one place,
- * `auth/capabilities.ts`, and never restated here.
+ * Named for staff rather than administrators because the office composes its
+ * own roles: somebody may read a workspace without being able to change one,
+ * and record a decision without being able to open a cycle. Which role carries
+ * which permission is a row now, and never restated here.
  *
- * The capability is a required argument on purpose. A default would mean an
- * operation that forgot to say what it needs silently inherits somebody else's
- * answer, and the direction that mistake fails in is "too permissive".
+ * The pair is required arguments on purpose. A default would mean an operation
+ * that forgot to say what it needs silently inherits somebody else's answer,
+ * and the direction that mistake fails in is "too permissive". Two arguments
+ * make the mistake harder still: a preamble defaulting one would have to
+ * default both, which reads as obviously wrong.
  */
-export const currentStaff = async (
+export const currentStaff = async <R extends Resource>(
   context: AdminOperationContext,
-  capability: Capability,
+  resource: R,
+  action: ActionOf<R>,
 ) => {
-  const authenticated = await authenticatedWithCapability(context, capability)
+  const authenticated = await authenticatedWithPermission(context, resource, action)
   return authenticated?.user ?? null
 }
 
@@ -193,13 +195,14 @@ export const disclosedSelfReview = (
  * Only the message describing a malformed request differs, so that is the one
  * thing a caller supplies.
  */
-export const authorizeReasonedTransition = async (
+export const authorizeReasonedTransition = async <R extends Resource>(
   context: AdminOperationContext,
-  capability: Capability,
+  resource: R,
+  action: ActionOf<R>,
   input: { reason: string; expectedVersion: number },
   invalidRequestMessage: string,
 ): Promise<{ actorId: string; reason: string } | { refusal: AdminResult<never> }> => {
-  const administrator = await currentStaff(context, capability)
+  const administrator = await currentStaff(context, resource, action)
   if (!administrator) return { refusal: failure(ADMIN_REQUIRED_MESSAGE) }
   const reason = normalizeRequiredText(input.reason, 1_000)
   if (!reason || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {

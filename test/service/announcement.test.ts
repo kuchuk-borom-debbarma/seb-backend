@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDatabase, freshDatabase, resetDatabase } from '../support/harness'
 import { env } from '../support/worker'
-import { graphql, signIn } from '../support/api'
+import { everyPermission, everyReadPermission, graphql, permissionsOn, signIn } from '../support/api'
 
 beforeAll(async () => { await freshDatabase() })
 beforeEach(async () => { await resetDatabase() })
@@ -66,7 +66,7 @@ describe('the public banner', () => {
   })
 
   it('shows only published cards that have not passed their end time', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const live = await create(announcer.cookie, { title: 'Live card' })
     expect(live.data.admin.announcement.create.success,
       live.data.admin.announcement.create.message ?? '').toBe(true)
@@ -92,7 +92,7 @@ describe('the public banner', () => {
   })
 
   it('carries the link and a null date label exactly as authored', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     await create(announcer.cookie, {
       title: 'Read the order',
       dateLabel: null,
@@ -108,26 +108,39 @@ describe('the public banner', () => {
 
 describe('who may write the banner', () => {
   it('admits the announcer and the super administrator, and nobody else', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     expect((await board(announcer.cookie)).data.admin.announcement.board.success).toBe(true)
     expect((await create(announcer.cookie)).data.admin.announcement.create.success).toBe(true)
 
-    const superAdmin = await signIn(['SUPER_ADMIN'])
+    const superAdmin = await signIn({ roles: ['SUPER_ADMIN'] })
     expect((await create(superAdmin.cookie)).data.admin.announcement.create.success).toBe(true)
 
-    for (const roles of [['ADMIN'], ['REVIEWER'], ['APPLICANT']] as const) {
-      const refused = await signIn([...roles])
-      expect((await board(refused.cookie)).data.admin.announcement.board,
-        roles.join()).toMatchObject({ success: false, message: PERMISSION })
-      expect((await create(refused.cookie)).data.admin.announcement.create,
-        roles.join()).toMatchObject({ success: false, message: PERMISSION })
+    /*
+     * Everything the catalogue offers *except* the banner, plus an applicant
+     * and a signed-out caller. Derived rather than listed, so a resource added
+     * later is refused here too without anybody remembering to add it.
+     */
+    const withoutAnnouncement = everyPermission()
+      .filter(([resource]) => resource !== 'announcement')
+    const refusals = [
+      { what: 'every other permission', who: await signIn({ permissions: withoutAnnouncement }) },
+      { what: 'reads only', who: await signIn({ permissions: everyReadPermission()
+        .filter(([resource]) => resource !== 'announcement') }) },
+      { what: 'an applicant', who: await signIn({ roles: ['APPLICANT'] }) },
+    ]
+    for (const { what, who } of refusals) {
+      expect((await board(who.cookie)).data.admin.announcement.board, what)
+        .toMatchObject({ success: false, message: PERMISSION })
+      expect((await create(who.cookie)).data.admin.announcement.create, what)
+        .toMatchObject({ success: false, message: PERMISSION })
     }
+    expect(refusals.length, 'refusal cases').toBe(3)
     expect((await board(undefined)).data.admin.announcement.board)
       .toMatchObject({ success: false, message: PERMISSION })
   })
 
   it('gives the announcer nothing beyond the banner', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const queue = await graphql<any>(`query {
       admin { intake { queues { success message } } }
     }`, {}, announcer.cookie)
@@ -136,29 +149,61 @@ describe('who may write the banner', () => {
     })
   })
 
-  it('is granted and invited by a super administrator, and never by an admin', async () => {
-    const superAdmin = await signIn(['SUPER_ADMIN'])
-    const admin = await signIn(['ADMIN'])
-    const applicant = await signIn(['APPLICANT'])
+  it('cannot be offered by an issuer who does not hold the banner themselves', async () => {
+    const superAdmin = await signIn({ roles: ['SUPER_ADMIN'] })
+    const applicant = await signIn({ roles: ['APPLICANT'] })
+
+    /*
+     * The banner role, as a row. Built directly because composing one through
+     * the API needs a step-up password this fixture has no hash for; what is
+     * under test here is the ceiling, not role creation.
+     */
+    const now = Date.now()
+    const roleId = crypto.randomUUID()
+    await env.DB.prepare(
+      `INSERT INTO core_role (id, key, name, description, current_version,
+        created_at, updated_at, created_by_user_id)
+       VALUES (?, 'ANNOUNCER_ROLE', 'Announcer', 'Writes the public banner.', 1, ?, ?, ?)`,
+    ).bind(roleId, now, now, superAdmin.userId).run()
+    for (const [resource, action] of permissionsOn('announcement')) {
+      await env.DB.prepare(
+        `INSERT INTO core_role_permission (id, role_id, resource, action, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).bind(crypto.randomUUID(), roleId, resource, action, now).run()
+    }
 
     const invite = (cookie: string) => graphql<any>(`mutation($input: InviteRoleInput!) {
       access { inviteRole(input: $input) { success message } }
     }`, { input: {
-      userId: applicant.userId, role: 'ANNOUNCER', reason: 'Joining communications.',
+      userId: applicant.userId, roleKey: 'ANNOUNCER_ROLE', reason: 'Joining communications.',
     } }, cookie)
 
-    const ceiling = await invite(admin.cookie)
-    expect(ceiling.data.access.inviteRole.success).toBe(false)
+    /*
+     * An issuer holding every casework permission there is, plus the authority
+     * to invite — and not the banner. The ceiling is a subset test, so the one
+     * thing they lack is the one thing they cannot pass on. Without it, "may
+     * invite" would be a route to every authority in the catalogue.
+     */
+    const issuer = await signIn({
+      // `everyPermission()` already carries `role:invite`; the filter takes
+      // away only the banner.
+      permissions: everyPermission().filter(([resource]) => resource !== 'announcement'),
+    })
+    expect((await invite(issuer.cookie)).data.access.inviteRole).toMatchObject({
+      success: false, message: 'You cannot invite somebody to that role.',
+    })
 
-    const issued = await invite(superAdmin.cookie)
-    expect(issued.data.access.inviteRole.success,
-      issued.data.access.inviteRole.message ?? '').toBe(true)
+    // Somebody who does hold the banner may pass it on.
+    const announcer = await signIn({
+      permissions: [...permissionsOn('announcement'), ['role', 'invite']],
+    })
+    expect((await invite(announcer.cookie)).data.access.inviteRole.success).toBe(true)
   })
 })
 
 describe('what a card may say', () => {
   it('refuses each field past its cap, naming the field', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const refusals: Array<[Record<string, unknown>, string]> = [
       [{ tag: '   ' }, 'Provide a tag of at most 40 characters.'],
       [{ tag: 'x'.repeat(41) }, 'Provide a tag of at most 40 characters.'],
@@ -178,7 +223,7 @@ describe('what a card may say', () => {
   })
 
   it('kills every link that could not safely become an href', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const refusals: Array<[Record<string, string>, string]> = [
       [{ kind: 'EXTERNAL', target: 'javascript:alert(1)' }, 'Provide a full http or https address.'],
       [{ kind: 'EXTERNAL', target: 'data:text/html,x' }, 'Provide a full http or https address.'],
@@ -228,7 +273,7 @@ describe('editing under contention', () => {
   } }, cookie)
 
   it('applies an edit at the read version and refuses a stale one, writing no audit for it', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const created = await create(announcer.cookie)
     const id = created.data.admin.announcement.create.response.id
 
@@ -250,7 +295,7 @@ describe('editing under contention', () => {
   })
 
   it('refuses a version that is not a positive integer, and an unknown id like a stale one', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     await create(announcer.cookie)
     expect((await update(announcer.cookie, crypto.randomUUID(), 1))
       .data.admin.announcement.update).toMatchObject({ success: false, message: STALE })
@@ -261,7 +306,7 @@ describe('editing under contention', () => {
   })
 
   it('flips visibility with the quick toggle and refuses it stale', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const created = await create(announcer.cookie)
     const id = created.data.admin.announcement.create.response.id
     const setPublished = (expectedVersion: number, published: boolean) =>
@@ -288,7 +333,7 @@ describe('editing under contention', () => {
   })
 
   it('removes once, with a required reason, and refuses the second attempt', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const created = await create(announcer.cookie)
     const id = created.data.admin.announcement.create.response.id
     const remove = (expectedVersion: number, reason: string) =>
@@ -318,7 +363,7 @@ describe('the board and its order', () => {
     }`, { ids, expectedBoardVersion }, cookie)
 
   it('moves with creates and removes, and not with edits', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     expect((await board(announcer.cookie)).data.admin.announcement.board.response.boardVersion)
       .toBe(1)
     const first = await create(announcer.cookie, { title: 'First' })
@@ -342,7 +387,7 @@ describe('the board and its order', () => {
   })
 
   it('rewrites the whole order, shows it everywhere, and refuses it stale', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const a = (await create(announcer.cookie, { title: 'A' }))
       .data.admin.announcement.create.response.id
     const b = (await create(announcer.cookie, { title: 'B' }))
@@ -364,7 +409,7 @@ describe('the board and its order', () => {
   })
 
   it('refuses a list that misses, repeats, invents or empties the board', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const a = (await create(announcer.cookie, { title: 'A' }))
       .data.admin.announcement.create.response.id
     const b = (await create(announcer.cookie, { title: 'B' }))
@@ -386,8 +431,8 @@ describe('the board and its order', () => {
 
 describe('every door refuses alike', () => {
   it('holds the capability gate and the version shape on each mutation', async () => {
-    const reviewer = await signIn(['REVIEWER'])
-    const announcer = await signIn(['ANNOUNCER'])
+    const reviewer = await signIn({ permissions: everyReadPermission() })
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const id = crypto.randomUUID()
     const input = {
       tag: 'Notice', title: 'Probe', body: 'Probe.', icon: 'MEGAPHONE', published: true,
@@ -450,7 +495,7 @@ describe('every door refuses alike', () => {
 
 describe('what the history retains', () => {
   it('writes every declared action with its actor and entity', async () => {
-    const announcer = await signIn(['ANNOUNCER'])
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const created = await create(announcer.cookie, { title: 'Audited' })
     const id = created.data.admin.announcement.create.response.id
     const other = (await create(announcer.cookie, { title: 'Companion' }))

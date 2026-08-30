@@ -11,7 +11,7 @@
  * concurrent attempts. The two are deliberately redundant.
  */
 import { z } from 'zod'
-import { auditActions, type UserRole } from '../../../db/schema'
+import { auditActions } from '../../../db/schema'
 import { sendNotification } from '../../external-notification'
 import { verifyPassword } from '../crypto'
 import {
@@ -28,11 +28,12 @@ import {
   findManagedGrant,
   findManagedUserById,
   grantRoleWrite,
-  isManageableRole,
+  isRevocableGrant,
   revokeRoleWrite,
   usableSuperAdminExistsExcluding,
-  type ManageableRole,
 } from '../queries/access'
+import { findRoleById, findRoleByKey, type ManagedRole } from '../queries/roles'
+import { permissionKey } from '../permissions'
 import {
   auditEvent,
   AUTH_REQUIRED_MESSAGE,
@@ -41,7 +42,7 @@ import {
 } from '../support'
 import { failure, success } from '../../envelope'
 import type { AuthOperationContext, AuthResult, ManagedUser } from '../types'
-import { authenticatedSuperAdministrator, authenticatedWithCapability } from './auth'
+import { authenticatedSuperAdministrator, authenticatedWithPermission } from './auth'
 
 const REASON_MAXIMUM_LENGTH = 500
 const INVALID_REASON_MESSAGE =
@@ -127,14 +128,38 @@ export const managedUserById = async (
 }
 
 /**
- * Grants `ADMIN` or `SUPER_ADMIN`, retaining the reason in grant history.
+ * Resolves a role key to what should be written into a grant.
+ *
+ * The API names an authority by one key whether it is decided in code or
+ * composed, so a caller never has to know which kind it is asking for — but the
+ * grant table keeps them in different columns, and this is the one place that
+ * translation happens.
+ *
+ * `APPLICANT` is refused. It is created only by verified signup and nothing can
+ * grant it back, so accepting it here would let one later revocation strip
+ * somebody permanently.
+ */
+const grantTargetFor = async (
+  context: AuthOperationContext,
+  roleKey: string,
+): Promise<{ role: string | null; roleId: string | null } | null> => {
+  if (roleKey === 'SUPER_ADMIN') return { role: 'SUPER_ADMIN', roleId: null }
+  if (roleKey === 'APPLICANT') return null
+  const role = await findRoleByKey(context.db, roleKey)
+  return role ? { role: null, roleId: role.id } : null
+}
+
+const UNKNOWN_ROLE_MESSAGE = 'No such role.'
+
+/**
+ * Grants an authority directly, retaining the reason in grant history.
  *
  * A role that was granted and later revoked is granted again as a new row
  * rather than by reopening the old one, so the history of who held what and
  * when stays complete.
  */
 export const grantRole = async (
-  input: { userId: string; role: ManageableRole; reason: string; currentPassword: string },
+  input: { userId: string; roleKey: string; reason: string; currentPassword: string },
   context: AuthOperationContext,
 ): Promise<AuthResult<ManagedUser>> => {
   // Authority first. Nothing below this line may describe the subject to a
@@ -144,12 +169,14 @@ export const grantRole = async (
   if (!identifierSchema.safeParse(input.userId).success) {
     return failure(USER_NOT_FOUND_MESSAGE)
   }
+  const target = await grantTargetFor(context, input.roleKey)
+  if (!target) return failure(UNKNOWN_ROLE_MESSAGE)
   const subject = await findManagedUserById(context.db, input.userId)
   if (!subject || subject.deleted) return failure(USER_NOT_FOUND_MESSAGE)
   if (!subject.emailVerified) {
     return failure('That user has not verified their email address yet.')
   }
-  if (subject.roles.includes(input.role)) {
+  if (subject.roles.includes(input.roleKey)) {
     return failure('That role is already active for this user.')
   }
 
@@ -163,7 +190,8 @@ export const grantRole = async (
     grant: {
       id: grantId,
       userId: subject.id,
-      role: input.role,
+      role: target.role,
+      roleId: target.roleId,
       grantedByUserId: authorized.actorUserId,
       grantReason: authorized.reason,
       grantedAt: now,
@@ -179,7 +207,7 @@ export const grantRole = async (
       entityType: 'CORE_USER_ROLE_GRANT',
       entityId: grantId,
       actorUserId: authorized.actorUserId,
-      metadata: { subjectUserId: subject.id, role: input.role },
+      metadata: { subjectUserId: subject.id, role: input.roleKey },
       createdAt: now,
     }),
   })
@@ -215,8 +243,12 @@ export const revokeRole = async (
   if (!found) return failure(GRANT_NOT_ACTIVE_MESSAGE)
   const { subject, grant } = found
   if (grant.revokedAt !== null) return failure(GRANT_NOT_ACTIVE_MESSAGE)
-  if (!isManageableRole(grant.role)) {
-    return failure('Only administrative roles can be revoked here.')
+  if (!isRevocableGrant(grant)) {
+    /*
+     * `APPLICANT` is the only thing this refuses. Nothing can grant it back, so
+     * closing one here would strip somebody permanently with no recovery path.
+     */
+    return failure('Applicant access cannot be revoked here.')
   }
   if (grant.role === 'SUPER_ADMIN') {
     // Order matters. The last holder revoking their own grant is refused for
@@ -250,15 +282,6 @@ export const revokeRole = async (
   return success(await reloadSubject(context, subject.id))
 }
 
-/** How a role is named to the person being invited, rather than in SQL. */
-const ROLE_LABELS: Record<ManageableRole, string> = {
-  REVIEWER: 'reviewer',
-  APPROVER: 'approver',
-  ADMIN: 'programme administrator',
-  ANNOUNCER: 'announcer',
-  SUPER_ADMIN: 'super administrator',
-}
-
 /**
  * Where the invitation link points.
  *
@@ -278,23 +301,30 @@ const invitePortalUrl = (context: AuthOperationContext, token: string): string =
 }
 
 /**
- * The roles each issuer may invite somebody to.
+ * Whether an issuer may offer this role: is it a subset of what they hold?
  *
- * Without a ceiling, "an administrator may invite" is a privilege escalation: a
- * plain `ADMIN` could invite a second account to `ADMIN` — or to `SUPER_ADMIN`
- * — and obtain through it exactly the authority they are directly forbidden.
- * Nobody is ever invited to `SUPER_ADMIN`; that stays bootstrap, or a direct
- * grant by somebody who already is one.
+ * Without a ceiling, "an administrator may invite" is a privilege escalation —
+ * somebody could invite a second account to more than they hold and obtain
+ * through it exactly the authority they are directly forbidden.
+ *
+ * This used to be a hand-written table of role names, and with composed roles
+ * that table cannot be written at all: the roles are not known when the code
+ * is. So the rule generalizes to what it always meant, and reads the actual
+ * permission sets. A super administrator holds the wildcard, so every role is a
+ * subset and they may offer any of them.
+ *
+ * Nobody is ever invited to super administrator. That stays bootstrap or a
+ * direct grant by somebody who already is one, and it is not a composed role,
+ * so no role reachable here can carry it.
  */
-const INVITABLE_ROLES: Partial<Record<UserRole, readonly ManageableRole[]>> = {
-  ADMIN: ['REVIEWER', 'APPROVER'],
-  // ANNOUNCER controls what the public landing page says, so only a super
-  // administrator may create one — ADMIN's row deliberately omits it.
-  SUPER_ADMIN: ['REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER'],
+const withinIssuersAuthority = (
+  actor: { superAdministrator: boolean; permissions: readonly { resource: string; action: string }[] },
+  role: ManagedRole,
+): boolean => {
+  if (actor.superAdministrator) return true
+  const held = new Set(actor.permissions.map((p) => permissionKey(p.resource, p.action)))
+  return role.permissions.every((p) => held.has(permissionKey(p.resource, p.action)))
 }
-
-const invitableBy = (roles: readonly UserRole[]): Set<ManageableRole> =>
-  new Set(roles.flatMap((role) => [...(INVITABLE_ROLES[role] ?? [])]))
 
 /** Said to anyone whose link does not open, whatever the reason. */
 const INVITE_UNUSABLE_MESSAGE =
@@ -308,14 +338,21 @@ const INVITE_UNUSABLE_MESSAGE =
  * factor that makes possession meaningful.
  */
 export const inviteRole = async (
-  input: { userId: string; role: ManageableRole; reason: string },
+  input: { userId: string; roleKey: string; reason: string },
   context: AuthOperationContext,
-): Promise<AuthResult<{ email: string; role: ManageableRole; expiresAt: Date }>> => {
+): Promise<AuthResult<{ email: string; role: string; expiresAt: Date }>> => {
   // Authority first. Nothing below may describe the subject to a caller who
   // has not proved they may invite at all.
-  const actor = await authenticatedWithCapability(context, 'ROLE_INVITE')
+  const actor = await authenticatedWithPermission(context, 'role', 'invite')
   if (!actor) return failure(AUTH_REQUIRED_MESSAGE)
-  if (!invitableBy(actor.roles).has(input.role)) {
+  const role = await findRoleByKey(context.db, input.roleKey)
+  /*
+   * One refusal for an unknown role and one beyond the caller's authority. The
+   * two are distinguishable only to somebody who may already read the role
+   * list, and telling everybody else which keys are real is an enumeration
+   * this namespace deliberately does not offer.
+   */
+  if (!role || !withinIssuersAuthority(actor, role)) {
     return failure('You cannot invite somebody to that role.')
   }
   if (!identifierSchema.safeParse(input.userId).success) {
@@ -329,7 +366,7 @@ export const inviteRole = async (
   if (!subject.emailVerified) {
     return failure('That user has not verified their email address yet.')
   }
-  if (subject.roles.includes(input.role)) {
+  if (subject.roles.includes(role.key)) {
     return failure('That role is already active for this user.')
   }
   // Accepting swaps an applicant grant for the staff role, so somebody who no
@@ -342,10 +379,17 @@ export const inviteRole = async (
   const now = new Date()
   const expiresAt = new Date(now.getTime() + INVITE_TTL_MS)
   const token = await sealInvite(requireInviteSecret(context.env.ROLE_INVITE_SECRET), {
-    version: 1,
+    version: 2,
     userId: subject.id,
     email: subject.email,
-    role: input.role,
+    roleId: role.id,
+    /*
+     * The version the issuer approved. The ceiling above is checked now, and a
+     * role can be edited in the forty-eight hours before this is accepted —
+     * without this term, somebody could offer a role they may legitimately
+     * offer and then add authority to it.
+     */
+    roleVersion: role.version,
     issuerId: actor.user.id,
     issuedAt: now.getTime(),
     expiresAt: expiresAt.getTime(),
@@ -362,7 +406,7 @@ export const inviteRole = async (
       // The token is never recorded. An audit row that carried it would be a
       // second copy of a live credential, readable by anybody who may read
       // audits.
-      metadata: { role: input.role, reason, expiresAt: expiresAt.toISOString() },
+      metadata: { role: role.key, reason, expiresAt: expiresAt.toISOString() },
     }),
   )
 
@@ -373,7 +417,7 @@ export const inviteRole = async (
         subject: `You have been invited to the Mission SEP office`,
         body: [
           `You have been invited to join the Mission SEP programme office as a`,
-          `${ROLE_LABELS[input.role]}.`,
+          `${role.name}.`,
           ``,
           `Open this link to accept. It expires in 48 hours:`,
           `${invitePortalUrl(context, token)}`,
@@ -389,7 +433,7 @@ export const inviteRole = async (
     return failure('The invitation could not be sent. Try again.')
   }
 
-  return success({ email: subject.email, role: input.role, expiresAt })
+  return success({ email: subject.email, role: role.key, expiresAt })
 }
 
 /**
@@ -405,7 +449,7 @@ export const inviteRole = async (
 export const acceptRoleInvite = async (
   input: { token: string },
   context: AuthOperationContext,
-): Promise<AuthResult<{ role: UserRole }>> => {
+): Promise<AuthResult<{ role: string }>> => {
   const now = new Date()
   const invite = await openInvite(
     requireInviteSecret(context.env.ROLE_INVITE_SECRET),
@@ -421,7 +465,7 @@ export const acceptRoleInvite = async (
    * null, as it is for every unauthenticated act — possession of the token is
    * the credential here, and a refused token identifies nobody.
    */
-  if (!invite || !isManageableRole(invite.role)) {
+  if (!invite) {
     await createAuditEvent(
       context.db,
       auditEvent(context, {
@@ -434,10 +478,19 @@ export const acceptRoleInvite = async (
   }
 
   const subject = await findManagedUserById(context.db, invite.userId)
+  /*
+   * The role is re-read rather than trusted from the seal, and its version has
+   * to still match. An invitation names what the issuer approved; a role edited
+   * since — or retired — is no longer that thing, and honouring it would let
+   * somebody offer a weak role and then strengthen it before it was accepted.
+   */
+  const role = await findRoleById(context.db, invite.roleId)
   if (
     !subject ||
     subject.deleted ||
     !subject.emailVerified ||
+    !role ||
+    role.version !== invite.roleVersion ||
     // The address the invitation was sent to is no longer the account's, so
     // whoever holds the link is no longer necessarily the account holder.
     subject.email !== invite.email
@@ -460,7 +513,8 @@ export const acceptRoleInvite = async (
     grant: {
       id: crypto.randomUUID(),
       userId: subject.id,
-      role: invite.role,
+      role: null,
+      roleId: role.id,
       grantedByUserId: invite.issuerId,
       grantReason: 'ROLE_INVITE_ACCEPTED',
       grantedAt,
@@ -475,12 +529,12 @@ export const acceptRoleInvite = async (
       // The subject acts on their own account here; the issuer is recorded as
       // the grant's authority rather than as this event's actor.
       actorUserId: subject.id,
-      metadata: { role: invite.role, issuerId: invite.issuerId },
+      metadata: { role: role.key, issuerId: invite.issuerId },
     }),
   })
   // Already spent, or the account stopped being an applicant in between. Both
   // are the same answer to whoever is holding the link.
   if (!accepted) return failure(INVITE_UNUSABLE_MESSAGE)
 
-  return success({ role: invite.role }, `You are now a ${ROLE_LABELS[invite.role]}.`)
+  return success({ role: role.key }, `You are now a ${role.name}.`)
 }

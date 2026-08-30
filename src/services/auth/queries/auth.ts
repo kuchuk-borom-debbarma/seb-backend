@@ -3,7 +3,7 @@
  * boundaries stay here so controllers can express policy without weakening
  * the race guarantees of signup or session ownership checks.
  */
-import { and, desc, eq, exists, gt, isNotNull, isNull, lte, ne, not, notExists, sql, type AnyColumn, type SQL } from 'drizzle-orm'
+import { and, desc, eq, exists, gt, isNotNull, isNull, lte, ne, not, notExists, or, sql, type AnyColumn, type SQL } from 'drizzle-orm'
 import { batch, type Database, type Transaction } from '../../../db'
 import { constraintSafe } from '../../constraints'
 import {
@@ -11,11 +11,13 @@ import {
   coreAuditEvent,
   coreSession,
   coreSignupChallenge,
+  coreRole,
+  coreRolePermission,
   coreUser,
   coreUserRoleGrant,
   sebEnterprise,
-  userRoles,
-  type UserRole,
+  builtinRoles,
+  type BuiltinRole,
 } from '../../../db/schema'
 
 export type UserRecord = typeof coreUser.$inferSelect
@@ -71,7 +73,15 @@ export const findUserByEmail = async (
 }
 
 /**
- * True while the person still holds at least one unrevoked grant.
+ * True while the person holds at least one grant that still authorizes
+ * something.
+ *
+ * Not simply "an unrevoked row". A grant pointing at a role that has since been
+ * retired is history rather than authority, and this is the one definition four
+ * separate deactivation paths read — sign-in, session creation, the session
+ * resolve, and the scheduled sweep. They agreed by accident while the answer
+ * was "any row"; they have to agree on purpose now that a role can be retired
+ * out from under a grant.
  *
  * Accepts either a literal user ID or the `core_user.id` column so the same
  * rule can be correlated into an outer query or pinned to one known user.
@@ -80,10 +90,15 @@ export const hasActiveRoleGrant = (db: Database, userId: AnyColumn | string): SQ
   db
     .select({ id: coreUserRoleGrant.id })
     .from(coreUserRoleGrant)
+    .leftJoin(coreRole, eq(coreRole.id, coreUserRoleGrant.roleId))
     .where(
       and(
         eq(coreUserRoleGrant.userId, userId),
         isNull(coreUserRoleGrant.revokedAt),
+        or(
+          isNotNull(coreUserRoleGrant.role),
+          isNull(coreRole.deletedAt),
+        ),
       ),
     ),
 )
@@ -116,33 +131,101 @@ export const findActiveUserByEmail = async (
 }
 
 /**
- * Deduplicates and orders roles by the schema's own role catalogue.
+ * Deduplicates and orders the names somebody holds.
  *
  * Every role-reading path runs this so a public response never depends on the
- * order D1 happened to return grant rows in. Filtering against `userRoles`
- * rather than a local copy means a role added to the schema cannot be silently
- * dropped from public responses.
+ * order the grant rows came back in. The two decided in code lead, because they
+ * are the ones a reader is orienting by; composed roles follow alphabetically,
+ * since nothing else about them implies an order.
  */
-export const orderedRoles = (roles: Iterable<UserRole>): UserRole[] => {
-  const active = new Set(roles)
-  return userRoles.filter((role) => active.has(role))
+export const orderedRoles = (names: Iterable<string>): string[] => {
+  const active = new Set(names)
+  const builtin = builtinRoles.filter((role) => active.has(role))
+  const composed = [...active].filter((name) => !builtin.includes(name as BuiltinRole)).sort()
+  return [...builtin, ...composed]
 }
 
-/** Returns active roles in the fixed catalogue order used by public responses. */
-export const findActiveUserRoles = async (
+/**
+ * Everything that decides what one identity may do, by user ID.
+ *
+ * The same answer `findUserSessionByDigest` folds into its own row, for the two
+ * paths that have a user but no session to read it from: sign-in, which has
+ * just authenticated a credential, and signup, which has just created the
+ * account. Built from one definition so a change to what authority *means*
+ * cannot reach the session path and miss these.
+ */
+export const findUserAuthority = async (
   db: Database,
   userId: string,
-): Promise<UserRole[]> => {
-  const records = await db
-    .select({ role: coreUserRoleGrant.role })
+): Promise<{
+  superAdministrator: boolean
+  applicant: boolean
+  grantedKeys: string[]
+  roles: string[]
+}> => {
+  const rows = await db
+    .select({
+      role: coreUserRoleGrant.role,
+      key: coreRole.key,
+      resource: coreRolePermission.resource,
+      action: coreRolePermission.action,
+    })
     .from(coreUserRoleGrant)
+    .leftJoin(
+      coreRole,
+      and(eq(coreRole.id, coreUserRoleGrant.roleId), isNull(coreRole.deletedAt)),
+    )
+    .leftJoin(coreRolePermission, eq(coreRolePermission.roleId, coreRole.id))
     .where(
       and(
         eq(coreUserRoleGrant.userId, userId),
         isNull(coreUserRoleGrant.revokedAt),
+        or(isNotNull(coreUserRoleGrant.role), isNotNull(coreRole.id)),
       ),
     )
-  return orderedRoles(records.map(({ role }) => role))
+
+  const names = new Set<string>()
+  const grantedKeys = new Set<string>()
+  for (const { role, key, resource, action } of rows) {
+    const name = role ?? key
+    if (name !== null) names.add(name)
+    if (resource !== null && action !== null) grantedKeys.add(`${resource}:${action}`)
+  }
+  return {
+    superAdministrator: names.has('SUPER_ADMIN'),
+    applicant: names.has('APPLICANT'),
+    grantedKeys: [...grantedKeys],
+    roles: orderedRoles(names),
+  }
+}
+
+/**
+ * The names of every authority somebody currently holds.
+ *
+ * A retired role is excluded, matching `hasActiveRoleGrant`: it authorizes
+ * nothing, so reporting it would describe access the person does not have.
+ */
+export const findActiveUserRoles = async (
+  db: Database,
+  userId: string,
+): Promise<string[]> => {
+  const records = await db
+    .select({ role: coreUserRoleGrant.role, key: coreRole.key })
+    .from(coreUserRoleGrant)
+    .leftJoin(coreRole, eq(coreRole.id, coreUserRoleGrant.roleId))
+    .where(
+      and(
+        eq(coreUserRoleGrant.userId, userId),
+        isNull(coreUserRoleGrant.revokedAt),
+        or(isNotNull(coreUserRoleGrant.role), isNull(coreRole.deletedAt)),
+      ),
+    )
+  return orderedRoles(
+    records.flatMap(({ role, key }) => {
+      const name = role ?? key
+      return name === null ? [] : [name]
+    }),
+  )
 }
 
 type FirstSuperAdminGrantInput = {
@@ -170,8 +253,19 @@ const ownsNoEnterprise = (db: Database, userId: string): SQL => notExists(
     .where(eq(sebEnterprise.portalOwnerUserId, userId)),
 )
 
-/** True while the person holds an active grant of exactly this one role. */
-export const hasActiveRole = (db: Database, userId: string, role: UserRole): SQL => exists(
+/**
+ * True while the person holds an active grant of one authority decided in code.
+ *
+ * Named for the builtin half on purpose. A composed role is identified by a row
+ * rather than a name, so a single helper taking "a role" would have to accept
+ * either and would silently answer the wrong question for whichever it was not
+ * given. This one takes only the two the schema keeps in the `role` column.
+ */
+export const hasActiveBuiltinRole = (
+  db: Database,
+  userId: string,
+  role: BuiltinRole,
+): SQL => exists(
   db
     .select({ id: coreUserRoleGrant.id })
     .from(coreUserRoleGrant)
@@ -180,6 +274,28 @@ export const hasActiveRole = (db: Database, userId: string, role: UserRole): SQL
         eq(coreUserRoleGrant.userId, userId),
         eq(coreUserRoleGrant.role, role),
         isNull(coreUserRoleGrant.revokedAt),
+      ),
+    ),
+)
+
+/**
+ * True while the person holds an active grant of one composed role.
+ *
+ * A retired role is excluded, matching `hasActiveRoleGrant`: the grant survives
+ * as history but authorizes nothing, so a write guarded on "they already hold
+ * it" must not be satisfied by one.
+ */
+export const hasActiveComposedRole = (db: Database, userId: string, roleId: string): SQL => exists(
+  db
+    .select({ id: coreUserRoleGrant.id })
+    .from(coreUserRoleGrant)
+    .innerJoin(coreRole, eq(coreRole.id, coreUserRoleGrant.roleId))
+    .where(
+      and(
+        eq(coreUserRoleGrant.userId, userId),
+        eq(coreUserRoleGrant.roleId, roleId),
+        isNull(coreUserRoleGrant.revokedAt),
+        isNull(coreRole.deletedAt),
       ),
     ),
 )
@@ -199,7 +315,7 @@ const firstSuperAdminCandidateExists = (
         eq(coreUser.passwordHash, input.verifiedPasswordHash),
         isNotNull(coreUser.emailVerifiedAt),
         isNull(coreUser.deletedAt),
-        hasActiveRole(db, input.userId, 'APPLICANT'),
+        hasActiveBuiltinRole(db, input.userId, 'APPLICANT'),
         ownsNoEnterprise(db, input.userId),
       ),
     ),
@@ -299,6 +415,7 @@ export const grantFirstSuperAdmin = async (
         NULL,
         ${input.roleGrant.grantReason},
         ${input.roleGrant.grantedAt},
+        NULL,
         NULL,
         NULL,
         NULL
@@ -522,6 +639,7 @@ export const createUserFromSignupChallenge = async (
       ${roleGrant.grantedAt},
       NULL,
       NULL,
+      NULL,
       NULL
     WHERE ${userExists}
   `)
@@ -692,9 +810,22 @@ export const createUserSession = async (
 }
 
 /**
- * Resolves one live token digest, its non-deleted owner, and current roles in
- * one query. Roles are joined live rather than copied into the session so a
- * grant or revocation takes effect on the very next request.
+ * Resolves one live token digest, its non-deleted owner, and everything that
+ * decides what this request may do — in one row.
+ *
+ * Authority is joined live rather than copied into the session, so revoking a
+ * grant, retiring a role, or editing a role's permissions takes effect on the
+ * caller's very next request. This is the read `docs/rules/code.md` means when
+ * it says authorization never goes on a loader.
+ *
+ * **Correlated aggregates rather than a three-way join.** Joining grants to
+ * their permissions would repeat the session and user columns once per pair,
+ * and what is wanted is a set. Both aggregates are `DISTINCT`, so somebody
+ * holding two roles that share a pair holds it once.
+ *
+ * A retired role contributes nothing: its join carries `deleted_at IS NULL`, so
+ * retirement takes effect through this read alone, with no write to anybody's
+ * grants and so nothing for a concurrent grant to race against.
  */
 export const findUserSessionByDigest = async (
   db: Database,
@@ -702,10 +833,30 @@ export const findUserSessionByDigest = async (
   now: Date,
 ): Promise<{
   user: PublicUserRecord
-  roles: UserRole[]
   session: PublicSessionRecord
+  superAdministrator: boolean
+  applicant: boolean
+  /** `resource:action` keys, before the catalogue has filtered them. */
+  grantedKeys: string[]
+  /** Every authority held, by name, for display and refusal messages. */
+  roles: string[]
+  /**
+   * Whether any grant still authorizes something.
+   *
+   * Deliberately a different question from "resolved any permission". A role
+   * with no permissions is a legitimate thing for an operator to create, and if
+   * emptying one destroyed its holders' sessions, an editing slip would be a
+   * mass sign-out rather than a refusal.
+   */
+  hasEffectiveGrant: boolean
 } | null> => {
-  const records = await db
+  const activeGrant = (extra: SQL) => sql`
+    SELECT 1 FROM ${coreUserRoleGrant} g
+     WHERE g.user_id = ${coreUser.id}
+       AND g.revoked_at IS NULL
+       AND ${extra}`
+
+  const [record] = await db
     .select({
       user: {
         id: coreUser.id,
@@ -724,17 +875,26 @@ export const findUserSessionByDigest = async (
         ipAddress: coreSession.ipAddress,
         userAgent: coreSession.userAgent,
       },
-      role: coreUserRoleGrant.role,
+      superAdministrator: sql<boolean>`EXISTS (${activeGrant(sql`g.role = 'SUPER_ADMIN'`)})`,
+      applicant: sql<boolean>`EXISTS (${activeGrant(sql`g.role = 'APPLICANT'`)})`,
+      grantedKeys: sql<string[]>`COALESCE((
+        SELECT array_agg(DISTINCT p.resource || ':' || p.action)
+          FROM ${coreUserRoleGrant} g
+          JOIN ${coreRole} r ON r.id = g.role_id AND r.deleted_at IS NULL
+          JOIN ${coreRolePermission} p ON p.role_id = r.id
+         WHERE g.user_id = ${coreUser.id}
+           AND g.revoked_at IS NULL), '{}')`,
+      roles: sql<string[]>`COALESCE((
+        SELECT array_agg(DISTINCT COALESCE(g.role, r.key))
+          FROM ${coreUserRoleGrant} g
+          LEFT JOIN ${coreRole} r ON r.id = g.role_id AND r.deleted_at IS NULL
+         WHERE g.user_id = ${coreUser.id}
+           AND g.revoked_at IS NULL
+           AND COALESCE(g.role, r.key) IS NOT NULL), '{}')`,
+      hasEffectiveGrant: sql<boolean>`${hasActiveRoleGrant(db, coreUser.id)}`,
     })
     .from(coreSession)
     .innerJoin(coreUser, eq(coreUser.id, coreSession.userId))
-    .leftJoin(
-      coreUserRoleGrant,
-      and(
-        eq(coreUserRoleGrant.userId, coreUser.id),
-        isNull(coreUserRoleGrant.revokedAt),
-      ),
-    )
     .where(
       and(
         eq(coreSession.tokenDigest, tokenDigest),
@@ -742,12 +902,10 @@ export const findUserSessionByDigest = async (
         isNull(coreUser.deletedAt),
       ),
     )
-  const first = records[0]
-  if (!first) return null
-  const roles = orderedRoles(
-    records.flatMap(({ role }) => role === null ? [] : [role]),
-  )
-  return { user: first.user, session: first.session, roles }
+    .limit(1)
+
+  if (!record) return null
+  return { ...record, roles: orderedRoles(record.roles) }
 }
 
 /** Marks expired challenges but physically removes expired transient sessions. */

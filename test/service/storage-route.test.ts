@@ -37,9 +37,9 @@ const checksumOf = async (body: ArrayBuffer): Promise<string> =>
  * keys are real.
  */
 const issuedIntent = async (overrides: Partial<typeof sebDocumentUploadIntent.$inferInsert> = {}) => {
-  const officer = await signIn(['SUPER_ADMIN'])
+  const officer = await signIn({ roles: ['SUPER_ADMIN'] })
   const cycle = await openCycle(officer.cookie)
-  const applicant = await signIn(['APPLICANT'])
+  const applicant = await signIn({ roles: ['APPLICANT'] })
   const enterpriseId = await createEnterprise(applicant.cookie)
   const applicationId = await startApplication(applicant.cookie, enterpriseId, cycle.id)
 

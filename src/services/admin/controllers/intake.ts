@@ -13,7 +13,7 @@
  * job is reading casework, unable to open a single document.
  */
 import { deskReviewChecks } from '../../../db/schema'
-import type { Capability } from '../../auth'
+import type { ActionOf, Resource } from '../../auth'
 import { storage } from '../../storage'
 import { adminPageSize, decodeAdminCursor } from '../pagination'
 import {
@@ -121,7 +121,7 @@ export const intakeQueue = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'application', 'read')) return failure(ADMIN_REQUIRED_MESSAGE)
   const problem = intakeFilterProblem(input)
   if (problem) return failure(problem)
   const first = adminPageSize(input.first)
@@ -135,7 +135,7 @@ export const intakeQueues = async (
   cycleId: string | null | undefined,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'application', 'read')) return failure(ADMIN_REQUIRED_MESSAGE)
   return success({ queues: await intakeQueueSummary(context.db, cycleId) })
 }
 
@@ -143,7 +143,7 @@ export const intakeByReference = async (
   referenceNumber: string,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'application', 'read')) return failure(ADMIN_REQUIRED_MESSAGE)
   const normalized = normalizeRequiredText(referenceNumber, 64)
   if (!normalized) return failure('Enter an application reference number.')
   const result = await listIntakeQueue(context.db, {
@@ -159,7 +159,7 @@ export const intakeWorkspace = async (
   applicationId: string,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'application', 'read')) return failure(ADMIN_REQUIRED_MESSAGE)
   const workspace = await loadWorkspace(context.db, applicationId)
   return workspace ? success(workspace) : failure('The application was not found.')
 }
@@ -180,16 +180,17 @@ export const intakeWorkspace = async (
  * change nothing — could reach it. A shared preamble must never decide
  * authority on behalf of operations that do different things.
  */
-const administratorWithApplication = async (
+const administratorWithApplication = async <R extends Resource>(
   context: AdminOperationContext,
-  capability: Capability,
+  resource: R,
+  action: ActionOf<R>,
   applicationId: string,
   notFoundMessage: string,
 ): Promise<
   | { administrator: { id: string }; head: NonNullable<Awaited<ReturnType<typeof loadApplicationHead>>> }
   | { refusal: AdminResult<never> }
 > => {
-  const administrator = await currentStaff(context, capability)
+  const administrator = await currentStaff(context, resource, action)
   if (!administrator) return { refusal: failure(ADMIN_REQUIRED_MESSAGE) }
   const head = await loadApplicationHead(context.db, applicationId)
   if (!head) return { refusal: failure(notFoundMessage) }
@@ -200,7 +201,7 @@ export const addInternalNote = async (
   input: { applicationId: string; note: string; correctionOfNoteId?: string | null },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'application', 'note')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const note = normalizeRequiredText(input.note, 5_000)
   if (!note) return failure('Enter an internal note.')
@@ -219,7 +220,7 @@ export const startDeskReview = async (
   input: { applicationId: string; expectedStatusVersion: number },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'application', 'review')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const changed = await constraintSafe(() => startDeskReviewWrite(context, {
     ...input,
@@ -426,7 +427,7 @@ export const completeDeskReview = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'application', 'review')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const head = await loadApplicationHead(context.db, input.applicationId)
   const submission = await latestSubmission(context.db, input.applicationId)
@@ -547,7 +548,8 @@ export const cancelRevisionRequest = async (
 ): Promise<AdminResult<unknown>> => {
   const authorized = await authorizeReasonedTransition(
     context,
-    'STAFF_WRITE',
+    'application',
+    'review',
     { reason: input.reason, expectedVersion: input.expectedStatusVersion },
     'Enter a valid cancellation reason and expected version.',
   )
@@ -569,7 +571,8 @@ export const adminDocumentDownloadUrl = async (
   // cannot reveal which drafts or applications exist.
   const authorized = await administratorWithApplication(
     context,
-    'STAFF_READ',
+    'application',
+    'read',
     input.applicationId,
     'The application was not found.',
   )

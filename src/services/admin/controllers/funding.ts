@@ -44,7 +44,7 @@ export const fundingByApplication = async (
   applicationId: string,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'funding', 'read')) return failure(ADMIN_REQUIRED_MESSAGE)
   const workspace = await fundingWorkspace(context.db, applicationId)
   return workspace ? success(workspace) : failure('No award exists for this application.')
 }
@@ -126,7 +126,7 @@ export const createFundingAward = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'funding', 'award')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const order = normalizeRequiredText(input.sanctionOrderNumber, 100)
   const conditions = normalizeOptionalText(input.applicantConditions, 2_000)
@@ -172,7 +172,7 @@ export const changeFundingAward = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'funding', 'award')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const conditions = normalizeOptionalText(input.applicantConditions, 2_000)
   const closureDisposition = input.closureDisposition ?? null
@@ -298,7 +298,7 @@ export const recordFundingRelease = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'funding', 'release')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const externalReference = normalizeRequiredText(input.externalReference, 100)
   const approval = normalizeRequiredText(input.approvalReference, 100)
@@ -354,7 +354,7 @@ export const reverseFundingRelease = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'funding', 'reverse')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reference = normalizeRequiredText(input.externalReference, 100)
   const message = normalizeRequiredText(input.applicantMessage, 1_000)
@@ -393,7 +393,7 @@ export const recordFundingAssessment = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'funding', 'assess')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const evidence = normalizeRequiredText(input.evidenceReference, 100)
   const summary = normalizeRequiredText(input.applicantSummary, 1_000)
@@ -423,7 +423,7 @@ export const recoveryById = async (
   recoveryCaseId: string,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'recovery', 'read')) return failure(ADMIN_REQUIRED_MESSAGE)
   const workspace = await recoveryWorkspace(context.db, recoveryCaseId)
   return workspace ? success(workspace) : failure('The recovery case was not found.')
 }
@@ -438,7 +438,7 @@ export const openRecoveryCase = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'recovery', 'open')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reference = normalizeRequiredText(input.officialDecisionReference, 100)
   const message = normalizeRequiredText(input.applicantMessage, 1_000)
@@ -480,7 +480,7 @@ export const recordRecoveryEntry = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'recovery', 'record')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reference = normalizeRequiredText(input.externalReference, 100)
   const message = normalizeRequiredText(input.applicantMessage, 1_000)
@@ -521,7 +521,7 @@ export const closeRecoveryCase = async (
 ): Promise<AdminResult<unknown>> => {
   const authorized = await authorizeReasonedTransition(
     context,
-    'STAFF_WRITE', input, 'Enter a valid closure reason.',
+    'recovery', 'close', input, 'Enter a valid closure reason.',
   )
   if ('refusal' in authorized) return authorized.refusal
   const changed = await constraintSafe(() => closeRecoveryWrite(context, {
@@ -539,7 +539,7 @@ export const cancelRecoveryCase = async (
 ): Promise<AdminResult<unknown>> => {
   const authorized = await authorizeReasonedTransition(
     context,
-    'STAFF_WRITE', input, 'Enter a valid recovery cancellation reason.',
+    'recovery', 'cancel', input, 'Enter a valid recovery cancellation reason.',
   )
   if ('refusal' in authorized) return authorized.refusal
   const changed = await constraintSafe(() => cancelRecoveryWrite(context, {

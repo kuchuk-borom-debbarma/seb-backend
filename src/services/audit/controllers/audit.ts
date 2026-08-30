@@ -11,7 +11,7 @@
  * query decides what is actually returned.
  */
 import { z } from 'zod'
-import { authenticatedWithCapability } from '../../auth'
+import { authenticatedWithPermission } from '../../auth'
 import { decodeCursor, pageSize } from '../../application/pagination'
 import { listAuditActions, listAuditEvents, MAX_ACTION_FILTER, MAX_ACTOR_FILTER } from '../queries/audit'
 import {
@@ -26,7 +26,6 @@ import type {
   AuditOrder,
   AuditResult,
 } from '../types'
-import type { UserRole } from '../../../db/schema'
 
 const isIdentifier = (value: string): boolean => z.uuid().safeParse(value).success
 
@@ -34,7 +33,7 @@ export type AuditQueryInput = {
   first?: number | null
   after?: string | null
   actorUserIds?: string[] | null
-  actorRole?: UserRole | null
+  actorRole?: string | null
   applicationId?: string | null
   entityType?: string | null
   action?: string[] | null
@@ -92,7 +91,7 @@ export const auditEvents = async (
 ): Promise<AuditResult<AuditConnection>> => {
   // Authority first. Nothing below may describe anybody's activity to a caller
   // who has not proved they may read it.
-  const reader = await authenticatedWithCapability(context, 'AUDIT_READ')
+  const reader = await authenticatedWithPermission(context, 'audit', 'read')
   if (!reader) return failure(AUDIT_REQUIRED_MESSAGE)
 
   const first = pageSize(input.first)
@@ -113,7 +112,7 @@ export const auditEvents = async (
 export const auditActionNames = async (
   context: AuditOperationContext,
 ): Promise<AuditResult<string[]>> => {
-  const reader = await authenticatedWithCapability(context, 'AUDIT_READ')
+  const reader = await authenticatedWithPermission(context, 'audit', 'read')
   if (!reader) return failure(AUDIT_REQUIRED_MESSAGE)
   return success(await listAuditActions(context.db))
 }

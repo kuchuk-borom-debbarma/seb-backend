@@ -26,9 +26,9 @@
  * a security check. It stays off the loader entirely.
  */
 import DataLoader from 'dataloader'
-import { and, inArray, isNull } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { Database } from '../db'
-import { coreUser, coreUserRoleGrant, type UserRole } from '../db/schema'
+import { coreRole, coreUser, coreUserRoleGrant } from '../db/schema'
 import type { StaffMember } from './staff'
 
 export type { StaffMember } from './staff'
@@ -52,8 +52,21 @@ export const createLoaders = (db: Database): Loaders => ({
        * statements, not one per id.
        */
       db
-        .select({ userId: coreUserRoleGrant.userId, role: coreUserRoleGrant.role })
+        .select({
+          userId: coreUserRoleGrant.userId,
+          role: coreUserRoleGrant.role,
+          key: coreRole.key,
+        })
         .from(coreUserRoleGrant)
+        /*
+         * A retired role is left joined and then dropped below, matching every
+         * other authority read: the grant survives as history but authorizes
+         * nothing, so naming it beside somebody's work would overstate them.
+         */
+        .leftJoin(
+          coreRole,
+          and(eq(coreRole.id, coreUserRoleGrant.roleId), isNull(coreRole.deletedAt)),
+        )
         .where(
           and(
             inArray(coreUserRoleGrant.userId, wanted),
@@ -65,11 +78,13 @@ export const createLoaders = (db: Database): Loaders => ({
         ),
     ])
 
-    const rolesByUser = new Map<string, UserRole[]>()
+    const rolesByUser = new Map<string, string[]>()
     for (const grant of grants) {
+      const name = grant.role ?? grant.key
+      if (name === null) continue
       const held = rolesByUser.get(grant.userId)
-      if (held) held.push(grant.role)
-      else rolesByUser.set(grant.userId, [grant.role])
+      if (held) held.push(name)
+      else rolesByUser.set(grant.userId, [name])
     }
     const found = new Map(
       people.map((person) => [

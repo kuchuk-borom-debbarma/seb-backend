@@ -68,8 +68,8 @@ const underRevisionOn = async (
 
 describe('a cycle that names its evidence stage something else', () => {
   it('lets the applicant attach a document while the stage is open for revision', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
-    const applicant = await signIn(['APPLICANT'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
+    const applicant = await signIn({ roles: ['APPLICANT'] })
     const cycle = await openCycle(administrator.cookie, {
       formTemplate: renamedEvidenceStage(),
     })
@@ -97,8 +97,8 @@ describe('a cycle that names its evidence stage something else', () => {
   })
 
   it('still refuses when the stage the document belongs to is not the one reopened', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
-    const applicant = await signIn(['APPLICANT'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
+    const applicant = await signIn({ roles: ['APPLICANT'] })
     const cycle = await openCycle(administrator.cookie, {
       formTemplate: renamedEvidenceStage(),
     })

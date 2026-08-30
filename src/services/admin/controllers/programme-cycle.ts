@@ -257,7 +257,7 @@ export const createProgrammeCycle = async (
   // A cycle's policy and form decide who is eligible and for how much — the
   // programme's own rulebook, not casework — so every cycle write in this file
   // is held behind a stronger capability than `STAFF_WRITE`.
-  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
+  const administrator = await currentStaff(context, 'programme_cycle', 'create')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const expanded = withExpandedTemplate(input)
   if (typeof expanded === 'string') return failure(expanded)
@@ -277,7 +277,7 @@ export const updateDraftProgrammeCycleController = async (
   input: ProgrammeCycleInput & { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
+  const administrator = await currentStaff(context, 'programme_cycle', 'update')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const expanded = withExpandedTemplate(input)
   if (typeof expanded === 'string') return failure(expanded)
@@ -295,7 +295,7 @@ export const openProgrammeCycle = async (
   input: { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
+  const administrator = await currentStaff(context, 'programme_cycle', 'open')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const aggregate = await loadProgrammeCycle(context.db, input.id)
   const problem = openingProblem(
@@ -333,7 +333,7 @@ export const updateOpenCycleGuidance = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
+  const administrator = await currentStaff(context, 'programme_cycle', 'update')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const [guidance, bankGuidance, reason] = [
     normalizeRequiredText(input.applicantGuidance, 5_000),
@@ -367,7 +367,7 @@ export const changeOpenCycleClosingTime = async (
   input: { id: string; expectedVersion: number; closesAt: Date | null; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
+  const administrator = await currentStaff(context, 'programme_cycle', 'update')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reason = normalizeRequiredText(input.reason, 500)
   const now = new Date()
@@ -398,12 +398,26 @@ export const changeOpenCycleClosingTime = async (
   return success(await loadProgrammeCycle(context.db, input.id))
 }
 
+/**
+ * The half of closing and archiving that is the same, with the half that is not
+ * supplied by the caller.
+ *
+ * **The permission is the caller's to state, not this helper's to assume.**
+ * Closing a cycle and archiving one were one capability when this was written,
+ * so naming it here cost nothing; they are separate permissions now, and a
+ * helper that chose for itself would hand archive authority to anybody who may
+ * close. `docs/rules/code.md` records what that shape did the last time: a
+ * shared preamble named `STAFF_READ` for itself and a reviewer could claim an
+ * application, with the guard looking present at both call sites and doing its
+ * job at neither.
+ */
 const cycleTransition = async (
   input: { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
   toStatus: 'CLOSED' | 'ARCHIVED',
+  action: 'close' | 'archive',
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
+  const administrator = await currentStaff(context, 'programme_cycle', action)
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reason = normalizeRequiredText(input.reason, 500)
   if (!reason) return failure('Enter a transition reason.')
@@ -444,19 +458,19 @@ const cycleTransition = async (
 export const closeProgrammeCycle = (
   input: { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
-) => cycleTransition(input, context, 'CLOSED')
+) => cycleTransition(input, context, 'CLOSED', 'close')
 
 export const archiveProgrammeCycle = (
   input: { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
-) => cycleTransition(input, context, 'ARCHIVED')
+) => cycleTransition(input, context, 'ARCHIVED', 'archive')
 
 export const setProgrammeCycleDeleted = async (
   input: { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
   deleted: boolean,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
+  const administrator = await currentStaff(context, 'programme_cycle', 'delete')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reason = deleted ? normalizeRequiredText(input.reason, 500) : null
   if (deleted && !reason) return failure('Enter a deletion reason.')
@@ -482,7 +496,7 @@ export const programmeCycles = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'programme_cycle', 'read')) return failure(ADMIN_REQUIRED_MESSAGE)
   const first = adminPageSize(input.first)
   const after = decodeAdminCursor(input.after, 'updatedAt')
   if (!first || after === 'INVALID') return failure('Invalid pagination arguments.')
@@ -503,7 +517,7 @@ export const programmeCycles = async (
 }
 
 export const programmeCycleById = async (id: string, context: AdminOperationContext) => {
-  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'programme_cycle', 'read')) return failure(ADMIN_REQUIRED_MESSAGE)
   const cycle = await loadProgrammeCycle(context.db, id)
   return cycle ? success(cycle) : failure('The programme cycle was not found.')
 }
@@ -512,7 +526,7 @@ export const programmeCycleApplicationCounts = async (
   id: string,
   context: AdminOperationContext,
 ) => {
-  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'programme_cycle', 'read')) return failure(ADMIN_REQUIRED_MESSAGE)
   return success({ counts: await programmeCycleCounts(context.db, id) })
 }
 
@@ -520,7 +534,7 @@ export const programmeCycleEvents = async (
   input: { id: string; first?: number | null },
   context: AdminOperationContext,
 ) => {
-  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'programme_cycle', 'read')) return failure(ADMIN_REQUIRED_MESSAGE)
   const first = adminPageSize(input.first)
   if (!first) return failure('Invalid pagination arguments.')
   return success({ events: await listProgrammeCycleEvents(context.db, input.id, first) })

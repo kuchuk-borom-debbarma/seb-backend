@@ -8,43 +8,20 @@ extend type Mutation {
   access: AccessMutation!
 }
 
-"""
-A role that may be granted or invited.
-
-`APPLICANT` is deliberately absent. It is created only by verified signup and
-no operation can grant it back, so allowing it here would let one revocation
-strip an applicant permanently with no recovery path.
-"""
-enum ManageableRole {
-  """Reads every casework screen and changes nothing."""
-  REVIEWER
-
-  """Reads casework, and records and corrects the programme decision."""
-  APPROVER
-
-  """The whole operational workflow. Cannot grant or revoke a role."""
-  ADMIN
-
-  """
-  Writes the public landing page's announcement banner and nothing else.
-  Granted or invited only by a super administrator.
-  """
-  ANNOUNCER
-
-  """
-  Everything, including changing what other accounts may do. Never available
-  by invitation — only an existing super administrator can create another.
-  """
-  SUPER_ADMIN
-}
-
 """Grants a role directly, with a step-up confirmation."""
 input GrantRoleInput {
   """Which account."""
   userId: ID!
 
-  """Which role to grant."""
-  role: ManageableRole!
+  """
+  Which authority to grant, by key: `SUPER_ADMIN`, or the key of a composed
+  role.
+
+  `APPLICANT` is refused. It is created only by verified signup and nothing can
+  grant it back, so allowing it here would let one later revocation strip
+  somebody permanently with no recovery path.
+  """
+  roleKey: String!
 
   """Why, kept in the account's retained history."""
   reason: String!
@@ -91,13 +68,14 @@ input InviteRoleInput {
   userId: ID!
 
   """
-  Which role to offer.
+  Which composed role to offer, by key.
 
-  An administrator may offer `REVIEWER` or `APPROVER` and no more; offering
-  `ADMIN` would be a route to the authority they are directly forbidden.
-  Nobody is ever invited to `SUPER_ADMIN`.
+  An invitation may not exceed the issuer's own authority: you may offer only a
+  role whose permissions you already hold yourself. Read `invitableRoles` for
+  the list rather than filtering one here. Nobody is ever invited to
+  `SUPER_ADMIN`.
   """
-  role: ManageableRole!
+  roleKey: String!
 
   """Why, kept in the account's retained history."""
   reason: String!
@@ -114,8 +92,8 @@ type RoleInvitation {
   """The address it went to."""
   email: String!
 
-  """The role offered."""
-  role: ManageableRole!
+  """The key of the role offered."""
+  role: String!
 
   """When the invitation stops working. Forty-eight hours after issue."""
   expiresAt: DateTime!
@@ -142,7 +120,7 @@ type AcceptedRoleInvitation {
   The role now held. Their applicant access was exchanged for it, not added
   to — so anything cached about who they are is wrong rather than stale.
   """
-  role: UserRole!
+  role: String!
 }
 
 """The accepted role, or the reason the invitation was not usable."""
@@ -163,8 +141,152 @@ type AcceptedRoleInvitationResult implements BaseResponse {
   response: AcceptedRoleInvitation
 }
 
+"""Names a new role. It starts able to do nothing."""
+input CreateRoleInput {
+  """
+  The stable machine name, such as `DESK_REVIEWER`. Two to sixty-three
+  characters of A–Z, 0–9 and underscore, starting with a letter. Never reused
+  once retired, and the six names the server decides for itself are refused.
+  """
+  key: String!
+
+  """What the office will call it on screen."""
+  name: String!
+
+  """Why it exists, for whoever later decides whether to hand it out."""
+  description: String!
+}
+
+"""Rewrites a role's name, purpose and everything it may do."""
+input UpdateRoleInput {
+  """Identifies the role being rewritten."""
+  roleId: ID!
+
+  """
+  The `version` read with the role. An edit against a stale number refuses
+  rather than overwriting whatever landed in between.
+  """
+  expectedVersion: Int!
+
+  """What the office calls it on screen."""
+  name: String!
+
+  """Why it exists."""
+  description: String!
+
+  """
+  The complete set it should hold from now on, not the ones being added.
+
+  Sent whole because a role is live while it is edited: a sequence of smaller
+  changes would authorize its holders against each half-finished state in turn.
+  Anything absent is taken off.
+  """
+  permissions: [PermissionInput!]!
+
+  """
+  The **caller's own** password, re-entered.
+
+  Required here and not on creation, because this moves what every holder may
+  do the instant it lands.
+  """
+  currentPassword: String!
+}
+
+"""One resource and act, as sent when composing a role."""
+input PermissionInput {
+  """Which kind of record, as `permissionCatalogue` names it."""
+  resource: String!
+
+  """Which act on it, as `permissionCatalogue` names it."""
+  action: String!
+}
+
+"""Takes a role out of use, closing every grant of it."""
+input DeleteRoleInput {
+  """Identifies the role being retired."""
+  roleId: ID!
+
+  """The `version` read with the role."""
+  expectedVersion: Int!
+
+  """Why it is being retired, kept with the retired role."""
+  reason: String!
+
+  """The caller's own password, re-entered as a step-up confirmation."""
+  currentPassword: String!
+}
+
+"""What retiring a role did."""
+type RetiredRole {
+  """The key of the role that was retired."""
+  key: String!
+
+  """
+  How many live grants were closed with it.
+
+  Everybody counted here loses that authority on their very next request, which
+  is why the count is shown before the control as well as after.
+  """
+  grantsClosed: Int!
+}
+
+"""The retired role, or the reason it could not be retired."""
+type RetiredRoleResult implements BaseResponse {
+  """Whether the role was retired."""
+  success: Boolean!
+
+  """What to show when `success` is false — a stale version, or a wrong password."""
+  message: String
+
+  """What was retired. Null whenever `success` is false."""
+  response: RetiredRole
+}
+
 """Changing what an account may do."""
 type AccessMutation {
+  """
+  Names a new role, holding nothing yet.
+
+  **Use case:** `/admin/roles`. Naming a role and deciding what it may do are
+  two acts, so a half-configured role is never live.
+
+  **Refuses:** a key another role already uses, a key the server reserves for
+  itself, and any caller who is not a super administrator.
+  """
+  createRole(
+    """What to call it and why it exists."""
+    input: CreateRoleInput!
+  ): RoleResult!
+
+  """
+  Rewrites a role's name, purpose and permissions.
+
+  **Use case:** the editor on `/admin/roles`. Every holder's authority moves the
+  moment this lands, which is why it takes a re-entered password and a version.
+
+  **Refuses:** a stale `expectedVersion`, a pair this server cannot enforce, a
+  wrong password, and any caller who is not a super administrator.
+  """
+  updateRole(
+    """Which role, what it becomes, the version, and the caller's password."""
+    input: UpdateRoleInput!
+  ): RoleResult!
+
+  """
+  Takes a role out of use and closes every grant of it.
+
+  **Use case:** `/admin/roles`, for a set the office no longer needs. Permitted
+  whatever holds it — the holder count is shown beside the control so the cost
+  is known first.
+
+  **Refuses:** a stale `expectedVersion`, a wrong password, and any caller who
+  is not a super administrator.
+  """
+  deleteRole(
+    """Which role, the version, why, and the caller's password."""
+    input: DeleteRoleInput!
+  ): RetiredRoleResult!
+
   """
   Grants a role directly.
 

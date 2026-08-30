@@ -53,19 +53,64 @@ const graphql = async <T>(query: string, cookie?: string): Promise<Envelope<T>> 
   return response.json()
 }
 
-const sessionHolding = async (roles: string[]) => {
+/**
+ * A session holding the authorities named.
+ *
+ * `APPLICANT` and `SUPER_ADMIN` are decided in code and go in the grant's own
+ * column; every other name is composed as a real role row and granted, which is
+ * how the office actually holds one. The audit history filters and reports by
+ * name, so this fixture has to produce names the same way the product does.
+ */
+const BUILTIN = new Set(['APPLICANT', 'SUPER_ADMIN'])
+
+const sessionHolding = async (roles: string[], permissions: [string, string][] = []) => {
   const userId = crypto.randomUUID()
   const token = crypto.randomUUID()
   const now = Date.now()
+
+  // The identity first: a role records who composed it, so the row it points at
+  // has to exist before the role does.
+  await env.DB.prepare(
+    `INSERT INTO core_user (id, email, password_hash, email_verified_at,
+      row_version, created_at, updated_at) VALUES (?, ?, 'unused', ?, 1, ?, ?)`,
+  ).bind(userId, `${userId}@example.test`, now, now, now).run()
+
+  /*
+   * A role key is unique, so two people holding the same role share one row —
+   * as they do in the product. Created before the batch because the grants
+   * below need its id, and `ON CONFLICT` is what makes the second caller reuse
+   * the first's row rather than collide with it.
+   */
+  const composed: { role: string; id: string }[] = []
+  for (const role of roles.filter((name) => !BUILTIN.has(name))) {
+    const id = crypto.randomUUID()
+    await env.DB.prepare(
+      `INSERT INTO core_role (id, key, name, description, current_version,
+        created_at, updated_at, created_by_user_id)
+       VALUES (?, ?, ?, 'Composed by the audit suite.', 1, ?, ?, ?)
+       ON CONFLICT (key) DO NOTHING`,
+    ).bind(id, role, role, now, now, userId).run()
+    const existing = await env.DB.prepare(
+      `SELECT id FROM core_role WHERE key = ?`,
+    ).bind(role).first<{ id: string }>()
+    composed.push({ role, id: existing!.id })
+  }
+
   await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO core_user (id, email, password_hash, email_verified_at,
-        row_version, created_at, updated_at) VALUES (?, ?, 'unused', ?, 1, ?, ?)`,
-    ).bind(userId, `${userId}@example.test`, now, now, now),
-    ...roles.map((role) => env.DB.prepare(
+    ...roles.filter((role) => BUILTIN.has(role)).map((role) => env.DB.prepare(
       `INSERT INTO core_user_role_grant (id, user_id, role, grant_reason, granted_at)
        VALUES (?, ?, ?, 'AUDIT_TEST', ?)`,
     ).bind(crypto.randomUUID(), userId, role, now)),
+    ...composed.flatMap(({ id }) => [
+      ...permissions.map(([resource, action]) => env.DB.prepare(
+        `INSERT INTO core_role_permission (id, role_id, resource, action, created_at)
+         VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+      ).bind(crypto.randomUUID(), id, resource, action, now)),
+      env.DB.prepare(
+        `INSERT INTO core_user_role_grant (id, user_id, role_id, grant_reason, granted_at)
+         VALUES (?, ?, ?, 'AUDIT_TEST', ?)`,
+      ).bind(crypto.randomUUID(), userId, id, now),
+    ]),
     env.DB.prepare(
       `INSERT INTO core_session (id, user_id, token_digest, expires_at,
         created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -134,7 +179,7 @@ const events = (input: string, cookie?: string) =>
 
 describe('the audit history', () => {
   it('is readable only by a super administrator', async () => {
-    for (const roles of [['REVIEWER'], ['APPROVER'], ['ADMIN'], ['APPLICANT']]) {
+    for (const roles of [['DESK_REVIEWER'], ['DECISION_APPROVER'], ['CASEWORKER'], ['APPLICANT']]) {
       const caller = await sessionHolding(roles)
       const result = await events('first: 5', caller.cookie)
       expect(result.data?.audit.events, roles.join()).toMatchObject({
@@ -152,7 +197,7 @@ describe('the audit history', () => {
 
   it('resolves the actor rather than returning a bare id', async () => {
     const reader = await sessionHolding(['SUPER_ADMIN'])
-    const actor = await sessionHolding(['REVIEWER', 'APPROVER'])
+    const actor = await sessionHolding(['DESK_REVIEWER', 'DECISION_APPROVER'])
     const id = await recordEvent({ actorUserId: actor.userId, action: 'AUDIT.RESOLVE_ONE' })
 
     const result = await events(`first: 50, action: ["AUDIT.RESOLVE_ONE"]`, reader.cookie)
@@ -161,7 +206,7 @@ describe('the audit history', () => {
     expect(node?.actor?.email).toBe(`${actor.userId}@example.test`)
     // Two roles, one row: the roles are folded rather than joined, or this
     // event would appear twice.
-    expect(node?.actor?.roles.sort()).toEqual(['APPROVER', 'REVIEWER'])
+    expect(node?.actor?.roles.sort()).toEqual(['DECISION_APPROVER', 'DESK_REVIEWER'])
     expect(result.data?.audit.events.response?.nodes.filter((one) => one.id === id))
       .toHaveLength(1)
   })
@@ -179,9 +224,9 @@ describe('the audit history', () => {
 
   it('scopes to selected people, and to everybody holding a role', async () => {
     const reader = await sessionHolding(['SUPER_ADMIN'])
-    const first = await sessionHolding(['REVIEWER'])
-    const second = await sessionHolding(['REVIEWER'])
-    const other = await sessionHolding(['ADMIN'])
+    const first = await sessionHolding(['DESK_REVIEWER'])
+    const second = await sessionHolding(['DESK_REVIEWER'])
+    const other = await sessionHolding(['CASEWORKER'])
     const action = `AUDIT.SCOPE_${crypto.randomUUID().slice(0, 8)}`
     await recordEvent({ actorUserId: first.userId, action })
     await recordEvent({ actorUserId: second.userId, action })
@@ -193,13 +238,13 @@ describe('the audit history', () => {
     expect(selected.data?.audit.events.response?.pageInfo.totalCount).toBe(1)
 
     const byRole = await events(
-      `first: 50, action: ["${action}"], actorRole: REVIEWER`, reader.cookie,
+      `first: 50, action: ["${action}"], actorRole: "DESK_REVIEWER"`, reader.cookie,
     )
     expect(byRole.data?.audit.events.response?.pageInfo.totalCount).toBe(2)
 
     // Both together is an intersection, not a contradiction.
     const both = await events(
-      `first: 50, action: ["${action}"], actorRole: ADMIN, actorUserIds: ["${first.userId}"]`,
+      `first: 50, action: ["${action}"], actorRole: "CASEWORKER", actorUserIds: ["${first.userId}"]`,
       reader.cookie,
     )
     expect(both.data?.audit.events.response?.pageInfo.totalCount).toBe(0)
@@ -366,7 +411,7 @@ describe('the audit history', () => {
 
 
   it('refuses the action list to anyone who may not read audits', async () => {
-    const caller = await sessionHolding(['ADMIN'])
+    const caller = await sessionHolding(['CASEWORKER'])
     const result = await graphql<{
       audit: { actions: { success: boolean; response: string[] | null } }
     }>('query { audit { actions { success response } } }', caller.cookie)
@@ -380,7 +425,7 @@ describe('the audit history', () => {
      * becomes unattributable at exactly the moment it matters most.
      */
     const reader = await sessionHolding(['SUPER_ADMIN'])
-    const actor = await sessionHolding(['ADMIN'])
+    const actor = await sessionHolding(['CASEWORKER'])
     const action = `AUDIT.REVOKED_${crypto.randomUUID().slice(0, 8)}`
     await recordEvent({ actorUserId: actor.userId, action })
     await env.DB.prepare(

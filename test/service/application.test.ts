@@ -140,7 +140,7 @@ const directContext = (cookie: string) => ({
  * cycle the product would have refused.
  */
 const insertOpenCycle = async (_actorUserId: string): Promise<string> => {
-  const administrator = await signIn(['SUPER_ADMIN'])
+  const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
   const cycle = await openCycle(administrator.cookie)
   return cycle.id
 }
@@ -2325,15 +2325,29 @@ describe('applicant application business service', () => {
       resolvedAt: expect.any(Number),
     })
 
-    // A revision response and a first submission are both SUBMITTED, and staff
-    // handle them completely differently, so the named queues separate them by
-    // submission number. Asserted here because this is the only place a real
-    // second submission exists. Roles are joined live, so granting ADMIN makes
-    // the applicant's existing session administrative on the next request.
+    /*
+     * A revision response and a first submission are both SUBMITTED, and staff
+     * handle them completely differently, so the named queues separate them by
+     * submission number. Asserted here because this is the only place a real
+     * second submission exists. Authority is joined live, so granting a
+     * casework role makes the applicant's existing session a staff one on the
+     * next request.
+     */
+    const grantedAt = Date.now()
+    const queueRoleId = crypto.randomUUID()
     await env.DB.prepare(
-      `INSERT INTO core_user_role_grant (id, user_id, role, grant_reason, granted_at)
-       VALUES (?, ?, 'ADMIN', 'QUEUE_ASSERTION', ?)`,
-    ).bind(crypto.randomUUID(), applicant.userId, Date.now()).run()
+      `INSERT INTO core_role (id, key, name, description, current_version,
+        created_at, updated_at, created_by_user_id)
+       VALUES (?, 'QUEUE_READER', 'Queue reader', 'Reads the intake queues.', 1, ?, ?, ?)`,
+    ).bind(queueRoleId, grantedAt, grantedAt, applicant.userId).run()
+    await env.DB.prepare(
+      `INSERT INTO core_role_permission (id, role_id, resource, action, created_at)
+       VALUES (?, ?, 'application', 'read', ?)`,
+    ).bind(crypto.randomUUID(), queueRoleId, grantedAt).run()
+    await env.DB.prepare(
+      `INSERT INTO core_user_role_grant (id, user_id, role_id, grant_reason, granted_at)
+       VALUES (?, ?, ?, 'QUEUE_ASSERTION', ?)`,
+    ).bind(crypto.randomUUID(), applicant.userId, queueRoleId, grantedAt).run()
 
     const queues = await graphql<{
       admin: { intake: { queues: { response: { queues: Array<{ queue: string; count: number }> } } } }

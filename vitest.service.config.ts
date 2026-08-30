@@ -111,6 +111,8 @@ export default defineConfig({
         // branches depend on is gated below, which is where the invariants live.
         'src/services/auth/queries/access.ts',
         'src/services/auth/queries/account.ts',
+        'src/services/auth/queries/roles.ts',
+        'src/services/auth/permissions.ts',
         'src/services/auth/support.ts',
         'src/graphql/resolvers/access/**/*.ts',
         'src/graphql/resolvers/seb/**/*.ts',

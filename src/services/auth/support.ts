@@ -20,6 +20,7 @@ export type AuthAuditAction = (typeof auditActions)[keyof typeof auditActions]
 export type AuthAuditEntityType =
   | 'CORE_USER'
   | 'CORE_USER_ROLE_GRANT'
+  | 'CORE_ROLE'
   | 'CORE_SESSION'
   | 'CORE_SIGNUP_CHALLENGE'
   | 'CORE_ACCOUNT_CHALLENGE'

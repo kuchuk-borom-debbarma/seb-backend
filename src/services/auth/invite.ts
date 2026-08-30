@@ -28,7 +28,6 @@
  * `controllers/access.ts` for the acceptance sequence and the concurrency guard
  * behind it.
  */
-import type { UserRole } from '../../db/schema'
 
 /** Long enough to survive a weekend, short enough to be worth reissuing. */
 export const INVITE_TTL_MS = 48 * 60 * 60 * 1_000
@@ -39,12 +38,28 @@ export const INVITE_TTL_MS = 48 * 60 * 60 * 1_000
  * `email` is carried so acceptance can check the address has not changed since
  * the invitation was sent. If it has, the invitation is void — the mailbox that
  * received it is no longer the account's.
+ *
+ * `roleId` rather than a name, because a role can be renamed and a rename must
+ * not silently redirect an invitation somebody already approved.
+ *
+ * `roleVersion` because the ceiling — an issuer may offer only what they
+ * themselves hold — is checked when the invitation is *issued*, and a role can
+ * be edited in the forty-eight hours before it is accepted. Without this term,
+ * somebody holding `role.invite` could offer a weak role they may legitimately
+ * offer, add authority to it, and have the invitee accept something stronger.
+ * The cost is that editing a role voids its outstanding invitations, which is
+ * the safe direction and one click to reissue.
+ *
+ * **The permission set itself is deliberately not sealed in.** A copy of what
+ * the role held at issue time would grant authority since taken off it, and the
+ * audit row would name a role whose contents nobody could reconstruct.
  */
 export type RoleInvite = {
-  version: 1
+  version: 2
   userId: string
   email: string
-  role: UserRole
+  roleId: string
+  roleVersion: number
   issuerId: string
   issuedAt: number
   expiresAt: number
@@ -144,11 +159,17 @@ export const openInvite = async (
 const isRoleInvite = (value: unknown): value is RoleInvite => {
   if (typeof value !== 'object' || value === null) return false
   const candidate = value as Partial<RoleInvite>
+  /*
+   * Version 1 named one of four fixed staff roles that no longer exist, so a
+   * token still in somebody's inbox is refused here rather than mapped onto
+   * some composed role — which would be a policy decision, silently made.
+   */
   return (
-    candidate.version === 1 &&
+    candidate.version === 2 &&
     typeof candidate.userId === 'string' &&
     typeof candidate.email === 'string' &&
-    typeof candidate.role === 'string' &&
+    typeof candidate.roleId === 'string' &&
+    Number.isSafeInteger(candidate.roleVersion) &&
     typeof candidate.issuerId === 'string' &&
     Number.isSafeInteger(candidate.issuedAt) &&
     Number.isSafeInteger(candidate.expiresAt) &&

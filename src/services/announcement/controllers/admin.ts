@@ -9,6 +9,7 @@
  */
 import { auditActions } from '../../../db/schema'
 import { failure, success } from '../../envelope'
+import { authenticatedWithPermission } from '../../auth'
 import { normalizeOptionalText, normalizeRequiredText } from '../../text'
 import {
   createAnnouncement,
@@ -23,7 +24,6 @@ import {
 import {
   announcementAudit,
   BOARD_MISMATCH_MESSAGE,
-  currentAnnouncer,
   MAX_BODY_LENGTH,
   MAX_DATE_LABEL_LENGTH,
   MAX_REASON_LENGTH,
@@ -44,7 +44,7 @@ import type {
 export const announcementBoard = async (
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncementBoard>> => {
-  const announcer = await currentAnnouncer(context)
+  const announcer = (await authenticatedWithPermission(context, 'announcement', 'read'))?.user ?? null
   if (!announcer) return failure(PERMISSION_MESSAGE)
   return success(await readBoard(context.db))
 }
@@ -96,7 +96,7 @@ export const createAnnouncementController = async (
   input: AnnouncementFieldsInput,
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncement>> => {
-  const announcer = await currentAnnouncer(context)
+  const announcer = (await authenticatedWithPermission(context, 'announcement', 'create'))?.user ?? null
   if (!announcer) return failure(PERMISSION_MESSAGE)
   const normalized = normalizedFields(input)
   if (normalized.fields === null) return failure(normalized.message)
@@ -122,7 +122,7 @@ export const updateAnnouncementController = async (
   input: AnnouncementFieldsInput & { id: string; expectedVersion: number },
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncement>> => {
-  const announcer = await currentAnnouncer(context)
+  const announcer = (await authenticatedWithPermission(context, 'announcement', 'update'))?.user ?? null
   if (!announcer) return failure(PERMISSION_MESSAGE)
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
     return failure('That update request is not valid.')
@@ -153,7 +153,7 @@ export const setAnnouncementPublishedController = async (
   input: { id: string; expectedVersion: number; published: boolean; reason?: string | null },
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncement>> => {
-  const announcer = await currentAnnouncer(context)
+  const announcer = (await authenticatedWithPermission(context, 'announcement', 'publish'))?.user ?? null
   if (!announcer) return failure(PERMISSION_MESSAGE)
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
     return failure('That update request is not valid.')
@@ -183,7 +183,7 @@ export const removeAnnouncementController = async (
   input: { id: string; expectedVersion: number; reason: string },
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncementBoard>> => {
-  const announcer = await currentAnnouncer(context)
+  const announcer = (await authenticatedWithPermission(context, 'announcement', 'remove'))?.user ?? null
   if (!announcer) return failure(PERMISSION_MESSAGE)
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
     return failure('That update request is not valid.')
@@ -216,7 +216,7 @@ export const reorderAnnouncementsController = async (
   input: { ids: string[]; expectedBoardVersion: number },
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncementBoard>> => {
-  const announcer = await currentAnnouncer(context)
+  const announcer = (await authenticatedWithPermission(context, 'announcement', 'reorder'))?.user ?? null
   if (!announcer) return failure(PERMISSION_MESSAGE)
   if (!Number.isInteger(input.expectedBoardVersion) || input.expectedBoardVersion < 1) {
     return failure('That reorder request is not valid.')

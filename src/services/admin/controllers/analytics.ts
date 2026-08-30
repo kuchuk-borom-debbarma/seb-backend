@@ -1,7 +1,7 @@
 /**
  * Authorization and input validation for the intake analytics summary.
  *
- * A read, gated exactly like the queue it summarizes: `STAFF_READ`, which a
+ * A read on its own resource: counts and totals name no applicant, so an
  * reviewer holds — summarizing casework discloses nothing the queue does not
  * already list row by row. The filter validation is the queue's own, imported
  * rather than restated, so a range one screen refuses cannot quietly reach
@@ -17,7 +17,7 @@ export const analyticsSummary = async (
   input: IntakeQueueFilterInput,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  if (!await currentStaff(context, 'STAFF_READ')) return failure(ADMIN_REQUIRED_MESSAGE)
+  if (!await currentStaff(context, 'analytics', 'read')) return failure(ADMIN_REQUIRED_MESSAGE)
   const problem = intakeFilterProblem(input)
   if (problem) return failure(problem)
   return success(await intakeAnalyticsSummary(context.db, input))

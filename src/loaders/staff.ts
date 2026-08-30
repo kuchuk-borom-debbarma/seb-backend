@@ -8,10 +8,17 @@
  * Deliberately small — who they are and what authority they hold. Everything
  * else about an account belongs to the access namespace, behind its own guard.
  */
-import type { UserRole } from '../db/schema'
 
 export type StaffMember = {
   id: string
   email: string
-  roles: UserRole[]
+  /**
+   * Every authority held, by name — the two decided in code, then the composed
+   * roles this person holds.
+   *
+   * Names rather than a closed union, because a role is a row now. This is for
+   * display beside somebody's work; what they may *do* is a permission, and no
+   * screen should decide anything from this list.
+   */
+  roles: string[]
 }

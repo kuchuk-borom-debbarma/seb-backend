@@ -1,4 +1,14 @@
 export {
+  createRole,
+  deleteRole,
+  invitableRoles,
+  permissionCatalogue,
+  roleByKey,
+  roles,
+  updateRole,
+} from './controllers/roles'
+export type { PermissionCatalogue } from './controllers/roles'
+export {
   acceptRoleInvite,
   grantRole,
   inviteRole,
@@ -14,11 +24,13 @@ export {
   startEmailChange,
   startPasswordReset,
 } from './controllers/account'
-export type { ManageableRole } from './queries/access'
-export type { Capability } from './capabilities'
+export type { ManagedRole } from './queries/roles'
+export type { Action, ActionOf, Permission, Resource } from './permissions'
+export { catalogue, permissionKey, actionDescriptions, resourceDescriptions, grants } from './permissions'
 export {
   authenticatedApplicant,
-  authenticatedWithCapability,
+  authenticatedSuperAdministrator,
+  authenticatedWithPermission,
   bootstrapFirstSuperAdmin,
   cleanupExpiredAuthentication,
   currentSession,

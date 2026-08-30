@@ -233,6 +233,8 @@ describe('core and Mission SEP schema', () => {
     expect(tables.rows.map((row) => row.table_name)).toEqual([
       'core_account_challenge',
       'core_audit_event',
+      'core_role',
+      'core_role_permission',
       'core_session',
       'core_signup_challenge',
       'core_user',
@@ -343,16 +345,23 @@ describe('core and Mission SEP schema', () => {
     )
   })
 
-  it('retains fixed multi-role grants and permits only one active copy', async () => {
+  it('retains multi-role grants and permits only one active copy of each', async () => {
     const userId = await insertUser()
     const now = Date.now()
-    const adminGrantId = crypto.randomUUID()
+    const roleId = crypto.randomUUID()
+    await env.DB.prepare(
+      `INSERT INTO core_role (id, key, name, description, current_version,
+        created_at, updated_at, created_by_user_id)
+       VALUES (?, 'CASEWORKER', 'Caseworker', 'Works applications.', 1, ?, ?, ?)`,
+    ).bind(roleId, now, now, userId).run()
+
+    const composedGrantId = crypto.randomUUID()
     await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO core_user_role_grant (
-          id, user_id, role, granted_by_user_id, grant_reason, granted_at
-        ) VALUES (?, ?, 'ADMIN', ?, 'TEST_ADMIN_GRANT', ?)`,
-      ).bind(adminGrantId, userId, userId, now),
+          id, user_id, role_id, granted_by_user_id, grant_reason, granted_at
+        ) VALUES (?, ?, ?, ?, 'TEST_COMPOSED_GRANT', ?)`,
+      ).bind(composedGrantId, userId, roleId, userId, now),
       env.DB.prepare(
         `INSERT INTO core_user_role_grant (
           id, user_id, role, granted_by_user_id, grant_reason, granted_at
@@ -361,85 +370,110 @@ describe('core and Mission SEP schema', () => {
     ])
 
     const active = await env.DB.prepare(
-      `SELECT role FROM core_user_role_grant
-       WHERE user_id = ? AND revoked_at IS NULL ORDER BY role`,
+      `SELECT COALESCE(g.role, r.key) AS name FROM core_user_role_grant g
+       LEFT JOIN core_role r ON r.id = g.role_id
+       WHERE g.user_id = ? AND g.revoked_at IS NULL ORDER BY name`,
     )
       .bind(userId)
-      .all<{ role: string }>()
-    expect(active.results.map(({ role }) => role)).toEqual([
-      'ADMIN',
+      .all<{ name: string }>()
+    expect(active.results.map(({ name }) => name)).toEqual([
       'APPLICANT',
+      'CASEWORKER',
       'SUPER_ADMIN',
     ])
+
+    // A grant names exactly one authority, never both and never neither.
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO core_user_role_grant (
+          id, user_id, role, role_id, grant_reason, granted_at
+        ) VALUES (?, ?, 'SUPER_ADMIN', ?, 'BOTH_TARGETS', ?)`,
+      ).bind(crypto.randomUUID(), userId, roleId, now).run(),
+    ).rejects.toThrow()
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO core_user_role_grant (
+          id, user_id, grant_reason, granted_at
+        ) VALUES (?, ?, 'NO_TARGET', ?)`,
+      ).bind(crypto.randomUUID(), userId, now).run(),
+    ).rejects.toThrow()
+
+    /*
+     * The removed vocabulary is history and cannot be written afresh: an active
+     * row naming one is refused, while a closed one is accepted, which is what
+     * keeps an administrator's past acts readable.
+     */
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO core_user_role_grant (
+          id, user_id, role, grant_reason, granted_at
+        ) VALUES (?, ?, 'ADMIN', 'REVIVED_LEGACY_ROLE', ?)`,
+      ).bind(crypto.randomUUID(), userId, now).run(),
+    ).rejects.toThrow()
+    await env.DB.prepare(
+      `INSERT INTO core_user_role_grant (
+        id, user_id, role, grant_reason, granted_at, revoked_at, revocation_reason
+      ) VALUES (?, ?, 'ADMIN', 'HISTORICAL', ?, ?, 'ROLE_MODEL_REPLACED')`,
+    ).bind(crypto.randomUUID(), userId, now, now).run()
 
     await expect(
       env.DB.prepare(
         `INSERT INTO core_user_role_grant (
           id, user_id, role, grant_reason, granted_at
         ) VALUES (?, ?, 'NOT_A_ROLE', 'INVALID', ?)`,
-      )
-        .bind(crypto.randomUUID(), userId, now)
-        .run(),
+      ).bind(crypto.randomUUID(), userId, now).run(),
     ).rejects.toThrow()
+    /*
+     * Two active grants of the same composed role. The partial unique index is
+     * on `(user_id, role_id)` and carries `role_id IS NOT NULL`, because
+     * Postgres treats NULLs as distinct — one index over the nullable pair
+     * would accept this silently while looking like the guarantee it is not.
+     */
     await expect(
       env.DB.prepare(
         `INSERT INTO core_user_role_grant (
-          id, user_id, role, grant_reason, granted_at
-        ) VALUES (?, ?, 'ADMIN', 'DUPLICATE', ?)`,
-      )
-        .bind(crypto.randomUUID(), userId, now)
-        .run(),
+          id, user_id, role_id, grant_reason, granted_at
+        ) VALUES (?, ?, ?, 'DUPLICATE', ?)`,
+      ).bind(crypto.randomUUID(), userId, roleId, now).run(),
     ).rejects.toThrow()
     await expect(
       env.DB.prepare(
-        `UPDATE core_user_role_grant
-         SET revoked_by_user_id = ? WHERE id = ?`,
-      )
-        .bind(userId, adminGrantId)
-        .run(),
+        `UPDATE core_user_role_grant SET revoked_by_user_id = ? WHERE id = ?`,
+      ).bind(userId, composedGrantId).run(),
     ).rejects.toThrow()
     await expect(
       env.DB.prepare(
         `UPDATE core_user_role_grant
          SET revoked_at = ?, revocation_reason = 'IMPOSSIBLE_HISTORY'
          WHERE id = ?`,
-      )
-        .bind(now - 1, adminGrantId)
-        .run(),
+      ).bind(now - 1, composedGrantId).run(),
     ).rejects.toThrow()
     await expect(
       env.DB.prepare(
         `INSERT INTO core_user_role_grant (
-          id, user_id, role, grant_reason, granted_at
-        ) VALUES (?, 'missing-user', 'ADMIN', 'INVALID_OWNER', ?)`,
-      )
-        .bind(crypto.randomUUID(), now)
-        .run(),
+          id, user_id, role_id, grant_reason, granted_at
+        ) VALUES (?, 'missing-user', ?, 'INVALID_OWNER', ?)`,
+      ).bind(crypto.randomUUID(), roleId, now).run(),
     ).rejects.toThrow()
 
+    // Re-granting is a new row, never a reopened one, so history stays whole.
     await env.DB.prepare(
       `UPDATE core_user_role_grant
        SET revoked_by_user_id = ?, revoked_at = ?, revocation_reason = 'ROLE_CHANGED'
        WHERE id = ?`,
-    )
-      .bind(userId, now + 1, adminGrantId)
-      .run()
+    ).bind(userId, now + 1, composedGrantId).run()
     await env.DB.prepare(
       `INSERT INTO core_user_role_grant (
-        id, user_id, role, granted_by_user_id, grant_reason, granted_at
-      ) VALUES (?, ?, 'ADMIN', ?, 'ROLE_REGRANTED', ?)`,
-    )
-      .bind(crypto.randomUUID(), userId, userId, now + 2)
-      .run()
+        id, user_id, role_id, granted_by_user_id, grant_reason, granted_at
+      ) VALUES (?, ?, ?, ?, 'ROLE_REGRANTED', ?)`,
+    ).bind(crypto.randomUUID(), userId, roleId, userId, now + 2).run()
 
     expect(
       await env.DB.prepare(
         `SELECT count(*)::int AS total,
           sum(CASE WHEN revoked_at IS NULL THEN 1 ELSE 0 END)::int AS active
-         FROM core_user_role_grant WHERE user_id = ? AND role = 'ADMIN'`,
-      )
-        .bind(userId)
-        .first(),
+         FROM core_user_role_grant WHERE user_id = ? AND role_id = ?`,
+      ).bind(userId, roleId).first(),
     ).toEqual({ total: 2, active: 1 })
   })
 
