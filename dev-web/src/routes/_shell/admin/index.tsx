@@ -46,7 +46,19 @@ import { can } from '#/lib/session'
 import styles from '#/features/dashboard/Dashboard.module.css'
 
 export const Route = createFileRoute('/_shell/admin/')({
-  loader: ({ context }) => context.queryClient.ensureQueryData(officeDashboardQuery),
+  /*
+   * Loaded only by somebody who may read casework.
+   *
+   * `officeDashboardQuery` unwraps two intake reads the API guards with
+   * `application`/`read`. Sign-in sends every member of staff here, so for a
+   * role composed without it the refusal came out of the loader as an
+   * unhandled error — the first screen after signing in was a broken one, with
+   * no way back to the screen they do hold.
+   */
+  loader: ({ context }) =>
+    can(context.user, 'application', 'read')
+      ? context.queryClient.ensureQueryData(officeDashboardQuery)
+      : undefined,
   component: OfficeDashboard,
 })
 
@@ -69,8 +81,9 @@ const QUEUE_ICONS: Record<
 }
 
 function OfficeDashboard() {
-  const { data } = useQuery(officeDashboardQuery)
   const { user } = Route.useRouteContext()
+  const mayReadCasework = can(user, 'application', 'read')
+  const { data } = useQuery({ ...officeDashboardQuery, enabled: mayReadCasework })
   const mark = useMarker()
   const queues = data?.queues ?? []
   const decisions = data?.decisionQueue.nodes ?? []
@@ -85,16 +98,31 @@ function OfficeDashboard() {
     <main className="page">
       <PageHeader
         title="Dashboard"
-        description="The programme office’s live casework and fastest routes into today’s work."
+        description={
+          mayReadCasework
+            ? 'The programme office’s live casework and fastest routes into today’s work.'
+            : 'The parts of the programme office this account works in.'
+        }
         actions={
-          <Link to="/admin/queue" className={styles.headerPrimaryButton}>
-            View applications
-            <ChevronRight size={15} aria-hidden="true" />
-          </Link>
+          mayReadCasework ? (
+            <Link to="/admin/queue" className={styles.headerPrimaryButton}>
+              View applications
+              <ChevronRight size={15} aria-hidden="true" />
+            </Link>
+          ) : undefined
         }
       />
 
       <div className={styles.adminDashboard}>
+        {/*
+          * Everything below counts or lists casework, so none of it is drawn
+          * for a role composed without it. Zeros would read as "no work today"
+          * rather than "not yours to see", which is a worse answer than an
+          * absent panel — and the navigation still offers whatever they do
+          * hold.
+          */}
+        {mayReadCasework ? (
+        <>
         {/* Top 3 Summary Metric Cards */}
         <section className={styles.metrics} aria-label="Casework summary">
           <Link to="/admin/queue" className={styles.metricCard}>
@@ -140,6 +168,8 @@ function OfficeDashboard() {
             <ChevronRight className={styles.metricChevron} size={18} aria-hidden="true" />
           </Link>
         </section>
+        </>
+        ) : null}
 
         {/* The reporting panel, for the people who steer the programme. Gated
             on the pair the API itself guards this read with — `analytics`/`read`
@@ -148,6 +178,7 @@ function OfficeDashboard() {
         {can(user, 'analytics', 'read') ? <AnalyticsPanel /> : null}
 
         {/* Two-Column Responsive Main Grid */}
+        {mayReadCasework ? (
         <div className={styles.adminMainGrid}>
           {/* Left Column */}
           <div className={styles.adminCol}>
@@ -362,6 +393,7 @@ function OfficeDashboard() {
             </section>
           </div>
         </div>
+        ) : null}
       </div>
     </main>
   )

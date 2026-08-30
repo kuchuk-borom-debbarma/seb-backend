@@ -118,7 +118,12 @@ function AuditPage() {
    * sentence from "this part is for the programme office".
    */
   if (!can(user, 'audit', 'read')) {
-    return <CapabilityRefusal title="Activity history" needs="super administrators" />
+    return (
+      <CapabilityRefusal
+        title="Activity history"
+        needs="anybody whose role may read the activity history"
+      />
+    )
   }
   return <AuditHistory />
 }

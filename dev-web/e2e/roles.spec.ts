@@ -14,8 +14,6 @@ import {
   inviteSomebodyTo,
   navigationSections,
   signIn,
-  signUpApplicant,
-  uniqueEmail,
 } from './support'
 
 test.describe('being invited into the office', () => {
@@ -44,7 +42,7 @@ test.describe('being invited into the office', () => {
      */
     await page.goto('/admin/audit')
     await expect(
-      page.getByText('This screen is open to super administrators.'),
+      page.getByText('This screen is open to anybody whose role may read the activity history.'),
     ).toBeVisible()
     await expect(page.getByRole('link', { name: 'Back to intake' })).toBeVisible()
   })
@@ -117,9 +115,6 @@ test.describe('a role composed for one screen', () => {
    * The narrowest useful role there is, end to end.
    */
   test('reaches the one screen it holds, and nothing else', async ({ page }) => {
-    const auditor = uniqueEmail('auditor')
-    await signUpApplicant(page, auditor)
-
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await composeRole(page, {
       key: 'HISTORY_READER',
@@ -127,18 +122,30 @@ test.describe('a role composed for one screen', () => {
       description: 'Reads the activity history and nothing else.',
       permissions: [['audit', 'read']],
     })
+    await page.context().clearCookies()
 
-    await page.goto(`/admin/access?email=${encodeURIComponent(auditor)}`)
-    await page.getByLabel('Role').selectOption('HISTORY_READER')
-    await page.getByLabel('Why they should have it').fill('Reviewing the office records.')
-    await page.getByLabel('Your password').fill(PASSWORD)
-    await page.getByRole('button', { name: 'Grant it' }).click()
-    await expect(page.getByText('History reader granted.')).toBeVisible()
-
+    /*
+     * Invited rather than granted, because accepting *exchanges* applicant
+     * access for the role. That is what produces a staff-only account, and a
+     * staff-only account is what sign-in sends to `/admin` — the case where a
+     * dashboard built entirely from casework had nothing it could load.
+     */
+    const auditor = await inviteSomebodyTo(page, 'HISTORY_READER')
     await page.context().clearCookies()
     await signIn(page, auditor)
 
-    // The door opens, and the one screen they hold actually renders.
+    // Sign-in lands them in the office, and the dashboard renders for a role
+    // that can read none of the casework it is otherwise built from.
+    await expect(page).toHaveURL(/\/admin$/u)
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
+
+    // The navigation is drawn, with the one screen they hold in it.
+    expect(await navigationSections(page)).toContain('administration')
+    await expect(
+      page.getByLabel('Portal sections').getByRole('link', { name: 'Activity history' }),
+    ).toBeVisible()
+
+    // And that screen actually works.
     await page.goto('/admin/audit')
     await expect(page.getByRole('heading', { name: 'Activity history' })).toBeVisible()
     await expect(page.getByRole('row').first()).toBeVisible()

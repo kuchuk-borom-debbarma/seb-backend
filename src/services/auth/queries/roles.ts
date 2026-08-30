@@ -270,14 +270,14 @@ export type RetireRoleInput = {
 export const retireRoleWrite = async (
   db: Database,
   input: RetireRoleInput,
-): Promise<boolean> => {
+): Promise<{ grantsClosed: number } | null> => {
   const thisRetirementLanded = sql`EXISTS (
     SELECT 1 FROM ${coreRole}
      WHERE ${coreRole.id} = ${input.roleId}
        AND ${coreRole.currentVersion} = ${input.expectedVersion + 1}
        AND ${coreRole.deletedAt} = ${input.now})`
 
-  const [changed] = await batch(db, (tx) => [
+  const [changed, closed] = await batch(db, (tx) => [
     tx
       .update(coreRole)
       .set({
@@ -326,8 +326,16 @@ export const retireRoleWrite = async (
           isNull(coreUserRoleGrant.revokedAt),
           thisRetirementLanded,
         ),
-      ),
+      )
+      /*
+       * The count comes from the statement that closed them, never from a read
+       * taken beforehand. A grant can land or be revoked between the
+       * controller's read and this write — the module comment above says so —
+       * and a number that disagrees with what happened is worse in retained
+       * history than no number at all.
+       */
+      .returning({ id: coreUserRoleGrant.id }),
     insertAuditEventWhere(tx, input.audit, thisRetirementLanded),
   ])
-  return changedExactlyOne(changed)
+  return changedExactlyOne(changed) ? { grantsClosed: closed.length } : null
 }

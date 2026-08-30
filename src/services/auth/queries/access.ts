@@ -232,28 +232,6 @@ export type GrantRoleWriteInput = {
 }
 
 /**
- * Grants one administrative role, or writes nothing at all.
- *
- * The insert carries three predicates the controller already checked. Repeating
- * them is what makes the write authoritative: between the controller's reads
- * and this statement the subject can be soft-deleted, the same role can be
- * granted by a concurrent operator, or the actor's own SUPER_ADMIN grant can be
- * revoked.
- *
- * **The `NOT hasActiveRole` term is not sufficient on its own, and its old
- * justification is gone with the engine it named.** It said the partial unique
- * index never had to raise because D1 serialized writers; Postgres does not.
- * Two operators granting the same role concurrently each evaluate that term
- * against their own snapshot, both find no active grant, and the second blocks
- * on `core_user_role_grant_active_uq` and then raises `23505` — which reached
- * the operator as an unhandled error rather than as "they already hold it".
- *
- * `constraintSafe` turns that into `false`, which is what every other predicate
- * in this statement already produces for a lost race. The index stays the
- * authority; the term stays because it is what makes the *ordinary* case a
- * clean refusal instead of a caught violation.
- */
-/**
  * Whether the subject already holds the authority being granted.
  *
  * A grant names either an authority decided in code or a composed role, never
@@ -266,6 +244,28 @@ const alreadyHolds = (db: Database, grant: UserRoleGrantRecord): SQL =>
     ? hasActiveBuiltinRole(db, grant.userId, grant.role as 'APPLICANT' | 'SUPER_ADMIN')
     : hasActiveComposedRole(db, grant.userId, grant.roleId)
 
+/**
+ * Grants one administrative role, or writes nothing at all.
+ *
+ * The insert carries three predicates the controller already checked. Repeating
+ * them is what makes the write authoritative: between the controller's reads
+ * and this statement the subject can be soft-deleted, the same role can be
+ * granted by a concurrent operator, or the actor's own SUPER_ADMIN grant can be
+ * revoked.
+ *
+ * **The `NOT alreadyHolds` term is not sufficient on its own, and its old
+ * justification is gone with the engine it named.** It said the partial unique
+ * index never had to raise because D1 serialized writers; Postgres does not.
+ * Two operators granting the same role concurrently each evaluate that term
+ * against their own snapshot, both find no active grant, and the second blocks
+ * on `core_user_role_grant_active_uq` and then raises `23505` — which reached
+ * the operator as an unhandled error rather than as "they already hold it".
+ *
+ * `constraintSafe` turns that into `false`, which is what every other predicate
+ * in this statement already produces for a lost race. The index stays the
+ * authority; the term stays because it is what makes the *ordinary* case a
+ * clean refusal instead of a caught violation.
+ */
 export const grantRoleWrite = async (
   db: Database,
   input: GrantRoleWriteInput,

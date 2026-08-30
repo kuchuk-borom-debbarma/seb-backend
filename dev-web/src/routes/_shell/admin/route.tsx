@@ -19,48 +19,13 @@
  */
 import { Outlet, createFileRoute, redirect } from '@tanstack/react-router'
 import { RoleRefusal } from '#/features/portal/RoleRefusal'
-import { canAny, isSuperAdministrator, type SignedInUser } from '#/lib/session'
-
-/**
- * Every resource the office console is built on.
- *
- * Listed rather than inferred because `applicant` access is not an office
- * permission and must not open this door. Adding a resource to the catalogue
- * without adding it here means its holders reach a refusal instead of their
- * screen — which is why the list names resources rather than pairs: one entry
- * per kind of work, not one per act.
- */
-const OFFICE_RESOURCES = [
-  'application',
-  'decision',
-  'funding',
-  'recovery',
-  'programme_cycle',
-  'form_template',
-  'policy_document',
-  'announcement',
-  'audit',
-  'user',
-  'role',
-  'analytics',
-] as const
-
-const belongsInTheOffice = (user: SignedInUser | undefined): boolean =>
-  isSuperAdministrator(user) ||
-  OFFICE_RESOURCES.some((resource) => canAny(user, resource))
-
-/** True only for somebody whose whole office authority is the banner. */
-const bannerOnly = (user: SignedInUser | undefined): boolean =>
-  !isSuperAdministrator(user) &&
-  canAny(user, 'announcement') &&
-  !OFFICE_RESOURCES.filter((resource) => resource !== 'announcement')
-    .some((resource) => canAny(user, resource))
+import { belongsInTheOffice, holdsOnlyTheBanner } from '#/lib/session'
 
 export const Route = createFileRoute('/_shell/admin')({
   beforeLoad: ({ context, location }) => {
     if (
       context.user &&
-      bannerOnly(context.user) &&
+      holdsOnlyTheBanner(context.user) &&
       !location.pathname.startsWith('/admin/announcements')
     ) {
       throw redirect({ to: '/admin/announcements' })

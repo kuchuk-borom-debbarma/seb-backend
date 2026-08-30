@@ -34,7 +34,7 @@ function InviteGate() {
     return (
       <CapabilityRefusal
         title="Invite a colleague"
-        needs="programme officers and super administrators"
+        needs="anybody whose role may invite a colleague"
       />
     )
   }

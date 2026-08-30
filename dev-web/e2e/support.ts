@@ -823,10 +823,17 @@ export const composeRole = async (
 const humanReadable = (key: string): string =>
   key.replace(/_/gu, ' ').replace(/^./u, (first) => first.toUpperCase())
 
-export const inviteSomebodyTo = async (
-  page: Page,
-  role: 'CASEWORK_READER' | 'DECISION_APPROVER' | 'PROGRAMME_OFFICER' | 'BANNER_EDITOR',
-) => {
+/**
+ * Invites somebody to a role and has them accept it.
+ *
+ * Accepting *exchanges* their applicant access for the role, so this is the way
+ * to produce a staff-only account — one that signs in to the office rather than
+ * to the applicant portal. A direct grant adds instead, leaving them both.
+ *
+ * Takes any composed role's key, not only the seeded ones, so a test can
+ * compose the narrowest role it wants to exercise.
+ */
+export const inviteSomebodyTo = async (page: Page, role: string) => {
   const email = uniqueEmail('invited')
   // Signup deliberately creates no session, so there is nobody to sign out.
   await signUpApplicant(page, email)

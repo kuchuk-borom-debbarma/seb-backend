@@ -128,7 +128,7 @@ function AnnouncementsGate() {
     return (
       <CapabilityRefusal
         title="Announcement banner"
-        needs="announcers and super administrators"
+        needs="anybody whose role may write the public banner"
       />
     )
   }

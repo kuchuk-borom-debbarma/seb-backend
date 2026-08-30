@@ -24,14 +24,14 @@ function CycleFormAuthoringPage() {
   const { user } = Route.useRouteContext()
   const { data } = useQuery(formEditorQuery(id))
 
-  // Drawn from the capability the API itself gates these writes on, so the
-  // screen and the refusal can never disagree about who may edit.
+  // Drawn from the pair the API itself gates these writes on, so the screen and
+  // the refusal can never disagree about who may edit.
   if (!can(user, 'form_template', 'update')) {
     return (
       <main className="page">
         <PageHeader
           title="The form editor"
-          description="Changing what a cycle asks is a change to the programme itself, so it is reserved for a super administrator."
+          description="Changing what a cycle asks is a change to the programme itself, so it is a permission the office hands out on its own."
         />
       <p style={{ margin: 0 }}>
         <Link className="button" to="/admin/cycles/$id/preview" params={{ id }}>

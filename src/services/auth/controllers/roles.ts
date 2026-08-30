@@ -371,15 +371,23 @@ export const deleteRole = async (
     actorUserId: actor.user.id,
     reason,
     now,
+    /*
+     * The audit row is built before the write and cannot carry the count the
+     * write produced, so it names what was retired and leaves the number to the
+     * response. A count read beforehand can disagree with what actually closed —
+     * a grant may land or be revoked in between — and a wrong number in retained
+     * history is worse than none.
+     */
     audit: auditEvent(context, {
       action: auditActions.roleRetired,
       entityType: 'CORE_ROLE',
       entityId: role.id,
       actorUserId: actor.user.id,
-      metadata: { key: role.key, grantsClosed: role.memberCount },
+      metadata: { key: role.key },
       createdAt: now,
     }),
   }))
   if (!retired) return failure(STALE_MESSAGE)
-  return success({ key: role.key, grantsClosed: role.memberCount })
+  // Reported from the statement that closed them, not from the read above.
+  return success({ key: role.key, grantsClosed: retired.grantsClosed })
 }

@@ -34,7 +34,13 @@ import { useEffect, useRef, useState } from 'react'
 import { SignOutDocument } from '#/graphql/generated/operations'
 import { forgetGuide } from '#/features/guide/GuideContext'
 import { gql } from '#/lib/graphql'
-import { can, isApplicant, isSuperAdministrator, type SignedInUser } from '#/lib/session'
+import {
+  belongsInTheOffice,
+  can,
+  isApplicant,
+  isSuperAdministrator,
+  type SignedInUser,
+} from '#/lib/session'
 import styles from './PortalShell.module.css'
 import logoEmblem from '@/assets/mission-sep-emblem.png'
 import logoRightColor from '@/assets/mission-sep-right.png'
@@ -47,10 +53,16 @@ const SIDEBAR_PREFERENCE = 'seb.sidebar.collapsed'
 export const portalFor = (pathname: string): Portal =>
   pathname === '/admin' || pathname.startsWith('/admin/') ? 'office' : 'applicant'
 
+/**
+ * Whether this portal's navigation is somebody's to use.
+ *
+ * The office half is `belongsInTheOffice`, shared with the door in
+ * `admin/route.tsx` rather than restated. Asking a narrower question here than
+ * the door asks renders an office shell with an empty sidebar — admitted to the
+ * building, shown no way to the room you hold.
+ */
 export const canUsePortal = (portal: Portal, user: SignedInUser): boolean =>
-  portal === 'office'
-    ? can(user, 'application', 'read') || can(user, 'announcement', 'read')
-    : isApplicant(user)
+  portal === 'office' ? belongsInTheOffice(user) : isApplicant(user)
 
 /** Draw the navigation that works when somebody opens a portal they cannot use. */
 export const navPortalFor = (addressed: Portal, user: SignedInUser): Portal => {
