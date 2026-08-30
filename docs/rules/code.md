@@ -281,6 +281,14 @@ file while the programme was still in development, after every existing
 database had been migrated to that exact shape and had its bookkeeping
 re-marked by hand. That rewrite was a development-era, one-time act: now that
 databases carry real state, the chain only grows.
+
+**The baseline's journal `when` is backdated on purpose** — leave it alone. The
+migrator's only gate is `newest recorded created_at < when`, so carrying the
+collapsed chain's final timestamp is what makes a database that finished the
+old chain skip the baseline instead of replaying the whole schema over tables
+it already has. Generated entries after it carry their own real timestamps and
+need no thought; a hand-written `when` is a decision about which databases
+will replay, and only the baseline gets one.
 **`IF NOT EXISTS` is not a migration**: against a table already present in an
 older shape the statement is skipped and reported as success, leaving the
 database on the old definition while the code assumes the new one. That is why

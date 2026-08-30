@@ -9,6 +9,18 @@
 -- could be converged first; from here the chain grows normally and is never
 -- rewritten again.
 --
+-- Its journal `when` (1788081276494) is deliberately not this file's birthday.
+-- It is the timestamp the collapsed chain's last migration carried, because
+-- the migrator's only gate is `newest recorded created_at < when`: any
+-- database that finished the old chain recorded exactly that number, so an
+-- equal `when` makes it skip this file rather than replay 59 CREATE TABLEs
+-- against tables it already has. A database that stopped part-way through the
+-- old chain has a smaller number and *will* try to replay — that is the
+-- intended outcome, and it fails loudly inside the migrator's transaction
+-- with nothing half-applied. Such a database is genuinely missing tables;
+-- migrate it to the old chain's end state before it meets this file. Every
+-- later migration carries its own real timestamp and applies normally.
+--
 -- Reading order: every CREATE TABLE first (in the schema modules' discovery
 -- order, so domains interleave), then every foreign key, then every index.
 -- That ordering is the generator's and it is load-bearing — tables exist
