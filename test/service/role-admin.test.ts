@@ -328,6 +328,35 @@ describe('retiring a role', () => {
     })).data.access.deleteRole.success).toBe(true)
   })
 
+  it('closes a grant that landed after the retirement instant was minted', async () => {
+    /*
+     * `now` is minted in the controller, before the batch opens, so another
+     * operator's grant of this same role can commit in between — and under READ
+     * COMMITTED the closing statement then sees a row granted *later* than the
+     * instant it is writing. Stamping `now` on it produces a grant revoked
+     * before it was granted, which the revocation CHECK refuses as a 23514 that
+     * `constraintSafe` deliberately does not swallow: the operator would get an
+     * unhandled failure and the role would stay live.
+     */
+    const operator = await superAdministrator()
+    const role = await composed(operator.cookie, 'CASEWORKER', [])
+    const holder = await signIn({})
+    const later = Date.now() + 60_000
+    await env.DB.prepare(
+      `INSERT INTO core_user_role_grant (id, user_id, role_id, grant_reason, granted_at)
+       VALUES (?, ?, ?, 'RACED_IN', ?)`,
+    ).bind(crypto.randomUUID(), holder.userId, role.id, later).run()
+
+    expect((await deleteRole(operator.cookie, {
+      roleId: role.id, expectedVersion: role.version,
+    })).data.access.deleteRole.success).toBe(true)
+
+    const grant = await env.DB.prepare(
+      `SELECT revoked_at FROM core_user_role_grant WHERE role_id = ?`,
+    ).bind(role.id).first<{ revoked_at: number }>()
+    expect(grant?.revoked_at, 'the raced-in grant is closed, not left open').not.toBeNull()
+  })
+
   it('refuses a stale version and a wrong password', async () => {
     const operator = await superAdministrator()
     const role = await composed(operator.cookie, 'CASEWORKER', [])

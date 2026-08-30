@@ -141,11 +141,11 @@ function OfficeDashboard() {
           </Link>
         </section>
 
-        {/* The reporting panel, for the people who steer the programme. The
-            capability rather than a role: an approver-lead holds CYCLE_ADMIN
-            without holding ADMIN, and this decides only what is drawn — the
-            API authorizes the read on its own. */}
-        {can(user, 'programme_cycle', 'update') ? <AnalyticsPanel /> : null}
+        {/* The reporting panel, for the people who steer the programme. Gated
+            on the pair the API itself guards this read with — `analytics`/`read`
+            — because counts and totals name no applicant and are handed out
+            separately from the files. This decides only what is drawn. */}
+        {can(user, 'analytics', 'read') ? <AnalyticsPanel /> : null}
 
         {/* Two-Column Responsive Main Grid */}
         <div className={styles.adminMainGrid}>
@@ -278,7 +278,7 @@ function OfficeDashboard() {
                   <Scale className={styles.quickActionIcon} aria-hidden="true" />
                   <span className={styles.quickActionLabel}>Decide applications</span>
                 </Link>
-                {can(user, 'application', 'review') ? (
+                {can(user, 'programme_cycle', 'create') ? (
                   <Link
                     to="/admin/cycles/new"
                     className={styles.quickActionTile}

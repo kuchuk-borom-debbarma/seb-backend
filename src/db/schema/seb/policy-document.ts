@@ -62,8 +62,9 @@ export const sebCyclePolicyDocumentVersion = pgTable(
     contentType: text('content_type').notNull(),
     sizeBytes: integer('size_bytes').notNull(),
     checksum: text('checksum').notNull(),
-    // Audit only. Any CYCLE_ADMIN may replace or finalize the document; the
-    // office acts as one actor, unlike an applicant who owns their uploads.
+    // Audit only. Anybody holding `policy_document`/`upload` may replace or
+    // finalize the document; the office acts as one actor, unlike an applicant
+    // who owns their uploads.
     uploadedByUserId: text('uploaded_by_user_id')
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
@@ -131,8 +132,8 @@ export const sebCyclePolicyDocumentScan = pgTable(
  * cycle, expected document version, checksum, and expiry, which makes the
  * later GraphQL finalization race-safe and gives the scheduled cleanup an
  * exact object key without scanning the private bucket. Unlike the applicant
- * intent there is no owner pair: the issuer is recorded for audit, but any
- * CYCLE_ADMIN may finalize.
+ * intent there is no owner pair: the issuer is recorded for audit, but anybody
+ * holding `policy_document`/`upload` may finalize.
  */
 export const sebCyclePolicyUploadIntent = pgTable(
   'seb_cycle_policy_upload_intent',

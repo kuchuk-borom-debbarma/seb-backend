@@ -43,7 +43,7 @@ import {
   StartDeskReviewDocument,
 } from '#/graphql/generated/operations'
 import { formatDateTime, humanize } from '#/lib/format'
-import { can } from '#/lib/session'
+import { can, canAny } from '#/lib/session'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { Explain } from '#/features/guide/Explain'
@@ -77,8 +77,18 @@ function WorkspacePage() {
    * `can` decides what to draw and never what is permitted; every operation is
    * re-checked by the API, which is what actually refuses.
    */
-  const mayWrite = can(viewer, 'application', 'review')
-  const mayDecide = can(viewer, 'decision', 'record')
+  /*
+   * One flag per permission the API actually names, not one covering three.
+   *
+   * `STAFF_WRITE` used to gate all of this, and collapsing its replacements
+   * back into a single flag would draw the bank controls for somebody who may
+   * only review — and hide them from somebody composed to do nothing else.
+   */
+  const mayReview = can(viewer, 'application', 'review')
+  const mayRefer = can(viewer, 'application', 'refer')
+  // Either act on a decision opens the stage: correcting one is its own
+  // permission, and a role composed with only that still needs the screen.
+  const mayDecide = canAny(viewer, 'decision')
   const { data: workspace } = useQuery(workspaceQuery(id))
   // Pinned to the same cycle version the API validates against, so the picker
   // never offers an id a later cycle revision has re-minted.
@@ -178,7 +188,7 @@ function WorkspacePage() {
             viewerUserId={viewer?.id}
           />
 
-          {mayWrite ? (
+          {mayReview ? (
             <NextStep
               submitted={submittedView}
               applicationId={id}
@@ -193,7 +203,7 @@ function WorkspacePage() {
             />
           ) : null}
 
-          {mayWrite ? (
+          {mayRefer ? (
             <BankStage
               applicationId={id}
               status={application.status}
@@ -208,7 +218,7 @@ function WorkspacePage() {
             />
           ) : null}
 
-          {mayWrite || mayDecide ? (
+          {mayDecide ? (
             <DecisionStage
               applicationId={id}
               status={application.status}
@@ -222,7 +232,7 @@ function WorkspacePage() {
             />
           ) : null}
 
-          {mayWrite && openRevisions.length > 0 ? (
+          {mayReview && openRevisions.length > 0 ? (
             <OpenRevisions
               applicationId={id}
               statusVersion={application.statusVersion}

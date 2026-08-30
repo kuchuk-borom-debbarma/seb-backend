@@ -790,9 +790,16 @@ export const OFFICE_ROLES = [
  * The second takes the operator's password, because it moves what every holder
  * may do the moment it lands.
  */
+export type ComposableRole = {
+  key: string
+  name: string
+  description: string
+  permissions: readonly (readonly [resource: string, action: string])[]
+}
+
 export const composeRole = async (
   page: Page,
-  role: (typeof OFFICE_ROLES)[number],
+  role: ComposableRole,
 ): Promise<void> => {
   await page.goto('/admin/roles/new')
   await page.getByLabel('What the office calls it').fill(role.name)

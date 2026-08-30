@@ -94,7 +94,6 @@ predicate cannot drift apart.
 | `setAnnouncementPublishedController` | `controllers/admin.ts` | The Live/Hidden quick toggle |
 | `removeAnnouncementController` | `controllers/admin.ts` | Soft-deletes a card, returns the fresh board |
 | `reorderAnnouncementsController` | `controllers/admin.ts` | Rewrites the whole display order |
-
 | `validateAnnouncementLink` | `support.ts` | Decides whether a link may ever become an `href` |
 | `announcementAudit` | `support.ts` | This service's audit-row builder |
 | query functions | `queries/announcement.ts` | All SQL, and every guard repeated inside the write predicate |

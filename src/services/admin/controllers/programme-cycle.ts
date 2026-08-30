@@ -255,8 +255,8 @@ export const createProgrammeCycle = async (
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
   // A cycle's policy and form decide who is eligible and for how much — the
-  // programme's own rulebook, not casework — so every cycle write in this file
-  // is held behind a stronger capability than `STAFF_WRITE`.
+  // programme's own rulebook, not casework — so cycle writes carry their own
+  // permissions, granted separately from anything that works an application.
   const administrator = await currentStaff(context, 'programme_cycle', 'create')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const expanded = withExpandedTemplate(input)

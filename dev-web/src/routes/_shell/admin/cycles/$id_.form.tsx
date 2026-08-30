@@ -1,10 +1,11 @@
 /**
  * The form-authoring screen for one draft cycle.
  *
- * Reached from the cycle's own page. Super administrators only — a cycle's
- * questions are the programme's policy, gated on `CYCLE_ADMIN` like every
- * other rule change — and drafts only, because an open cycle's questions are
- * frozen into the applications filled under it.
+ * Reached from the cycle's own page. Gated on `form_template`/`update`, which
+ * is what `editTemplate` guards every one of the nine form mutations with — a
+ * cycle's questions are the programme's policy, handed out separately from
+ * editing the cycle around them. Drafts only, because an open cycle's questions
+ * are frozen into the applications filled under it.
  */
 import { useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
@@ -25,7 +26,7 @@ function CycleFormAuthoringPage() {
 
   // Drawn from the capability the API itself gates these writes on, so the
   // screen and the refusal can never disagree about who may edit.
-  if (!can(user, 'programme_cycle', 'update')) {
+  if (!can(user, 'form_template', 'update')) {
     return (
       <main className="page">
         <PageHeader

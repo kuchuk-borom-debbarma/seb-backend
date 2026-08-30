@@ -398,10 +398,12 @@ export const revokeRoleWrite = async (
         eq(coreUserRoleGrant.id, input.grantId),
         isNull(coreUserRoleGrant.revokedAt),
         /*
-         * Revoking APPLICANT is not an administrative operation; see
-         * `manageableRoles`. The enum stops it at the GraphQL boundary for
-         * grants, but a revocation names a grant ID, so the role of the row it
-         * resolves to has to be checked here.
+         * Revoking APPLICANT is not an administrative operation at all: it is
+         * created only by verified signup and nothing can grant it back, so
+         * closing one here would strip somebody permanently. A grant names a
+         * role by key, so that request is refused before it reaches SQL — but a
+         * revocation names a grant ID, so the authority of the row it resolves
+         * to has to be checked here as well.
          *
          * Stated as one exclusion rather than an allow-list of role names. The
          * allow-list version said ADMIN and SUPER_ADMIN and stayed that way

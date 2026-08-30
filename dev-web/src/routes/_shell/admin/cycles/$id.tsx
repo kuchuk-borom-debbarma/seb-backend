@@ -711,7 +711,7 @@ function AdminCyclePage() {
                       cycleId={head.id}
                       document={data.cycle.policyDocument ?? null}
                       canManage={
-                        can(user, 'programme_cycle', 'update') && (isDraft || isOpen)
+                        can(user, 'policy_document', 'upload') && (isDraft || isOpen)
                       }
                       onChanged={refresh}
                     />
@@ -916,7 +916,7 @@ function AdminCyclePage() {
             >
               View as an applicant
             </Link>
-            {can(user, 'programme_cycle', 'update') ? (
+            {can(user, 'form_template', 'update') ? (
               isDraft ? (
                 <Link
                   to="/admin/cycles/$id/form"

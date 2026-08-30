@@ -1,11 +1,12 @@
 /**
  * Authorization and input validation for the intake analytics summary.
  *
- * A read on its own resource: counts and totals name no applicant, so an
- * reviewer holds — summarizing casework discloses nothing the queue does not
- * already list row by row. The filter validation is the queue's own, imported
- * rather than restated, so a range one screen refuses cannot quietly reach
- * the other as an empty chart.
+ * A read on its own resource. Counts and totals name no applicant, so
+ * summarizing casework discloses nothing the queue does not already list row by
+ * row — which is why `analytics`/`read` is a pair the office can hand out
+ * without handing out the files themselves. The filter validation is the
+ * queue's own, imported rather than restated, so a range one screen refuses
+ * cannot quietly reach the other as an empty chart.
  */
 import { intakeAnalyticsSummary } from '../queries/analytics'
 import { intakeFilterProblem, type IntakeQueueFilterInput } from './intake'

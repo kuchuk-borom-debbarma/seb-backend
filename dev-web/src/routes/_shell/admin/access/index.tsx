@@ -20,7 +20,7 @@ import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
 import { managedUserQuery } from '#/features/access/accessQueries'
-import { RoleRefusal } from '#/features/portal/RoleRefusal'
+import { CapabilityRefusal } from '#/features/portal/CapabilityRefusal'
 import { GrantRoleDocument, RevokeRoleDocument } from '#/graphql/generated/operations'
 import { formatDateTime, humanize, readableReason } from '#/lib/format'
 import { isSuperAdministrator } from '#/lib/session'
@@ -63,7 +63,19 @@ function AccessPage() {
     queryClient.invalidateQueries({ queryKey: ['managed-user', search.email] })
 
   if (!isSuperAdministrator(operator)) {
-    return <RoleRefusal portal="office" user={operator} />
+    /*
+     * The screen refusal, not the portal one. Somebody holding any office
+     * permission is standing in the programme office; telling them this part of
+     * the portal is *for* the programme office is both wrong and unactionable.
+     * Handing a role out is the super administrator's alone, so that is what
+     * this says.
+     */
+    return (
+      <CapabilityRefusal
+        title="Users & access"
+        needs="super administrators"
+      />
+    )
   }
 
   return (

@@ -359,7 +359,13 @@ export const deleteRole = async (
   }
 
   const now = new Date()
-  const retired = await retireRoleWrite(context.db, {
+  /*
+   * Wrapped like every other guarded write here. A constraint loss on the audit
+   * insert or on a grant racing in is a lost race, and every lost race in this
+   * service reads as `false` — reaching the caller as an unhandled failure is
+   * the one outcome that is not a refusal.
+   */
+  const retired = await constraintSafe(() => retireRoleWrite(context.db, {
     roleId: role.id,
     expectedVersion: input.expectedVersion,
     actorUserId: actor.user.id,
@@ -373,7 +379,7 @@ export const deleteRole = async (
       metadata: { key: role.key, grantsClosed: role.memberCount },
       createdAt: now,
     }),
-  })
+  }))
   if (!retired) return failure(STALE_MESSAGE)
   return success({ key: role.key, grantsClosed: role.memberCount })
 }

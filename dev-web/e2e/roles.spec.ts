@@ -10,9 +10,12 @@ import { expect, test } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
+  composeRole,
   inviteSomebodyTo,
   navigationSections,
   signIn,
+  signUpApplicant,
+  uniqueEmail,
 } from './support'
 
 test.describe('being invited into the office', () => {
@@ -100,5 +103,54 @@ test.describe('an invitation that cannot be used', () => {
     await expect(page.getByRole('button', { name: 'Accept the invitation' })).toHaveCount(
       0,
     )
+  })
+})
+
+test.describe('a role composed for one screen', () => {
+  /*
+   * The office console used to open on two named permissions, which was safe
+   * while six fixed roles existed and is not now: a role holding only the
+   * activity history hit the door and was told this part of the portal was for
+   * the programme office — while standing in it, holding a permission the API
+   * would have served.
+   *
+   * The narrowest useful role there is, end to end.
+   */
+  test('reaches the one screen it holds, and nothing else', async ({ page }) => {
+    const auditor = uniqueEmail('auditor')
+    await signUpApplicant(page, auditor)
+
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    await composeRole(page, {
+      key: 'HISTORY_READER',
+      name: 'History reader',
+      description: 'Reads the activity history and nothing else.',
+      permissions: [['audit', 'read']],
+    })
+
+    await page.goto(`/admin/access?email=${encodeURIComponent(auditor)}`)
+    await page.getByLabel('Role').selectOption('HISTORY_READER')
+    await page.getByLabel('Why they should have it').fill('Reviewing the office records.')
+    await page.getByLabel('Your password').fill(PASSWORD)
+    await page.getByRole('button', { name: 'Grant it' }).click()
+    await expect(page.getByText('History reader granted.')).toBeVisible()
+
+    await page.context().clearCookies()
+    await signIn(page, auditor)
+
+    // The door opens, and the one screen they hold actually renders.
+    await page.goto('/admin/audit')
+    await expect(page.getByRole('heading', { name: 'Activity history' })).toBeVisible()
+    await expect(page.getByRole('row').first()).toBeVisible()
+
+    /*
+     * The door is wide and the screens are narrow, which is the whole point:
+     * a refusal on the screen you asked for is a sentence you can act on, while
+     * a refusal at the door is being told you are in the wrong building.
+     */
+    await page.goto('/admin/access')
+    await expect(
+      page.getByText('This screen is open to super administrators.'),
+    ).toBeVisible()
   })
 })

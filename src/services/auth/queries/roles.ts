@@ -299,11 +299,24 @@ export const retireRoleWrite = async (
      * History, not correctness. The read above already made the role powerless;
      * this stops its grants sitting open for ever against something nobody can
      * hold, so the account's history reads honestly.
+     *
+     * **`GREATEST`, not the retirement instant.** `now` is minted in the
+     * controller, before this batch opens. Another operator's grant of this same
+     * role can commit in between, and under READ COMMITTED this statement then
+     * sees a row whose `granted_at` is *later* than `now` — so writing `now`
+     * would produce a grant revoked before it was granted.
+     * `core_user_role_grant_revocation_check` refuses that, and a CHECK
+     * violation is SQLSTATE 23514, which `constraintSafe` deliberately does not
+     * swallow: the whole batch would roll back and the operator would get an
+     * unhandled failure instead of a retired role.
+     *
+     * Closing such a grant at its own `granted_at` says what happened — it was
+     * granted and immediately closed by a retirement already under way.
      */
     tx
       .update(coreUserRoleGrant)
       .set({
-        revokedAt: input.now,
+        revokedAt: sql`GREATEST(${input.now}, ${coreUserRoleGrant.grantedAt})`,
         revokedByUserId: input.actorUserId,
         revocationReason: 'ROLE_RETIRED',
       })
