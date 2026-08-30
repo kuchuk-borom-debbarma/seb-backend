@@ -1,10 +1,13 @@
 -- The baseline: the whole schema in one migration, generated from
 -- `src/db/schema/**` — the same generator that writes `database/schema.sql`,
--- so the two are twins (this file adds only statement breakpoints, these
--- comments, and the one seed row at the end). The earlier three-link chain
--- was collapsed into this file while the programme was still in development
--- and every database could be converged first; from here the chain grows
--- normally and is never rewritten again.
+-- and at generation time (2026-08-30) identical to it apart from statement
+-- breakpoints, these comments, and the one seed row at the end. That twinship
+-- is a birthmark, not an invariant: every later migration moves `schema.sql`
+-- on while this file stays frozen, so read it as where the chain started,
+-- never as the current shape. The earlier three-link chain was collapsed into
+-- this file while the programme was still in development and every database
+-- could be converged first; from here the chain grows normally and is never
+-- rewritten again.
 --
 -- Reading order: every CREATE TABLE first (in the schema modules' discovery
 -- order, so domains interleave), then every foreign key, then every index.
@@ -1605,7 +1608,8 @@ CREATE INDEX "seb_application_event_application_idx" ON "seb_application_event" 
 CREATE INDEX "seb_revision_request_application_idx" ON "seb_revision_request" USING btree ("application_id","resolved_at","cancelled_at","requested_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "seb_revision_request_open_stage_uq" ON "seb_revision_request" USING btree ("application_id","stage_key") WHERE "seb_revision_request"."resolved_at" IS NULL AND "seb_revision_request"."cancelled_at" IS NULL;--> statement-breakpoint
 -- The announcement board's one row, seeded here so reads stay read-only: a
--- lazy insert-on-first-read would put a write on the public path. The same
--- statement lives in `scripts/board-seed.mjs` for every bootstrap path that
--- builds a database from `schema.sql` instead of this chain.
+-- lazy insert-on-first-read would put a write on the public path. The
+-- service-test harness, which builds its throwaway databases from
+-- `schema.sql` instead of this chain, repeats the statement
+-- (`test/support/harness.ts`).
 INSERT INTO "seb_announcement_board" ("id", "current_version", "updated_at") VALUES ('BOARD', 1, now()) ON CONFLICT DO NOTHING;

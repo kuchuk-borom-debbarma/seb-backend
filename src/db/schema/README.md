@@ -447,11 +447,13 @@ middle. Until it is enabled the interface must go on saying "starts with".
   is configured), and best-effort email notification with PDF attachments.
   Payment integration remains a public-launch blocker.
 - `database/schema.sql` is the whole schema and is generated, never hand-edited.
-  A local scratch database applies it by recreating (`db:setup:local`); the
-  deployed database moves through the ordered chain under
-  `database/migrations/` instead — `db:generate` writes the next file from the
+  Databases are built and changed by the ordered chain under
+  `database/migrations/` — `db:generate` writes the next file from the
   Drizzle schema's diff, `db:migrate` applies what is pending, and the chain's
-  `0000_baseline` records the shape that was already deployed when it began.
+  single `0000_baseline` builds everything from nothing (the chain was
+  collapsed to that one file during development, after every existing database
+  was converged onto its shape). The service-test harness alone applies
+  `schema.sql` directly, for speed.
 - `core_user_role_grant.role` accepts six values: `APPLICANT`, `REVIEWER`,
   `APPROVER`, `ADMIN`, `ANNOUNCER`, `SUPER_ADMIN`. The vocabulary is fixed in
   TypeScript and enforced by a `CHECK`, so adding a role is a schema change
@@ -459,9 +461,9 @@ middle. Until it is enabled the interface must go on saying "starts with".
 - `seb_announcement` is the landing page's notice board and
   `seb_announcement_board` its one-row reorder guard: two reorders touch no
   common card row, so they contend on the board's version instead, and
-  creating or removing a card bumps it too. The board row is seeded (by
-  migration on the deployed database, by `scripts/board-seed.mjs` everywhere a
-  database is built from `schema.sql`) so reads stay read-only. `sort_order`
+  creating or removing a card bumps it too. The board row is seeded (by the
+  baseline migration in any migrated database, by the service-test harness
+  where one is built from `schema.sql`) so reads stay read-only. `sort_order`
   is deliberately not unique — in-place renumbering would transiently
   collide — and reads break ties by `(sort_order, created_at, id)`.
 - `core_audit_event` carries five indexes, and the fifth is the one worth
@@ -489,14 +491,11 @@ npm run db:schema:check
 npm test -- test/service/schema.test.ts
 ```
 
-To initialize a local database:
+To initialize a local database (create it once, then run the chain):
 
 ```sh
-npm run db:setup:local
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/seb_backend npm run db:migrate
 ```
-
-`npm run db:setup:local` drops the public schema and rebuilds it from
-`database/schema.sql`.
 
 Keep this README's inventory, lifecycle, assumptions, and current state
 synchronized whenever tables or application rules change.
@@ -508,11 +507,12 @@ Change the Drizzle schema and run `npm run db:schema:generate`.
 tables that moved — which is what keeps `database/schema.sql` a description of
 the schema rather than a second copy of it.
 
-`npm run db:setup:local` drops the public schema and rebuilds it. It recreates
-rather than patches, deliberately: guarding every statement with
-`IF NOT EXISTS` would make a re-run *look* successful against a table already
-present in an older shape, leaving the database on the old definition while the
-code assumes the new one.
+Then `npm run db:generate` writes the change as the chain's next migration,
+and `npm run db:migrate` carries every database forward. Migrations never
+guard with `IF NOT EXISTS`, deliberately: the guard would make a re-run *look*
+successful against a table already present in an older shape, leaving the
+database on the old definition while the code assumes the new one — run-once
+is what the chain's bookkeeping is for.
 
 **One ordering rule is not obvious.** A composite foreign key needs its
 referenced columns covered by a unique **constraint**, and generated DDL

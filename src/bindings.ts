@@ -26,7 +26,7 @@ export type AppBindings = CloudflareBindings & {
   /**
    * The database, named directly.
    *
-   * Read by the database scripts (`db:setup:local`, `db:apply`) from
+   * Read by the migration tooling (`db:migrate`, `db:generate`) from
    * `.env.local`, and by a **deployed** Worker when provisioned with
    * `wrangler secret put DATABASE_URL` — there it wins over the Hyperdrive
    * binding. A local Worker ignores it on purpose: Wrangler loads `.env.local`

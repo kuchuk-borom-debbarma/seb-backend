@@ -1,5 +1,5 @@
+import { loadEnvFile } from 'node:process'
 import { defineConfig } from 'drizzle-kit'
-import { loadRepositoryEnv } from './scripts/load-env.mjs'
 
 /**
  * `database/schema.sql` is the schema's canonical description, and
@@ -7,12 +7,15 @@ import { loadRepositoryEnv } from './scripts/load-env.mjs'
  * from this schema and fails on any diff, so the SQL can never drift into a
  * second opinion.
  *
- * A deployed database exists now, so changes reach it as an ordered chain
- * under `out`: `npm run db:generate` writes the next migration from this
+ * Databases are built and changed by the ordered chain under `out`, and by
+ * nothing else: `npm run db:generate` writes the next migration from this
  * schema's diff against the chain, and `npm run db:migrate` applies what the
- * database `DATABASE_URL` names has not seen. The chain began after the first
- * deployment, so `0000_baseline` describes the shape that was already there —
- * `npm run db:baseline` marks it applied rather than running it.
+ * database `DATABASE_URL` names has not seen. The chain was collapsed to a
+ * single `0000_baseline` while the programme was still in development — every
+ * database that existed was first migrated to that shape and had its
+ * bookkeeping re-marked by hand, a rewrite the chain's own header forecloses
+ * from repeating now that real state exists. On an empty database the chain
+ * builds everything, seed row included.
  *
  * `drizzle-kit push` is deliberately not offered. Rehearsed against a copy of
  * the deployed schema it planned to drop `seb_application_case_id_uq`, a
@@ -20,10 +23,20 @@ import { loadRepositoryEnv } from './scripts/load-env.mjs'
  * schema's FK-referenced `uniqueIndex` columns as constraints to rebuild, and
  * it applies statement by statement with no transaction around the plan.
  *
- * Local scratch databases still recreate via `db:setup:local`, which is
- * cheaper than migrating and cannot leave an old shape behind.
+ * The env files are loaded here so `DATABASE_URL` can live in `.env.local`
+ * rather than demand an export. `loadEnvFile` never overwrites a variable
+ * already set, so the real environment wins over both files, and `.env.local`
+ * is loaded first so it wins over `.env` — the same precedence Wrangler
+ * gives them. npm runs scripts from the package root, which is where both
+ * files and this config live.
  */
-loadRepositoryEnv()
+for (const name of ['.env.local', '.env']) {
+  try {
+    loadEnvFile(name)
+  } catch {
+    // Absent is an ordinary state for either file.
+  }
+}
 
 export default defineConfig({
   dialect: 'postgresql',

@@ -21,9 +21,10 @@
  * ## What must not drift
  *
  * `hyperdrive.localConnectionString` names the Postgres this machine talks to.
- * `scripts/reset-e2e-db.mjs` prepares that same database, so changing it here
- * without changing the script gives `npm run local` and the suite a different,
- * empty database from the one that was prepared.
+ * `npm run test:e2e-db` (the drop-recreate-migrate step `test:worker` starts
+ * with) prepares the suite's database the same way, so changing a URL here
+ * without changing package.json gives `npm run local` and the suite a
+ * different, empty database from the one that was prepared.
  *
  * Rate-limit bindings are deliberately absent: local runs count in process, and
  * the suite turns counting off entirely. `npm run check:rate-limits` reads the

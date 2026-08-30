@@ -45,7 +45,7 @@ its own. See [configuring the Worker](../README.md#configuration).
 The database starts empty and there is no administrator, by design. Create one
 the same way a real deployment does:
 
-1. `npm run db:setup:local` applies the canonical schema.
+1. `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/seb_backend npm run db:migrate` (from the repo root) builds the schema.
 2. Sign up at `/sign-up` with the address in `FIRST_SUPER_ADMIN_EMAIL`.
 3. Read the six-digit code from the Wrangler console (see the limitation
    below) and finish signing up.
