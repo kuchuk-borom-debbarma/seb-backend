@@ -22,13 +22,17 @@
  * were declared and never written, so the catalogue read as coverage while the
  * activity history contained no recovery at all.
  *
- * The half with real teeth — **every pair is asked for by a guard somewhere** —
- * arrives with the guards themselves. Until an operation names a pair there is
- * nothing to scan for, and a check that cannot pass is one people learn to
- * skip. A permission nothing enforces is exactly as empty as an audit action
- * nothing writes, so it is a gap held open deliberately, not forgotten.
+ * The half with real teeth is **every pair is asked for by a guard somewhere**.
+ * A permission nothing enforces is exactly as empty as an audit action nothing
+ * writes: the catalogue reads as coverage while the API refuses nothing on it,
+ * and a role composed out of it grants an authority that does not exist.
+ *
+ * It has already earned its place. `user`/`read` sat in the catalogue while the
+ * two account lookups were still guarded on the wildcard, so an issuer holding
+ * `role`/`invite` could not find the person they were inviting — the screen's
+ * first step refused them, and nothing said why.
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -219,7 +223,61 @@ if (current !== generated) {
   fail('Run `npm run catalog:generate` and commit the result.')
 }
 
+/* ------------------------------------------------------ every pair is asked for */
+
+/**
+ * Every `.ts` under `src`, with comments stripped.
+ *
+ * Comments first, for the reason `check-audit-actions` gives: a pair named in
+ * prose, in a refusal message or in a doc comment must not count as enforcement.
+ * That is the same vacuity the check exists to catch, moved one line along.
+ */
+const sources = []
+const walk = (dir) => {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) walk(join(dir, entry.name))
+    else if (entry.name.endsWith('.ts')) sources.push(join(dir, entry.name))
+  }
+}
+walk(join(root, 'src'))
+
+const stripComments = (source) =>
+  source.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/\/\/[^\n]*/gu, '')
+
+/*
+ * The three shapes a guard takes. Each names the resource and the act as two
+ * adjacent string literals, which is what makes them findable at all — a pair
+ * assembled from variables would be invisible here, and that is a good reason
+ * not to assemble one.
+ */
+const GUARD = new RegExp(
+  String.raw`(?:authenticatedWithPermission|currentStaff|authorizeReasonedTransition)` +
+    String.raw`\(\s*[A-Za-z_.]+\s*,\s*'([a-z_]+)'\s*,\s*'([a-z_]+)'`,
+  'gu',
+)
+
+const enforced = new Set()
+for (const file of sources) {
+  for (const found of stripComments(readFileSync(file, 'utf8')).matchAll(GUARD)) {
+    enforced.add(`${found[1]}:${found[2]}`)
+  }
+}
+
+const unenforced = pairs
+  .map(({ resource, action }) => `${resource}:${action}`)
+  .filter((pair) => !enforced.has(pair))
+
+if (unenforced.length) {
+  console.error('These permissions are in the catalogue and no guard asks for them:')
+  for (const pair of unenforced) console.error(`  ${pair}`)
+  console.error(
+    'A permission nothing enforces reads as coverage and refuses nothing.\n' +
+      'Either guard an operation with it, or take it out of catalog.json.',
+  )
+  process.exit(1)
+}
+
 console.log(
   `Catalogue agrees: ${resources.size} resources, ${actions.size} actions, ` +
-    `${pairs.length} permissions.`,
+    `${pairs.length} permissions, all enforced.`,
 )

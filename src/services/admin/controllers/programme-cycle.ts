@@ -400,24 +400,29 @@ export const changeOpenCycleClosingTime = async (
 
 /**
  * The half of closing and archiving that is the same, with the half that is not
- * supplied by the caller.
+ * decided by the caller.
  *
- * **The permission is the caller's to state, not this helper's to assume.**
- * Closing a cycle and archiving one were one capability when this was written,
- * so naming it here cost nothing; they are separate permissions now, and a
- * helper that chose for itself would hand archive authority to anybody who may
- * close. `docs/rules/code.md` records what that shape did the last time: a
- * shared preamble named `STAFF_READ` for itself and a reviewer could claim an
- * application, with the guard looking present at both call sites and doing its
- * job at neither.
+ * **The permission is not this helper's to assume, and it does not take one as
+ * an argument either.** Closing a cycle and archiving one were one capability
+ * when this was written, so naming it here cost nothing; they are separate
+ * permissions now, and a helper that chose for itself would hand archive
+ * authority to anybody who may close. `docs/rules/code.md` records what that
+ * shape did the last time: a shared preamble named `STAFF_READ` for itself and
+ * a reviewer could claim an application, with the guard looking present at both
+ * call sites and doing its job at neither.
+ *
+ * The caller resolves its own actor and passes it in, rather than passing the
+ * pair down. A pair assembled behind a variable is invisible to
+ * `check:catalog`, which asks whether every permission in the catalogue is
+ * actually enforced somewhere — and a permission nothing can be shown to
+ * enforce is one nobody can audit.
  */
 const cycleTransition = async (
   input: { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
   toStatus: 'CLOSED' | 'ARCHIVED',
-  action: 'close' | 'archive',
+  administrator: { id: string } | null,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'programme_cycle', action)
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reason = normalizeRequiredText(input.reason, 500)
   if (!reason) return failure('Enter a transition reason.')
@@ -455,15 +460,25 @@ const cycleTransition = async (
   return success(await loadProgrammeCycle(context.db, input.id))
 }
 
-export const closeProgrammeCycle = (
+export const closeProgrammeCycle = async (
   input: { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
-) => cycleTransition(input, context, 'CLOSED', 'close')
+) => cycleTransition(
+  input,
+  context,
+  'CLOSED',
+  await currentStaff(context, 'programme_cycle', 'close'),
+)
 
-export const archiveProgrammeCycle = (
+export const archiveProgrammeCycle = async (
   input: { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
-) => cycleTransition(input, context, 'ARCHIVED', 'archive')
+) => cycleTransition(
+  input,
+  context,
+  'ARCHIVED',
+  await currentStaff(context, 'programme_cycle', 'archive'),
+)
 
 export const setProgrammeCycleDeleted = async (
   input: { id: string; expectedVersion: number; reason: string },

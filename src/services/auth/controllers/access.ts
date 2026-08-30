@@ -105,12 +105,21 @@ const reloadSubject = async (
 ): Promise<ManagedUser> =>
   (await findManagedUserById(context.db, userId))!
 
-/** Exact-match lookup only. Listing or prefix search would enumerate accounts. */
+/**
+ * Exact-match lookup only. Listing or prefix search would enumerate accounts.
+ *
+ * `user`/`read` rather than the wildcard, because inviting somebody starts by
+ * finding them: an issuer holding `role`/`invite` and nothing else could not
+ * use the screen at all. The narrowness that matters here is the *shape* of the
+ * lookup — one exact address, no listing — not who may perform it.
+ */
 export const managedUserByEmail = async (
   input: { email: string },
   context: AuthOperationContext,
 ): Promise<AuthResult<ManagedUser>> => {
-  if (!await authenticatedSuperAdministrator(context)) return failure(AUTH_REQUIRED_MESSAGE)
+  if (!await authenticatedWithPermission(context, 'user', 'read')) {
+    return failure(AUTH_REQUIRED_MESSAGE)
+  }
   const email = normalizeEmail(input.email)
   if (!emailSchema.safeParse(email).success) return failure('Enter a valid email address.')
   const user = await findManagedUserByEmail(context.db, email)
@@ -121,7 +130,9 @@ export const managedUserById = async (
   input: { id: string },
   context: AuthOperationContext,
 ): Promise<AuthResult<ManagedUser>> => {
-  if (!await authenticatedSuperAdministrator(context)) return failure(AUTH_REQUIRED_MESSAGE)
+  if (!await authenticatedWithPermission(context, 'user', 'read')) {
+    return failure(AUTH_REQUIRED_MESSAGE)
+  }
   if (!identifierSchema.safeParse(input.id).success) return failure(USER_NOT_FOUND_MESSAGE)
   const user = await findManagedUserById(context.db, input.id)
   return user ? success(user) : failure(USER_NOT_FOUND_MESSAGE)
