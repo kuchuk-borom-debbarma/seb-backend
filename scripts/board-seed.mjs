@@ -4,7 +4,7 @@
  * The board is the banner's contention point (see
  * `src/db/schema/seb/announcement.ts`), and its row is seeded rather than
  * lazily created so reads stay read-only. The deployed database receives it
- * from migration `0002_announcement-banner`; every path that builds a database
+ * from the baseline migration; every path that builds a database
  * from `database/schema.sql` instead — the local setup, the e2e reset, and the
  * test harness after each truncate — runs this same statement, kept here once
  * so the copies cannot drift.

@@ -1,3 +1,19 @@
+-- The baseline: the whole schema in one migration, generated from
+-- `src/db/schema/**` — the same generator that writes `database/schema.sql`,
+-- so the two are twins (this file adds only statement breakpoints, these
+-- comments, and the one seed row at the end). The earlier three-link chain
+-- was collapsed into this file while the programme was still in development
+-- and every database could be converged first; from here the chain grows
+-- normally and is never rewritten again.
+--
+-- Reading order: every CREATE TABLE first (in the schema modules' discovery
+-- order, so domains interleave), then every foreign key, then every index.
+-- That ordering is the generator's and it is load-bearing — tables exist
+-- before anything references them. The reasoning behind each table lives as
+-- prose in its Drizzle schema file; `database/schema.sql` is byte-checked by
+-- `db:schema:check` and cannot carry commentary, so this is the one SQL file
+-- that explains itself.
+
 CREATE TABLE "core_audit_event" (
 	"id" text PRIMARY KEY NOT NULL,
 	"actor_user_id" text,
@@ -91,7 +107,7 @@ CREATE TABLE "core_user_role_grant" (
 	"revoked_by_user_id" text,
 	"revoked_at" timestamp with time zone,
 	"revocation_reason" text,
-	CONSTRAINT "core_user_role_grant_role_check" CHECK ("core_user_role_grant"."role" IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'SUPER_ADMIN')),
+	CONSTRAINT "core_user_role_grant_role_check" CHECK ("core_user_role_grant"."role" IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER', 'SUPER_ADMIN')),
 	CONSTRAINT "core_user_role_grant_revocation_check" CHECK (("core_user_role_grant"."revoked_at" IS NULL AND "core_user_role_grant"."revoked_by_user_id" IS NULL AND "core_user_role_grant"."revocation_reason" IS NULL)
         OR ("core_user_role_grant"."revoked_at" IS NOT NULL
           AND "core_user_role_grant"."revocation_reason" IS NOT NULL
@@ -209,6 +225,39 @@ CREATE TABLE "seb_funding_case_version" (
 	CONSTRAINT "seb_funding_case_version_change_type_check" CHECK ("seb_funding_case_version"."change_type" IN ('CREATED', 'STATUS_CHANGED', 'CORRECTED'))
 );
 --> statement-breakpoint
+CREATE TABLE "seb_announcement" (
+	"id" text PRIMARY KEY NOT NULL,
+	"tag" text NOT NULL,
+	"date_label" text,
+	"title" text NOT NULL,
+	"body" text NOT NULL,
+	"icon" text NOT NULL,
+	"link_kind" text,
+	"link_target" text,
+	"ends_at" timestamp with time zone,
+	"published" boolean NOT NULL,
+	"sort_order" integer NOT NULL,
+	"current_version" integer NOT NULL,
+	"created_at" timestamp with time zone NOT NULL,
+	"updated_at" timestamp with time zone NOT NULL,
+	"deleted_at" timestamp with time zone,
+	"deleted_by_user_id" text,
+	"delete_reason" text,
+	CONSTRAINT "seb_announcement_icon_check" CHECK ("seb_announcement"."icon" IN ('SEEDLING', 'FILE_TEXT', 'SHIELD_CHECK', 'LANDMARK', 'HELP_CIRCLE', 'MEGAPHONE', 'CALENDAR', 'INDIAN_RUPEE')),
+	CONSTRAINT "seb_announcement_link_check" CHECK (("seb_announcement"."link_kind" IS NULL AND "seb_announcement"."link_target" IS NULL)
+        OR ("seb_announcement"."link_kind" IN ('EXTERNAL', 'ROUTE', 'ANCHOR') AND "seb_announcement"."link_target" IS NOT NULL)),
+	CONSTRAINT "seb_announcement_version_check" CHECK ("seb_announcement"."current_version" >= 1),
+	CONSTRAINT "seb_announcement_sort_order_check" CHECK ("seb_announcement"."sort_order" >= 1)
+);
+--> statement-breakpoint
+CREATE TABLE "seb_announcement_board" (
+	"id" text PRIMARY KEY NOT NULL,
+	"current_version" integer NOT NULL,
+	"updated_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "seb_announcement_board_singleton_check" CHECK ("seb_announcement_board"."id" = 'BOARD'),
+	CONSTRAINT "seb_announcement_board_version_check" CHECK ("seb_announcement_board"."current_version" >= 1)
+);
+--> statement-breakpoint
 CREATE TABLE "seb_application_document" (
 	"id" text PRIMARY KEY NOT NULL,
 	"application_id" text NOT NULL,
@@ -300,6 +349,80 @@ CREATE TABLE "seb_document_upload_intent" (
         OR ("seb_document_upload_intent"."status" NOT IN ('FINALIZED', 'CLEANUP_PENDING')
           AND "seb_document_upload_intent"."finalized_document_version_id" IS NULL
           AND "seb_document_upload_intent"."cleanup_target_status" IS NULL))
+);
+--> statement-breakpoint
+CREATE TABLE "seb_cycle_policy_document" (
+	"id" text PRIMARY KEY NOT NULL,
+	"programme_cycle_id" text NOT NULL,
+	"current_version" integer NOT NULL,
+	"created_at" timestamp with time zone NOT NULL,
+	"updated_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "seb_cycle_policy_document_version_check" CHECK ("seb_cycle_policy_document"."current_version" >= 1)
+);
+--> statement-breakpoint
+CREATE TABLE "seb_cycle_policy_document_scan" (
+	"id" text PRIMARY KEY NOT NULL,
+	"document_version_id" text NOT NULL,
+	"sequence_number" integer NOT NULL,
+	"status" text NOT NULL,
+	"scanner_reference" text,
+	"safe_message" text,
+	"scanned_at" timestamp with time zone,
+	"created_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "seb_cycle_policy_document_scan_sequence_check" CHECK ("seb_cycle_policy_document_scan"."sequence_number" >= 1),
+	CONSTRAINT "seb_cycle_policy_document_scan_status_check" CHECK ("seb_cycle_policy_document_scan"."status" IN ('PENDING', 'ACCEPTED', 'REJECTED', 'ERROR')),
+	CONSTRAINT "seb_cycle_policy_document_scan_lifecycle_check" CHECK (("seb_cycle_policy_document_scan"."status" = 'PENDING' AND "seb_cycle_policy_document_scan"."scanned_at" IS NULL)
+        OR ("seb_cycle_policy_document_scan"."status" <> 'PENDING' AND "seb_cycle_policy_document_scan"."scanned_at" IS NOT NULL))
+);
+--> statement-breakpoint
+CREATE TABLE "seb_cycle_policy_document_version" (
+	"id" text PRIMARY KEY NOT NULL,
+	"document_id" text NOT NULL,
+	"version" integer NOT NULL,
+	"operation" text NOT NULL,
+	"r2_object_key" text NOT NULL,
+	"original_filename" text NOT NULL,
+	"content_type" text NOT NULL,
+	"size_bytes" integer NOT NULL,
+	"checksum" text NOT NULL,
+	"uploaded_by_user_id" text NOT NULL,
+	"created_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "seb_cycle_policy_document_version_r2_object_key_unique" UNIQUE("r2_object_key"),
+	CONSTRAINT "seb_cycle_policy_document_version_number_uq" UNIQUE("document_id","version"),
+	CONSTRAINT "seb_cycle_policy_document_version_number_check" CHECK ("seb_cycle_policy_document_version"."version" >= 1),
+	CONSTRAINT "seb_cycle_policy_document_size_check" CHECK ("seb_cycle_policy_document_version"."size_bytes" >= 0),
+	CONSTRAINT "seb_cycle_policy_document_operation_check" CHECK ("seb_cycle_policy_document_version"."operation" IN ('UPLOAD', 'REPLACE'))
+);
+--> statement-breakpoint
+CREATE TABLE "seb_cycle_policy_upload_intent" (
+	"id" text PRIMARY KEY NOT NULL,
+	"programme_cycle_id" text NOT NULL,
+	"issued_by_user_id" text NOT NULL,
+	"expected_document_version" integer NOT NULL,
+	"object_key" text NOT NULL,
+	"original_filename" text NOT NULL,
+	"content_type" text NOT NULL,
+	"size_bytes" integer NOT NULL,
+	"checksum_sha256" text NOT NULL,
+	"status" text DEFAULT 'ISSUED' NOT NULL,
+	"cleanup_target_status" text,
+	"expires_at" timestamp with time zone NOT NULL,
+	"finalized_document_version_id" text,
+	"created_at" timestamp with time zone NOT NULL,
+	"updated_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "seb_cycle_policy_upload_intent_object_key_unique" UNIQUE("object_key"),
+	CONSTRAINT "seb_cycle_policy_upload_intent_status_check" CHECK ("seb_cycle_policy_upload_intent"."status" IN ('ISSUED', 'FINALIZED', 'REJECTED', 'CLEANUP_PENDING', 'EXPIRED')),
+	CONSTRAINT "seb_cycle_policy_upload_intent_expected_version_check" CHECK ("seb_cycle_policy_upload_intent"."expected_document_version" >= 0),
+	CONSTRAINT "seb_cycle_policy_upload_intent_size_check" CHECK ("seb_cycle_policy_upload_intent"."size_bytes" > 0 AND "seb_cycle_policy_upload_intent"."size_bytes" <= 5242880),
+	CONSTRAINT "seb_cycle_policy_upload_intent_lifecycle_check" CHECK (("seb_cycle_policy_upload_intent"."status" = 'FINALIZED'
+          AND "seb_cycle_policy_upload_intent"."finalized_document_version_id" IS NOT NULL
+          AND "seb_cycle_policy_upload_intent"."cleanup_target_status" IS NULL)
+        OR ("seb_cycle_policy_upload_intent"."status" = 'CLEANUP_PENDING'
+          AND "seb_cycle_policy_upload_intent"."finalized_document_version_id" IS NULL
+          AND "seb_cycle_policy_upload_intent"."cleanup_target_status" IN ('REJECTED', 'EXPIRED'))
+        OR ("seb_cycle_policy_upload_intent"."status" NOT IN ('FINALIZED', 'CLEANUP_PENDING')
+          AND "seb_cycle_policy_upload_intent"."finalized_document_version_id" IS NULL
+          AND "seb_cycle_policy_upload_intent"."cleanup_target_status" IS NULL))
 );
 --> statement-breakpoint
 CREATE TABLE "seb_partner_bank_outcome" (
@@ -1229,6 +1352,8 @@ CREATE TABLE "seb_revision_request" (
 	CONSTRAINT "seb_revision_request_terminal_state_check" CHECK (NOT ("seb_revision_request"."resolved_at" IS NOT NULL AND "seb_revision_request"."cancelled_at" IS NOT NULL))
 );
 --> statement-breakpoint
+-- Every foreign key, now that every table exists. All of them RESTRICT on
+-- delete: rows are never hard-deleted here, and the constraint enforces it.
 ALTER TABLE "core_audit_event" ADD CONSTRAINT "core_audit_event_actor_user_id_core_user_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "core_account_challenge" ADD CONSTRAINT "core_account_challenge_user_id_core_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "core_session" ADD CONSTRAINT "core_session_user_id_core_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -1252,6 +1377,7 @@ ALTER TABLE "seb_funding_case" ADD CONSTRAINT "seb_funding_case_enterprise_id_se
 ALTER TABLE "seb_funding_case" ADD CONSTRAINT "seb_funding_case_deleted_by_user_id_core_user_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_funding_case_version" ADD CONSTRAINT "seb_funding_case_version_funding_case_id_seb_funding_case_id_fk" FOREIGN KEY ("funding_case_id") REFERENCES "public"."seb_funding_case"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_funding_case_version" ADD CONSTRAINT "seb_funding_case_version_changed_by_user_id_core_user_id_fk" FOREIGN KEY ("changed_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "seb_announcement" ADD CONSTRAINT "seb_announcement_deleted_by_user_id_core_user_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_application_document" ADD CONSTRAINT "seb_application_document_application_id_seb_application_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."seb_application"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_application_document" ADD CONSTRAINT "seb_application_document_deleted_by_user_id_core_user_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_application_document_scan" ADD CONSTRAINT "seb_application_document_scan_document_version_id_seb_application_document_version_id_fk" FOREIGN KEY ("document_version_id") REFERENCES "public"."seb_application_document_version"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -1263,6 +1389,13 @@ ALTER TABLE "seb_document_upload_intent" ADD CONSTRAINT "seb_document_upload_int
 ALTER TABLE "seb_document_upload_intent" ADD CONSTRAINT "seb_document_upload_intent_applicant_user_id_core_user_id_fk" FOREIGN KEY ("applicant_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_document_upload_intent" ADD CONSTRAINT "seb_document_upload_intent_finalized_document_version_id_seb_application_document_version_id_fk" FOREIGN KEY ("finalized_document_version_id") REFERENCES "public"."seb_application_document_version"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_document_upload_intent" ADD CONSTRAINT "seb_document_upload_intent_owner_application_fk" FOREIGN KEY ("applicant_user_id","application_id") REFERENCES "public"."seb_application"("applicant_user_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "seb_cycle_policy_document" ADD CONSTRAINT "seb_cycle_policy_document_programme_cycle_id_seb_programme_cycle_id_fk" FOREIGN KEY ("programme_cycle_id") REFERENCES "public"."seb_programme_cycle"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "seb_cycle_policy_document_scan" ADD CONSTRAINT "seb_cycle_policy_document_scan_document_version_id_seb_cycle_policy_document_version_id_fk" FOREIGN KEY ("document_version_id") REFERENCES "public"."seb_cycle_policy_document_version"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "seb_cycle_policy_document_version" ADD CONSTRAINT "seb_cycle_policy_document_version_document_id_seb_cycle_policy_document_id_fk" FOREIGN KEY ("document_id") REFERENCES "public"."seb_cycle_policy_document"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "seb_cycle_policy_document_version" ADD CONSTRAINT "seb_cycle_policy_document_version_uploaded_by_user_id_core_user_id_fk" FOREIGN KEY ("uploaded_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "seb_cycle_policy_upload_intent" ADD CONSTRAINT "seb_cycle_policy_upload_intent_programme_cycle_id_seb_programme_cycle_id_fk" FOREIGN KEY ("programme_cycle_id") REFERENCES "public"."seb_programme_cycle"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "seb_cycle_policy_upload_intent" ADD CONSTRAINT "seb_cycle_policy_upload_intent_issued_by_user_id_core_user_id_fk" FOREIGN KEY ("issued_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "seb_cycle_policy_upload_intent" ADD CONSTRAINT "seb_cycle_policy_upload_intent_finalized_document_version_id_seb_cycle_policy_document_version_id_fk" FOREIGN KEY ("finalized_document_version_id") REFERENCES "public"."seb_cycle_policy_document_version"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_partner_bank_outcome" ADD CONSTRAINT "seb_partner_bank_outcome_correction_reason_category_id_seb_programme_cycle_reason_id_fk" FOREIGN KEY ("correction_reason_category_id") REFERENCES "public"."seb_programme_cycle_reason"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_partner_bank_outcome" ADD CONSTRAINT "seb_partner_bank_outcome_recorded_by_user_id_core_user_id_fk" FOREIGN KEY ("recorded_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_partner_bank_outcome" ADD CONSTRAINT "seb_partner_bank_outcome_referral_fk" FOREIGN KEY ("application_id","referral_id") REFERENCES "public"."seb_partner_bank_referral"("application_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -1360,6 +1493,10 @@ ALTER TABLE "seb_revision_request" ADD CONSTRAINT "seb_revision_request_requeste
 ALTER TABLE "seb_revision_request" ADD CONSTRAINT "seb_revision_request_cancelled_by_user_id_core_user_id_fk" FOREIGN KEY ("cancelled_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_revision_request" ADD CONSTRAINT "seb_revision_request_submission_application_fk" FOREIGN KEY ("application_id","submission_id") REFERENCES "public"."seb_application_submission"("application_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "seb_revision_request" ADD CONSTRAINT "seb_revision_request_resolution_application_fk" FOREIGN KEY ("application_id","resolved_by_submission_id") REFERENCES "public"."seb_application_submission"("application_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+-- Every index. The partial UNIQUE ones are where invariants live — "one open
+-- row per key" shapes like one unrevoked grant per user and role, one open
+-- referral per application, one live recovery case per award — so their
+-- WHERE clauses are as deliberate as any CHECK above.
 CREATE INDEX "core_audit_event_entity_idx" ON "core_audit_event" USING btree ("entity_type","entity_id","created_at");--> statement-breakpoint
 CREATE INDEX "core_audit_event_actor_idx" ON "core_audit_event" USING btree ("actor_user_id","created_at");--> statement-breakpoint
 CREATE INDEX "core_audit_event_action_idx" ON "core_audit_event" USING btree ("action","created_at");--> statement-breakpoint
@@ -1391,11 +1528,15 @@ CREATE INDEX "seb_application_submission_submitted_idx" ON "seb_application_subm
 CREATE INDEX "seb_application_version_category_idx" ON "seb_application_version" USING btree ("application_category") WHERE "seb_application_version"."application_category" IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "seb_funding_case_status_idx" ON "seb_funding_case" USING btree ("status","updated_at") WHERE "seb_funding_case"."deleted_at" IS NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "seb_funding_case_version_number_uq" ON "seb_funding_case_version" USING btree ("funding_case_id","version");--> statement-breakpoint
+CREATE INDEX "seb_announcement_public_idx" ON "seb_announcement" USING btree ("sort_order","created_at","id") WHERE deleted_at IS NULL AND published;--> statement-breakpoint
 CREATE UNIQUE INDEX "seb_application_document_field_key_uq" ON "seb_application_document" USING btree ("application_id","field_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "seb_application_document_scan_sequence_uq" ON "seb_application_document_scan" USING btree ("document_version_id","sequence_number");--> statement-breakpoint
 CREATE UNIQUE INDEX "seb_application_submission_document_field_key_uq" ON "seb_application_submission_document" USING btree ("submission_id","field_key");--> statement-breakpoint
 CREATE INDEX "seb_document_upload_intent_cleanup_idx" ON "seb_document_upload_intent" USING btree ("status","expires_at");--> statement-breakpoint
 CREATE INDEX "seb_document_upload_intent_owner_idx" ON "seb_document_upload_intent" USING btree ("applicant_user_id","application_id","created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "seb_cycle_policy_document_cycle_uq" ON "seb_cycle_policy_document" USING btree ("programme_cycle_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "seb_cycle_policy_document_scan_sequence_uq" ON "seb_cycle_policy_document_scan" USING btree ("document_version_id","sequence_number");--> statement-breakpoint
+CREATE INDEX "seb_cycle_policy_upload_intent_cleanup_idx" ON "seb_cycle_policy_upload_intent" USING btree ("status","expires_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "seb_partner_bank_outcome_number_uq" ON "seb_partner_bank_outcome" USING btree ("referral_id","outcome_number");--> statement-breakpoint
 CREATE UNIQUE INDEX "seb_partner_bank_outcome_one_correction_uq" ON "seb_partner_bank_outcome" USING btree ("supersedes_outcome_id");--> statement-breakpoint
 CREATE INDEX "seb_partner_bank_outcome_application_idx" ON "seb_partner_bank_outcome" USING btree ("application_id","created_at");--> statement-breakpoint
@@ -1462,4 +1603,9 @@ CREATE UNIQUE INDEX "seb_desk_review_identifier_kind_uq" ON "seb_desk_review_ide
 CREATE INDEX "seb_desk_review_identifier_match_idx" ON "seb_desk_review_identifier" USING btree ("kind","comparable_value","funding_case_id");--> statement-breakpoint
 CREATE INDEX "seb_application_event_application_idx" ON "seb_application_event" USING btree ("application_id","created_at");--> statement-breakpoint
 CREATE INDEX "seb_revision_request_application_idx" ON "seb_revision_request" USING btree ("application_id","resolved_at","cancelled_at","requested_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "seb_revision_request_open_stage_uq" ON "seb_revision_request" USING btree ("application_id","stage_key") WHERE "seb_revision_request"."resolved_at" IS NULL AND "seb_revision_request"."cancelled_at" IS NULL;
+CREATE UNIQUE INDEX "seb_revision_request_open_stage_uq" ON "seb_revision_request" USING btree ("application_id","stage_key") WHERE "seb_revision_request"."resolved_at" IS NULL AND "seb_revision_request"."cancelled_at" IS NULL;--> statement-breakpoint
+-- The announcement board's one row, seeded here so reads stay read-only: a
+-- lazy insert-on-first-read would put a write on the public path. The same
+-- statement lives in `scripts/board-seed.mjs` for every bootstrap path that
+-- builds a database from `schema.sql` instead of this chain.
+INSERT INTO "seb_announcement_board" ("id", "current_version", "updated_at") VALUES ('BOARD', 1, now()) ON CONFLICT DO NOTHING;

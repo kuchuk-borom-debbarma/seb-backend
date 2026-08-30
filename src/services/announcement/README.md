@@ -11,7 +11,7 @@ predicate cannot drift apart.
 
 ## What it assumes
 
-- The board row exists. Migration `0002_announcement-banner` seeds it on the
+- The board row exists. The baseline migration seeds it on the
   deployed database, and every path that builds a database from
   `database/schema.sql` runs the same statement from
   [`scripts/board-seed.mjs`](../../../scripts/board-seed.mjs) — reads never

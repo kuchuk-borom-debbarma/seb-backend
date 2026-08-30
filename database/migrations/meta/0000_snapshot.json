@@ -1,5 +1,5 @@
 {
-  "id": "e0698c5a-3d48-457b-9f6d-3223d9c05020",
+  "id": "73056ea3-841e-428f-b92f-71a9fc7ae30d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -979,7 +979,7 @@
       "checkConstraints": {
         "core_user_role_grant_role_check": {
           "name": "core_user_role_grant_role_check",
-          "value": "\"core_user_role_grant\".\"role\" IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'SUPER_ADMIN')"
+          "value": "\"core_user_role_grant\".\"role\" IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER', 'SUPER_ADMIN')"
         },
         "core_user_role_grant_revocation_check": {
           "name": "core_user_role_grant_revocation_check",
@@ -2149,6 +2149,221 @@
       },
       "isRLSEnabled": false
     },
+    "public.seb_announcement": {
+      "name": "seb_announcement",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "tag": {
+          "name": "tag",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date_label": {
+          "name": "date_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "icon": {
+          "name": "icon",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "link_kind": {
+          "name": "link_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "link_target": {
+          "name": "link_target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "published": {
+          "name": "published",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "current_version": {
+          "name": "current_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_by_user_id": {
+          "name": "deleted_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delete_reason": {
+          "name": "delete_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "seb_announcement_public_idx": {
+          "name": "seb_announcement_public_idx",
+          "columns": [
+            {
+              "expression": "sort_order",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "deleted_at IS NULL AND published",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "seb_announcement_deleted_by_user_id_core_user_id_fk": {
+          "name": "seb_announcement_deleted_by_user_id_core_user_id_fk",
+          "tableFrom": "seb_announcement",
+          "tableTo": "core_user",
+          "columnsFrom": [
+            "deleted_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "seb_announcement_icon_check": {
+          "name": "seb_announcement_icon_check",
+          "value": "\"seb_announcement\".\"icon\" IN ('SEEDLING', 'FILE_TEXT', 'SHIELD_CHECK', 'LANDMARK', 'HELP_CIRCLE', 'MEGAPHONE', 'CALENDAR', 'INDIAN_RUPEE')"
+        },
+        "seb_announcement_link_check": {
+          "name": "seb_announcement_link_check",
+          "value": "(\"seb_announcement\".\"link_kind\" IS NULL AND \"seb_announcement\".\"link_target\" IS NULL)\n        OR (\"seb_announcement\".\"link_kind\" IN ('EXTERNAL', 'ROUTE', 'ANCHOR') AND \"seb_announcement\".\"link_target\" IS NOT NULL)"
+        },
+        "seb_announcement_version_check": {
+          "name": "seb_announcement_version_check",
+          "value": "\"seb_announcement\".\"current_version\" >= 1"
+        },
+        "seb_announcement_sort_order_check": {
+          "name": "seb_announcement_sort_order_check",
+          "value": "\"seb_announcement\".\"sort_order\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.seb_announcement_board": {
+      "name": "seb_announcement_board",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "current_version": {
+          "name": "current_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "seb_announcement_board_singleton_check": {
+          "name": "seb_announcement_board_singleton_check",
+          "value": "\"seb_announcement_board\".\"id\" = 'BOARD'"
+        },
+        "seb_announcement_board_version_check": {
+          "name": "seb_announcement_board_version_check",
+          "value": "\"seb_announcement_board\".\"current_version\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.seb_application_document": {
       "name": "seb_application_document",
       "schema": "",
@@ -2875,6 +3090,520 @@
         "seb_document_upload_intent_lifecycle_check": {
           "name": "seb_document_upload_intent_lifecycle_check",
           "value": "(\"seb_document_upload_intent\".\"status\" = 'FINALIZED'\n          AND \"seb_document_upload_intent\".\"finalized_document_version_id\" IS NOT NULL\n          AND \"seb_document_upload_intent\".\"cleanup_target_status\" IS NULL)\n        OR (\"seb_document_upload_intent\".\"status\" = 'CLEANUP_PENDING'\n          AND \"seb_document_upload_intent\".\"finalized_document_version_id\" IS NULL\n          AND \"seb_document_upload_intent\".\"cleanup_target_status\" IN ('REJECTED', 'EXPIRED'))\n        OR (\"seb_document_upload_intent\".\"status\" NOT IN ('FINALIZED', 'CLEANUP_PENDING')\n          AND \"seb_document_upload_intent\".\"finalized_document_version_id\" IS NULL\n          AND \"seb_document_upload_intent\".\"cleanup_target_status\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.seb_cycle_policy_document": {
+      "name": "seb_cycle_policy_document",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "programme_cycle_id": {
+          "name": "programme_cycle_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "current_version": {
+          "name": "current_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "seb_cycle_policy_document_cycle_uq": {
+          "name": "seb_cycle_policy_document_cycle_uq",
+          "columns": [
+            {
+              "expression": "programme_cycle_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "seb_cycle_policy_document_programme_cycle_id_seb_programme_cycle_id_fk": {
+          "name": "seb_cycle_policy_document_programme_cycle_id_seb_programme_cycle_id_fk",
+          "tableFrom": "seb_cycle_policy_document",
+          "tableTo": "seb_programme_cycle",
+          "columnsFrom": [
+            "programme_cycle_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "seb_cycle_policy_document_version_check": {
+          "name": "seb_cycle_policy_document_version_check",
+          "value": "\"seb_cycle_policy_document\".\"current_version\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.seb_cycle_policy_document_scan": {
+      "name": "seb_cycle_policy_document_scan",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "document_version_id": {
+          "name": "document_version_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sequence_number": {
+          "name": "sequence_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scanner_reference": {
+          "name": "scanner_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "safe_message": {
+          "name": "safe_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scanned_at": {
+          "name": "scanned_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "seb_cycle_policy_document_scan_sequence_uq": {
+          "name": "seb_cycle_policy_document_scan_sequence_uq",
+          "columns": [
+            {
+              "expression": "document_version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sequence_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "seb_cycle_policy_document_scan_document_version_id_seb_cycle_policy_document_version_id_fk": {
+          "name": "seb_cycle_policy_document_scan_document_version_id_seb_cycle_policy_document_version_id_fk",
+          "tableFrom": "seb_cycle_policy_document_scan",
+          "tableTo": "seb_cycle_policy_document_version",
+          "columnsFrom": [
+            "document_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "seb_cycle_policy_document_scan_sequence_check": {
+          "name": "seb_cycle_policy_document_scan_sequence_check",
+          "value": "\"seb_cycle_policy_document_scan\".\"sequence_number\" >= 1"
+        },
+        "seb_cycle_policy_document_scan_status_check": {
+          "name": "seb_cycle_policy_document_scan_status_check",
+          "value": "\"seb_cycle_policy_document_scan\".\"status\" IN ('PENDING', 'ACCEPTED', 'REJECTED', 'ERROR')"
+        },
+        "seb_cycle_policy_document_scan_lifecycle_check": {
+          "name": "seb_cycle_policy_document_scan_lifecycle_check",
+          "value": "(\"seb_cycle_policy_document_scan\".\"status\" = 'PENDING' AND \"seb_cycle_policy_document_scan\".\"scanned_at\" IS NULL)\n        OR (\"seb_cycle_policy_document_scan\".\"status\" <> 'PENDING' AND \"seb_cycle_policy_document_scan\".\"scanned_at\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.seb_cycle_policy_document_version": {
+      "name": "seb_cycle_policy_document_version",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "document_id": {
+          "name": "document_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation": {
+          "name": "operation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "r2_object_key": {
+          "name": "r2_object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "original_filename": {
+          "name": "original_filename",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "size_bytes": {
+          "name": "size_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checksum": {
+          "name": "checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "uploaded_by_user_id": {
+          "name": "uploaded_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "seb_cycle_policy_document_version_document_id_seb_cycle_policy_document_id_fk": {
+          "name": "seb_cycle_policy_document_version_document_id_seb_cycle_policy_document_id_fk",
+          "tableFrom": "seb_cycle_policy_document_version",
+          "tableTo": "seb_cycle_policy_document",
+          "columnsFrom": [
+            "document_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "seb_cycle_policy_document_version_uploaded_by_user_id_core_user_id_fk": {
+          "name": "seb_cycle_policy_document_version_uploaded_by_user_id_core_user_id_fk",
+          "tableFrom": "seb_cycle_policy_document_version",
+          "tableTo": "core_user",
+          "columnsFrom": [
+            "uploaded_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "seb_cycle_policy_document_version_r2_object_key_unique": {
+          "name": "seb_cycle_policy_document_version_r2_object_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "r2_object_key"
+          ]
+        },
+        "seb_cycle_policy_document_version_number_uq": {
+          "name": "seb_cycle_policy_document_version_number_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "document_id",
+            "version"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "seb_cycle_policy_document_version_number_check": {
+          "name": "seb_cycle_policy_document_version_number_check",
+          "value": "\"seb_cycle_policy_document_version\".\"version\" >= 1"
+        },
+        "seb_cycle_policy_document_size_check": {
+          "name": "seb_cycle_policy_document_size_check",
+          "value": "\"seb_cycle_policy_document_version\".\"size_bytes\" >= 0"
+        },
+        "seb_cycle_policy_document_operation_check": {
+          "name": "seb_cycle_policy_document_operation_check",
+          "value": "\"seb_cycle_policy_document_version\".\"operation\" IN ('UPLOAD', 'REPLACE')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.seb_cycle_policy_upload_intent": {
+      "name": "seb_cycle_policy_upload_intent",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "programme_cycle_id": {
+          "name": "programme_cycle_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issued_by_user_id": {
+          "name": "issued_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expected_document_version": {
+          "name": "expected_document_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "object_key": {
+          "name": "object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "original_filename": {
+          "name": "original_filename",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "size_bytes": {
+          "name": "size_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checksum_sha256": {
+          "name": "checksum_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ISSUED'"
+        },
+        "cleanup_target_status": {
+          "name": "cleanup_target_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "finalized_document_version_id": {
+          "name": "finalized_document_version_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "seb_cycle_policy_upload_intent_cleanup_idx": {
+          "name": "seb_cycle_policy_upload_intent_cleanup_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "seb_cycle_policy_upload_intent_programme_cycle_id_seb_programme_cycle_id_fk": {
+          "name": "seb_cycle_policy_upload_intent_programme_cycle_id_seb_programme_cycle_id_fk",
+          "tableFrom": "seb_cycle_policy_upload_intent",
+          "tableTo": "seb_programme_cycle",
+          "columnsFrom": [
+            "programme_cycle_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "seb_cycle_policy_upload_intent_issued_by_user_id_core_user_id_fk": {
+          "name": "seb_cycle_policy_upload_intent_issued_by_user_id_core_user_id_fk",
+          "tableFrom": "seb_cycle_policy_upload_intent",
+          "tableTo": "core_user",
+          "columnsFrom": [
+            "issued_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "seb_cycle_policy_upload_intent_finalized_document_version_id_seb_cycle_policy_document_version_id_fk": {
+          "name": "seb_cycle_policy_upload_intent_finalized_document_version_id_seb_cycle_policy_document_version_id_fk",
+          "tableFrom": "seb_cycle_policy_upload_intent",
+          "tableTo": "seb_cycle_policy_document_version",
+          "columnsFrom": [
+            "finalized_document_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "seb_cycle_policy_upload_intent_object_key_unique": {
+          "name": "seb_cycle_policy_upload_intent_object_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "object_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "seb_cycle_policy_upload_intent_status_check": {
+          "name": "seb_cycle_policy_upload_intent_status_check",
+          "value": "\"seb_cycle_policy_upload_intent\".\"status\" IN ('ISSUED', 'FINALIZED', 'REJECTED', 'CLEANUP_PENDING', 'EXPIRED')"
+        },
+        "seb_cycle_policy_upload_intent_expected_version_check": {
+          "name": "seb_cycle_policy_upload_intent_expected_version_check",
+          "value": "\"seb_cycle_policy_upload_intent\".\"expected_document_version\" >= 0"
+        },
+        "seb_cycle_policy_upload_intent_size_check": {
+          "name": "seb_cycle_policy_upload_intent_size_check",
+          "value": "\"seb_cycle_policy_upload_intent\".\"size_bytes\" > 0 AND \"seb_cycle_policy_upload_intent\".\"size_bytes\" <= 5242880"
+        },
+        "seb_cycle_policy_upload_intent_lifecycle_check": {
+          "name": "seb_cycle_policy_upload_intent_lifecycle_check",
+          "value": "(\"seb_cycle_policy_upload_intent\".\"status\" = 'FINALIZED'\n          AND \"seb_cycle_policy_upload_intent\".\"finalized_document_version_id\" IS NOT NULL\n          AND \"seb_cycle_policy_upload_intent\".\"cleanup_target_status\" IS NULL)\n        OR (\"seb_cycle_policy_upload_intent\".\"status\" = 'CLEANUP_PENDING'\n          AND \"seb_cycle_policy_upload_intent\".\"finalized_document_version_id\" IS NULL\n          AND \"seb_cycle_policy_upload_intent\".\"cleanup_target_status\" IN ('REJECTED', 'EXPIRED'))\n        OR (\"seb_cycle_policy_upload_intent\".\"status\" NOT IN ('FINALIZED', 'CLEANUP_PENDING')\n          AND \"seb_cycle_policy_upload_intent\".\"finalized_document_version_id\" IS NULL\n          AND \"seb_cycle_policy_upload_intent\".\"cleanup_target_status\" IS NULL)"
         }
       },
       "isRLSEnabled": false
