@@ -43,6 +43,9 @@ import { Route as ShellAdminAccessIndexRouteImport } from './routes/_shell/admin
 import { Route as ShellAdminCyclesIndexRouteImport } from './routes/_shell/admin/cycles/index'
 import { Route as ShellAdminCyclesIdRouteImport } from './routes/_shell/admin/cycles/$id'
 import { Route as ShellAdminCyclesNewRouteImport } from './routes/_shell/admin/cycles/new'
+import { Route as ShellAdminRolesIndexRouteImport } from './routes/_shell/admin/roles/index'
+import { Route as ShellAdminRolesKeyRouteImport } from './routes/_shell/admin/roles/$key'
+import { Route as ShellAdminRolesNewRouteImport } from './routes/_shell/admin/roles/new'
 import { Route as ShellApplicantApplicationsIdIndexRouteImport } from './routes/_shell/_applicant/applications/$id.index'
 import { Route as ShellApplicantApplicationsIdDocumentsRouteImport } from './routes/_shell/_applicant/applications/$id.documents'
 import { Route as ShellApplicantApplicationsIdFormRouteImport } from './routes/_shell/_applicant/applications/$id.form'
@@ -227,6 +230,21 @@ const ShellAdminCyclesNewRoute = ShellAdminCyclesNewRouteImport.update({
   path: '/cycles/new',
   getParentRoute: () => ShellAdminRouteRoute,
 } as any)
+const ShellAdminRolesIndexRoute = ShellAdminRolesIndexRouteImport.update({
+  id: '/roles/',
+  path: '/roles/',
+  getParentRoute: () => ShellAdminRouteRoute,
+} as any)
+const ShellAdminRolesKeyRoute = ShellAdminRolesKeyRouteImport.update({
+  id: '/roles/$key',
+  path: '/roles/$key',
+  getParentRoute: () => ShellAdminRouteRoute,
+} as any)
+const ShellAdminRolesNewRoute = ShellAdminRolesNewRouteImport.update({
+  id: '/roles/new',
+  path: '/roles/new',
+  getParentRoute: () => ShellAdminRouteRoute,
+} as any)
 const ShellApplicantApplicationsIdIndexRoute =
   ShellApplicantApplicationsIdIndexRouteImport.update({
     id: '/applications/$id/',
@@ -316,10 +334,13 @@ export interface FileRoutesByFullPath {
   '/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
   '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
+  '/admin/roles/$key': typeof ShellAdminRolesKeyRoute
+  '/admin/roles/new': typeof ShellAdminRolesNewRoute
   '/applications/': typeof ShellApplicantApplicationsIndexRoute
   '/enterprises/': typeof ShellApplicantEnterprisesIndexRoute
   '/admin/access/': typeof ShellAdminAccessIndexRoute
   '/admin/cycles/': typeof ShellAdminCyclesIndexRoute
+  '/admin/roles/': typeof ShellAdminRolesIndexRoute
   '/applications/$id/documents': typeof ShellApplicantApplicationsIdDocumentsRoute
   '/applications/$id/form': typeof ShellApplicantApplicationsIdFormRoute
   '/applications/$id/funding': typeof ShellApplicantApplicationsIdFundingRoute
@@ -358,10 +379,13 @@ export interface FileRoutesByTo {
   '/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
   '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
+  '/admin/roles/$key': typeof ShellAdminRolesKeyRoute
+  '/admin/roles/new': typeof ShellAdminRolesNewRoute
   '/applications': typeof ShellApplicantApplicationsIndexRoute
   '/enterprises': typeof ShellApplicantEnterprisesIndexRoute
   '/admin/access': typeof ShellAdminAccessIndexRoute
   '/admin/cycles': typeof ShellAdminCyclesIndexRoute
+  '/admin/roles': typeof ShellAdminRolesIndexRoute
   '/applications/$id/documents': typeof ShellApplicantApplicationsIdDocumentsRoute
   '/applications/$id/form': typeof ShellApplicantApplicationsIdFormRoute
   '/applications/$id/funding': typeof ShellApplicantApplicationsIdFundingRoute
@@ -405,10 +429,13 @@ export interface FileRoutesById {
   '/_shell/_applicant/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
   '/_shell/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/_shell/admin/cycles/new': typeof ShellAdminCyclesNewRoute
+  '/_shell/admin/roles/$key': typeof ShellAdminRolesKeyRoute
+  '/_shell/admin/roles/new': typeof ShellAdminRolesNewRoute
   '/_shell/_applicant/applications/': typeof ShellApplicantApplicationsIndexRoute
   '/_shell/_applicant/enterprises/': typeof ShellApplicantEnterprisesIndexRoute
   '/_shell/admin/access/': typeof ShellAdminAccessIndexRoute
   '/_shell/admin/cycles/': typeof ShellAdminCyclesIndexRoute
+  '/_shell/admin/roles/': typeof ShellAdminRolesIndexRoute
   '/_shell/_applicant/applications/$id/documents': typeof ShellApplicantApplicationsIdDocumentsRoute
   '/_shell/_applicant/applications/$id/form': typeof ShellApplicantApplicationsIdFormRoute
   '/_shell/_applicant/applications/$id/funding': typeof ShellApplicantApplicationsIdFundingRoute
@@ -451,10 +478,13 @@ export interface FileRouteTypes {
     | '/enterprises/new'
     | '/admin/cycles/$id'
     | '/admin/cycles/new'
+    | '/admin/roles/$key'
+    | '/admin/roles/new'
     | '/applications/'
     | '/enterprises/'
     | '/admin/access/'
     | '/admin/cycles/'
+    | '/admin/roles/'
     | '/applications/$id/documents'
     | '/applications/$id/form'
     | '/applications/$id/funding'
@@ -493,10 +523,13 @@ export interface FileRouteTypes {
     | '/enterprises/new'
     | '/admin/cycles/$id'
     | '/admin/cycles/new'
+    | '/admin/roles/$key'
+    | '/admin/roles/new'
     | '/applications'
     | '/enterprises'
     | '/admin/access'
     | '/admin/cycles'
+    | '/admin/roles'
     | '/applications/$id/documents'
     | '/applications/$id/form'
     | '/applications/$id/funding'
@@ -539,10 +572,13 @@ export interface FileRouteTypes {
     | '/_shell/_applicant/enterprises/new'
     | '/_shell/admin/cycles/$id'
     | '/_shell/admin/cycles/new'
+    | '/_shell/admin/roles/$key'
+    | '/_shell/admin/roles/new'
     | '/_shell/_applicant/applications/'
     | '/_shell/_applicant/enterprises/'
     | '/_shell/admin/access/'
     | '/_shell/admin/cycles/'
+    | '/_shell/admin/roles/'
     | '/_shell/_applicant/applications/$id/documents'
     | '/_shell/_applicant/applications/$id/form'
     | '/_shell/_applicant/applications/$id/funding'
@@ -806,6 +842,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAdminCyclesNewRouteImport
       parentRoute: typeof ShellAdminRouteRoute
     }
+    '/_shell/admin/roles/': {
+      id: '/_shell/admin/roles/'
+      path: '/roles'
+      fullPath: '/admin/roles/'
+      preLoaderRoute: typeof ShellAdminRolesIndexRouteImport
+      parentRoute: typeof ShellAdminRouteRoute
+    }
+    '/_shell/admin/roles/$key': {
+      id: '/_shell/admin/roles/$key'
+      path: '/roles/$key'
+      fullPath: '/admin/roles/$key'
+      preLoaderRoute: typeof ShellAdminRolesKeyRouteImport
+      parentRoute: typeof ShellAdminRouteRoute
+    }
+    '/_shell/admin/roles/new': {
+      id: '/_shell/admin/roles/new'
+      path: '/roles/new'
+      fullPath: '/admin/roles/new'
+      preLoaderRoute: typeof ShellAdminRolesNewRouteImport
+      parentRoute: typeof ShellAdminRouteRoute
+    }
     '/_shell/_applicant/applications/$id/': {
       id: '/_shell/_applicant/applications/$id/'
       path: '/applications/$id'
@@ -887,8 +944,11 @@ interface ShellAdminRouteRouteChildren {
   ShellAdminIndexRoute: typeof ShellAdminIndexRoute
   ShellAdminCyclesIdRoute: typeof ShellAdminCyclesIdRoute
   ShellAdminCyclesNewRoute: typeof ShellAdminCyclesNewRoute
+  ShellAdminRolesKeyRoute: typeof ShellAdminRolesKeyRoute
+  ShellAdminRolesNewRoute: typeof ShellAdminRolesNewRoute
   ShellAdminAccessIndexRoute: typeof ShellAdminAccessIndexRoute
   ShellAdminCyclesIndexRoute: typeof ShellAdminCyclesIndexRoute
+  ShellAdminRolesIndexRoute: typeof ShellAdminRolesIndexRoute
   ShellAdminApplicationsIdFundingRoute: typeof ShellAdminApplicationsIdFundingRoute
   ShellAdminCyclesIdFormRoute: typeof ShellAdminCyclesIdFormRoute
   ShellAdminCyclesIdPreviewRoute: typeof ShellAdminCyclesIdPreviewRoute
@@ -903,8 +963,11 @@ const ShellAdminRouteRouteChildren: ShellAdminRouteRouteChildren = {
   ShellAdminIndexRoute: ShellAdminIndexRoute,
   ShellAdminCyclesIdRoute: ShellAdminCyclesIdRoute,
   ShellAdminCyclesNewRoute: ShellAdminCyclesNewRoute,
+  ShellAdminRolesKeyRoute: ShellAdminRolesKeyRoute,
+  ShellAdminRolesNewRoute: ShellAdminRolesNewRoute,
   ShellAdminAccessIndexRoute: ShellAdminAccessIndexRoute,
   ShellAdminCyclesIndexRoute: ShellAdminCyclesIndexRoute,
+  ShellAdminRolesIndexRoute: ShellAdminRolesIndexRoute,
   ShellAdminApplicationsIdFundingRoute: ShellAdminApplicationsIdFundingRoute,
   ShellAdminCyclesIdFormRoute: ShellAdminCyclesIdFormRoute,
   ShellAdminCyclesIdPreviewRoute: ShellAdminCyclesIdPreviewRoute,

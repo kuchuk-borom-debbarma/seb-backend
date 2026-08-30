@@ -33,19 +33,17 @@
  */
 import {
   actionDescriptions,
-  actions,
   grants,
   permissions as catalogPermissions,
   resourceDescriptions,
   resources,
-  type Action,
   type ActionOf,
   type Permission,
   type Resource,
 } from './catalog.generated'
 
-export type { Action, ActionOf, Permission, Resource }
-export { actionDescriptions, actions, grants, resourceDescriptions, resources }
+export type { ActionOf, Permission, Resource }
+export { actionDescriptions, grants, resourceDescriptions, resources }
 
 /** Every legal pair, in catalogue order. */
 export const catalogue: readonly Permission[] = catalogPermissions

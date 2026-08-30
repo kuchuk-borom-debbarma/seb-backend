@@ -244,15 +244,27 @@ zero or an over-ceiling value identically.
 `text(col, { enum: [...] })` emits **no constraint at all** — it is a TypeScript
 union and nothing more. Every closed set needs its own `IN (…)` written out.
 
-## A shared preamble must not name its own capability
+## A shared preamble must not name its own permission
 
-An authorization helper serving more than one operation takes the capability as
+An authorization helper serving more than one operation takes the permission as
 an argument. It must never choose one for itself.
 
-`administratorWithApplication` served a read (opening a document) and a write
-(claiming), and named `STAFF_READ` for itself. The write inherited the read's
-answer, so a reviewer — who may change nothing — could claim an application. The
-guard looked present at both call sites and was doing its job at neither.
+Three instances, and the third is the one that shows why the rule outlives the
+incident that produced it:
+
+- `administratorWithApplication` served a read (opening a document) and a write
+  (claiming), and named `STAFF_READ` for itself. The write inherited the read's
+  answer, so somebody who may change nothing could claim an application. The
+  guard looked present at both call sites and was doing its job at neither.
+- `currentAnnouncer` named the one announcement capability for all six banner
+  operations. Reading the board and publishing to it are separate permissions
+  now, so it was deleted rather than given an argument — a helper whose whole
+  body is one call is not worth the class of bug it enables.
+- `cycleTransition` serves closing a cycle and archiving one, and named
+  `CYCLE_ADMIN` for itself. **That was correct when it was written**: both were
+  one capability, so there was nothing to choose between. Splitting them made it
+  wrong overnight, silently, with no edit to the helper at all — which is why
+  the rule is about the shape and not about whether the shape currently bites.
 
 Two things that followed from the same shape are worth knowing:
 
@@ -264,6 +276,33 @@ Two things that followed from the same shape are worth knowing:
   ownership check on document reads was also refusing drafts, because a draft
   has no assignee. Taking it out leaked the existence of drafts until they were
   refused explicitly.
+
+## A catalogue authored as data is generated into code, and that is checked
+
+`src/services/auth/catalog.json` is the authorization vocabulary — every
+resource, act and permission a role can be given. The Worker does not import it.
+`catalog.generated.ts` is derived from it and is what the code reads, and
+`check:catalog` regenerates and fails on any difference.
+
+Three things force the split, and the first is the one that matters:
+
+- **A JSON import gives widened types.** `string[]`, never a literal union — so
+  `currentStaff(context, 'aplication', 'read')` would compile and fail at run
+  time as a permission nobody holds, which is a refusal with no cause anybody
+  can find. Every guard in this repository fails at build time instead, and the
+  generated unions are what keep that true.
+- **`.json` does not load in this package.** No `resolveJsonModule`, no
+  precedent, and `.graphql` only works because of a `rules` entry in three
+  wrangler configs plus a Vitest plugin. The catalogue would have to work in the
+  bundler and both test pools.
+- **The guardrail scripts read TypeScript.** `check-audit-actions` and
+  `check-rate-limits` parse their catalogues as source text. A `.json` catalogue
+  would silently escape that whole class of check.
+
+The checker also refuses an act no resource offers. That is the `check:audit`
+scar in a different file: three recovery actions were declared and never
+written, so the catalogue read as coverage while the history contained no
+recovery at all. A permission nothing enforces is exactly as empty.
 
 ## The schema file is generated, and that is checked
 

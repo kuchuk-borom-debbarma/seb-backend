@@ -11,12 +11,8 @@
  * because "whose turn is it" is the question the whole product answers.
  */
 
-import { can, isApplicant, isSuperAdministrator } from '#/lib/session'
-import type {
-  AdminIntakeQueueKey,
-  Capability,
-  UserRole,
-} from '#/graphql/generated/schema'
+import { can, isApplicant, isSuperAdministrator, type Permission } from '#/lib/session'
+import type { AdminIntakeQueueKey } from '#/graphql/generated/schema'
 
 /** The four desks a file passes between. */
 export const DESKS = {
@@ -390,7 +386,7 @@ export const tourById = (id: string): Tour | undefined =>
  */
 export const canWalk = (
   tour: Tour,
-  user: { roles: readonly UserRole[]; capabilities: readonly Capability[] } | undefined,
+  user: { roles: readonly string[]; permissions: readonly Permission[] } | undefined,
 ): boolean => {
   if (tour.for === 'super') return isSuperAdministrator(user)
   /*
@@ -403,6 +399,6 @@ export const canWalk = (
    * about exactly that: "a screen that checked for ADMIN would hide itself from
    * an approver who is perfectly entitled to use it".
    */
-  if (tour.for === 'admin') return can(user, 'STAFF_READ')
+  if (tour.for === 'admin') return can(user, 'application', 'read')
   return isApplicant(user)
 }

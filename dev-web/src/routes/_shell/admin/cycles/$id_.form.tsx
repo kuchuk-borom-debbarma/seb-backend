@@ -25,7 +25,7 @@ function CycleFormAuthoringPage() {
 
   // Drawn from the capability the API itself gates these writes on, so the
   // screen and the refusal can never disagree about who may edit.
-  if (!can(user, 'CYCLE_ADMIN')) {
+  if (!can(user, 'programme_cycle', 'update')) {
     return (
       <main className="page">
         <PageHeader

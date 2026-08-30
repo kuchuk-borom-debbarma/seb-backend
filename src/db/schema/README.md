@@ -106,10 +106,17 @@ for optimistic concurrency.
 
 - `core_user`: verified portal identity, password hash, and soft deletion. Roles
   are intentionally not copied onto the identity row.
-- `core_user_role_grant`: retained assignments for the fixed `APPLICANT`,
-  `REVIEWER`, `APPROVER`, `ADMIN`, and `SUPER_ADMIN` roles. A partial unique
-  index allows one active grant per user/role while preserving revoked and
-  re-granted history.
+- `core_role`: a role the office composed — a key, a name, a purpose, and a
+  version guarding its permission set. Soft-deleted, so a grant that named a
+  retired role still renders.
+- `core_role_permission`: one row per resource/act pair a role holds.
+- `core_user_role_grant`: retained assignments. A row names its authority in
+  exactly one place — `role` for the two decided in code (`APPLICANT`,
+  `SUPER_ADMIN`), `role_id` for a composed one — and a `CHECK` enforces that.
+  **Two** partial unique indexes allow one active grant of each, rather than
+  one over the nullable pair: Postgres treats NULLs in a unique index as
+  distinct, so a single index would accept two identical active grants of the
+  same composed role while looking exactly like the guarantee it is not.
 - `core_session`: short-lived login sessions. This is the only table whose rows
   are intentionally hard-deleted on sign-out, revocation, user deletion, or
   expiry.
@@ -454,10 +461,22 @@ middle. Until it is enabled the interface must go on saying "starts with".
   collapsed to that one file during development, after every existing database
   was converged onto its shape). The service-test harness alone applies
   `schema.sql` directly, for speed.
-- `core_user_role_grant.role` accepts six values: `APPLICANT`, `REVIEWER`,
-  `APPROVER`, `ADMIN`, `ANNOUNCER`, `SUPER_ADMIN`. The vocabulary is fixed in
-  TypeScript and enforced by a `CHECK`, so adding a role is a schema change
-  rather than a production data edit.
+- `core_user_role_grant.role` accepts `APPLICANT` and `SUPER_ADMIN` on any row,
+  and one of the four removed fixed roles — `REVIEWER`, `APPROVER`, `ADMIN`,
+  `ANNOUNCER` — **only where the row is already revoked**. That keeps an
+  administrator's past acts readable without letting anything write a new grant
+  in a vocabulary that no longer means anything. A plain widening would have
+  allowed the second; narrowing to the two current values would have rejected
+  the rows the migration exists to preserve.
+- `core_role.key` refuses those six names outright, so no composed role can take
+  one and make two different authorities read as one in retained history.
+- **The permission catalogue is deliberately not a `CHECK`.** Every other closed
+  set here is written out, but the catalogue is a code artifact that moves with
+  the code: a `CHECK` would demand a migration for every catalogue edit, and the
+  two would drift the first time somebody forgot. The resolution step intersects
+  what is stored against the catalogue instead, so a row naming a resource that
+  no longer exists grants nothing — which fails closed, and makes removing a
+  resource take effect at once rather than pending a data migration.
 - `seb_announcement` is the landing page's notice board and
   `seb_announcement_board` its one-row reorder guard: two reorders touch no
   common card row, so they contend on the board's version instead, and

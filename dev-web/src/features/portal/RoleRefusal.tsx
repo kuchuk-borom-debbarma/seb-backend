@@ -38,7 +38,7 @@ export function RoleRefusal({
   // "Can they use the other portal?" is a capability question on the office
   // side, because four different roles open it.
   const canCrossOver =
-    portal === 'applicant' ? can(user, 'STAFF_READ') : isApplicant(user)
+    portal === 'applicant' ? can(user, 'application', 'read') : isApplicant(user)
 
   return (
     <main className="page">

@@ -329,8 +329,8 @@ What the software guarantees:
   it by name, and `resolveFormTemplate` refuses to resolve such a template at
   all.
 - [x] Authoring a form in the cycle editor. The nine `formTemplate` mutations
-  and the cycle editor's form screen exist, gated by `CYCLE_ADMIN` (held only
-  by a super administrator) and only while the cycle is a draft.
+  and the cycle editor's form screen exist, gated by `form_template`/`update`
+  and only while the cycle is a draft.
 
 ### 5.3 The three rules that are still the programme's
 
@@ -502,14 +502,22 @@ namespace. Account recovery remains incomplete.
 
 ### 9.1 Role rules already established
 
-- [x] `APPLICANT` grants applicant enterprise and application access.
-- [x] `ADMIN` is reserved for programme operations, review, awards, and finance.
-- [x] `SUPER_ADMIN` includes administrator capabilities and adds user and role
-  administration.
-- [x] One person may hold more than one role at the same time.
-- [x] Role removals take effect on the person's next action rather than waiting
-  for sign-out.
-- [x] Past grants and revocations remain visible for accountability.
+- [x] `APPLICANT` grants applicant enterprise and application access, and is
+  created only by verified signup.
+- [x] `SUPER_ADMIN` may do everything the portal can do, and is the only
+  authority that composes roles and hands them out.
+- [x] Every other role is one the office composed for itself: a name, a purpose,
+  and a set of permissions it chose.
+- [x] A permission is a resource and an act on it. The office may combine them
+  freely but cannot invent one — the catalogue is fixed in code, so a permission
+  nothing enforces cannot be composed into a role and read as coverage.
+- [x] One person may hold more than one role at the same time, and what they may
+  do is the union.
+- [x] Roles are not ranked and do not contain one another.
+- [x] Role removals, permission changes and role retirement all take effect on
+  the person's next action rather than waiting for sign-out.
+- [x] Past grants and revocations remain visible for accountability, including
+  grants of roles that have since been retired.
 - [x] Public applicant signup cannot create an administrative role.
 
 ### 9.2 First administrator and sign-in
@@ -547,30 +555,47 @@ namespace. Account recovery remains incomplete.
 ### 9.3 User and role management
 
 Role administration lives under the `access` GraphQL namespace. Grant, revoke
-and invite all accept `REVIEWER`, `APPROVER`, `ADMIN` and `SUPER_ADMIN`:
-`APPLICANT` is created only by verified signup and cannot be granted back by any
-operation, so allowing its revocation here would strip an applicant permanently
-with no recovery path.
+and invite name a role by its key: `SUPER_ADMIN`, or any role the office
+composed. `APPLICANT` is created only by verified signup and cannot be granted
+back by any operation, so allowing its revocation here would strip an applicant
+permanently with no recovery path.
 
 - [x] Let a super administrator search users by exact email or public user ID.
 - [x] Show verified email, active roles, account state, and retained role
   history without exposing passwords or private application answers.
-- [x] Let a super administrator grant any staff role with a mandatory reason.
-- [x] Separate reading casework from deciding it: a reviewer reads every
-  administrative screen and can change nothing, and an approver adds only the
-  programme decision.
-- [x] Decide authorization by capability rather than by role name, so an
-  operation states what it needs and one file says which roles hold it.
-- [x] Let an administrator invite somebody to a role they accept themselves, so
-  the record shows consent rather than an assignment they may not know about.
-- [x] Stop an invitation exceeding its issuer's own authority: an administrator
-  may invite a reviewer or an approver and no more, and nobody is ever invited
-  to super administrator.
+- [x] Let a super administrator grant any role with a mandatory reason.
+- [x] Let a super administrator compose a role: name it, say what it is for, and
+  choose what it may do from the permissions the server can enforce.
+- [x] Start a new role holding nothing, so a half-configured one is never live.
+- [x] Show what a role may do, and how many people hold it, before offering any
+  control that changes either.
+- [x] Let a super administrator retire a role, closing every grant of it. The
+  holder count is shown first, so the cost is known before the decision.
+- [x] Keep composing, granting and revoking a role to the super administrator
+  alone, and out of the permission catalogue entirely — a role able to hand out
+  roles could hand its own holder everything.
+- [x] Separate reading casework from deciding it, from shaping the programme:
+  the office composes a role that reads and one that decides if it wants them
+  separate, rather than living with a split the code chose.
+- [x] Decide authorization by resource and act rather than by role name, so an
+  operation states what it needs and a name can change without the rule moving.
+- [x] Publish what the signed-in person may do, so a screen offers only controls
+  that will work — while every operation is still re-checked by the server.
+- [x] Let anybody holding the invite permission invite somebody to a role they
+  accept themselves, so the record shows consent rather than an assignment they
+  may not know about.
+- [x] Stop an invitation exceeding its issuer's own authority: you may offer
+  only a role whose permissions you already hold, and nobody is ever invited to
+  super administrator.
+- [x] Void an outstanding invitation when the role it names is edited, so nobody
+  accepts something stronger than what was offered.
 - [x] Keep nothing about an invitation in the database. It travels sealed in the
   link, and it is single-use because it applies only while the person is still
   an applicant.
 - [x] Let a super administrator revoke a role with a mandatory reason.
 - [x] Prevent duplicate active grants of the same role.
+- [x] Refuse a role key the server reserves for itself, and never reuse one, so
+  retained history cannot confuse two different authorities.
 - [x] Permit a previously revoked role to be granted again as a new history
   item.
 - [x] Prevent removal of the last usable `SUPER_ADMIN` account, decided by the
@@ -582,6 +607,11 @@ with no recovery path.
 - [ ] Notify the affected person after an administrative role is granted or
   revoked; the notification must not be required for the role change to take
   effect.
+- [ ] Notify the holders of a role when its permissions change or it is retired.
+  They lose access on their next action either way, and today nothing tells them
+  why.
+- [ ] Show, for one role, which accounts hold it. The count is shown; the list
+  is not, so retiring a role names a number rather than the people affected.
 
 ---
 
@@ -669,7 +699,7 @@ with no recovery path.
 - [x] Prevent two administrators from unknowingly completing the same review
   transition from the same old status.
 - [x] Widen who may act on money. Awards, releases and recovery no longer
-  require having reserved the file; they require the capability and the version
+  require having reserved the file; they require the permission and the version
   guard. This is a product change rather than a refactor, and it is recorded
   here for that reason.
 

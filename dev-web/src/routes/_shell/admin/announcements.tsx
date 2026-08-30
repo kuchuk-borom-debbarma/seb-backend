@@ -124,7 +124,7 @@ const LINK_HINTS: Record<AnnouncementLinkKind | 'NONE', { placeholder: string; h
 
 function AnnouncementsGate() {
   const { user } = Route.useRouteContext()
-  if (!can(user, 'ANNOUNCE')) {
+  if (!can(user, 'announcement', 'read')) {
     return (
       <CapabilityRefusal
         title="Announcement banner"

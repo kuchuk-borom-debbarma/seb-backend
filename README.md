@@ -70,45 +70,68 @@ told which portal their account can use.
 
 ## What the programme office can do
 
-Four staff roles, fixed in code. Adding one requires a schema and service change
-rather than a production data edit, so every possible authority is visible in
-review.
+The office composes its own roles. A role is a name, a purpose, and a set of
+**permissions** — a resource and an act on it, such as `application`/`read` or
+`decision`/`record` — and a super administrator decides what each one holds.
 
-They are **not ranked**. An approver may record a decision a reviewer may not,
-and neither may open a programme cycle. So each operation names the *capability*
-it needs, and one file — `auth/capabilities.ts` — decides which roles hold it.
-Somebody holding several roles gets the union.
+The permissions themselves are fixed in code, in
+[`auth/catalog.json`](src/services/auth/catalog.json): twelve resources,
+twenty-two acts, thirty-seven pairs. The office may combine them freely but
+cannot invent one, so a permission nothing enforces cannot be composed into a
+role and read as coverage.
 
-Holding the capability is the whole of it: there is nothing to reserve before
+Roles are **not ranked** and do not contain one another. Two roles overlap or
+they do not, and somebody holding both holds the union. Each operation names the
+*permission* it needs rather than a role, so renaming or re-scoping a role
+changes what people can do without any operation changing.
+
+Holding the permission is the whole of it: there is nothing to reserve before
 acting on a file. Two officers acting at once are settled by a version guard on
 the transition, so one succeeds and the other is told the record changed. What
 gates a stage is what the reviewer **types** — the numbers off the documents
 they have just read — rather than a button they pressed beforehand.
 
-| Role | Can | Cannot |
-| --- | --- | --- |
-| Reviewer | Read every casework screen | Change anything at all |
-| Approver | Read casework, record and correct the decision | Everything else that writes |
-| Administrator | The whole operational workflow | Grant or revoke a role |
-| Super administrator | All of the above | — |
+Two authorities are decided in code rather than composed:
 
-### Reviewer
+| Authority | What it is |
+| --- | --- |
+| `APPLICANT` | Applies for funding. Created only by verified signup, and nothing can grant it back. |
+| `SUPER_ADMIN` | Everything the portal can do, and the only authority that composes a role or hands one out. |
 
-Reads and nothing more: the queues, a workspace, submitted documents, the
-funding position, the decisions taken. Every mutation is refused, and the client
-draws no control they cannot use.
+A super administrator's access is the **wildcard**: a permission added to the
+catalogue is theirs the moment it is added, with no migration and nothing to
+backfill. That is why it is not a role — a row could be edited empty or retired,
+and bootstrap closes permanently after the first grant, so the programme would
+be locked out of its own administration with no way back.
 
-The role exists because reading a file and deciding it are different jobs, and
-somebody preparing a case needs the first without the second.
+Composing a role, and granting or revoking one, are absent from the catalogue
+entirely. A role able to hand out roles could hand its own holder everything, so
+the authority is one that cannot be written down and therefore cannot be granted
+by mistake.
 
-### Approver
+### What a role can be given
 
-A reviewer's reach, plus exactly two operations: recording the programme
-decision and correcting one. Desk review, bank referral, awards and recovery all
-stay with an administrator — deciding an application and administering the
-programme it belongs to are separate authorities.
+| Resource | Acts |
+| --- | --- |
+| `application` | `read` `note` `review` `refer` |
+| `decision` | `record` `correct` |
+| `funding` | `read` `award` `release` `reverse` `assess` |
+| `recovery` | `read` `open` `record` `cancel` `close` |
+| `programme_cycle` | `read` `create` `update` `open` `close` `archive` `delete` |
+| `form_template` | `update` |
+| `policy_document` | `read` `upload` |
+| `announcement` | `read` `create` `update` `publish` `remove` `reorder` |
+| `audit` | `read` |
+| `user` | `read` |
+| `role` | `read` `invite` |
+| `analytics` | `read` |
 
-### Administrator
+Reading a file and deciding it are different jobs, and so are deciding an
+application and administering the programme it belongs to — but the office
+decides where those lines fall by composing the roles it wants, rather than
+living with a split the code chose.
+
+### The operational workflow
 
 | Stage | What they do | Operation |
 | --- | --- | --- |
@@ -130,12 +153,13 @@ programme it belongs to are separate authorities.
 | | Open, work and close a recovery case | `admin.funding.openRecovery`, `recordRecoveryEntry`, `closeRecovery` |
 
 Programme cycles are absent deliberately: writing a policy year and its form is
-`CYCLE_ADMIN` work, which only a super administrator holds.
+`programme_cycle` and `form_template` work, and shaping the programme is an
+authority to hand out separately from working its casework.
 
-### Super administrator
+### Shaping the programme
 
-Everything an administrator can do, **plus** the programme cycles and the
-operations an ordinary administrator must not inherit:
+Separate permissions from working its casework, because a cycle's policy and
+form decide who is eligible and for how much:
 
 | What they do | Operation |
 | --- | --- |
@@ -144,9 +168,19 @@ operations an ordinary administrator must not inherit:
 | Change the closing time or the guidance an open cycle shows | `admin.programmeCycle.changeClosingTime`, `updateOpenGuidance` |
 | Close, archive, soft-delete or restore a cycle | `admin.programmeCycle.close`, `archive`, `softDeleteDraft`, `restoreDraft` |
 | Look somebody up by their exact address | `access.userByEmail`, `access.userById` |
+| Read the history of who changed what | `audit.events`, `audit.actions` |
+
+### Super administrator
+
+Everything above, held as the wildcard rather than granted — and the operations
+that cannot be granted at all:
+
+| What they do | Operation |
+| --- | --- |
+| Compose a role, and say what it may do | `access.createRole`, `access.updateRole` |
+| Retire a role, closing every grant of it | `access.deleteRole` |
 | Grant a role, confirming with their own password | `access.grantRole` |
 | Revoke a named grant, confirming with their own password | `access.revokeRole` |
-| Read the history of who changed what | `audit.events`, `audit.actions` |
 
 The form a cycle asks is configuration, not code — see the
 [form template guide](docs/form-template-guide.md).
@@ -305,7 +339,7 @@ machine with nothing configured: documents are written by the Worker itself,
 one-time codes are printed rather than sent, and scan requests are drained after
 the response.
 
-Everything is refused server-side. The client asks the same capability question
+Everything is refused server-side. The client asks the same permission question
 the API does, but only to decide what is *offered*; it is never the security
 boundary.
 

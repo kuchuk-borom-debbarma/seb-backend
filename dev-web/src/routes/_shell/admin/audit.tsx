@@ -18,20 +18,26 @@ import { PageHeader } from '#/components/PageHeader'
 import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
 import { CapabilityRefusal } from '#/features/portal/CapabilityRefusal'
 import { AuditActionsDocument, AuditEventsDocument } from '#/graphql/generated/operations'
-import type { UserRole } from '#/graphql/generated/schema'
 import { formatDateTime, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { can } from '#/lib/session'
+import { rolesQuery } from '#/features/roles/roleQueries'
 import { unwrap } from '#/lib/result'
 
 const PAGE_SIZE = 20
 
-/** Only roles somebody can act as. An applicant's events are found by id. */
-const STAFF_ROLES: UserRole[] = ['REVIEWER', 'APPROVER', 'ADMIN', 'SUPER_ADMIN']
+/**
+ * The one authority filtered by name rather than by row.
+ *
+ * Everything else the office holds is a role somebody composed, read live from
+ * the API. A list written here would go stale the moment one was added, and a
+ * filter that silently offered the wrong names is worse than none.
+ */
+const SUPER_ADMINISTRATOR = 'SUPER_ADMIN'
 
 type Search = {
   after?: string
-  actorRole?: UserRole
+  actorRole?: string
   action?: string
   outcome?: 'SUCCESS' | 'FAILURE'
   /*
@@ -80,9 +86,16 @@ const actionsQuery = queryOptions({
 export const Route = createFileRoute('/_shell/admin/audit')({
   validateSearch: (search: Record<string, unknown>): Search => ({
     after: typeof search.after === 'string' ? search.after : undefined,
-    actorRole: STAFF_ROLES.includes(search.actorRole as UserRole)
-      ? (search.actorRole as UserRole)
-      : undefined,
+    /*
+     * Any non-empty string, and unknown ones are dropped rather than refused.
+     * This was an enum membership test, so a bookmarked link naming a role that
+     * has since been retired would have thrown on a screen that could perfectly
+     * well render without the filter.
+     */
+    actorRole:
+      typeof search.actorRole === 'string' && search.actorRole
+        ? search.actorRole
+        : undefined,
     action:
       typeof search.action === 'string' && search.action ? search.action : undefined,
     outcome:
@@ -104,7 +117,7 @@ function AuditPage() {
    * in the right place and simply does not hold this, which is a different
    * sentence from "this part is for the programme office".
    */
-  if (!can(user, 'AUDIT_READ')) {
+  if (!can(user, 'audit', 'read')) {
     return <CapabilityRefusal title="Activity history" needs="super administrators" />
   }
   return <AuditHistory />
@@ -115,6 +128,7 @@ function AuditHistory() {
   const navigate = Route.useNavigate()
   const { data } = useQuery(eventsQuery(search))
   const { data: actions } = useQuery(actionsQuery)
+  const composedRoles = useQuery(rolesQuery)
 
   const events = data?.nodes ?? []
 
@@ -141,14 +155,15 @@ function AuditHistory() {
             value={search.actorRole ?? ''}
             onChange={(event) =>
               filter({
-                actorRole: (event.target.value || undefined) as UserRole | undefined,
+                actorRole: event.target.value || undefined,
               })
             }
           >
             <option value="">Anybody</option>
-            {STAFF_ROLES.map((role) => (
-              <option key={role} value={role}>
-                Anybody who is a {humanize(role).toLowerCase()}
+            <option value={SUPER_ADMINISTRATOR}>Anybody who is a super administrator</option>
+            {(composedRoles.data?.response ?? []).map((role) => (
+              <option key={role.key} value={role.key}>
+                Anybody holding {role.name}
               </option>
             ))}
           </select>

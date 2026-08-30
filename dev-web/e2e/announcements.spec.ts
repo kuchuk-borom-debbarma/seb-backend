@@ -33,7 +33,7 @@ test.describe('the announcement banner', () => {
 
   test('an announcer lands on the board, publishes, and the public reads it', async ({ page }) => {
     // Accepting the invitation leaves the announcer signed in.
-    await inviteSomebodyTo(page, 'Announcer')
+    await inviteSomebodyTo(page, 'BANNER_EDITOR')
     // The office door forwards an announcer straight to the one screen it
     // unlocks — the dashboard's casework queries would only refuse them.
     await page.goto('/admin')
@@ -58,7 +58,7 @@ test.describe('the announcement banner', () => {
   })
 
   test('a hidden draft stays off the landing page until flipped live', async ({ page }) => {
-    await inviteSomebodyTo(page, 'Announcer')
+    await inviteSomebodyTo(page, 'BANNER_EDITOR')
     await page.goto('/admin/announcements')
     await authorAnnouncement(page, {
       tag: 'Draft',
@@ -91,7 +91,7 @@ test.describe('the announcement banner', () => {
   })
 
   test('reordering moves a card up the board and the banner alike', async ({ page }) => {
-    await inviteSomebodyTo(page, 'Announcer')
+    await inviteSomebodyTo(page, 'BANNER_EDITOR')
     await page.goto('/admin/announcements')
     await authorAnnouncement(page, {
       tag: 'First',
@@ -116,7 +116,7 @@ test.describe('the announcement banner', () => {
   })
 
   test('an announcer is contained to the banner', async ({ page }) => {
-    await inviteSomebodyTo(page, 'Announcer')
+    await inviteSomebodyTo(page, 'BANNER_EDITOR')
     await page.goto('/admin/queue')
     await expect(page).toHaveURL(/\/admin\/announcements$/u)
   })

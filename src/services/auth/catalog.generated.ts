@@ -16,8 +16,14 @@ export const resources = ['application', 'decision', 'funding', 'recovery', 'pro
 
 export type Resource = (typeof resources)[number]
 
-/** Every act that may be permitted, as a vocabulary shared across resources. */
-export const actions = ['read', 'note', 'review', 'refer', 'record', 'correct', 'award', 'release', 'reverse', 'assess', 'open', 'cancel', 'close', 'create', 'update', 'archive', 'delete', 'upload', 'publish', 'remove', 'reorder', 'invite'] as const
+/**
+ * Every act that may be permitted, as a vocabulary shared across resources.
+ *
+ * Not exported: `actionDescriptions` below carries the same list as its keys
+ * and `grants` carries which resource offers what, so a third way to ask would
+ * be a third thing to keep in step.
+ */
+const actions = ['read', 'note', 'review', 'refer', 'record', 'correct', 'award', 'release', 'reverse', 'assess', 'open', 'cancel', 'close', 'create', 'update', 'archive', 'delete', 'upload', 'publish', 'remove', 'reorder', 'invite'] as const
 
 export type Action = (typeof actions)[number]
 

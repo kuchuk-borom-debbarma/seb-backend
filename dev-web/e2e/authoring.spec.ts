@@ -210,11 +210,11 @@ test.describe('authoring a draft cycle’s form', () => {
     await signUpApplicant(page, email)
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto(`/admin/access?email=${encodeURIComponent(email)}`)
-    await page.getByLabel('Role').selectOption('ADMIN')
+    await page.getByLabel('Role').selectOption('PROGRAMME_OFFICER')
     await page.getByLabel('Why they should have it').fill('Runs the intake desk.')
     await page.getByLabel('Your password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Grant it' }).click()
-    await expect(page.getByText('Admin granted.')).toBeVisible()
+    await expect(page.getByText('Programme officer granted.')).toBeVisible()
 
     await page.context().clearCookies()
     await signIn(page, email)

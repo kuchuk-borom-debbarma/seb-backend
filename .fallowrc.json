@@ -113,7 +113,7 @@
     ]
   },
   "rules": {
-    "_reason": "private-type-leaks is opt-in and off by default; --type-aware turns it on. It reports four places where an exported signature names a type nothing imports directly \u2014 the alphabet `AnswerMap` is written in, and the engine types two application controllers return. Both were looked at: declaring either locally would put a second copy of the form vocabulary in a second file, which is worse than the finding. Kept as a warning rather than turned off, so a genuinely leaked type is still reported.",
+    "_reason": "private-type-leaks is opt-in and off by default; --type-aware turns it on. It reports places where an exported signature names a type nothing imports directly. Four are the alphabet `AnswerMap` is written in and the engine types two application controllers return: declaring either locally would put a second copy of the form vocabulary in a second file, which is worse than the finding. The rest are the auth service's own authorization vocabulary — `Authority`, `ManagedRole`, `Permission`, `PermissionCatalogue` — named by the guards and role operations that return them. They are the service's public shapes, and the GraphQL resolvers that consume them are one-line delegations that name no types by design, so nothing imports them and nothing should have to. Kept as a warning rather than turned off, so a genuinely leaked type is still reported.",
     "private-type-leaks": "warn"
   }
 }

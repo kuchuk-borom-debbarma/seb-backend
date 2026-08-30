@@ -276,7 +276,7 @@ function AdminCyclePage() {
    * returns the expanded one.
    */
   const draftRules: ProgrammeCycleInput | null =
-    isDraft && template && can(user, 'CYCLE_ADMIN')
+    isDraft && template && can(user, 'programme_cycle', 'update')
       ? {
           cycleCode: head.cycleCode,
           displayName: head.displayName,
@@ -711,7 +711,7 @@ function AdminCyclePage() {
                       cycleId={head.id}
                       document={data.cycle.policyDocument ?? null}
                       canManage={
-                        can(user, 'CYCLE_ADMIN') && (isDraft || isOpen)
+                        can(user, 'programme_cycle', 'update') && (isDraft || isOpen)
                       }
                       onChanged={refresh}
                     />
@@ -916,7 +916,7 @@ function AdminCyclePage() {
             >
               View as an applicant
             </Link>
-            {can(user, 'CYCLE_ADMIN') ? (
+            {can(user, 'programme_cycle', 'update') ? (
               isDraft ? (
                 <Link
                   to="/admin/cycles/$id/form"

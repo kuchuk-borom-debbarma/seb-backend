@@ -15,7 +15,7 @@ control, and no screen that cannot be driven end to end against a running
 Worker. Concretely:
 
 - Every button, link and field maps to a real GraphQL operation or route.
-- Navigation mirrors capability twice over. Roles are read live, so a revoked
+- Navigation mirrors permission twice over. Authority is read live, so a revoked
   role removes its section on the next navigation; and a link appears only once
   its screen exists. An entry that leads nowhere is a defect, and the
   end-to-end suite asserts it.
@@ -54,6 +54,9 @@ the same way a real deployment does:
    GraphQL deliberately, so it can never be a screen.
 5. Sign in. The account now holds `SUPER_ADMIN` alone, because bootstrap swaps
    the applicant grant rather than adding to it.
+6. Compose the office's roles at `/admin/roles`. A fresh database has none —
+   authority is composed, not chosen from a fixed list — so nobody else can be
+   granted or invited to anything until this is done.
 
 ## Two build targets
 
@@ -233,22 +236,27 @@ applications a day gets density. Note that the shell — not `body` — reads
 
 **The gates are not the security boundary.** They decide what is *offered*.
 Every operation is still refused server-side by `currentApplicant` or by
-`currentStaff`, which asks for the capability that operation needs.
+`currentStaff`, which asks for the resource and act that operation needs.
 
 The client asks the same question the API does — "may they do this?" — using the
-capabilities published on the signed-in user, rather than matching role names.
-The office holds four roles now: a screen checking for `ADMIN` would hide itself
-from an approver entitled to use it, and one listing every acceptable role would
-be a second copy of a policy that lives in `auth/capabilities.ts`.
+permissions published on the signed-in user, rather than matching role names.
+That matters more than it used to: the office composes its own roles, so a
+screen naming one would be asserting something no file decides, and would go on
+looking right after that role was retired or re-scoped.
+
+One list the client used to keep is gone for the same reason. `/admin/invite`
+carried its own copy of the invitation ceiling — which roles each issuer may
+offer — and that cannot be written down at all now. It reads
+`access.invitableRoles` instead: the rule lives where it is enforced.
 
 A control somebody cannot use is **absent, not disabled**. A button that cannot
 work should not be drawn; offering it and refusing is worse than not offering
 it.
 
-And a screen they cannot reach gets a capability refusal rather than the portal
+And a screen they cannot reach gets a permission refusal rather than the portal
 one. "This part of Mission SEP is for the programme office" is right for an
-applicant who wandered in and wrong for a reviewer, who *is* the programme
-office and is standing in it — they are not in the wrong place, they are in a
+applicant who wandered in and wrong for somebody who *is* the programme office
+and is standing in it — they are not in the wrong place, they are in a
 room they do not have the key to.
 
 ## The guidance layer
@@ -330,6 +338,37 @@ paragraph.
 remembered once per portal, because the two welcomes say different things about
 different work — one key for both would silence the only line that ever explains
 the second.
+
+## Composing a role
+
+`/admin/roles` is where the office decides what its own jobs may do, and it is
+the one screen whose controls change what *other people* can do.
+
+Two things it shows before offering a control:
+
+- **How many accounts hold a role.** Retiring one takes their access away on
+  their very next request. That should be a decision somebody makes knowing the
+  cost, not one they discover afterwards.
+- **What is about to change.** The editor draws the pending diff — what is being
+  added, what is being taken away, and how many people lose it — beside the save
+  button, because "save" here is one of the few buttons in this portal that
+  silently alters somebody else's access.
+
+The permission picker renders entirely from `access.permissionCatalogue`. A
+hard-coded list would offer a permission nothing checks the first time the
+catalogue moved, which is the whole failure this design exists to prevent.
+
+The set is sent **whole**, with the version read alongside it. A role is live
+while it is being edited, so turning six permissions on and two off as eight
+separate writes would authorize its holders against six states nobody chose —
+and two operators editing at once would produce a set neither of them asked for.
+A stale version is refused with *"The role changed. Reload and try again."*
+
+Naming a role and deciding what it may do are two screens on purpose: a new role
+holds nothing, so a half-configured one is never live. The password prompt
+appears on the second and not the first, and the screen says why — asking for
+one on an act that grants nothing teaches people to type it without reading the
+question.
 
 ## Lists
 

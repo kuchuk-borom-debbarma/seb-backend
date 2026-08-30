@@ -4,6 +4,7 @@
  * Every status the programme has, placed under the desk that holds the file at
  * that moment, in the order they happen.
  */
+import type { Permission } from '#/lib/session'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -35,7 +36,6 @@ import type { ApplicationStatus } from '#/graphql/generated/schema'
 import { useGuide } from './GuideContext'
 import { STAGE_DETAILS, type StageDetail } from './stageDetails'
 import { DESKS, TOURS, canWalk, type Desk } from './tours'
-import type { Capability, UserRole } from '#/graphql/generated/schema'
 import styles from './RouteDiagram.module.css'
 
 export const ROUTE_LENGTH = STAGE_DETAILS.length
@@ -118,7 +118,7 @@ function TourIllustration() {
 export function RouteDiagram({
   user,
 }: {
-  user?: { roles: readonly UserRole[]; capabilities: readonly Capability[] }
+  user?: { roles: readonly string[]; permissions: readonly Permission[] }
 }) {
   const { data: guide } = useQuery(statusGuideQuery)
   const { start, tour: running } = useGuide()

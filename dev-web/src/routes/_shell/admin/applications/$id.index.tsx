@@ -77,8 +77,8 @@ function WorkspacePage() {
    * `can` decides what to draw and never what is permitted; every operation is
    * re-checked by the API, which is what actually refuses.
    */
-  const mayWrite = can(viewer, 'STAFF_WRITE')
-  const mayDecide = can(viewer, 'DECIDE')
+  const mayWrite = can(viewer, 'application', 'review')
+  const mayDecide = can(viewer, 'decision', 'record')
   const { data: workspace } = useQuery(workspaceQuery(id))
   // Pinned to the same cycle version the API validates against, so the picker
   // never offers an id a later cycle revision has re-minted.

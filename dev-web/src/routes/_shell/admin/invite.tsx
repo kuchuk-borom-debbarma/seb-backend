@@ -17,34 +17,12 @@ import { PageHeader } from '#/components/PageHeader'
 import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
 import { CapabilityRefusal } from '#/features/portal/CapabilityRefusal'
 import { InviteRoleDocument } from '#/graphql/generated/operations'
-import type { ManageableRole } from '#/graphql/generated/schema'
 import { formatDateTime } from '#/lib/format'
 import { managedUserQuery } from '#/features/access/accessQueries'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
-import { can, type SignedInUser } from '#/lib/session'
-
-/**
- * What each issuer may invite somebody to.
- *
- * Mirrors the ceiling the API enforces: an administrator may not invite
- * somebody to `ADMIN` or `SUPER_ADMIN`, because obtaining through a second
- * account what you are directly forbidden is the escalation the whole rule
- * exists to prevent. Shown here so nobody is offered a choice that will be
- * refused; the API refuses it regardless of what this offers.
- */
-const invitableBy = (user: SignedInUser): ManageableRole[] =>
-  can(user, 'ROLE_ADMIN')
-    ? ['REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER']
-    : ['REVIEWER', 'APPROVER']
-
-const ROLE_LABELS: Record<ManageableRole, string> = {
-  REVIEWER: 'Reviewer — reads casework, changes nothing',
-  APPROVER: 'Approver — reads casework and records the decision',
-  ADMIN: 'Programme officer — the full office workflow',
-  ANNOUNCER: 'Announcer — writes the public announcement banner',
-  SUPER_ADMIN: 'Super administrator',
-}
+import { can } from '#/lib/session'
+import { invitableRolesQuery } from '#/features/roles/roleQueries'
 
 export const Route = createFileRoute('/_shell/admin/invite')({
   component: InviteGate,
@@ -52,7 +30,7 @@ export const Route = createFileRoute('/_shell/admin/invite')({
 
 function InviteGate() {
   const { user } = Route.useRouteContext()
-  if (!can(user, 'ROLE_INVITE')) {
+  if (!can(user, 'role', 'invite')) {
     return (
       <CapabilityRefusal
         title="Invite a colleague"
@@ -60,14 +38,23 @@ function InviteGate() {
       />
     )
   }
-  return <InvitePage user={user} />
+  return <InvitePage />
 }
 
-function InvitePage({ user }: { user: SignedInUser }) {
-  const roles = invitableBy(user)
+function InvitePage() {
+  /*
+   * The list comes from the API, not from a table here.
+   *
+   * An invitation may not exceed the issuer's own authority, and that ceiling
+   * is the server's rule. This screen used to carry its own copy of it, which
+   * cannot be maintained at all now that a role is a row somebody composed —
+   * and a stale copy would offer a choice the API then refuses.
+   */
+  const offered = useQuery(invitableRolesQuery)
+  const roles = offered.data?.response ?? []
   const [email, setEmail] = useState('')
   const [looked, setLooked] = useState('')
-  const [role, setRole] = useState<ManageableRole>(roles[0]!)
+  const [roleKey, setRoleKey] = useState('')
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState<{ email: string; expiresAt: string } | null>(null)
@@ -94,7 +81,7 @@ function InvitePage({ user }: { user: SignedInUser }) {
   const invite = useMutation({
     mutationFn: async (subjectId: string) =>
       unwrap(
-        (await gql(InviteRoleDocument, { input: { userId: subjectId, role, reason } }))
+        (await gql(InviteRoleDocument, { input: { userId: subjectId, roleKey, reason } }))
           .access.inviteRole,
       ),
     onSuccess: (result) => {
@@ -191,15 +178,30 @@ function InvitePage({ user }: { user: SignedInUser }) {
               <select
                 id="invite-role"
                 className="select"
-                value={role}
-                onChange={(changed) => setRole(changed.target.value as ManageableRole)}
+                required
+                value={roleKey}
+                onChange={(changed) => setRoleKey(changed.target.value)}
               >
-                {roles.map((offered) => (
-                  <option key={offered} value={offered}>
-                    {ROLE_LABELS[offered]}
+                <option value="">Choose a role…</option>
+                {roles.map((choice) => (
+                  <option key={choice.key} value={choice.key}>
+                    {choice.name} — {choice.description}
                   </option>
                 ))}
               </select>
+              {offered.isSuccess && roles.length === 0 ? (
+                /*
+                 * An empty list is a rule, not a fault: you may offer only a
+                 * role whose permissions you already hold, and this account
+                 * holds nothing it can pass on. Saying so beats a picker with
+                 * nothing in it.
+                 */
+                <p className="field-hint">
+                  There is no role you can offer. An invitation cannot exceed your
+                  own authority, so a super administrator has to compose one that
+                  fits within it — or send the invitation themselves.
+                </p>
+              ) : null}
             </div>
 
             <div>

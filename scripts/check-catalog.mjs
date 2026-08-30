@@ -128,8 +128,14 @@ export const resources = [${list([...resources.keys()])}] as const
 
 export type Resource = (typeof resources)[number]
 
-/** Every act that may be permitted, as a vocabulary shared across resources. */
-export const actions = [${list([...actions.keys()])}] as const
+/**
+ * Every act that may be permitted, as a vocabulary shared across resources.
+ *
+ * Not exported: \`actionDescriptions\` below carries the same list as its keys
+ * and \`grants\` carries which resource offers what, so a third way to ask would
+ * be a third thing to keep in step.
+ */
+const actions = [${list([...actions.keys()])}] as const
 
 export type Action = (typeof actions)[number]
 

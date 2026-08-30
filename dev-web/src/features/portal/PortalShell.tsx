@@ -17,6 +17,7 @@ import {
   FileText,
   History,
   Home,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Megaphone,
@@ -33,7 +34,7 @@ import { useEffect, useRef, useState } from 'react'
 import { SignOutDocument } from '#/graphql/generated/operations'
 import { forgetGuide } from '#/features/guide/GuideContext'
 import { gql } from '#/lib/graphql'
-import { can, isApplicant, type SignedInUser } from '#/lib/session'
+import { can, isApplicant, isSuperAdministrator, type SignedInUser } from '#/lib/session'
 import styles from './PortalShell.module.css'
 import logoEmblem from '@/assets/mission-sep-emblem.png'
 import logoRightColor from '@/assets/mission-sep-right.png'
@@ -48,7 +49,7 @@ export const portalFor = (pathname: string): Portal =>
 
 export const canUsePortal = (portal: Portal, user: SignedInUser): boolean =>
   portal === 'office'
-    ? can(user, 'STAFF_READ') || can(user, 'ANNOUNCE')
+    ? can(user, 'application', 'read') || can(user, 'announcement', 'read')
     : isApplicant(user)
 
 /** Draw the navigation that works when somebody opens a portal they cannot use. */
@@ -131,7 +132,7 @@ export function PlatformNavigation({
             </NavGroup>
           ) : (
             <>
-              {can(user, 'STAFF_READ') ? (
+              {can(user, 'application', 'read') ? (
                 <NavGroup title="Workspace" collapsed={collapsed}>
                   <NavLink
                     to="/admin"
@@ -150,13 +151,14 @@ export function PlatformNavigation({
                 </NavGroup>
               ) : null}
 
-              {can(user, 'STAFF_WRITE') ||
-              can(user, 'ROLE_ADMIN') ||
-              can(user, 'ROLE_INVITE') ||
-              can(user, 'AUDIT_READ') ||
-              can(user, 'ANNOUNCE') ? (
+              {can(user, 'programme_cycle', 'read') ||
+              isSuperAdministrator(user) ||
+              can(user, 'role', 'read') ||
+              can(user, 'role', 'invite') ||
+              can(user, 'audit', 'read') ||
+              can(user, 'announcement', 'read') ? (
                 <NavGroup title="Administration" collapsed={collapsed}>
-                  {can(user, 'STAFF_WRITE') ? (
+                  {can(user, 'programme_cycle', 'read') ? (
                     <NavLink
                       to="/admin/cycles"
                       label="Programme cycles"
@@ -165,7 +167,7 @@ export function PlatformNavigation({
                       onNavigate={onClose}
                     />
                   ) : null}
-                  {can(user, 'ANNOUNCE') ? (
+                  {can(user, 'announcement', 'read') ? (
                     <NavLink
                       to="/admin/announcements"
                       label="Announcement banner"
@@ -174,7 +176,7 @@ export function PlatformNavigation({
                       onNavigate={onClose}
                     />
                   ) : null}
-                  {can(user, 'ROLE_INVITE') ? (
+                  {can(user, 'role', 'invite') ? (
                     <NavLink
                       to="/admin/invite"
                       label="Invite a colleague"
@@ -183,7 +185,22 @@ export function PlatformNavigation({
                       onNavigate={onClose}
                     />
                   ) : null}
-                  {can(user, 'ROLE_ADMIN') ? (
+                  {can(user, 'role', 'read') ? (
+                    <NavLink
+                      to="/admin/roles"
+                      label="Roles"
+                      icon={KeyRound}
+                      activePrefixes={['/admin/roles']}
+                      onNavigate={onClose}
+                    />
+                  ) : null}
+                  {/*
+                    * Granting and revoking is the super administrator's alone
+                    * and deliberately has no permission to name — see
+                    * `auth/permissions.ts`. Asked as an identity here because
+                    * that is what the API asks.
+                    */}
+                  {isSuperAdministrator(user) ? (
                     <NavLink
                       to="/admin/access"
                       label="Users & access"
@@ -192,7 +209,7 @@ export function PlatformNavigation({
                       onNavigate={onClose}
                     />
                   ) : null}
-                  {can(user, 'AUDIT_READ') ? (
+                  {can(user, 'audit', 'read') ? (
                     <NavLink
                       to="/admin/audit"
                       label="Activity history"
@@ -382,7 +399,7 @@ function PortalSelector({
   onNavigate: () => void
 }) {
   const selectorRef = useRef<HTMLDetailsElement | null>(null)
-  const hasBoth = isApplicant(user) && can(user, 'STAFF_READ')
+  const hasBoth = isApplicant(user) && can(user, 'application', 'read')
   const label = portal === 'applicant' ? 'Applicant' : 'Programme office'
 
   const closeSelector = () => {
@@ -586,7 +603,7 @@ function AccountMenu({
           >
             <MonitorSmartphone aria-hidden="true" /> Security
           </Link>
-          {isApplicant(user) && can(user, 'STAFF_READ') ? (
+          {isApplicant(user) && can(user, 'application', 'read') ? (
             <Link
               to={portal === 'applicant' ? '/admin' : '/dashboard'}
               className={styles.menuItem}

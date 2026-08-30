@@ -26,8 +26,6 @@ import { coreRole, coreRolePermission, coreUserRoleGrant } from '../../../db/sch
 import { isCataloguePermission, type Permission } from '../permissions'
 import { insertAuditEventWhere, type AuditEventRecord } from './auth'
 
-export type RoleRecord = typeof coreRole.$inferSelect
-
 /** One composed role, with what it may do and how many people hold it. */
 export type ManagedRole = {
   id: string

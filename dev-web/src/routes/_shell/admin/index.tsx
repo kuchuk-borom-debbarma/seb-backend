@@ -145,7 +145,7 @@ function OfficeDashboard() {
             capability rather than a role: an approver-lead holds CYCLE_ADMIN
             without holding ADMIN, and this decides only what is drawn — the
             API authorizes the read on its own. */}
-        {can(user, 'CYCLE_ADMIN') ? <AnalyticsPanel /> : null}
+        {can(user, 'programme_cycle', 'update') ? <AnalyticsPanel /> : null}
 
         {/* Two-Column Responsive Main Grid */}
         <div className={styles.adminMainGrid}>
@@ -278,7 +278,7 @@ function OfficeDashboard() {
                   <Scale className={styles.quickActionIcon} aria-hidden="true" />
                   <span className={styles.quickActionLabel}>Decide applications</span>
                 </Link>
-                {can(user, 'STAFF_WRITE') ? (
+                {can(user, 'application', 'review') ? (
                   <Link
                     to="/admin/cycles/new"
                     className={styles.quickActionTile}
@@ -290,7 +290,7 @@ function OfficeDashboard() {
                     </span>
                   </Link>
                 ) : null}
-                {can(user, 'ROLE_INVITE') ? (
+                {can(user, 'role', 'invite') ? (
                   <Link
                     to="/admin/invite"
                     className={styles.quickActionTile}

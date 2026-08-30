@@ -9,7 +9,7 @@
 import { queryOptions, type QueryClient } from '@tanstack/react-query'
 import { CurrentSessionDocument } from '#/graphql/generated/operations'
 import type { CurrentSessionQuery } from '#/graphql/generated/operations'
-import type { Capability, UserRole } from '#/graphql/generated/schema'
+
 import { gql } from './graphql'
 
 export type SignedInUser = NonNullable<
@@ -56,40 +56,52 @@ export const forgetSession = (queryClient: QueryClient) =>
   queryClient.resetQueries({ queryKey: sessionQuery.queryKey })
 
 /**
- * These read nothing but the roles, so they ask for nothing but the roles.
+ * These read nothing but the role names, so they ask for nothing but the names.
  *
  * The sign-in response carries a narrower user than the session query does;
  * demanding the full record here would have forced a cast at the one call site
  * that decides which portal to open.
+ *
+ * A name is a `string` rather than a closed union, because a role is a row the
+ * office composed. Only the two the server decides for itself can be matched by
+ * name at all, and the helpers below are the only places that do.
  */
-type RoleBearer = { roles: readonly UserRole[] }
+type RoleBearer = { roles: readonly string[] }
+
+/** One thing somebody may do, as the API publishes it. */
+export type Permission = { readonly resource: string; readonly action: string }
 
 /**
  * What the signed-in person is allowed to do.
  *
- * The API derives this from the roles held and publishes it, so the interface
- * asks "may they?" rather than matching role names. That matters because the
- * office now holds four roles: a screen that checked for ADMIN would hide
- * itself from an approver who is perfectly entitled to use it, and a screen
- * that listed every acceptable role would be a second copy of a policy that
- * lives in `auth/capabilities.ts`.
+ * The API resolves this from the roles held and publishes it, so the interface
+ * asks "may they?" rather than matching role names. That matters more than it
+ * used to: a role is data now, so a screen that named one would be asserting
+ * something no file decides, and would go on looking right after that role was
+ * retired or its permissions changed.
  *
  * **It decides what to draw, never what is permitted.** Every operation is
  * re-checked by the API, which is what actually refuses.
  */
-type CapabilityBearer = { capabilities: readonly Capability[] }
+type PermissionBearer = { permissions: readonly Permission[] }
 
 export const can = (
-  user: CapabilityBearer | undefined,
-  capability: Capability,
-): boolean => Boolean(user?.capabilities.includes(capability))
+  user: PermissionBearer | undefined,
+  resource: string,
+  action: string,
+): boolean =>
+  Boolean(user?.permissions.some(
+    (held) => held.resource === resource && held.action === action,
+  ))
 
-export const hasRole = (user: RoleBearer | undefined, ...roles: UserRole[]): boolean =>
+/** Whether they hold any act at all on a kind of record. */
+export const canAny = (
+  user: PermissionBearer | undefined,
+  resource: string,
+): boolean => Boolean(user?.permissions.some((held) => held.resource === resource))
+
+export const hasRole = (user: RoleBearer | undefined, ...roles: string[]): boolean =>
   Boolean(user && roles.some((role) => user.roles.includes(role)))
-
-/** `SUPER_ADMIN` carries every administrative capability; it needs no ADMIN grant. */
-export const isAdministrator = (user: RoleBearer | undefined): boolean =>
-  hasRole(user, 'ADMIN', 'SUPER_ADMIN')
 
 export const isSuperAdministrator = (user: RoleBearer | undefined): boolean =>
   hasRole(user, 'SUPER_ADMIN')

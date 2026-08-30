@@ -19,7 +19,7 @@ test.describe('being invited into the office', () => {
   test('a reviewer arrives, and can read casework without changing it', async ({
     page,
   }) => {
-    await inviteSomebodyTo(page, 'Reviewer')
+    await inviteSomebodyTo(page, 'DESK_REVIEWER')
 
     // The applicant grant was exchanged, not added to, so the office is where
     // they work now.
@@ -47,7 +47,7 @@ test.describe('being invited into the office', () => {
   })
 
   test('an approver sees casework and still governs nothing', async ({ page }) => {
-    await inviteSomebodyTo(page, 'Approver')
+    await inviteSomebodyTo(page, 'DECISION_APPROVER')
     await page.goto('/admin')
     const sections = await navigationSections(page)
     expect(sections).toContain('workspace')

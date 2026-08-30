@@ -16,10 +16,11 @@ predicate cannot drift apart.
   `database/schema.sql` instead — repeats the statement
   ([`test/support/harness.ts`](../../../test/support/harness.ts)). Reads never
   create it, because a public read must stay a read.
-- Who may write is decided in
-  [`auth/capabilities.ts`](../auth/capabilities.ts): the `ANNOUNCE`
-  capability, held by `ANNOUNCER` and (through the spread) `SUPER_ADMIN`.
-  Nothing here names a role.
+- Who may write is a **permission**, not a role. Each operation names its own
+  pair on the `announcement` resource — reading the board is `read`, publishing
+  a card is `publish` — and the office composes whichever role holds them.
+  Nothing here names a role, and no operation chooses a pair on another's
+  behalf.
 - A card's `sort_order` is not unique. The reorder renumbers rows in place in
   one statement, and a unique index would refuse the transient collision of
   swapping neighbours; ties are legal (racing creates may mint the same
@@ -42,14 +43,14 @@ predicate cannot drift apart.
 | | `admin.announcement.board` |
 | --- | --- |
 | **Entry** | `announcementBoard` |
-| **Guard** | `ANNOUNCE` |
-| **Refuses** | a caller without the capability |
+| **Guard** | `announcement` / `read` |
+| **Refuses** | a caller without the permission |
 | **Reads** | the board version and every non-deleted card, one batch |
 
 | | `create` |
 | --- | --- |
 | **Entry** | `createAnnouncementController` |
-| **Guard** | `ANNOUNCE`, then each field against its cap, then the link validator |
+| **Guard** | `announcement` / `create`, then each field against its cap, then the link validator |
 | **Refuses** | a blank or over-cap field by name; a link whose target does not fit its kind |
 | **Writes** | the card (its position computed from the live maximum in the same statement), a board bump, and the audit row — one batch |
 | **Guarded by** | the dependents' `EXISTS` on the row at `(version 1, updated_at = now)` |
@@ -58,7 +59,7 @@ predicate cannot drift apart.
 | | `update` / `setPublished` |
 | --- | --- |
 | **Entry** | `updateAnnouncementController` / `setAnnouncementPublishedController` |
-| **Guard** | `ANNOUNCE`, an integer `expectedVersion ≥ 1`, the field/link checks (`update`) or the reason cap (`setPublished`) |
+| **Guard** | `announcement` / `update` or `publish`, an integer `expectedVersion ≥ 1`, the field/link checks (`update`) or the reason cap (`setPublished`) |
 | **Refuses** | a stale version, an unknown id and a removed card with one answer — distinguishing them would say which ids exist |
 | **Writes** | the guarded row update and its audit row; **no board bump** — editing neither adds nor removes a card, so a concurrent reorder's list stays honest |
 | **Guarded by** | `current_version = expected` in the `WHERE`; audit re-states `(expected + 1, updated_at = now)` |
@@ -67,7 +68,7 @@ predicate cannot drift apart.
 | | `remove` |
 | --- | --- |
 | **Entry** | `removeAnnouncementController` |
-| **Guard** | `ANNOUNCE`, integer version, a required reason |
+| **Guard** | `announcement` / `remove`, integer version, a required reason |
 | **Refuses** | a missing reason; a second removal as stale |
 | **Writes** | the soft delete (retaining who and why), a board bump, the audit row — one batch; returns the fresh board |
 | **Guarded by** | same per-row version-and-instant pair |
@@ -76,7 +77,7 @@ predicate cannot drift apart.
 | | `reorder` |
 | --- | --- |
 | **Entry** | `reorderAnnouncementsController` |
-| **Guard** | `ANNOUNCE`, integer board version, non-empty duplicate-free id list, set-equality with the live ids |
+| **Guard** | `announcement` / `reorder`, integer board version, non-empty duplicate-free id list, set-equality with the live ids |
 | **Refuses** | a list that misses, repeats or invents a card ("The board changed…"); a stale `expectedBoardVersion` |
 | **Writes** | the guarded board claim, then every position in one `UPDATE … FROM (VALUES …)`, then the audit row |
 | **Guarded by** | the board row — two reorders touch no common card row, so a predicate over the cards would be no guard at all; creating or removing a card bumps the same row, which is what makes an outdated list refuse rather than renumber the wrong set |
@@ -93,7 +94,7 @@ predicate cannot drift apart.
 | `setAnnouncementPublishedController` | `controllers/admin.ts` | The Live/Hidden quick toggle |
 | `removeAnnouncementController` | `controllers/admin.ts` | Soft-deletes a card, returns the fresh board |
 | `reorderAnnouncementsController` | `controllers/admin.ts` | Rewrites the whole display order |
-| `currentAnnouncer` | `support.ts` | The capability gate |
+
 | `validateAnnouncementLink` | `support.ts` | Decides whether a link may ever become an `href` |
 | `announcementAudit` | `support.ts` | This service's audit-row builder |
 | query functions | `queries/announcement.ts` | All SQL, and every guard repeated inside the write predicate |
@@ -101,6 +102,6 @@ predicate cannot drift apart.
 ## Elsewhere
 
 - The tables and their constraints: [`db/schema/seb/announcement.ts`](../../db/schema/seb/announcement.ts)
-- Who holds `ANNOUNCE`, and who may create announcers: [`docs/admin-rbac.md`](../../../docs/admin-rbac.md)
+- How a role comes to hold these pairs, and who composes one: [`docs/admin-rbac.md`](../../../docs/admin-rbac.md)
 - The guarded-write shape and why guards are repeated in SQL: [`docs/rules/code.md`](../../../docs/rules/code.md)
 - The client that renders the banner and the authoring screen: `dev-web/`

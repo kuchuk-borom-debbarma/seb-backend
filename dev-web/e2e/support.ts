@@ -716,9 +716,105 @@ export const latestInviteLink = async (recipient: string): Promise<string> => {
  * The whole flow, because it is the only way to become staff: there is no
  * seeded reviewer to borrow, which is the point of the invitation existing.
  */
+/**
+ * The roles the office composes for itself before any spec runs.
+ *
+ * Authority is data, so a deployment starts with none of these — the six fixed
+ * roles they replace no longer exist. Composed by `seed.setup.ts` through the
+ * product's own screens, then granted or offered by the specs.
+ */
+export const OFFICE_ROLES = [
+  {
+    key: 'DESK_REVIEWER',
+    name: 'Desk reviewer',
+    description: 'Reads casework and completes the desk review.',
+    /*
+     * Casework only, and deliberately nothing that draws the Administration
+     * section of the navigation. A desk reviewer reads applications; the cycle
+     * rules they judge against arrive inside the workspace, so they need no
+     * separate way in — and a heading that leads only to screens somebody has
+     * no business on is noise.
+     */
+    permissions: [
+      ['application', 'read'], ['application', 'note'], ['application', 'review'],
+      ['policy_document', 'read'], ['funding', 'read'], ['recovery', 'read'],
+    ],
+  },
+  {
+    key: 'PROGRAMME_OFFICER',
+    name: 'Programme officer',
+    description: 'The whole operational workflow, short of shaping the programme.',
+    permissions: [
+      ['application', 'read'], ['application', 'note'], ['application', 'review'],
+      ['application', 'refer'], ['decision', 'record'], ['decision', 'correct'],
+      ['funding', 'read'], ['funding', 'award'], ['funding', 'release'],
+      ['funding', 'reverse'], ['funding', 'assess'],
+      ['recovery', 'read'], ['recovery', 'open'], ['recovery', 'record'],
+      ['recovery', 'cancel'], ['recovery', 'close'],
+      ['programme_cycle', 'read'], ['policy_document', 'read'],
+      ['analytics', 'read'], ['user', 'read'], ['role', 'read'], ['role', 'invite'],
+    ],
+  },
+  {
+    key: 'DECISION_APPROVER',
+    name: 'Decision approver',
+    description: 'Reads casework and records the programme decision.',
+    /*
+     * Casework and the verdict, and nothing that governs the office itself —
+     * the point of the role is that deciding and administering are separable.
+     */
+    permissions: [
+      ['application', 'read'], ['policy_document', 'read'],
+      ['decision', 'record'], ['decision', 'correct'],
+    ],
+  },
+  {
+    key: 'BANNER_EDITOR',
+    name: 'Announcer',
+    description: 'Writes the public announcement banner, and nothing else.',
+    permissions: [
+      ['announcement', 'read'], ['announcement', 'create'], ['announcement', 'update'],
+      ['announcement', 'publish'], ['announcement', 'remove'], ['announcement', 'reorder'],
+    ],
+  },
+] as const
+
+/**
+ * Composes one role through the screens that compose one.
+ *
+ * Two acts, as the product has them: naming it, then choosing what it may do.
+ * The second takes the operator's password, because it moves what every holder
+ * may do the moment it lands.
+ */
+export const composeRole = async (
+  page: Page,
+  role: (typeof OFFICE_ROLES)[number],
+): Promise<void> => {
+  await page.goto('/admin/roles/new')
+  await page.getByLabel('What the office calls it').fill(role.name)
+  await page.getByLabel('Key').fill(role.key)
+  await page.getByLabel('What it is for').fill(role.description)
+  await page.getByRole('button', { name: 'Compose the role' }).click()
+  await expect(page).toHaveURL(new RegExp(`/admin/roles/${role.key}$`, 'u'))
+
+  for (const [resource, action] of role.permissions) {
+    await page
+      .getByRole('group', { name: humanReadable(resource) })
+      .getByRole('checkbox', { name: new RegExp(`^${humanReadable(action)}`, 'u') })
+      .check()
+  }
+  await page.getByLabel('Your password').fill(PASSWORD)
+  await page.getByRole('button', { name: 'Save what it may do' }).click()
+  await expect(page.getByRole('button', { name: 'Save what it may do' })).toBeDisabled()
+}
+
+/** `programme_cycle` → "Programme cycle", as the editor renders it. */
+const humanReadable = (key: string): string =>
+  key.replace(/_/gu, ' ').replace(/^./u, (first) => first.toUpperCase())
+
 export const inviteSomebodyTo = async (
   page: Page,
-  role: 'Reviewer' | 'Approver' | 'Announcer',
+  role: 'DESK_REVIEWER' | 'DECISION_APPROVER' | 'PROGRAMME_OFFICER' | 'BANNER_EDITOR',
 ) => {
   const email = uniqueEmail('invited')
   // Signup deliberately creates no session, so there is nobody to sign out.
@@ -731,7 +827,7 @@ export const inviteSomebodyTo = async (
   await expect(page.getByRole('heading', { name: email })).toBeVisible()
   // Selected by value rather than label, because the labels carry a
   // description after the role name.
-  await page.getByLabel('Invite them to be').selectOption(role.toUpperCase())
+  await page.getByLabel('Invite them to be').selectOption(role)
   await page.getByLabel('Why').fill('Joining the intake team')
   await page.getByRole('button', { name: 'Send the invitation' }).click()
   await expect(page.getByText(`Invitation sent to ${email}`)).toBeVisible()

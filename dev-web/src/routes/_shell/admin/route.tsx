@@ -24,8 +24,8 @@ export const Route = createFileRoute('/_shell/admin')({
   beforeLoad: ({ context, location }) => {
     if (
       context.user &&
-      !can(context.user, 'STAFF_READ') &&
-      can(context.user, 'ANNOUNCE') &&
+      !can(context.user, 'application', 'read') &&
+      can(context.user, 'announcement', 'read') &&
       !location.pathname.startsWith('/admin/announcements')
     ) {
       throw redirect({ to: '/admin/announcements' })
@@ -36,7 +36,7 @@ export const Route = createFileRoute('/_shell/admin')({
 
 function OfficeGate() {
   const { user } = Route.useRouteContext()
-  if (!can(user, 'STAFF_READ') && !can(user, 'ANNOUNCE')) {
+  if (!can(user, 'application', 'read') && !can(user, 'announcement', 'read')) {
     return <RoleRefusal portal="office" user={user} />
   }
   return <Outlet />

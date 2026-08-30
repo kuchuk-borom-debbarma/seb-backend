@@ -22,9 +22,9 @@ import { useMarker } from '#/features/guide/GuideContext'
 import { managedUserQuery } from '#/features/access/accessQueries'
 import { RoleRefusal } from '#/features/portal/RoleRefusal'
 import { GrantRoleDocument, RevokeRoleDocument } from '#/graphql/generated/operations'
-import type { ManageableRole } from '#/graphql/generated/schema'
 import { formatDateTime, humanize, readableReason } from '#/lib/format'
 import { isSuperAdministrator } from '#/lib/session'
+import { rolesQuery } from '#/features/roles/roleQueries'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 
@@ -242,7 +242,19 @@ function AccessPage() {
   )
 }
 
-const MANAGEABLE: ManageableRole[] = ['ADMIN', 'ANNOUNCER', 'SUPER_ADMIN']
+/**
+ * The one authority granted by name rather than by row.
+ *
+ * A super administrator holds the wildcard and has no `core_role` row to point
+ * at, so it is offered here explicitly. Everything else is a role the office
+ * composed, read live from the API — a list written here would go stale the
+ * first time somebody composed another.
+ */
+const SUPER_ADMINISTRATOR = {
+  key: 'SUPER_ADMIN',
+  name: 'Super administrator',
+  description: 'Everything, including composing roles and handing them out.',
+}
 
 function GrantRole({
   userId,
@@ -253,7 +265,8 @@ function GrantRole({
   held: readonly string[]
   onChanged: () => Promise<unknown>
 }) {
-  const [role, setRole] = useState<ManageableRole | ''>('')
+  const composed = useQuery(rolesQuery)
+  const [role, setRole] = useState('')
   const [reason, setReason] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -264,7 +277,7 @@ function GrantRole({
       const data = await gql(GrantRoleDocument, {
         input: {
           userId,
-          role: role as ManageableRole,
+          roleKey: role,
           reason: reason.trim(),
           currentPassword: password,
         },
@@ -286,7 +299,8 @@ function GrantRole({
   })
 
   // Offering a role somebody already holds would only produce a refusal.
-  const available = MANAGEABLE.filter((candidate) => !held.includes(candidate))
+  const available = [SUPER_ADMINISTRATOR, ...(composed.data?.response ?? [])]
+    .filter((candidate) => !held.includes(candidate.key))
 
   return (
     <section className="card">
@@ -312,12 +326,12 @@ function GrantRole({
                   id="role"
                   className="select"
                   value={role}
-                  onChange={(event) => setRole(event.target.value as ManageableRole)}
+                  onChange={(event) => setRole(event.target.value)}
                 >
                   <option value="">Choose a role</option>
                   {available.map((candidate) => (
-                    <option key={candidate} value={candidate}>
-                      {humanize(candidate)}
+                    <option key={candidate.key} value={candidate.key}>
+                      {candidate.name}
                     </option>
                   ))}
                 </select>
