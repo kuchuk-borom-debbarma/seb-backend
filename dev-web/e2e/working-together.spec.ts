@@ -192,7 +192,7 @@ test.describe('a reviewer reading casework', () => {
     await page.goto('/admin/invite')
     await page.getByLabel('Their email address').fill(reviewer)
     await page.getByRole('button', { name: 'Look them up' }).click()
-    await page.getByLabel('Invite them to be').selectOption('DESK_REVIEWER')
+    await page.getByLabel('Invite them to be').selectOption('CASEWORK_READER')
     await page.getByLabel('Why').fill('Reading casework')
     await page.getByRole('button', { name: 'Send the invitation' }).click()
     const link = await latestInviteLink(reviewer)

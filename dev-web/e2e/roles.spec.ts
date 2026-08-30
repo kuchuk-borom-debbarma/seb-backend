@@ -19,7 +19,7 @@ test.describe('being invited into the office', () => {
   test('a reviewer arrives, and can read casework without changing it', async ({
     page,
   }) => {
-    await inviteSomebodyTo(page, 'DESK_REVIEWER')
+    await inviteSomebodyTo(page, 'CASEWORK_READER')
 
     // The applicant grant was exchanged, not added to, so the office is where
     // they work now.

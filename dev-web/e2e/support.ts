@@ -725,19 +725,23 @@ export const latestInviteLink = async (recipient: string): Promise<string> => {
  */
 export const OFFICE_ROLES = [
   {
-    key: 'DESK_REVIEWER',
-    name: 'Desk reviewer',
-    description: 'Reads casework and completes the desk review.',
+    key: 'CASEWORK_READER',
+    name: 'Casework reader',
+    description: 'Reads every casework screen and changes nothing.',
     /*
-     * Casework only, and deliberately nothing that draws the Administration
-     * section of the navigation. A desk reviewer reads applications; the cycle
-     * rules they judge against arrive inside the workspace, so they need no
-     * separate way in — and a heading that leads only to screens somebody has
-     * no business on is noise.
+     * Reads only. Reading a file and working it are different jobs, and
+     * somebody preparing a case needs the first without the second — so this
+     * role holds no `note` and no `review`, and the screens draw no control it
+     * cannot use.
+     *
+     * Deliberately nothing that draws the Administration section of the
+     * navigation either: the cycle rules they judge against arrive inside the
+     * workspace, so they need no separate way in, and a heading leading only to
+     * screens somebody has no business on is noise.
      */
     permissions: [
-      ['application', 'read'], ['application', 'note'], ['application', 'review'],
-      ['policy_document', 'read'], ['funding', 'read'], ['recovery', 'read'],
+      ['application', 'read'], ['policy_document', 'read'],
+      ['funding', 'read'], ['recovery', 'read'],
     ],
   },
   {
@@ -814,7 +818,7 @@ const humanReadable = (key: string): string =>
 
 export const inviteSomebodyTo = async (
   page: Page,
-  role: 'DESK_REVIEWER' | 'DECISION_APPROVER' | 'PROGRAMME_OFFICER' | 'BANNER_EDITOR',
+  role: 'CASEWORK_READER' | 'DECISION_APPROVER' | 'PROGRAMME_OFFICER' | 'BANNER_EDITOR',
 ) => {
   const email = uniqueEmail('invited')
   // Signup deliberately creates no session, so there is nobody to sign out.
