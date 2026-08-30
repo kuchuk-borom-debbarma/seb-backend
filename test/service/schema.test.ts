@@ -237,6 +237,8 @@ describe('core and Mission SEP schema', () => {
       'core_signup_challenge',
       'core_user',
       'core_user_role_grant',
+      'seb_announcement',
+      'seb_announcement_board',
       'seb_application',
       'seb_application_assignment_event',
       'seb_application_document',

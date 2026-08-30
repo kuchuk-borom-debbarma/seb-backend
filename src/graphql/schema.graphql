@@ -53,6 +53,12 @@ enum UserRole {
   """The whole operational workflow. Cannot grant or revoke a role."""
   ADMIN
 
+  """
+  Writes the public landing page's announcement banner, and nothing else —
+  deliberately no casework access.
+  """
+  ANNOUNCER
+
   """Everything, including changing what other accounts may do."""
   SUPER_ADMIN
 }
@@ -114,6 +120,9 @@ enum Capability {
 
   """Read the portal's activity history."""
   AUDIT_READ
+
+  """Publish, edit and order the public announcement banner."""
+  ANNOUNCE
 }
 
 """

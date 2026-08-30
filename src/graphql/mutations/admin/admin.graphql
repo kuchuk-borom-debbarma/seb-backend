@@ -25,6 +25,156 @@ type AdminMutation {
 
   """Awards, payments, assessments and recovery."""
   funding: AdminFundingMutation!
+
+  """Writing the landing page's announcement banner."""
+  announcement: AdminAnnouncementMutation!
+}
+
+"""
+Authoring the public announcement banner.
+
+**Use case:** `/admin/announcements`. Requires the authority to announce —
+held by announcers and super administrators, and deliberately by nobody who
+merely works casework.
+"""
+type AdminAnnouncementMutation {
+  """
+  Authors a new card, placed at the end of the display order.
+
+  **Use case:** the "New announcement" form. A card may be created hidden and
+  flipped live later.
+
+  **Refuses:** a blank or over-cap field, and a link whose target does not fit
+  its kind — an outside address must be http or https, a site path must start
+  with a single "/", an anchor with "#".
+  """
+  create(
+    """Everything the card says."""
+    input: AnnouncementInput!
+  ): AdminAnnouncementResult!
+
+  """
+  Replaces everything one card says.
+
+  **Use case:** the card editor. The whole card travels, so a stale screen
+  cannot silently keep a field the office meant to change.
+
+  **Refuses:** the same field and link shapes as `create`, and a stale
+  `expectedVersion` when somebody else edited or removed the card first.
+  """
+  update(
+    """Which card, at which version."""
+    id: ID!
+
+    """The card's `currentVersion` as read; a mismatch refuses."""
+    expectedVersion: Int!
+
+    """The card's full replacement content."""
+    input: AnnouncementInput!
+  ): AdminAnnouncementResult!
+
+  """
+  Shows or hides one card without touching its content.
+
+  **Use case:** the Live/Hidden toggle on the board's rows.
+
+  **Refuses:** a stale `expectedVersion`, and a reason over 1,000 characters.
+  """
+  setPublished(
+    """Which card, at which version."""
+    id: ID!
+
+    """The card's `currentVersion` as read; a mismatch refuses."""
+    expectedVersion: Int!
+
+    """True to show the card to the public, false to hide it."""
+    published: Boolean!
+
+    """Why, kept in the audit history. Optional."""
+    reason: String
+  ): AdminAnnouncementResult!
+
+  """
+  Withdraws a card from the board, retaining it and why.
+
+  **Use case:** the Remove confirmation on the board. The fresh board comes
+  back, because removal also moves the reorder guard.
+
+  **Refuses:** a missing reason, and a stale `expectedVersion`.
+  """
+  remove(
+    """Which card, at which version."""
+    id: ID!
+
+    """The card's `currentVersion` as read; a mismatch refuses."""
+    expectedVersion: Int!
+
+    """Why the card is withdrawn. Required, kept with the card."""
+    reason: String!
+  ): AdminAnnouncementBoardResult!
+
+  """
+  Rewrites the display order to exactly the list given.
+
+  **Use case:** the ↑/↓ controls on the board. The list must name every
+  current card exactly once.
+
+  **Refuses:** a list that misses, repeats or invents a card, and a stale
+  `expectedBoardVersion` — creating or removing a card moves it too, so an
+  order built from an outdated board is refused rather than applied.
+  """
+  reorder(
+    """Every live card's id, in the wanted order."""
+    ids: [ID!]!
+
+    """The board's version as read; a mismatch refuses."""
+    expectedBoardVersion: Int!
+  ): AdminAnnouncementBoardResult!
+}
+
+"""Everything one card says. The whole card travels on every save."""
+input AnnouncementInput {
+  """The short category chip. At most 40 characters."""
+  tag: String!
+
+  """
+  The optional free-text label beside the tag — a month, "Official". At most
+  40 characters; blank stores nothing.
+  """
+  dateLabel: String
+
+  """The card's headline. At most 160 characters."""
+  title: String!
+
+  """The sentence or two under the headline. At most 1,000 characters."""
+  body: String!
+
+  """Which of the fixed pictograms the card carries."""
+  icon: AnnouncementIcon!
+
+  """Where the card leads. Omit for a card that is only a statement."""
+  link: AnnouncementLinkInput
+
+  """
+  When the card stops showing. Omit to keep it up until withdrawn. A past
+  value is accepted — an expired card is a legal draft.
+  """
+  endsAt: DateTime
+
+  """Whether the public sees it now, or it waits as a hidden draft."""
+  published: Boolean!
+}
+
+"""Where a card leads. The target must fit the kind, and is validated."""
+input AnnouncementLinkInput {
+  """What the target is; decides both validation and rendering."""
+  kind: AnnouncementLinkKind!
+
+  """
+  The destination. **Example:** `"https://ttaadc.gov.in/order.pdf"` for
+  EXTERNAL, `"/faq"` for ROUTE, `"#eligibility"` for ANCHOR.
+  """
+  target: String!
 }
 
 """

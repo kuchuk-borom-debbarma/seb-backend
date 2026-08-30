@@ -4,15 +4,15 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import {
   ArrowLeft,
   ArrowRight,
-  ArrowUpRight,
   Download,
-  FileText,
-  HelpCircle,
   Landmark,
-  ShieldCheck,
   TrendingUp,
   Users,
 } from 'lucide-react'
+import {
+  AnnouncementCard,
+  type AnnouncementCardData,
+} from '#/features/announcements/AnnouncementCard'
 import heroImage from '@/assets/hero-landscape.jpg'
 import imgTwo from '@/assets/two.png'
 
@@ -37,94 +37,6 @@ function SproutHandIcon({ className }: { className?: string }) {
     </svg>
   )
 }
-
-// Custom Hand Holding Seedling Icon for Hero notification panel
-function HandSeedlingIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 64 64"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M32 36V18" />
-      <path d="M32 23C32 16 26 12 21 13C21 19 25 23 32 23Z" />
-      <path d="M32 28C35 22 41 21 44 24C44 29 37 30 32 30" />
-      <path d="M26 36C28 35 36 35 38 36" />
-      <path d="M16 46C16 46 20 49 28 49C36 49 42 45 46 41L51 36C52 34.5 50.5 32.5 48 32.5L40 35C36 36.5 33 36.5 29 36.5L24 38" />
-      <path d="M16 46L11 42C9.5 41 9.5 38.5 11 37.5L19 35" />
-    </svg>
-  )
-}
-
-interface NotificationItem {
-  id: string
-  tag: string
-  date: string
-  title: string
-  summary: string
-  link: string
-  isExternal?: boolean
-  Icon: React.ElementType
-}
-
-const notifications: NotificationItem[] = [
-  {
-    id: 'notif-1',
-    tag: 'Notice',
-    date: 'Aug 2026',
-    title: 'Mission SEP 2026 Phase-1 Applications Open',
-    summary:
-      'Online registration is active for tribal entrepreneurs seeking seed funding up to ₹5 Lakhs.',
-    link: '/login',
-    Icon: HandSeedlingIcon,
-  },
-  {
-    id: 'notif-2',
-    tag: 'Guidelines',
-    date: 'Official',
-    title: 'DPR Preparation Manual & Template Released',
-    summary:
-      'Standard template and guidelines under Section 6 are available for download.',
-    link: '/policy.pdf',
-    isExternal: true,
-    Icon: FileText,
-  },
-  {
-    id: 'notif-3',
-    tag: 'Circular',
-    date: 'Advisory',
-    title: 'Tripura ST Certificate Verification Checklist',
-    summary:
-      'Ensure ST Certificate and local Village Committee NOC are verified for priority processing.',
-    link: '/#eligibility',
-    Icon: ShieldCheck,
-  },
-  {
-    id: 'notif-4',
-    tag: 'Banking',
-    date: 'Credit',
-    title: 'Partner Bank Linkages for Category A & B Units',
-    summary:
-      'Credit assistance & margin money subsidies formalized with regional lead banks.',
-    link: '/#how-it-works',
-    Icon: Landmark,
-  },
-  {
-    id: 'notif-5',
-    tag: 'Helpdesk',
-    date: 'Advisory',
-    title: 'Eligibility & Grant Scrutiny FAQs Updated',
-    summary:
-      'Detailed answers on applicant age limits (18–60 yrs) and milestone seed disbursements.',
-    link: '/faq',
-    Icon: HelpCircle,
-  },
-]
 
 const HEADLINES = [
   { line1: 'EMPOWERING', line2: 'BUSINESSES.' },
@@ -159,20 +71,26 @@ const goalCards: GoalCard[] = [
   },
 ]
 
-export function Hero() {
+export type HeroAnnouncement = AnnouncementCardData & { id: string }
+
+export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const isFirstRender = useRef(true)
   const [headlineIndex, setHeadlineIndex] = useState(0)
   const [notifIndex, setNotifIndex] = useState(0)
-  const activeNotif = notifications[notifIndex] ?? notifications[0]!
+  // Modulo, because the office can shorten the list under a stale index; null
+  // when there is nothing to show, and the docks simply do not render.
+  const activeNotif =
+    announcements.length > 0 ? announcements[notifIndex % announcements.length]! : null
 
-  // Auto-advance notifications carousel every 5.5 seconds
+  // Auto-advance the carousel every 5.5 seconds — pointless below two cards.
   useEffect(() => {
+    if (announcements.length < 2) return
     const notifTimer = setInterval(() => {
-      setNotifIndex((prev) => (prev + 1) % notifications.length)
+      setNotifIndex((prev) => (prev + 1) % announcements.length)
     }, 5500)
     return () => clearInterval(notifTimer)
-  }, [])
+  }, [announcements.length])
 
   // Desktop Pinned GSAP Scrub (Scoped strictly to >= 1024px)
   useEffect(() => {
@@ -279,7 +197,7 @@ export function Hero() {
   const moveNotif = (e: React.MouseEvent, dir: number) => {
     e.preventDefault()
     e.stopPropagation()
-    setNotifIndex((i) => (i + dir + notifications.length) % notifications.length)
+    setNotifIndex((i) => (i + dir + announcements.length) % announcements.length)
   }
 
   const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
@@ -359,65 +277,45 @@ export function Hero() {
             </div>
           </div>
 
-          {/* Bottom Left Notifications Card */}
-          <div className="hero-panel-desktop absolute bottom-0 left-0 z-30 w-full bg-[#ded8ce] px-8 py-5 md:w-[48%] md:min-w-[530px] md:max-w-[600px] shadow-2xl border-t border-r border-[#181715]/20 pointer-events-auto">
-            <div className="flex items-center gap-5 md:gap-6">
-              <div className="flex size-18 shrink-0 items-center justify-center rounded-full border border-[#181715]/25 text-[#181715] bg-[#e6e1d8]">
-                <activeNotif.Icon className="size-9 text-[#181715]" strokeWidth={1.75} />
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold tracking-wider uppercase text-[#0c2340] bg-[#181715]/8 px-1.5 py-0.5 rounded-xs">
-                    {activeNotif.tag}
-                  </span>
-                  <span className="text-[11px] font-medium text-[#181715]/60">
-                    {activeNotif.date}
-                  </span>
-                  <span className="text-[10.5px] font-medium text-[#181715]/50 ml-auto">
-                    {notifIndex + 1} of {notifications.length}
-                  </span>
+          {/* Bottom Left Notifications Card — hidden until something is published */}
+          {activeNotif ? (
+            <div
+              data-testid="announcement-panel"
+              className="hero-panel-desktop absolute bottom-0 left-0 z-30 w-full bg-[#ded8ce] px-8 py-5 md:w-[48%] md:min-w-[530px] md:max-w-[600px] shadow-2xl border-t border-r border-[#181715]/20 pointer-events-auto"
+            >
+              <div className="flex items-center gap-5 md:gap-6">
+                <div className="min-w-0 flex-1">
+                  <AnnouncementCard
+                    announcement={activeNotif}
+                    size="desktop"
+                    position={{ index: notifIndex % announcements.length, total: announcements.length }}
+                    onAnchorClick={handleLinkClick}
+                  />
                 </div>
 
-                <a
-                  href={activeNotif.link}
-                  onClick={(e) => handleLinkClick(e, activeNotif.link)}
-                  {...(activeNotif.isExternal
-                    ? { target: '_blank', rel: 'noopener noreferrer' }
-                    : {})}
-                  className="group mt-1 flex items-baseline gap-1 text-[14.5px] font-bold leading-snug text-[#181715] hover:text-[#0c2340] transition-colors cursor-pointer"
-                >
-                  <span className="underline decoration-[#181715]/30 underline-offset-2 group-hover:decoration-[#0c2340]">
-                    {activeNotif.title}
-                  </span>
-                  <ArrowUpRight className="inline-block size-3.5 shrink-0 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-                </a>
-
-                <p className="mt-0.5 text-[12px] leading-snug text-[#181715]/75 line-clamp-1">
-                  {activeNotif.summary}
-                </p>
-              </div>
-
-              <div className="flex shrink-0 gap-2 self-end pb-0.5">
-                <button
-                  type="button"
-                  onClick={(e) => moveNotif(e, -1)}
-                  aria-label="Previous notification"
-                  className="grid size-9.5 place-items-center rounded-full border border-[#181715]/40 text-[#181715] transition-colors hover:bg-[#181715] hover:text-[#ded8ce] cursor-pointer"
-                >
-                  <ArrowLeft className="size-4" strokeWidth={1.75} />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => moveNotif(e, 1)}
-                  aria-label="Next notification"
-                  className="grid size-9.5 place-items-center rounded-full border border-[#181715]/40 text-[#181715] transition-colors hover:bg-[#181715] hover:text-[#ded8ce] cursor-pointer"
-                >
-                  <ArrowRight className="size-4" strokeWidth={1.75} />
-                </button>
+                {announcements.length > 1 ? (
+                  <div className="flex shrink-0 gap-2 self-end pb-0.5">
+                    <button
+                      type="button"
+                      onClick={(e) => moveNotif(e, -1)}
+                      aria-label="Previous notification"
+                      className="grid size-9.5 place-items-center rounded-full border border-[#181715]/40 text-[#181715] transition-colors hover:bg-[#181715] hover:text-[#ded8ce] cursor-pointer"
+                    >
+                      <ArrowLeft className="size-4" strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => moveNotif(e, 1)}
+                      aria-label="Next notification"
+                      className="grid size-9.5 place-items-center rounded-full border border-[#181715]/40 text-[#181715] transition-colors hover:bg-[#181715] hover:text-[#ded8ce] cursor-pointer"
+                    >
+                      <ArrowRight className="size-4" strokeWidth={1.75} />
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </div>
-          </div>
+          ) : null}
         </div>
 
         {/* Desktop Goals View Layer */}
@@ -547,87 +445,59 @@ export function Hero() {
             </p>
           </div>
 
-          {/* Bottom Docked Notifications Panel (Flush with screen bottom, matching desktop dock styling) */}
-          <div className="relative z-20 w-full bg-[#ded8ce] px-4.5 py-4 sm:px-6 sm:py-4.5 border-t border-[#181715]/20 shadow-2xl pointer-events-auto">
-            <div className="flex items-center gap-3 sm:gap-4">
-              {/* Left Circle Icon */}
-              <div className="flex size-12 sm:size-13 shrink-0 items-center justify-center rounded-full border border-[#181715]/25 text-[#181715] bg-[#e6e1d8]">
-                <activeNotif.Icon
-                  className="size-6 sm:size-6.5 text-[#181715]"
-                  strokeWidth={1.75}
-                />
-              </div>
+          {/* Bottom Docked Notifications Panel — hidden until something is published */}
+          {activeNotif ? (
+            <div
+              data-testid="announcement-panel-mobile"
+              className="relative z-20 w-full bg-[#ded8ce] px-4.5 py-4 sm:px-6 sm:py-4.5 border-t border-[#181715]/20 shadow-2xl pointer-events-auto"
+            >
+              <AnnouncementCard
+                announcement={activeNotif}
+                size="mobile"
+                position={{ index: notifIndex % announcements.length, total: announcements.length }}
+                onAnchorClick={handleLinkClick}
+              />
 
-              {/* Middle Notification Info */}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[9.5px] sm:text-[10px] font-bold tracking-wider uppercase text-[#0c2340] bg-[#181715]/8 px-1.5 py-0.5 rounded-xs">
-                    {activeNotif.tag}
-                  </span>
-                  <span className="text-[10px] font-medium text-[#181715]/60">
-                    {activeNotif.date}
-                  </span>
-                  <span className="text-[10px] font-medium text-[#181715]/50 ml-auto">
-                    {notifIndex + 1} of {notifications.length}
-                  </span>
+              {announcements.length > 1 ? (
+                <div className="mt-2.5 flex items-center justify-between border-t border-[#181715]/10 pt-2">
+                  <div className="flex gap-1.5">
+                    {announcements.map((announcement, i) => (
+                      <button
+                        key={announcement.id}
+                        type="button"
+                        onClick={() => setNotifIndex(i)}
+                        aria-label={`Slide ${i + 1}`}
+                        className={`h-1.5 rounded-xs transition-all ${
+                          notifIndex % announcements.length === i
+                            ? 'w-6 bg-[#0c2340]'
+                            : 'w-2.5 bg-[#181715]/25'
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => moveNotif(e, -1)}
+                      aria-label="Previous notification"
+                      className="flex size-8.5 items-center justify-center rounded-full border border-[#181715]/30 bg-white/60 text-[#181715] active:bg-[#181715] active:text-[#ded8ce] cursor-pointer"
+                    >
+                      <ArrowLeft className="size-3.5" strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => moveNotif(e, 1)}
+                      aria-label="Next notification"
+                      className="flex size-8.5 items-center justify-center rounded-full border border-[#181715]/30 bg-white/60 text-[#181715] active:bg-[#181715] active:text-[#ded8ce] cursor-pointer"
+                    >
+                      <ArrowRight className="size-3.5" strokeWidth={1.75} />
+                    </button>
+                  </div>
                 </div>
-
-                <a
-                  href={activeNotif.link}
-                  onClick={(e) => handleLinkClick(e, activeNotif.link)}
-                  {...(activeNotif.isExternal
-                    ? { target: '_blank', rel: 'noopener noreferrer' }
-                    : {})}
-                  className="group mt-0.5 flex items-start gap-1 text-[13px] sm:text-[14px] font-bold leading-snug text-[#181715] hover:text-[#0c2340] transition-colors cursor-pointer"
-                >
-                  <span className="underline decoration-[#181715]/30 underline-offset-2">
-                    {activeNotif.title}
-                  </span>
-                  <ArrowUpRight className="inline-block size-3.5 shrink-0 opacity-70" />
-                </a>
-
-                <p className="mt-0.5 text-[11px] sm:text-[11.5px] leading-snug text-[#181715]/75 line-clamp-1">
-                  {activeNotif.summary}
-                </p>
-              </div>
+              ) : null}
             </div>
-
-            {/* Bottom Controls Row */}
-            <div className="mt-2.5 flex items-center justify-between border-t border-[#181715]/10 pt-2">
-              <div className="flex gap-1.5">
-                {notifications.map((_, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => setNotifIndex(i)}
-                    aria-label={`Slide ${i + 1}`}
-                    className={`h-1.5 rounded-xs transition-all ${
-                      notifIndex === i ? 'w-6 bg-[#0c2340]' : 'w-2.5 bg-[#181715]/25'
-                    }`}
-                  />
-                ))}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={(e) => moveNotif(e, -1)}
-                  aria-label="Previous notification"
-                  className="flex size-8.5 items-center justify-center rounded-full border border-[#181715]/30 bg-white/60 text-[#181715] active:bg-[#181715] active:text-[#ded8ce] cursor-pointer"
-                >
-                  <ArrowLeft className="size-3.5" strokeWidth={1.75} />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => moveNotif(e, 1)}
-                  aria-label="Next notification"
-                  className="flex size-8.5 items-center justify-center rounded-full border border-[#181715]/30 bg-white/60 text-[#181715] active:bg-[#181715] active:text-[#ded8ce] cursor-pointer"
-                >
-                  <ArrowRight className="size-3.5" strokeWidth={1.75} />
-                </button>
-              </div>
-            </div>
-          </div>
+          ) : null}
         </section>
 
         {/* Mobile Goals Section (Smoothly follows as user scrolls down) */}

@@ -61,6 +61,14 @@ import {
   updateOpenCycleGuidance,
 } from '../../../services/admin'
 import {
+  announcementBoard,
+  createAnnouncementController,
+  updateAnnouncementController,
+  setAnnouncementPublishedController,
+  removeAnnouncementController,
+  reorderAnnouncementsController,
+} from '../../../services/announcement'
+import {
   findCyclePolicyDocument,
   listCyclePolicyDocumentVersions,
 } from '../../../services/admin/queries/policy-document'
@@ -87,6 +95,7 @@ export const adminResolvers = {
     intake: () => ({}),
     funding: () => ({}),
     analytics: () => ({}),
+    announcement: () => ({}),
   },
   AdminAnalyticsQuery: {
     summary: (_parent: unknown, args: { input?: Parameters<typeof analyticsSummary>[0] }, context: GraphQLContext) => analyticsSummary(args.input ?? {}, context),
@@ -97,6 +106,17 @@ export const adminResolvers = {
     intake: () => ({}),
     decision: () => ({}),
     funding: () => ({}),
+    announcement: () => ({}),
+  },
+  AdminAnnouncementQuery: {
+    board: (_parent: unknown, _args: unknown, context: GraphQLContext) => announcementBoard(context),
+  },
+  AdminAnnouncementMutation: {
+    create: (_parent: unknown, args: { input: Parameters<typeof createAnnouncementController>[0] }, context: GraphQLContext) => createAnnouncementController(args.input, context),
+    update: (_parent: unknown, args: { id: string; expectedVersion: number; input: Parameters<typeof createAnnouncementController>[0] }, context: GraphQLContext) => updateAnnouncementController({ ...args.input, id: args.id, expectedVersion: args.expectedVersion }, context),
+    setPublished: (_parent: unknown, args: { id: string; expectedVersion: number; published: boolean; reason?: string | null }, context: GraphQLContext) => setAnnouncementPublishedController(args, context),
+    remove: (_parent: unknown, args: { id: string; expectedVersion: number; reason: string }, context: GraphQLContext) => removeAnnouncementController(args, context),
+    reorder: (_parent: unknown, args: { ids: string[]; expectedBoardVersion: number }, context: GraphQLContext) => reorderAnnouncementsController(args, context),
   },
   AdminProgrammeCycleQuery: {
     list: (_parent: unknown, args: Parameters<typeof programmeCycles>[0], context: GraphQLContext) => programmeCycles(args, context),

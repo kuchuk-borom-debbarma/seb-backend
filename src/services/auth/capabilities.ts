@@ -37,6 +37,8 @@ export const capabilities = [
   'ROLE_INVITE',
   /** Reading the audit history. */
   'AUDIT_READ',
+  /** Publishing, editing and ordering the public announcement banner. */
+  'ANNOUNCE',
 ] as const
 
 export type Capability = (typeof capabilities)[number]
@@ -59,6 +61,9 @@ const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
   REVIEWER: ['STAFF_READ'],
   APPROVER: ['STAFF_READ', 'DECIDE'],
   ADMIN: ['STAFF_READ', 'STAFF_WRITE', 'DECIDE', 'ROLE_INVITE'],
+  // Deliberately not STAFF_READ: an announcer writes the public notice board
+  // and must never be able to open an applicant's casework.
+  ANNOUNCER: ['ANNOUNCE'],
   SUPER_ADMIN: [...capabilities],
 }
 

@@ -10,51 +10,10 @@ import { expect, test } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
-  latestInviteLink,
+  inviteSomebodyTo,
   navigationSections,
   signIn,
-  signOut,
-  signUpApplicant,
-  uniqueEmail,
 } from './support'
-
-/**
- * Signs somebody up, invites them to a role, and accepts on their behalf.
- *
- * The whole flow, because it is the only way to become staff: there is no
- * seeded reviewer to borrow, which is the point of the invitation existing.
- */
-const inviteSomebodyTo = async (
-  page: import('@playwright/test').Page,
-  role: 'Reviewer' | 'Approver',
-) => {
-  const email = uniqueEmail('invited')
-  // Signup deliberately creates no session, so there is nobody to sign out.
-  await signUpApplicant(page, email)
-
-  await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-  await page.goto('/admin/invite')
-  await page.getByLabel('Their email address').fill(email)
-  await page.getByRole('button', { name: 'Look them up' }).click()
-  await expect(page.getByRole('heading', { name: email })).toBeVisible()
-  // Selected by value rather than label, because the labels carry a
-  // description after the role name.
-  await page.getByLabel('Invite them to be').selectOption(role.toUpperCase())
-  await page.getByLabel('Why').fill('Joining the intake team')
-  await page.getByRole('button', { name: 'Send the invitation' }).click()
-  await expect(page.getByText(`Invitation sent to ${email}`)).toBeVisible()
-
-  // The link is never shown to the issuer; it only exists in what was sent.
-  await expect(page.getByText('/invite#')).toHaveCount(0)
-  const link = await latestInviteLink(email)
-  await signOut(page)
-
-  await signIn(page, email, PASSWORD)
-  await page.goto(link)
-  await page.getByRole('button', { name: 'Accept the invitation' }).click()
-  await expect(page.getByRole('heading', { name: /You are now/u })).toBeVisible()
-  return email
-}
 
 test.describe('being invited into the office', () => {
   test('a reviewer arrives, and can read casework without changing it', async ({
@@ -119,6 +78,7 @@ test.describe('the super administrator', () => {
     const sections = await navigationSections(page)
     expect(sections).toContain('administration')
     await expect(page.getByRole('link', { name: 'Activity history' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Announcement banner' })).toBeVisible()
     // Offered twice — the rail and the dashboard's quick actions — so first()
     // is deliberate.
     await expect(page.getByRole('link', { name: 'Invite a colleague' }).first()).toBeVisible()

@@ -22,6 +22,118 @@ type AdminQuery {
 
   """Aggregate reporting over the intake casework."""
   analytics: AdminAnalyticsQuery!
+
+  """The landing page's announcement banner, as its authors see it."""
+  announcement: AdminAnnouncementQuery!
+}
+
+"""Reading the announcement banner with its drafts and its ordering guard."""
+type AdminAnnouncementQuery {
+  """
+  Every card, drafts and expired ones included, with the version the reorder
+  must quote.
+
+  **Use case:** `/admin/announcements` — the whole screen renders from this
+  one read, so it can never show a list and a version from two moments.
+
+  **Refuses:** a caller without the authority to manage the banner.
+  """
+  board: AdminAnnouncementBoardResult!
+}
+
+"""The board, or the reason it could not be read."""
+type AdminAnnouncementBoardResult implements BaseResponse {
+  """Whether the board was read."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — an authority refusal, a stale
+  `expectedBoardVersion` on a reorder, or a reorder list the board outgrew.
+  """
+  message: String
+
+  """The board. Null whenever `success` is false."""
+  response: AdminAnnouncementBoard
+}
+
+"""The whole banner as the office sees it."""
+type AdminAnnouncementBoard {
+  """
+  Send back as `expectedBoardVersion` when reordering. Creating or removing a
+  card moves it too, so a reorder built from an outdated list is refused
+  rather than renumbering the wrong set.
+  """
+  boardVersion: Int!
+
+  """Every card that has not been removed, in display order."""
+  announcements: [AdminAnnouncement!]!
+}
+
+"""One card, or the reason the operation on it was refused."""
+type AdminAnnouncementResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — a field over its cap, a link of the
+  wrong shape, or a stale `expectedVersion` when somebody else acted first.
+  """
+  message: String
+
+  """The card as it now stands. Null whenever `success` is false."""
+  response: AdminAnnouncement
+}
+
+"""One card, with the lifecycle the public read hides."""
+type AdminAnnouncement {
+  """Stable identifier, named by every edit."""
+  id: ID!
+
+  """The short category chip on the card. **Example:** `"Notice"`."""
+  tag: String!
+
+  """The optional free-text label beside the tag. Null when left off."""
+  dateLabel: String
+
+  """The card's headline, and the text of its link when it has one."""
+  title: String!
+
+  """One or two sentences under the headline."""
+  body: String!
+
+  """Which of the fixed pictograms the card carries."""
+  icon: AnnouncementIcon!
+
+  """Where the card leads. Null for a card that is only a statement."""
+  link: AnnouncementLink
+
+  """
+  When the card stops showing to the public. Null means it stays until
+  withdrawn. A past value is legal — the card simply is not shown.
+  """
+  endsAt: DateTime
+
+  """
+  Whether the public may see it. A hidden card is a draft the office can
+  finish and flip live later.
+  """
+  published: Boolean!
+
+  """Where the card sits in the display order. Rewritten by every reorder."""
+  sortOrder: Int!
+
+  """
+  Optimistic-concurrency token for this card. Read it with the card, send it
+  back in `expectedVersion`; a concurrent edit refuses instead of silently
+  overwriting.
+  """
+  currentVersion: Int!
+
+  """When the card was first authored."""
+  createdAt: DateTime!
+
+  """When the card last changed, edits and reorders alike."""
+  updatedAt: DateTime!
 }
 
 """Reading the intake casework as aggregates rather than rows."""

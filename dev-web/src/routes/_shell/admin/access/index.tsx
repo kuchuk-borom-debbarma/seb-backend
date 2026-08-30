@@ -242,7 +242,7 @@ function AccessPage() {
   )
 }
 
-const MANAGEABLE: ManageableRole[] = ['ADMIN', 'SUPER_ADMIN']
+const MANAGEABLE: ManageableRole[] = ['ADMIN', 'ANNOUNCER', 'SUPER_ADMIN']
 
 function GrantRole({
   userId,

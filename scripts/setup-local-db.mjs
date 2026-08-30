@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import pg from 'pg'
+import { ANNOUNCEMENT_BOARD_SEED } from './board-seed.mjs'
 import { loadRepositoryEnv } from './load-env.mjs'
 
 loadRepositoryEnv()
@@ -88,6 +89,7 @@ try {
   await client.query('DROP SCHEMA IF EXISTS public CASCADE')
   await client.query('CREATE SCHEMA public')
   await client.query(schema)
+  await client.query(ANNOUNCEMENT_BOARD_SEED)
   const { rows } = await client.query(
     `SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'`,
   )

@@ -34,12 +34,15 @@ import { can, type SignedInUser } from '#/lib/session'
  * refused; the API refuses it regardless of what this offers.
  */
 const invitableBy = (user: SignedInUser): ManageableRole[] =>
-  can(user, 'ROLE_ADMIN') ? ['REVIEWER', 'APPROVER', 'ADMIN'] : ['REVIEWER', 'APPROVER']
+  can(user, 'ROLE_ADMIN')
+    ? ['REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER']
+    : ['REVIEWER', 'APPROVER']
 
 const ROLE_LABELS: Record<ManageableRole, string> = {
   REVIEWER: 'Reviewer — reads casework, changes nothing',
   APPROVER: 'Approver — reads casework and records the decision',
   ADMIN: 'Programme officer — the full office workflow',
+  ANNOUNCER: 'Announcer — writes the public announcement banner',
   SUPER_ADMIN: 'Super administrator',
 }
 

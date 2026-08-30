@@ -37,6 +37,7 @@ import {
 import type { Database } from '../../src/db'
 import type { AppBindings } from '../../src/bindings'
 import { shimDatabase, type ShimDatabase } from './d1-shim'
+import { ANNOUNCEMENT_BOARD_SEED } from '../../scripts/board-seed.mjs'
 
 const SCHEMA = readFileSync(new URL('../../database/schema.sql', import.meta.url), 'utf8')
 
@@ -95,6 +96,7 @@ export const activeShim = (): ShimDatabase => {
 export const freshDatabase = async (): Promise<{ db: Database; DB: ShimDatabase }> => {
   const opened = await openTestClient()
   await opened.client.exec(SCHEMA)
+  await opened.client.exec(ANNOUNCEMENT_BOARD_SEED)
   const db = drizzleOver(opened)
   const shim = shimDatabase(opened.client)
   current = {
@@ -126,6 +128,9 @@ export const resetDatabase = async (): Promise<void> => {
   await current.client.exec(
     `TRUNCATE ${current.tables.map((name) => `"${name}"`).join(', ')} RESTART IDENTITY CASCADE`,
   )
+  // The truncate takes the announcement board's seeded row with everything
+  // else, and the product assumes it exists — see `scripts/board-seed.mjs`.
+  await current.client.exec(ANNOUNCEMENT_BOARD_SEED)
 }
 
 /*

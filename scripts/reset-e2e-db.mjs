@@ -23,6 +23,7 @@ import { rm, mkdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import pg from 'pg'
+import { ANNOUNCEMENT_BOARD_SEED } from './board-seed.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -84,6 +85,7 @@ try {
   await client.query('DROP SCHEMA IF EXISTS public CASCADE')
   await client.query('CREATE SCHEMA public')
   await client.query(readFileSync(join(root, 'database', 'schema.sql'), 'utf8'))
+  await client.query(ANNOUNCEMENT_BOARD_SEED)
   const { rows } = await client.query(
     `SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'`,
   )

@@ -51,6 +51,7 @@ const SDL_FILES = [
   'queries/audit/audit.graphql',
   'queries/seb/seb.graphql',
   'mutations/seb/seb.graphql',
+  'queries/public/public.graphql',
 ]
 
 /**

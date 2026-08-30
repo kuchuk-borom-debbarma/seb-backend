@@ -929,6 +929,31 @@ record.
 
 ---
 
+## 18a. The public announcement banner
+
+The landing page's notice board is authored content, not hardcoded copy. An
+announcer — a role with no casework access, created only by a super
+administrator — writes cards the public reads without signing in.
+
+- [x] Let an announcer author a card: a tag chip, a headline, a sentence or
+  two, one of a fixed set of pictograms, an optional free-text date label, an
+  optional link, an optional end time, and a hidden/draft toggle.
+- [x] Validate a card's link by kind before it can ever become an `href`: an
+  outside address must be http or https and is stored re-serialized, a site
+  path must start with a single `/`, an anchor with `#`.
+- [x] Let the announcer arrange the display order, guarded so an order built
+  from an outdated board is refused rather than applied.
+- [x] Serve the published, unexpired cards to anybody without a session, in
+  the arranged order, with an empty banner as an ordinary answer.
+- [x] Render the banner on the landing page from the API, hiding the board
+  when nothing is published, and give the announcer an authoring screen with
+  a live preview of the card as the public will see it.
+- [ ] Notify or hand off nothing: a card is content, not a business event —
+  revisit only if the office asks for scheduled publication beyond the end
+  time it already has.
+
+---
+
 ## 19. Search, reports, and programme oversight
 
 - [x] Let staff and applicants find a record by the start of a reference number,

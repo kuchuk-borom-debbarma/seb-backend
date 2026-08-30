@@ -122,6 +122,11 @@ export default defineConfig({
         'src/services/audit/controllers/**/*.ts',
         'src/services/audit/queries/**/*.ts',
         'src/services/audit/support.ts',
+        'src/services/announcement/controllers/**/*.ts',
+        'src/services/announcement/queries/**/*.ts',
+        'src/services/announcement/support.ts',
+        'src/services/text.ts',
+        'src/graphql/resolvers/public/**/*.ts',
         /*
          * The parts of storage and the queue that are decisions, not
          * transports.

@@ -21,24 +21,26 @@ const WEB_PORT = 9880
 export default defineConfig({
   testDir: './e2e',
   /*
-   * Serial, and measured rather than assumed.
+   * Four workers, and measured rather than assumed — twice now, because the
+   * answer changed when the stack did.
    *
-   * Four workers was tried and is **slower**: 5.4 minutes against 3.5, at 78%
-   * CPU on an eight-core machine. The browser was never the bottleneck. Every
-   * worker queues behind one API Worker process, where signing in is scrypt at
-   * `N=16384, r=16` and the database is a single-writer SQLite file — so
-   * concurrency adds contention and no throughput.
+   * On the D1 era's single-writer SQLite file, four workers were *slower*
+   * (5.4 minutes against 3.5) and the number stayed at one. Against Postgres
+   * the same measurement reads 3.9 minutes against 8.8 on an eight-core
+   * machine, with the failing set identical to the serial run's — the
+   * single-writer bottleneck left with the engine that had it.
    *
-   * Making the suite genuinely parallel means giving each worker its own Worker
-   * and its own database, not raising this number. Until then the number stays
-   * at one, because a slower suite that also flakes is the worst of both.
+   * `fullyParallel` stays off on purpose: parallelism is per *file*, so tests
+   * within a spec keep their order — several files build state test by test
+   * against the one shared database, and interleaving inside a file would
+   * unmake that.
    *
-   * The work done to make parallelism *safe* is kept regardless — it fixed real
-   * defects: the one-time code and the invitation link were found by position in
-   * a shared log rather than by recipient, and `startApplication` took the
-   * oldest open cycle in the database rather than its own.
+   * The work done to make parallelism *safe* is what this cashes in — it fixed
+   * real defects: the one-time code and the invitation link were found by
+   * position in a shared log rather than by recipient, and `startApplication`
+   * took the oldest open cycle in the database rather than its own.
    */
-  workers: 1,
+  workers: 4,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,

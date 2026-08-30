@@ -32,6 +32,7 @@ import {
   sebCyclePolicyDocumentVersion,
   sebCyclePolicyUploadIntent,
 } from './seb/policy-document'
+import { sebAnnouncement, sebAnnouncementBoard } from './seb/announcement'
 import { sebEnterprise, sebEnterpriseVersion } from './seb/enterprise'
 import {
   sebApplicationQualifyingAward,
@@ -71,6 +72,7 @@ export * from './core/audit'
 export * from './core/auth'
 export * from './seb/application'
 export * from './seb/case'
+export * from './seb/announcement'
 export * from './seb/document'
 export * from './seb/policy-document'
 export * from './seb/decision'
@@ -127,6 +129,8 @@ export const schema = {
   sebCyclePolicyDocumentVersion,
   sebCyclePolicyDocumentScan,
   sebCyclePolicyUploadIntent,
+  sebAnnouncement,
+  sebAnnouncementBoard,
   sebRevisionRequest,
   sebApplicationEvent,
   sebApplicationAssignmentEvent,

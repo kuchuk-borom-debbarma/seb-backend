@@ -91,7 +91,7 @@ CREATE TABLE "core_user_role_grant" (
 	"revoked_by_user_id" text,
 	"revoked_at" timestamp with time zone,
 	"revocation_reason" text,
-	CONSTRAINT "core_user_role_grant_role_check" CHECK ("core_user_role_grant"."role" IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'SUPER_ADMIN')),
+	CONSTRAINT "core_user_role_grant_role_check" CHECK ("core_user_role_grant"."role" IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER', 'SUPER_ADMIN')),
 	CONSTRAINT "core_user_role_grant_revocation_check" CHECK (("core_user_role_grant"."revoked_at" IS NULL AND "core_user_role_grant"."revoked_by_user_id" IS NULL AND "core_user_role_grant"."revocation_reason" IS NULL)
         OR ("core_user_role_grant"."revoked_at" IS NOT NULL
           AND "core_user_role_grant"."revocation_reason" IS NOT NULL
@@ -207,6 +207,39 @@ CREATE TABLE "seb_funding_case_version" (
 	CONSTRAINT "seb_funding_case_version_number_check" CHECK ("seb_funding_case_version"."version" >= 1),
 	CONSTRAINT "seb_funding_case_version_status_check" CHECK ("seb_funding_case_version"."status" IN ('OPEN', 'CLOSED', 'CANCELLED')),
 	CONSTRAINT "seb_funding_case_version_change_type_check" CHECK ("seb_funding_case_version"."change_type" IN ('CREATED', 'STATUS_CHANGED', 'CORRECTED'))
+);
+
+CREATE TABLE "seb_announcement" (
+	"id" text PRIMARY KEY NOT NULL,
+	"tag" text NOT NULL,
+	"date_label" text,
+	"title" text NOT NULL,
+	"body" text NOT NULL,
+	"icon" text NOT NULL,
+	"link_kind" text,
+	"link_target" text,
+	"ends_at" timestamp with time zone,
+	"published" boolean NOT NULL,
+	"sort_order" integer NOT NULL,
+	"current_version" integer NOT NULL,
+	"created_at" timestamp with time zone NOT NULL,
+	"updated_at" timestamp with time zone NOT NULL,
+	"deleted_at" timestamp with time zone,
+	"deleted_by_user_id" text,
+	"delete_reason" text,
+	CONSTRAINT "seb_announcement_icon_check" CHECK ("seb_announcement"."icon" IN ('SEEDLING', 'FILE_TEXT', 'SHIELD_CHECK', 'LANDMARK', 'HELP_CIRCLE', 'MEGAPHONE', 'CALENDAR', 'INDIAN_RUPEE')),
+	CONSTRAINT "seb_announcement_link_check" CHECK (("seb_announcement"."link_kind" IS NULL AND "seb_announcement"."link_target" IS NULL)
+        OR ("seb_announcement"."link_kind" IN ('EXTERNAL', 'ROUTE', 'ANCHOR') AND "seb_announcement"."link_target" IS NOT NULL)),
+	CONSTRAINT "seb_announcement_version_check" CHECK ("seb_announcement"."current_version" >= 1),
+	CONSTRAINT "seb_announcement_sort_order_check" CHECK ("seb_announcement"."sort_order" >= 1)
+);
+
+CREATE TABLE "seb_announcement_board" (
+	"id" text PRIMARY KEY NOT NULL,
+	"current_version" integer NOT NULL,
+	"updated_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "seb_announcement_board_singleton_check" CHECK ("seb_announcement_board"."id" = 'BOARD'),
+	CONSTRAINT "seb_announcement_board_version_check" CHECK ("seb_announcement_board"."current_version" >= 1)
 );
 
 CREATE TABLE "seb_application_document" (
@@ -1326,6 +1359,7 @@ ALTER TABLE "seb_funding_case" ADD CONSTRAINT "seb_funding_case_enterprise_id_se
 ALTER TABLE "seb_funding_case" ADD CONSTRAINT "seb_funding_case_deleted_by_user_id_core_user_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "seb_funding_case_version" ADD CONSTRAINT "seb_funding_case_version_funding_case_id_seb_funding_case_id_fk" FOREIGN KEY ("funding_case_id") REFERENCES "public"."seb_funding_case"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "seb_funding_case_version" ADD CONSTRAINT "seb_funding_case_version_changed_by_user_id_core_user_id_fk" FOREIGN KEY ("changed_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
+ALTER TABLE "seb_announcement" ADD CONSTRAINT "seb_announcement_deleted_by_user_id_core_user_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "seb_application_document" ADD CONSTRAINT "seb_application_document_application_id_seb_application_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."seb_application"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "seb_application_document" ADD CONSTRAINT "seb_application_document_deleted_by_user_id_core_user_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "seb_application_document_scan" ADD CONSTRAINT "seb_application_document_scan_document_version_id_seb_application_document_version_id_fk" FOREIGN KEY ("document_version_id") REFERENCES "public"."seb_application_document_version"("id") ON DELETE restrict ON UPDATE no action;
@@ -1472,6 +1506,7 @@ CREATE INDEX "seb_application_submission_submitted_idx" ON "seb_application_subm
 CREATE INDEX "seb_application_version_category_idx" ON "seb_application_version" USING btree ("application_category") WHERE "seb_application_version"."application_category" IS NOT NULL;
 CREATE INDEX "seb_funding_case_status_idx" ON "seb_funding_case" USING btree ("status","updated_at") WHERE "seb_funding_case"."deleted_at" IS NULL;
 CREATE UNIQUE INDEX "seb_funding_case_version_number_uq" ON "seb_funding_case_version" USING btree ("funding_case_id","version");
+CREATE INDEX "seb_announcement_public_idx" ON "seb_announcement" USING btree ("sort_order","created_at","id") WHERE deleted_at IS NULL AND published;
 CREATE UNIQUE INDEX "seb_application_document_field_key_uq" ON "seb_application_document" USING btree ("application_id","field_key");
 CREATE UNIQUE INDEX "seb_application_document_scan_sequence_uq" ON "seb_application_document_scan" USING btree ("document_version_id","sequence_number");
 CREATE UNIQUE INDEX "seb_application_submission_document_field_key_uq" ON "seb_application_submission_document" USING btree ("submission_id","field_key");

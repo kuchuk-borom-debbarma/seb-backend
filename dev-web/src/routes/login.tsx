@@ -141,6 +141,7 @@ function LoginPage() {
         'REVIEWER',
         'APPROVER',
         'ADMIN',
+        'ANNOUNCER',
         'SUPER_ADMIN',
       )
       const home =

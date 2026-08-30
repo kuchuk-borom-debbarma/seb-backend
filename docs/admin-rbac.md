@@ -9,7 +9,7 @@ decision, funding and recovery operations all read live roles.
 ## One identity, several roles
 
 `core_user` is the login identity. A user may hold any combination of these
-five fixed roles:
+six fixed roles:
 
 | Role | Meaning |
 | --- | --- |
@@ -17,7 +17,8 @@ five fixed roles:
 | `REVIEWER` | May read every casework screen and change nothing. |
 | `APPROVER` | May read casework, and record and correct the programme decision. |
 | `ADMIN` | May use the whole operational review, award, and finance workflow. |
-| `SUPER_ADMIN` | Has all `ADMIN` authority, and may manage roles and read the audit history. |
+| `ANNOUNCER` | May write the public landing page's announcement banner, and nothing else. |
+| `SUPER_ADMIN` | Has all `ADMIN` authority, and may manage roles, read the audit history, and write the announcement banner. |
 
 There is no permission registry or role table. The role vocabulary is defined
 by TypeScript and enforced by a database `CHECK`, making every possible authority
@@ -42,6 +43,7 @@ roles hold it:
 | `ROLE_INVITE` — inviting somebody to a role they accept themselves | `ADMIN`, `SUPER_ADMIN` |
 | `ROLE_ADMIN` — granting and revoking a role directly | `SUPER_ADMIN` |
 | `AUDIT_READ` — reading the audit history | `SUPER_ADMIN` |
+| `ANNOUNCE` — writing the public announcement banner | `ANNOUNCER`, `SUPER_ADMIN` |
 
 Somebody holding several roles gets the union. The policy lives in
 [`auth/capabilities.ts`](../src/services/auth/capabilities.ts) and is published
@@ -174,8 +176,8 @@ caller which user IDs are real and which of them are administrators.
 
 ### What may be granted
 
-Grant, revoke and invite accept `REVIEWER`, `APPROVER`, `ADMIN` and
-`SUPER_ADMIN`. `APPLICANT` is created solely by verified signup and no operation
+Grant, revoke and invite accept `REVIEWER`, `APPROVER`, `ADMIN`, `ANNOUNCER`
+and `SUPER_ADMIN`. `APPLICANT` is created solely by verified signup and no operation
 can grant it back, so allowing its revocation here would strip an applicant
 permanently with no recovery path. The GraphQL enum stops a grant at the schema
 boundary; a revocation names a grant ID, so the role of the row it resolves to
@@ -193,7 +195,11 @@ An invitation cannot exceed its issuer's own authority:
 | Issuer | May invite to |
 | --- | --- |
 | `ADMIN` | `REVIEWER`, `APPROVER` |
-| `SUPER_ADMIN` | `REVIEWER`, `APPROVER`, `ADMIN` |
+| `SUPER_ADMIN` | `REVIEWER`, `APPROVER`, `ADMIN`, `ANNOUNCER` |
+
+`ANNOUNCER` sits only in the super administrator's row on purpose: it controls
+what the public landing page says, so a plain administrator may neither hold
+nor hand out that authority.
 
 Nobody is ever invited to `SUPER_ADMIN`; that stays bootstrap or a direct grant.
 Without the ceiling, "an administrator may invite" would be a privilege
@@ -261,7 +267,7 @@ The current workflow still does not provide:
   one-time bootstrap, a direct grant, or an invitation accepted by the person
   named in it;
 - granting or revoking `APPLICANT` through any operation;
-- custom roles or permission sets. The five roles and seven capabilities are
+- custom roles or permission sets. The six roles and eight capabilities are
   fixed in TypeScript and in a database `CHECK`;
 - staff profiles, departments, organizations, or partner-bank accounts;
 - separate privileged sessions; or
