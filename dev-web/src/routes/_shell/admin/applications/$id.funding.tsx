@@ -28,6 +28,7 @@ import { CreateAwardDocument } from '#/graphql/generated/operations'
 import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { can, useCurrentUser } from '#/lib/session'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP, OFFICE_LEDES } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
@@ -261,6 +262,7 @@ function CreateAward({
   const [sanctionDate, setDate] = useState('')
   const [applicantConditions, setConditions] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const mayAward = can(useCurrentUser(), 'funding', 'award')
 
   const create = useMutation({
     mutationFn: async () => {
@@ -286,6 +288,22 @@ function CreateAward({
       <p className="notice">
         <span className="notice-title">Not yet</span>A sanction order is issued against
         the programme's approval. This application is {humanize(status).toLowerCase()}.
+      </p>
+    )
+  }
+
+  /*
+   * Opening the case is `application`/`read`; issuing the order is
+   * `funding`/`award`. A role composed to read casework and its funding was
+   * shown this whole form and refused on submit — after the sanction order
+   * number and date had been typed.
+   */
+  if (!mayAward) {
+    return (
+      <p className="notice">
+        <span className="notice-title">Not yours to issue</span>
+        No sanction order has been issued yet. Anybody whose role may award funding
+        can issue one against the programme's approval.
       </p>
     )
   }

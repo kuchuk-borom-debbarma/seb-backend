@@ -32,6 +32,7 @@ import type {
 import { formatDateTime, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { can, useCurrentUser } from '#/lib/session'
 
 /** Rupees on screen, paise on the wire. */
 const toPaise = (rupees: string): string => String(Math.round(Number(rupees) * 100))
@@ -72,6 +73,22 @@ export function AwardActions({
 }) {
   const releases = ledger.filter((entry) => entry.entryType === 'RELEASE')
   const live = award.status === 'ACTIVE'
+
+  /*
+   * Paying, correcting a payment, assessing and amending the award are four
+   * separate permissions on the API, so they are four separate questions here.
+   * Drawn from the award's state alone, a role composed to *read* funding was
+   * offered every form and refused by every one of them.
+   *
+   * Read from the session rather than passed down: eight flags across three
+   * components is a shape nobody maintains, which is how these came to be
+   * missing in the first place.
+   */
+  const user = useCurrentUser()
+  const mayRelease = can(user, 'funding', 'release')
+  const mayReverse = can(user, 'funding', 'reverse')
+  const mayAssess = can(user, 'funding', 'assess')
+  const mayAmend = can(user, 'funding', 'award')
 
   return (
     <>
@@ -117,7 +134,7 @@ export function AwardActions({
         </section>
       ) : null}
 
-      {live ? (
+      {live && mayRelease ? (
         <section className="card">
           <div className="card-header">
             <p className="eyebrow">Record a payment</p>
@@ -132,7 +149,7 @@ export function AwardActions({
         </section>
       ) : null}
 
-      {live && releases.length > 0 ? (
+      {live && releases.length > 0 && mayReverse ? (
         <section className="card">
           <div className="card-header">
             <p className="eyebrow">Correct a payment</p>
@@ -149,7 +166,7 @@ export function AwardActions({
         </section>
       ) : null}
 
-      {live ? (
+      {live && mayAssess ? (
         <section className="card">
           <div className="card-header">
             <p className="eyebrow">Record an assessment</p>
@@ -165,20 +182,22 @@ export function AwardActions({
         </section>
       ) : null}
 
-      <section className="card">
-        <div className="card-header">
-          <p className="eyebrow">Change the award</p>
-        </div>
-        <div className="card-body">
-          <ChangeAwardForm
-            applicationId={applicationId}
-            statusVersion={statusVersion}
-            award={award}
-            reasons={reasons}
-            onApplied={onApplied}
-          />
-        </div>
-      </section>
+      {mayAmend ? (
+        <section className="card">
+          <div className="card-header">
+            <p className="eyebrow">Change the award</p>
+          </div>
+          <div className="card-body">
+            <ChangeAwardForm
+              applicationId={applicationId}
+              statusVersion={statusVersion}
+              award={award}
+              reasons={reasons}
+              onApplied={onApplied}
+            />
+          </div>
+        </section>
+      ) : null}
     </>
   )
 }

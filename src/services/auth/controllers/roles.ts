@@ -238,6 +238,7 @@ export const createRole = async (
       deleteReason: null,
       createdByUserId: actor.user.id,
     },
+    actorUserId: actor.user.id,
     audit: auditEvent(context, {
       action: auditActions.roleCreated,
       entityType: 'CORE_ROLE',
@@ -302,6 +303,7 @@ export const updateRole = async (
     name: fields.name,
     description: fields.description,
     permissions,
+    actorUserId: actor.user.id,
     now,
     // Metadata names the role and the size of what it now holds. The pairs
     // themselves live on the role; copying them here would put a second,

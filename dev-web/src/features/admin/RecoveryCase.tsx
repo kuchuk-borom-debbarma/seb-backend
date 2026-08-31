@@ -24,6 +24,7 @@ import { RECOVERY_TITLES, recoveryIsLive } from '#/features/admin/states'
 import { formatDateTime, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { can, useCurrentUser } from '#/lib/session'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from './officeGuidance'
 
@@ -75,6 +76,13 @@ export function RecoveryCase({
   // and closure end it.
   const open = existing.find((entry) => recoveryIsLive(entry.status))
 
+  /*
+   * Opening a case, recording against it, closing it and cancelling it are four
+   * permissions on the API. Reading the award carries none of them, so each
+   * control asks for its own rather than appearing with the section.
+   */
+  const mayOpen = can(useCurrentUser(), 'recovery', 'open')
+
   return (
     <section className="card">
       <div className="card-header">
@@ -99,7 +107,9 @@ export function RecoveryCase({
               No recovery is open against this award. {existing.length}{' '}
               {existing.length === 1 ? 'case has' : 'cases have'} been closed.
             </p>
-            <OpenRecovery awardId={awardId} reasons={reasons} onOpened={onOpened} />
+            {mayOpen ? (
+              <OpenRecovery awardId={awardId} reasons={reasons} onOpened={onOpened} />
+            ) : null}
           </>
         ) : (
           <>
@@ -108,7 +118,9 @@ export function RecoveryCase({
               failed utilization assessment, or a cancelled award with payments already
               made.
             </p>
-            <OpenRecovery awardId={awardId} reasons={reasons} onOpened={onOpened} />
+            {mayOpen ? (
+              <OpenRecovery awardId={awardId} reasons={reasons} onOpened={onOpened} />
+            ) : null}
           </>
         )}
       </div>
@@ -312,6 +324,11 @@ function OpenCase({
 
   const [reason, setReason] = useState('')
 
+  const user = useCurrentUser()
+  const mayRecord = can(user, 'recovery', 'record')
+  const mayClose = can(user, 'recovery', 'close')
+  const mayCancel = can(user, 'recovery', 'cancel')
+
   return (
     <>
       {workspace ? (
@@ -377,7 +394,7 @@ function OpenCase({
         </div>
       ) : null}
 
-      {workspace ? (
+      {workspace && mayRecord ? (
         <EntryForm
           recoveryCaseId={recoveryCase.id}
           ledgerVersion={workspace.recoveryCase.ledgerVersion}
@@ -386,6 +403,7 @@ function OpenCase({
         />
       ) : null}
 
+      {mayClose || mayCancel ? (
       <form style={{ marginTop: '1rem' }} onSubmit={(event) => event.preventDefault()}>
         <label className="field-label" htmlFor="recovery-finish-reason">
           Why the case is ending
@@ -397,27 +415,32 @@ function OpenCase({
           onChange={(event) => setReason(event.target.value)}
         />
         <div className="row" style={{ marginTop: '0.5rem' }}>
-          <button
-            type="button"
-            className="button"
-            disabled={!reason.trim() || finish.isPending}
-            onClick={() => finish.mutate('close')}
-          >
-            {/* Closing settles the case; cancelling says it should never have
-                been opened. They are different facts and both are kept. */}
-            {finish.isPending ? 'Working…' : 'Close it as settled'}
-          </button>
-          <button
-            type="button"
-            className="button"
-            data-variant="danger"
-            disabled={!reason.trim() || finish.isPending}
-            onClick={() => finish.mutate('cancel')}
-          >
-            Cancel the case
-          </button>
+          {mayClose ? (
+            <button
+              type="button"
+              className="button"
+              disabled={!reason.trim() || finish.isPending}
+              onClick={() => finish.mutate('close')}
+            >
+              {/* Closing settles the case; cancelling says it should never have
+                  been opened. They are different facts and both are kept. */}
+              {finish.isPending ? 'Working…' : 'Close it as settled'}
+            </button>
+          ) : null}
+          {mayCancel ? (
+            <button
+              type="button"
+              className="button"
+              data-variant="danger"
+              disabled={!reason.trim() || finish.isPending}
+              onClick={() => finish.mutate('cancel')}
+            >
+              Cancel the case
+            </button>
+          ) : null}
         </div>
       </form>
+      ) : null}
 
       {error ? (
         <p

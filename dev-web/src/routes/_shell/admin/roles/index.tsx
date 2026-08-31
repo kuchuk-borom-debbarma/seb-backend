@@ -73,7 +73,13 @@ function RolesPage({ mayCompose }: { mayCompose: boolean }) {
         </div>
       ) : null}
 
-      {listed.length === 0 && roles.isSuccess ? (
+      {/*
+        `roles.data.success`, not `roles.isSuccess` — react-query's flag says
+        the request resolved, which a refusal does too. Keyed on that, a refused
+        read drew the refusal above *and* "no roles have been composed yet"
+        beneath it, which is a different and untrue claim.
+      */}
+      {listed.length === 0 && roles.data?.success ? (
         <div className="card">
           <p>
             No roles have been composed yet.

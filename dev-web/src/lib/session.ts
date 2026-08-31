@@ -6,7 +6,7 @@
  * on the very next action. The client must never assume a role it saw earlier
  * is still held.
  */
-import { queryOptions, type QueryClient } from '@tanstack/react-query'
+import { queryOptions, type QueryClient, useQuery } from '@tanstack/react-query'
 import { CurrentSessionDocument } from '#/graphql/generated/operations'
 import type { CurrentSessionQuery } from '#/graphql/generated/operations'
 
@@ -54,6 +54,21 @@ export const ensureSession = (queryClient: QueryClient) =>
  */
 export const forgetSession = (queryClient: QueryClient) =>
   queryClient.resetQueries({ queryKey: sessionQuery.queryKey })
+
+/**
+ * The signed-in identity, for a component that is not a route.
+ *
+ * A route reads `Route.useRouteContext()`; a feature component has no route to
+ * ask. Threading the user down as a prop was the alternative, and on the
+ * funding workspace that meant eight permission flags crossing three
+ * components — a shape nobody maintains, so the checks were simply absent.
+ *
+ * The same query key the shell's guard already resolved, so this is a cache
+ * read rather than a second request, and the two can never disagree about who
+ * is signed in.
+ */
+export const useCurrentUser = (): SignedInUser | undefined =>
+  useQuery(sessionQuery).data?.user
 
 /**
  * These read nothing but the role names, so they ask for nothing but the names.
@@ -132,10 +147,19 @@ export const belongsInTheOffice = (
   user: (RoleBearer & PermissionBearer) | undefined,
 ): boolean => isSuperAdministrator(user) || (user?.permissions.length ?? 0) > 0
 
-/** True only for somebody whose whole office authority is the banner. */
+/**
+ * True only for somebody whose whole office authority is the banner.
+ *
+ * **Asks for `announcement`/`read`, not for the resource.** This forwards
+ * somebody off `/admin` and onto the board, and the board's own gate is `read`
+ * — so keying this on holding *any* announcement pair sent a role composed of
+ * `create` and `publish` to a screen that then refused it, whose way back
+ * points at `/admin`, which forwards it again. A door and the screen behind it
+ * have to ask the same question or the answer is a loop.
+ */
 export const holdsOnlyTheBanner = (
   user: (RoleBearer & PermissionBearer) | undefined,
 ): boolean =>
   !isSuperAdministrator(user) &&
-  canAny(user, 'announcement') &&
+  can(user, 'announcement', 'read') &&
   (user?.permissions ?? []).every((held) => held.resource === 'announcement')

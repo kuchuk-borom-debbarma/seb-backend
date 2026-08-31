@@ -9,9 +9,22 @@
  * is why the set is replaced whole and guarded by a version.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { closeDatabase, freshDatabase, resetDatabase } from '../support/harness'
+import {
+  activeDatabase,
+  closeDatabase,
+  freshDatabase,
+  resetDatabase,
+} from '../support/harness'
 import { env } from '../support/worker'
 import { everyPermission, graphql, permissionsOn, signIn } from '../support/api'
+import { auditActions } from '../../src/db/schema'
+import { auditEventRow } from '../../src/services/audit-event'
+import {
+  createRoleWrite,
+  findRoleById,
+  retireRoleWrite,
+  updateRoleWrite,
+} from '../../src/services/auth/queries/roles'
 
 beforeAll(async () => { await freshDatabase() })
 beforeEach(async () => { await resetDatabase() })
@@ -444,5 +457,106 @@ describe('who may compose a role at all', () => {
     )
     const allKeys: string[] = all.data.access.invitableRoles.response.map((one: any) => one.key)
     expect(allKeys).toEqual(expect.arrayContaining(['READS_ONLY', 'DECIDES']))
+  })
+})
+
+describe("the actor's own authority, re-stated inside the write", () => {
+  /*
+   * These reach the query layer directly, because the race they cover cannot be
+   * staged from outside it. The controller checks the caller is a super
+   * administrator and then spends real time: `confirmed()` runs scrypt, which
+   * is memory-hard by design. Another super administrator revoking that grant
+   * during the hash lands between the check and the write, and no request the
+   * suite can send occupies that window — driving these through GraphQL would
+   * only re-test the controller's own read, which refuses first.
+   *
+   * Composing a role is reserved in code rather than by a catalogue pair, so
+   * what the statement repeats is the grant itself, exactly as `grantRoleWrite`
+   * and `revokeRoleWrite` do.
+   */
+  const auditFor = (actorUserId: string, entityId: string) =>
+    auditEventRow({ requestHeaders: new Headers() }, {
+      action: auditActions.roleUpdated,
+      entityType: 'CORE_ROLE',
+      entityId,
+      actorUserId,
+      createdAt: new Date(),
+    })
+
+  /** Closes every `SUPER_ADMIN` grant the person holds, as a peer would. */
+  const stripSuperAdministrator = async (userId: string) => {
+    await env.DB.prepare(
+      `UPDATE core_user_role_grant SET revoked_at = ?, revocation_reason = 'DEMOTED'
+        WHERE user_id = ? AND role = 'SUPER_ADMIN' AND revoked_at IS NULL`,
+    ).bind(Date.now(), userId).run()
+  }
+
+  it('refuses to rewrite a role once the grant that permitted it is closed', async () => {
+    const operator = await superAdministrator()
+    const role = await composed(operator.cookie, 'CASEWORKER', [])
+    await stripSuperAdministrator(operator.userId)
+
+    const landed = await updateRoleWrite(activeDatabase(), {
+      roleId: role.id,
+      expectedVersion: role.version,
+      name: 'Renamed by somebody demoted mid-request',
+      description: 'What this role is for.',
+      permissions: [{ resource: 'application', action: 'read' }],
+      actorUserId: operator.userId,
+      now: new Date(),
+      audit: auditFor(operator.userId, role.id),
+    })
+
+    expect(landed, 'the write reports the loss rather than succeeding').toBe(false)
+    const after = await findRoleById(activeDatabase(), role.id)
+    expect(after?.name, 'the name is untouched').toBe('Composed role')
+    expect(after?.permissions, 'and so is the permission set').toEqual([])
+  })
+
+  it('refuses to retire a role once the grant that permitted it is closed', async () => {
+    const operator = await superAdministrator()
+    const role = await composed(operator.cookie, 'CASEWORKER', [])
+    await stripSuperAdministrator(operator.userId)
+
+    const retired = await retireRoleWrite(activeDatabase(), {
+      roleId: role.id,
+      expectedVersion: role.version,
+      actorUserId: operator.userId,
+      reason: 'Retired by somebody demoted mid-request',
+      now: new Date(),
+      audit: auditFor(operator.userId, role.id),
+    })
+
+    expect(retired, 'nothing is retired and no grants are closed').toBeNull()
+    expect(await findRoleById(activeDatabase(), role.id), 'the role is still live')
+      .not.toBeNull()
+  })
+
+  it('refuses to create a role once the grant that permitted it is closed', async () => {
+    const operator = await superAdministrator()
+    await stripSuperAdministrator(operator.userId)
+    const id = crypto.randomUUID()
+    const now = new Date()
+
+    const written = await createRoleWrite(activeDatabase(), {
+      role: {
+        id,
+        key: 'COMPOSED_AFTER_DEMOTION',
+        name: 'Composed after demotion',
+        description: 'What this role is for.',
+        currentVersion: 1,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+        deletedByUserId: null,
+        deleteReason: null,
+        createdByUserId: operator.userId,
+      },
+      actorUserId: operator.userId,
+      audit: auditFor(operator.userId, id),
+    })
+
+    expect(written, 'the insert selects no row, so nothing is written').toBe(false)
+    expect(await findRoleById(activeDatabase(), id)).toBeNull()
   })
 })

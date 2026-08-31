@@ -18,13 +18,30 @@
  * permissions drop on their very next request with no write to their grants and
  * nothing to contend on. The same statement closes the grants that exist at
  * that instant, which *is* a guard for those rows because it writes them.
+ *
+ * ## Every write here re-states the actor's own authority
+ *
+ * The controller checked it, and then spent real time: `confirmed()` runs
+ * scrypt, which is memory-hard by design and takes long enough for another
+ * super administrator to revoke the caller's grant while it runs. Composing a
+ * role is reserved in code rather than by a catalogue pair, so there is no
+ * permission term to repeat — what gets repeated is the grant itself, exactly
+ * as `grantRoleWrite` and `revokeRoleWrite` already do.
+ *
+ * Without it the redundancy this service claims is one-sided: the version guard
+ * decides *which* role state loses a race, and nothing decides whether the
+ * person writing it is still allowed to.
  */
 import { and, eq, isNull, sql, type SQL } from 'drizzle-orm'
 import { batch, changedExactlyOne, type Database } from '../../../db'
 import { constraintSafe } from '../../constraints'
 import { coreRole, coreRolePermission, coreUserRoleGrant } from '../../../db/schema'
 import { isCataloguePermission, type Permission } from '../permissions'
-import { insertAuditEventWhere, type AuditEventRecord } from './auth'
+import {
+  hasActiveBuiltinRole,
+  insertAuditEventWhere,
+  type AuditEventRecord,
+} from './auth'
 
 /** One composed role, with what it may do and how many people hold it. */
 export type ManagedRole = {
@@ -141,6 +158,8 @@ export const findRoleByKey = (db: Database, key: string): Promise<ManagedRole | 
 
 export type CreateRoleInput = {
   role: typeof coreRole.$inferInsert
+  /** Re-checked in the statement itself — see the module comment. */
+  actorUserId: string
   audit: AuditEventRecord
 }
 
@@ -165,11 +184,36 @@ export const createRoleWrite = async (
 ): Promise<boolean> => {
   const roleExists = sql`EXISTS (
     SELECT 1 FROM ${coreRole} WHERE ${coreRole.id} = ${input.role.id})`
+  /*
+   * `INSERT … SELECT` rather than `VALUES`, because only a select can carry a
+   * `WHERE`. The column list is positional and matches `core_role`'s declared
+   * order; `check:insert-arity` counts it against `database/schema.sql`.
+   */
   const written = await constraintSafe(() => batch(db, (tx) => [
-    tx.insert(coreRole).values(input.role),
+    tx.insert(coreRole).select(sql`
+      SELECT
+        ${input.role.id},
+        ${input.role.key},
+        ${input.role.name},
+        ${input.role.description},
+        ${input.role.currentVersion},
+        ${input.role.createdAt},
+        ${input.role.updatedAt},
+        NULL,
+        NULL,
+        NULL,
+        ${input.actorUserId}
+      WHERE ${hasActiveBuiltinRole(db, input.actorUserId, 'SUPER_ADMIN')}
+    `).returning({ id: coreRole.id }),
     insertAuditEventWhere(tx, input.audit, roleExists),
   ]))
-  return written !== null
+  /*
+   * The row count, not merely "the batch ran". A `VALUES` insert either writes
+   * or throws, so this used to be `written !== null` — with a `WHERE` on the
+   * select, writing nothing is an ordinary outcome and the caller would be told
+   * the role exists. A test written against the predicate caught it saying so.
+   */
+  return written !== null && changedExactlyOne(written[0])
 }
 
 export type UpdateRoleInput = {
@@ -178,6 +222,8 @@ export type UpdateRoleInput = {
   name: string
   description: string
   permissions: readonly Permission[]
+  /** Re-checked in the statement itself — see the module comment. */
+  actorUserId: string
   now: Date
   audit: AuditEventRecord
 }
@@ -226,6 +272,7 @@ export const updateRoleWrite = async (
           eq(coreRole.id, input.roleId),
           eq(coreRole.currentVersion, input.expectedVersion),
           isNull(coreRole.deletedAt),
+          hasActiveBuiltinRole(db, input.actorUserId, 'SUPER_ADMIN'),
         ),
       )
       .returning({ id: coreRole.id }),
@@ -289,6 +336,7 @@ export const retireRoleWrite = async (
           eq(coreRole.id, input.roleId),
           eq(coreRole.currentVersion, input.expectedVersion),
           isNull(coreRole.deletedAt),
+          hasActiveBuiltinRole(db, input.actorUserId, 'SUPER_ADMIN'),
         ),
       )
       .returning({ id: coreRole.id }),
