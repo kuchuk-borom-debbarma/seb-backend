@@ -42,10 +42,11 @@ queries/       all Drizzle SQL, all statement boundaries — and every
                authorization, lifecycle and version term repeated
                inside the write predicate
       │
-support.ts     each service's own refusal messages, its audit-row builder,
-               and its error-classification helpers
+support.ts     each service's own refusal messages, its permission
+               preamble, and its error-classification helpers
       │
 envelope.ts    the one response envelope, shared by every service
+audit-event.ts the one audit row, shared by every service
 ```
 
 ### Why the checks are repeated
@@ -135,11 +136,19 @@ control that offers "search" and silently means something narrower is a lie
 whether the narrowing was forced or chosen.
 
 **`support.ts` holds what is genuinely one service's**: its refusal messages,
-its permission preamble, its audit-row builder. Not the envelope — `success` and
-`failure` were once defined identically in four support modules, which is one
-decision copied rather than four decisions taken. They live in `envelope.ts`,
-and each service keeps only its own type alias so a call site still says which
-service is answering.
+its permission preamble, its error classification. Not the envelope — `success`
+and `failure` were once defined identically in four support modules, which is
+one decision copied rather than four decisions taken. They live in
+`envelope.ts`, and each service keeps only its own type alias so a call site
+still says which service is answering.
+
+Nor the audit row, for the same reason and with more at stake: which request
+headers become the trail's record of *where a request came from* is one choice
+about evidence, and four copies of it meant a change to that choice landing in
+three. It lives in `audit-event.ts`. Each service still keeps a thin wrapper —
+`adminAudit`, `auditEvent`, `announcementAudit`, `auditRecord` — because each
+narrows `action` and `entityType` to the vocabulary that service may write, so
+a controller naming another service's action does not compile.
 
 **`ownership.ts`** in the application service is a documented exception to the
 layering: it needs the query layer, and `support.ts` is what the query layer

@@ -281,6 +281,20 @@ and why nothing in this repository does it for you.
 `database/schema.sql` is generated, never hand-edited: change the Drizzle schema
 and run `db:schema:generate`.
 
+`fallow` gates dead code, duplication and complexity, and its thresholds live in
+[`.fallowrc.json`](.fallowrc.json) with a written reason beside each override —
+a raised limit with no sentence explaining it is indistinguishable from one
+nobody thought about. One rule is deliberately a warning rather than a gate:
+`private-type-leaks` reports an exported signature naming a type nothing imports
+directly, and this repository has a handful on purpose. Four are the alphabet
+`AnswerMap` is written in and the engine types two application controllers
+return; declaring either locally would put a second copy of the form vocabulary
+in a second file. The rest are the auth service's own authorization vocabulary —
+`Authority`, `ManagedRole`, `Permission`, `PermissionCatalogue` — named by the
+guards and role operations that return them, and consumed by GraphQL resolvers
+that are one-line delegations naming no types by design. It stays on as a
+warning so a genuinely leaked type is still reported.
+
 ---
 
 ## Where everything is written down

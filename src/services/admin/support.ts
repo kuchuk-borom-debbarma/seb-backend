@@ -2,16 +2,19 @@
  * Shared policy-layer helpers for the administrative controllers.
  *
  * What belongs here is what is genuinely this service's: its refusal messages,
- * its permission preamble, its audit-row builder. The response envelope itself
- * is **not** — `success` and `failure` were once defined identically in four
+ * its permission preamble, its error classification. The response envelope is
+ * **not** — `success` and `failure` were once defined identically in four
  * support modules, which is one decision copied rather than four decisions, and
- * copies drift. They live in `services/envelope.ts` now.
+ * copies drift. They live in `services/envelope.ts` now, and the audit row
+ * lives in `services/audit-event.ts` for the same reason.
  *
- * Audit metadata stays deliberately smaller than the business record: a flat
- * map of primitives, never the form itself.
+ * What stays here is the vocabulary: an administrative action, written against
+ * an entity this service owns. Audit metadata stays deliberately smaller than
+ * the business record — a flat map of primitives, never the form itself.
  */
 import { sql, type SQL } from 'drizzle-orm'
-import { coreAuditEvent, sebApplication, type auditActions } from '../../db/schema'
+import { sebApplication, type auditActions } from '../../db/schema'
+import { auditEventRow, type AuditEventRow } from '../audit-event'
 import { failure } from '../envelope'
 /*
  * Re-exported rather than moved out of every caller's import: `constraintSafe`
@@ -59,7 +62,14 @@ export const currentStaff = async <R extends Resource>(
 
 export type AdminAuditAction = (typeof auditActions)[keyof typeof auditActions]
 
-/** Audit metadata stays deliberately smaller than the business record. */
+/**
+ * Audit metadata stays deliberately smaller than the business record.
+ *
+ * The row itself is built by `services/audit-event.ts`, shared with every other
+ * service. What this adds is the vocabulary: an administrative action, written
+ * against an entity this service owns, always as a success — a refusal here
+ * never reaches a write.
+ */
 export const adminAudit = (
   context: AdminOperationContext,
   input: {
@@ -70,21 +80,8 @@ export const adminAudit = (
     now: Date
     metadata?: Record<string, string | number | boolean | null>
   },
-): typeof coreAuditEvent.$inferInsert => ({
-  id: crypto.randomUUID(),
-  actorUserId: input.actorUserId,
-  action: input.action,
-  entityType: input.entityType,
-  entityId: input.entityId,
-  outcome: 'SUCCESS',
-  requestId:
-    context.requestHeaders.get('CF-Ray') ?? context.requestHeaders.get('X-Request-ID'),
-  ipAddress: context.requestHeaders.get('CF-Connecting-IP'),
-  userAgent: context.requestHeaders.get('User-Agent'),
-  changesJson: null,
-  metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
-  createdAt: input.now,
-})
+): AuditEventRow =>
+  auditEventRow(context, { ...input, createdAt: input.now })
 
 /**
  * Whether the head update that opens this transaction actually landed.

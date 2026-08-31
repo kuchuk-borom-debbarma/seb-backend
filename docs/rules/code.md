@@ -15,7 +15,7 @@ Every service is `controllers/` over `queries/` over `support.ts`.
 | --- | --- |
 | `controllers/` | authorization, input validation, orchestration, and the friendly refusal |
 | `queries/` | all Drizzle SQL, all transaction and statement boundaries, and every authorization, lifecycle and version term **repeated inside the write predicate** |
-| `support.ts` | this service's refusal messages, its audit-row builder, its error classification |
+| `support.ts` | this service's refusal messages, its permission preamble, its error classification |
 
 **The two layers deliberately check the same things twice**, and this is the
 single most important thing about the codebase. A controller reads, decides,
@@ -32,6 +32,16 @@ how a refusal is shaped would have had to be made in each, with nothing to say
 the fourth had been missed. They live in
 [`services/envelope.ts`](../../src/services/envelope.ts); each service keeps
 only its own type alias, so a call site still says which service is answering.
+
+**The audit row is shared for the same reason, and more was at stake.** Four
+`support.ts` files each built a `core_audit_event` row, and the part that was
+copied is the evidence: which request headers become the trail's record of
+where a request came from. That is one choice, and made in four places a change
+to it lands in three. It lives in
+[`services/audit-event.ts`](../../src/services/audit-event.ts). Each service
+keeps a thin wrapper, because each narrows `action` and `entityType` to the
+vocabulary it may write — a controller naming another service's action should
+not compile, and that is the part which genuinely is per service.
 
 The worked example is the last-super-administrator guard in
 [`auth/queries/access.ts`](../../src/services/auth/queries/access.ts): two

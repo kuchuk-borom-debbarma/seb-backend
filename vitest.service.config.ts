@@ -103,6 +103,10 @@ export default defineConfig({
         'src/services/application/form/**/*.ts',
         'src/services/admin/form-template-input.ts',
         'src/services/constraints.ts',
+        // The audit row every service writes. Which request headers become the
+        // trail's record of where a request came from is one decision, and the
+        // maintenance paths that opt out of them are the reason it is gated.
+        'src/services/audit-event.ts',
         // Authentication controllers stay outside the gate for the same reason
         // `controllers/auth.ts` does: their lost-race refusals are only
         // reachable from a genuinely concurrent writer, and password

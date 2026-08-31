@@ -13,7 +13,8 @@
  */
 import { isExpectedConstraintError } from '../constraints'
 import { changedExactlyOne } from '../../db'
-import { auditActions, type coreAuditEvent } from '../../db/schema'
+import { auditActions } from '../../db/schema'
+import { auditEventRow, type AuditEventRow } from '../audit-event'
 import { failure, success } from '../envelope'
 import { authenticatedApplicant } from '../auth'
 import type { ApplicationOperationContext, SebResult } from './types'
@@ -40,10 +41,16 @@ export const currentApplicant = async (context: ApplicationOperationContext) => 
   return authenticated?.user ?? null
 }
 
-export type AuditRecord = typeof coreAuditEvent.$inferInsert
+export type AuditRecord = AuditEventRow
 export type ApplicationAuditAction = (typeof auditActions)[keyof typeof auditActions]
 
-/** Builds an allow-listed audit row without copying business form data. */
+/**
+ * Builds an allow-listed audit row without copying business form data.
+ *
+ * The row is `services/audit-event.ts`, shared with every other service. What
+ * this adds is that an applicant's act always has an actor — nothing here runs
+ * without a session — and that it is always a success.
+ */
 export const auditRecord = (
   context: ApplicationOperationContext,
   input: {
@@ -54,21 +61,7 @@ export const auditRecord = (
     metadata?: Record<string, string | number | boolean | null>
     now: Date
   },
-): AuditRecord => ({
-  id: crypto.randomUUID(),
-  actorUserId: input.actorUserId,
-  action: input.action,
-  entityType: input.entityType,
-  entityId: input.entityId,
-  outcome: 'SUCCESS',
-  requestId:
-    context.requestHeaders.get('CF-Ray') ?? context.requestHeaders.get('X-Request-ID'),
-  ipAddress: context.requestHeaders.get('CF-Connecting-IP'),
-  userAgent: context.requestHeaders.get('User-Agent'),
-  changesJson: null,
-  metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
-  createdAt: input.now,
-})
+): AuditRecord => auditEventRow(context, { ...input, createdAt: input.now })
 
 /**
  * Converts an expected uniqueness or foreign-key race into `false`, while

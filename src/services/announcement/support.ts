@@ -1,8 +1,12 @@
 /**
- * This service's refusal messages, its audit-row builder, and the link
+ * This service's refusal messages, its permission preamble, and the link
  * validator — the one place an announcer-authored href is decided safe.
+ *
+ * The audit row itself is `services/audit-event.ts`, shared by every service.
+ * What stays here is which actions this one may write.
  */
-import { coreAuditEvent, type auditActions } from '../../db/schema'
+import type { auditActions } from '../../db/schema'
+import { auditEventRow, type AuditEventRow } from '../audit-event'
 import { authenticatedWithPermission, type ActionOf, type Resource } from '../auth'
 import type {
   AnnouncementLink,
@@ -59,7 +63,13 @@ export const currentStaff = async <R extends Resource>(
 
 export type AnnouncementAuditAction = (typeof auditActions)[keyof typeof auditActions]
 
-/** Audit metadata stays deliberately smaller than the business record. */
+/**
+ * Audit metadata stays deliberately smaller than the business record.
+ *
+ * The row is `services/audit-event.ts`, shared with every other service. What
+ * this adds is that a banner change always has an actor and is always a
+ * success — an announcer's refusal never reaches a write.
+ */
 export const announcementAudit = (
   context: AnnouncementOperationContext,
   input: {
@@ -70,81 +80,91 @@ export const announcementAudit = (
     now: Date
     metadata?: Record<string, string | number | boolean | null>
   },
-): typeof coreAuditEvent.$inferInsert => ({
-  id: crypto.randomUUID(),
-  actorUserId: input.actorUserId,
-  action: input.action,
-  entityType: input.entityType,
-  entityId: input.entityId,
-  outcome: 'SUCCESS',
-  requestId:
-    context.requestHeaders.get('CF-Ray') ?? context.requestHeaders.get('X-Request-ID'),
-  ipAddress: context.requestHeaders.get('CF-Connecting-IP'),
-  userAgent: context.requestHeaders.get('User-Agent'),
-  changesJson: null,
-  metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
-  createdAt: input.now,
-})
+): AuditEventRow => auditEventRow(context, { ...input, createdAt: input.now })
+
+/**
+ * What a validated link is worth: the value to store, or the sentence to show.
+ *
+ * Never both. A caller reads `message` first, and there is nothing to store
+ * when it is set.
+ */
+type LinkVerdict =
+  | { value: AnnouncementLink | null; message: null }
+  | { value: null; message: string }
+
+/** One sentence for every way an external address can be wrong except length. */
+const EXTERNAL_MESSAGE = 'Provide a full http or https address.'
+
+/**
+ * An address that leaves the site.
+ *
+ * This is where `javascript:`, `data:` and their relatives die. The stored
+ * value is the URL **re-serialized** by `new URL()`, because the parser's
+ * output is the one form later readers cannot misread.
+ */
+const externalLink = (target: string): LinkVerdict => {
+  let parsed: URL
+  try {
+    parsed = new URL(target)
+  } catch {
+    return { value: null, message: EXTERNAL_MESSAGE }
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { value: null, message: EXTERNAL_MESSAGE }
+  }
+  if (parsed.href.length > MAX_EXTERNAL_LINK_LENGTH) {
+    return { value: null, message: 'That address is too long.' }
+  }
+  return { value: { kind: 'EXTERNAL', target: parsed.href }, message: null }
+}
+
+/**
+ * A path on this site, and only a path.
+ *
+ * The second character matters: browsers read `//host` — and `/\host` — as
+ * protocol-relative addresses, which would turn an in-site link into an open
+ * redirect. With character zero pinned to '/', no scheme can precede a colon,
+ * so these two rules are the whole of it.
+ */
+const routeLink = (target: string): LinkVerdict =>
+  !target.startsWith('/') ||
+  target.startsWith('//') ||
+  target.startsWith('/\\') ||
+  target.length > MAX_ROUTE_LINK_LENGTH
+    ? { value: null, message: 'Provide a site path starting with a single "/".' }
+    : { value: { kind: 'ROUTE', target }, message: null }
+
+/** A section of the landing page. It never leaves the document. */
+const anchorLink = (target: string): LinkVerdict =>
+  !target.startsWith('#') || target.length > MAX_ANCHOR_LINK_LENGTH
+    ? { value: null, message: 'Provide an anchor starting with "#".' }
+    : { value: { kind: 'ANCHOR', target }, message: null }
 
 /**
  * Decides whether an announcer-authored link may ever become an `href`.
  *
- * The target is rendered on the public landing page, so this is where
- * `javascript:`, `data:` and their relatives die — refusing at render time
- * would mean every renderer repeating the decision, and the first one that
- * forgot would execute it.
+ * The target is rendered on the public landing page, so this is the one place
+ * that decision is made — refusing at render time would mean every renderer
+ * repeating it, and the first one that forgot would execute it.
  *
- * Returns the value to store: for an external address that is the URL
- * **re-serialized** by `new URL()`, because the parser's output is the one
- * form later readers cannot misread.
+ * A dispatch and nothing else. Each kind is a different question with a
+ * different answer, and reading one of them should not mean reading all three.
  */
 export const validateAnnouncementLink = (
   link: AnnouncementLink | null | undefined,
-):
-  | { value: AnnouncementLink | null; message: null }
-  | { value: null; message: string } => {
+): LinkVerdict => {
   if (link === null || link === undefined) return { value: null, message: null }
   const target = link.target.trim()
-  if (link.kind === 'EXTERNAL') {
-    let parsed: URL
-    try {
-      parsed = new URL(target)
-    } catch {
-      return { value: null, message: 'Provide a full http or https address.' }
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return { value: null, message: 'Provide a full http or https address.' }
-    }
-    if (parsed.href.length > MAX_EXTERNAL_LINK_LENGTH) {
-      return { value: null, message: 'That address is too long.' }
-    }
-    return { value: { kind: 'EXTERNAL', target: parsed.href }, message: null }
+  switch (link.kind) {
+    case 'EXTERNAL':
+      return externalLink(target)
+    case 'ROUTE':
+      return routeLink(target)
+    case 'ANCHOR':
+      return anchorLink(target)
+    default:
+      // Unreachable through GraphQL (the enum refuses first); a direct caller
+      // with an invented kind is refused rather than stored.
+      return { value: null, message: 'Provide a link of a known kind.' }
   }
-  if (link.kind === 'ROUTE') {
-    /*
-     * A path, and only a path. The second character matters: browsers read
-     * `//host` — and `/\host` — as protocol-relative addresses, which would
-     * turn an in-site link into an open redirect. With character zero pinned
-     * to '/', no scheme can precede a colon, so these two rules are the whole
-     * of it.
-     */
-    if (
-      !target.startsWith('/') ||
-      target.startsWith('//') ||
-      target.startsWith('/\\') ||
-      target.length > MAX_ROUTE_LINK_LENGTH
-    ) {
-      return { value: null, message: 'Provide a site path starting with a single "/".' }
-    }
-    return { value: { kind: 'ROUTE', target }, message: null }
-  }
-  if (link.kind === 'ANCHOR') {
-    if (!target.startsWith('#') || target.length > MAX_ANCHOR_LINK_LENGTH) {
-      return { value: null, message: 'Provide an anchor starting with "#".' }
-    }
-    return { value: { kind: 'ANCHOR', target }, message: null }
-  }
-  // Unreachable through GraphQL (the enum refuses first); a direct caller with
-  // an invented kind is refused rather than stored.
-  return { value: null, message: 'Provide a link of a known kind.' }
 }

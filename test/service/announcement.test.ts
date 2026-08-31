@@ -294,6 +294,26 @@ describe('editing under contention', () => {
       .toBe('Edited title')
   })
 
+  it('holds an edit to the same field rules as the card it edits', async () => {
+    /*
+     * Creation and editing validate separately — they share `normalizedFields`
+     * but nothing calls it for both — so a rule proven only on the way in says
+     * nothing about the way out. An edit that blanked a title would otherwise
+     * put an untitled card on the public banner.
+     */
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
+    const created = await create(announcer.cookie)
+    const id = created.data.admin.announcement.create.response.id
+    const blanked = await update(announcer.cookie, id, 1, { title: '   ' })
+    expect(blanked.data.admin.announcement.update).toMatchObject({
+      success: false, message: 'Provide a title of at most 160 characters.',
+    })
+    // And it changed nothing: the card is still at the version it was read at.
+    const reread = await board(announcer.cookie)
+    expect(reread.data.admin.announcement.board.response.announcements[0])
+      .toMatchObject({ currentVersion: 1 })
+  })
+
   it('refuses a version that is not a positive integer, and an unknown id like a stale one', async () => {
     const announcer = await signIn({ permissions: permissionsOn('announcement') })
     await create(announcer.cookie)
