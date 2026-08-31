@@ -36,6 +36,52 @@ test.describe('the application form', () => {
     await expect(page.getByLabel('Full name')).toHaveValue('Bethel Debbarma')
   })
 
+  /**
+   * An abandoned draft can be put away, and taken back out.
+   *
+   * The same soft delete an enterprise and a document already had. Until this
+   * existed the applications list carried an "Include removed drafts" filter
+   * for a category of row nothing could create — and an applicant who started
+   * an application by mistake had to ask the office.
+   */
+  test('removes a draft nobody wants and restores it again', async ({ page }) => {
+    // Signing up, registering an enterprise and starting an application is
+    // three journeys before the assertion begins, and whichever test a worker
+    // runs first also pays for the cold client. The same allowance
+    // `identifiers.spec` makes for the same reason.
+    test.setTimeout(120_000)
+    const id = await startApplication(page, {
+      cycleCode,
+      prefix: 'binned',
+      businessName: 'Binned Works',
+    })
+
+    await page.goto(`/applications/${id}`)
+    await page.getByRole('button', { name: 'Remove this draft' }).click()
+    // Removal lands on the list, where the draft is gone by default.
+    await expect(page).toHaveURL(/\/applications$/u)
+    /*
+     * Addressed by its own link rather than by the enterprise's name: the name
+     * is also an option in the list's enterprise filter, which is drawn from
+     * every enterprise the applicant has and would match whether the row was
+     * there or not.
+     */
+    const row = page.locator(`a[href*="/applications/${id}"]`)
+    await expect(row).toHaveCount(0)
+
+    // It is not destroyed: the filter that always existed now has something to
+    // show, and the row leads back to a draft that can be restored.
+    // `click`, not `check`: the box is driven by the address, so React resets
+    // it until the navigation lands and `check` retries against its own click.
+    // `enterprises.spec` does the same with the same control.
+    await page.getByLabel('Include removed drafts').click()
+    await expect(row.first()).toBeVisible()
+
+    await page.goto(`/applications/${id}`)
+    await page.getByRole('button', { name: 'Restore this draft' }).click()
+    await expect(page.getByRole('button', { name: 'Remove this draft' })).toBeVisible()
+  })
+
   test('shows every section of the form', async ({ page }) => {
     const id = await startApplication(page, {
       cycleCode,

@@ -297,6 +297,33 @@ export const registerEnterprise = async (
  * Every step goes through the product's own screens, so a test that uses this
  * is still exercising signup, enterprise registration and application start.
  */
+/**
+ * Picks the cycle an application is being started in, by code.
+ *
+ * **By code, never by position.** The suite shares one database, so by the time
+ * any of this runs there are other open cycles — some requiring documents —
+ * and the options are ordered by `opensAt` while every helper opens its cycle
+ * at "an hour ago". Taking the second option quietly applied another cycle's
+ * policy, and only worked while the files happened to run in one order.
+ *
+ * **And it copes with there being only one.** With a single open cycle the
+ * screen picks it and disables the control: there is no choice to make, and
+ * offering one would be theatre. A disabled `<select>` cannot be acted on, so
+ * this asserts the right cycle is already chosen instead. That state is the
+ * ordinary one for a fresh deployment, and while this was two copies of the
+ * same code with the fix in one of them, every spec that started an
+ * application depended on some other spec having opened a second cycle first.
+ */
+const chooseProgrammeCycle = async (page: Page, cycleCode: string): Promise<void> => {
+  const cycle = page.getByLabel('Programme cycle')
+  const label = await cycle.locator('option').filter({ hasText: cycleCode }).innerText()
+  if (await cycle.isDisabled()) {
+    expect(await cycle.locator('option:checked').innerText()).toBe(label)
+    return
+  }
+  await cycle.selectOption({ label })
+}
+
 export const startApplication = async (
   page: Page,
   {
@@ -318,20 +345,9 @@ export const startApplication = async (
   if (await enterpriseSelect.isEnabled()) {
     await enterpriseSelect.selectOption({ label: businessName })
   }
-  /*
-   * By code, never by position, and `cycleCode` is required so there is no way
-   * back to position.
-   *
-   * The options are ordered by `opensAt`, and every helper opens its cycle at
-   * "an hour ago" — so index 1 is the oldest still-open cycle in the whole
-   * database, never the one the caller just made. Selecting it worked only
-   * because the files needing a document-requiring cycle happened to run before
-   * the ones that open cycles without documents, and under parallel files not
-   * even that. `submitApplication` selects by code for the same reason.
-   */
-  const cycle = page.getByLabel('Programme cycle')
-  const label = await cycle.locator('option').filter({ hasText: cycleCode }).innerText()
-  await cycle.selectOption({ label })
+  // `cycleCode` is required, so there is no way back to picking by position.
+  // Why that matters is on `chooseProgrammeCycle`.
+  await chooseProgrammeCycle(page, cycleCode)
   await page.getByRole('button', { name: 'Next' }).click()
   await page.getByRole('radio', { name: 'Initial application' }).check()
   await page.getByRole('button', { name: 'Start an initial application' }).click()
@@ -389,18 +405,7 @@ export const submitApplication = async (
   if (await enterpriseSelect.isEnabled()) {
     await enterpriseSelect.selectOption({ label: businessName })
   }
-  /*
-   * By code, not by position. The suite shares one database, so by the time
-   * this runs there are other open cycles — ones that do require documents —
-   * and picking the second option in the list would quietly apply the wrong
-   * policy.
-   */
-  const cycleOption = await page
-    .getByLabel('Programme cycle')
-    .locator('option')
-    .filter({ hasText: cycleCode })
-    .innerText()
-  await page.getByLabel('Programme cycle').selectOption({ label: cycleOption })
+  await chooseProgrammeCycle(page, cycleCode)
   await page.getByRole('button', { name: 'Next' }).click()
   await page.getByRole('radio', { name: 'Initial application' }).check()
   await page.getByRole('button', { name: 'Start an initial application' }).click()

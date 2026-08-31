@@ -33,15 +33,11 @@ query ManagedUserByEmail($email: String!) {
   }
 }
 
-query ManagedUserById($id: ID!) {
-  access {
-    user: userById(id: $id) {
-      success
-      message
-      response { ...ManagedUserRecord }
-    }
-  }
-}
+# `access.userById` is deliberately not asked for here. The API offers lookup by
+# id as well as by email, but every path that reaches a person in this client
+# already has their address — the access screen is searched by it, and the audit
+# history renders it beside each actor. A document nothing sends is a claim that
+# a screen uses it.
 
 mutation GrantRole($input: GrantRoleInput!) {
   access {

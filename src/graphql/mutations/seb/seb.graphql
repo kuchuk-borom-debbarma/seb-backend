@@ -479,10 +479,14 @@ type SebApplicationMutation {
   ): ApplicationResult!
 
   """
-  Removes a draft the applicant has not started filling in.
+  Removes a draft the applicant no longer wants.
 
-  **Refuses:** a draft that has been edited — only an unchanged one can be
-  removed — and stale versions.
+  Soft, like removing an enterprise or a document: the row stays, the list
+  shows it under `includeDeleted`, and `restoreDraft` puts it back. How much of
+  the form has been filled in makes no difference — an abandoned draft is
+  abandoned whether it is blank or half-written.
+
+  **Refuses:** anything that is not a draft, and either version being stale.
   """
   softDeleteDraft(
     """Which application, at which versions, and optionally why."""

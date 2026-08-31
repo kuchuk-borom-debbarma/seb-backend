@@ -59,6 +59,37 @@ test.describe('cycle administration', () => {
   })
 
   /**
+   * The deadline is the one rule that still moves after a cycle opens.
+   *
+   * Extending one is among the commonest things the office does, and the API
+   * has always accepted it — but no screen sent it, so the only way was a raw
+   * call. This suite's own `setClosingTime` helper still makes one, to arrange
+   * a closed window; what it could not do is prove an operator can.
+   */
+  test('moves an open cycle\'s deadline, and lifts it entirely', async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    const code = `SEP-${Date.now().toString(36).toUpperCase()}`
+    await createOpenCycle(page, code)
+
+    const later = new Date(Date.now() + 30 * 24 * 3_600_000)
+    await page.getByRole('button', { name: 'Change' }).click()
+    await page.getByLabel('Closing time').fill(later.toISOString().slice(0, 16))
+    await page.getByLabel('Reason for this change').fill('Extending for the holidays.')
+    await page.getByRole('button', { name: 'Save the closing time' }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(page.getByText('Open until closed by the office')).toHaveCount(0)
+
+    // Emptying the field takes the deadline off rather than leaving it alone —
+    // the two are different instructions and the screen says so.
+    await page.getByRole('button', { name: 'Change' }).click()
+    await page.getByLabel('Closing time').fill('')
+    await page.getByLabel('Reason for this change').fill('No fixed deadline this year.')
+    await page.getByRole('button', { name: 'Save the closing time' }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(page.getByText('Open until closed by the office')).toBeVisible()
+  })
+
+  /**
    * What a cycle asks and what it enforces, shown back on its own page.
    *
    * Both were write-only: the questions could only be seen by starting an

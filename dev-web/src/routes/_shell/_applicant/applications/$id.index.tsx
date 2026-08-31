@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
+import { useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -19,9 +20,11 @@ import {
   Megaphone,
   Paperclip,
   PlayCircle,
+  RotateCcw,
   Scale,
   Search,
   Sprout,
+  Trash2,
 } from 'lucide-react'
 import { stageTitle } from '#/features/application/draft'
 import { cyclesQuery, statusGuideQuery } from '#/features/application/queries'
@@ -34,7 +37,13 @@ import type {
   ApplicationCategory,
   ApplicationStatus,
 } from '#/graphql/generated/schema'
+import {
+  RemoveApplicationDraftDocument,
+  RestoreApplicationDraftDocument,
+} from '#/graphql/generated/operations'
 import { formatDate, formatDateTime, humanize } from '#/lib/format'
+import { gql } from '#/lib/graphql'
+import { messageFor, unwrap } from '#/lib/result'
 import styles from '#/features/application/ApplicationDetails.module.css'
 
 /*
@@ -267,6 +276,9 @@ function HeroBannerArtwork() {
 
 function ApplicationPage() {
   const { id } = Route.useParams()
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const [removalError, setRemovalError] = useState<string | null>(null)
   const { data: application } = useQuery(applicationQuery(id))
   const { data: timeline } = useQuery(timelineQuery(id))
   const { data: guide } = useQuery(statusGuideQuery)
@@ -293,6 +305,60 @@ function ApplicationPage() {
    * invite an edit the write would refuse.
    */
   const editableStages = application.editableStageKeys
+
+  /*
+   * Removing a draft nobody wants, and putting it back.
+   *
+   * The same soft delete an enterprise and a document already have here:
+   * nothing is destroyed, the row stays under "Include removed drafts" on the
+   * list, and restoring is one click. Without it an abandoned draft sat in the
+   * applicant's list for ever, and the only way to be rid of one was to ask
+   * the office.
+   *
+   * Both quote the form version *and* the workflow version, because a draft is
+   * edited and moved through the workflow independently — the API refuses on
+   * either being stale, which is what makes a removal safe to offer.
+   */
+  const removed = application.deletedAt !== null
+
+  const remove = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        (await gql(RemoveApplicationDraftDocument, {
+          input: {
+            applicationId: id,
+            expectedVersion: application.currentVersion,
+            expectedStatusVersion: application.statusVersion,
+            reason: null,
+          },
+        })).seb.application.softDeleteDraft,
+      ),
+    onMutate: () => setRemovalError(null),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['applications'] })
+      await router.navigate({ to: '/applications' })
+    },
+    onError: (cause) => setRemovalError(messageFor(cause)),
+  })
+
+  const restore = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        (await gql(RestoreApplicationDraftDocument, {
+          input: {
+            applicationId: id,
+            expectedVersion: application.currentVersion,
+            expectedStatusVersion: application.statusVersion,
+          },
+        })).seb.application.restoreDraft,
+      ),
+    onMutate: () => setRemovalError(null),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['application', id] })
+      await queryClient.invalidateQueries({ queryKey: ['applications'] })
+    },
+    onError: (cause) => setRemovalError(messageFor(cause)),
+  })
 
   const guideEntry = guide.find((entry) => entry.status === application.status)
   const cycleInfo = cycles?.mine.find(
@@ -398,8 +464,42 @@ function ApplicationPage() {
                 <ArrowRight size={15} aria-hidden="true" />
               </Link>
             ) : null}
+
+            {/*
+              A draft and nothing else, which is exactly what the API accepts —
+              how much of the form has been filled in makes no difference to it,
+              so it makes none here either. Offering this on a submitted
+              application would be offering a refusal.
+            */}
+            {removed ? (
+              <button
+                type="button"
+                className="button"
+                disabled={restore.isPending}
+                onClick={() => restore.mutate()}
+              >
+                <RotateCcw size={15} aria-hidden="true" />
+                {restore.isPending ? 'Restoring…' : 'Restore this draft'}
+              </button>
+            ) : application.status === 'DRAFT' ? (
+              <button
+                type="button"
+                className="button"
+                disabled={remove.isPending}
+                onClick={() => remove.mutate()}
+              >
+                <Trash2 size={15} aria-hidden="true" />
+                {remove.isPending ? 'Removing…' : 'Remove this draft'}
+              </button>
+            ) : null}
           </div>
         </div>
+
+        {removalError ? (
+          <p className="notice" data-tone="error" role="alert">
+            {removalError}
+          </p>
+        ) : null}
 
         <section
           className={styles.stepperCard}
