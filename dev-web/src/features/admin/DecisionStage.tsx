@@ -24,6 +24,7 @@ import type { DecisionOutcome } from '#/graphql/generated/schema'
 import { formatDate, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { can, useCurrentUser } from '#/lib/session'
 
 type Decision = {
   id: string
@@ -85,6 +86,15 @@ export function DecisionStage({
 }) {
   const mark = useMarker()
   const latestDecision = decisions.at(-1)
+  /*
+   * Read here rather than passed down, as the funding workspace does: the
+   * stage is opened by holding *either* decision permission, so the two
+   * controls inside it have to ask separately or one of them is drawn for
+   * somebody the API will refuse.
+   */
+  const viewer = useCurrentUser()
+  const mayRecord = can(viewer, 'decision', 'record')
+  const mayCorrect = can(viewer, 'decision', 'correct')
 
   // Nothing to say until a bank has answered and the application is waiting, or
   // a decision already exists to show.
@@ -153,7 +163,14 @@ export function DecisionStage({
       ) : null}
 
       <div className="card-body">
-        {status === 'AWAITING_DECISION' && decisions.length === 0 ? (
+        {/*
+          Recording a decision and correcting one are two permissions on the
+          API, so they are two questions here. The stage opens on holding
+          either — a role composed only to correct still needs the screen — and
+          that is exactly why the controls inside it cannot inherit the same
+          answer.
+        */}
+        {status === 'AWAITING_DECISION' && decisions.length === 0 && mayRecord ? (
           <DecisionForm
             title="Record the decision"
             confirmLabel="Record the decision"
@@ -174,7 +191,7 @@ export function DecisionStage({
           />
         ) : null}
 
-        {latestDecision ? (
+        {latestDecision && mayCorrect ? (
           <CorrectDecision
             applicationId={applicationId}
             supersedesDecisionId={latestDecision.id}

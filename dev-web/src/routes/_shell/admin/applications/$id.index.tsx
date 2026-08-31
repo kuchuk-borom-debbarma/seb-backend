@@ -44,7 +44,7 @@ import {
 } from '#/graphql/generated/operations'
 import { Dialog } from '#/components/Dialog'
 import { formatDateTime, humanize } from '#/lib/format'
-import { can, canAny } from '#/lib/session'
+import { can, canAny, useCurrentUser } from '#/lib/session'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { Explain } from '#/features/guide/Explain'
@@ -951,6 +951,13 @@ function InternalNotes({
   )
 
   const correctingNote = notes.find((note) => note.id === correctingNoteId)
+  /*
+   * Reading casework and writing on it are separate permissions. The notes are
+   * part of the workspace `application`/`read` opens, so a role composed to
+   * read one was offered "Add note" and a correction on every note, and the
+   * API refused both.
+   */
+  const mayNote = can(useCurrentUser(), 'application', 'note')
 
   const openAddModal = () => {
     setCorrectingNoteId(null)
@@ -989,14 +996,16 @@ function InternalNotes({
           ) : null}
         </div>
 
-        <button
-          type="button"
-          className={styles.addNoteTriggerButton}
-          onClick={openAddModal}
-        >
-          <Plus size={14} aria-hidden="true" />
-          Add note
-        </button>
+        {mayNote ? (
+          <button
+            type="button"
+            className={styles.addNoteTriggerButton}
+            onClick={openAddModal}
+          >
+            <Plus size={14} aria-hidden="true" />
+            Add note
+          </button>
+        ) : null}
       </div>
 
       {notes.length === 0 ? (
@@ -1015,7 +1024,7 @@ function InternalNotes({
                   {note.correctionOfNoteId ? ' · corrects an earlier note' : ''}
                   {corrections.has(note.id) ? ' · corrected later' : ''}
                 </span>
-                {!note.correctionOfNoteId && !corrections.has(note.id) ? (
+                {mayNote && !note.correctionOfNoteId && !corrections.has(note.id) ? (
                   <button
                     type="button"
                     className={styles.correctNoteBtn}

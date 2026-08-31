@@ -274,12 +274,20 @@ and why nothing in this repository does it for you.
 | `db:migrate` | Applies pending migrations to the database `DATABASE_URL` names |
 | `db:schema:generate` | Rewrites `database/schema.sql` from the Drizzle schema |
 | `db:schema:check` | Fails if the two have diverged, or if the schema will not re-apply |
-| `check:sdl` … `check:scanner` | Nine focused guardrails: SDL descriptions, audit actions, insert arity, untyped comparisons, SQL aliases, rate-limit coverage, the document size limit, scanner and deploy configuration |
+| `check:sdl` … `check:scanner` | Ten focused guardrails: SDL descriptions, audit actions, the permission catalogue, client permission gates, insert arity, untyped comparisons, SQL aliases, rate-limit coverage, the document size limit, scanner and deploy configuration |
 | `cf-typegen` | Regenerates `worker-configuration.d.ts` |
 | `deploy` | Checks the deploy configuration, then `wrangler deploy --minify` |
 
 `database/schema.sql` is generated, never hand-edited: change the Drizzle schema
 and run `db:schema:generate`.
+
+`check:client-gates` is the client half of `check:catalog`. That one fails when
+a catalogue pair is enforced nowhere on the server; this one fails when a screen
+can send two differently-guarded operations and never asks about one of them —
+which is how a role composed to record a decision came to be offered a
+correction the API refuses. It pairs with `noUnusedLocals`: this proves the
+permission is asked for, and the compiler proves the answer is used, because a
+flag that stops gating a control becomes an unread binding.
 
 `fallow` gates dead code, duplication and complexity, and its thresholds live in
 [`.fallowrc.json`](.fallowrc.json) with a written reason beside each override —
