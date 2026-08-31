@@ -142,9 +142,17 @@ export const invitableRoles = async (
   const actor = await authenticatedWithPermission(context, 'role', 'invite')
   if (!actor) return failure(AUTH_REQUIRED_MESSAGE)
   const all = await findRoles(context.db)
-  // The same predicate `inviteRole` refuses by, so the list and the refusal
-  // cannot disagree.
-  return success(all.filter((role) => withinAuthority(actor, role.permissions)))
+  /*
+   * The same predicates `inviteRole` refuses by, so the list and the refusal
+   * cannot disagree.
+   *
+   * A role holding nothing is left out for the reason `inviteRole` spells out:
+   * the empty set is a subset of every authority, so the ceiling admits it, and
+   * accepting spends an `APPLICANT` grant that nothing can give back. Offering
+   * it would be offering to strand somebody.
+   */
+  return success(all.filter((role) =>
+    role.permissions.length > 0 && withinAuthority(actor, role.permissions)))
 }
 
 /**

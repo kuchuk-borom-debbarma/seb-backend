@@ -20,7 +20,10 @@ import {
   requireInviteSecret,
   sealInvite,
 } from '../invite'
-import { createAuditEvent } from '../queries/auth'
+import {
+  createAuditEvent,
+  findUserAuthority,
+} from '../queries/auth'
 import {
   acceptRoleInviteWrite,
   findActorPasswordHash,
@@ -33,7 +36,7 @@ import {
   usableSuperAdminExistsExcluding,
 } from '../queries/access'
 import { findRoleById, findRoleByKey } from '../queries/roles'
-import { withinAuthority } from '../permissions'
+import { holdsPermission, permissionsOf, withinAuthority } from '../permissions'
 import {
   auditEvent,
   AUTH_REQUIRED_MESSAGE,
@@ -346,6 +349,24 @@ export const inviteRole = async (
   if (!role || !withinAuthority(actor, role.permissions)) {
     return failure('You cannot invite somebody to that role.')
   }
+  /*
+   * A role holding nothing is refused, and it is the one refusal here that is
+   * about the invitee rather than the issuer.
+   *
+   * The empty set is a subset of every authority, so the ceiling above admits
+   * it — and a role starts empty by design, because naming one and deciding
+   * what it may do are two acts. Accepting spends the invitee's `APPLICANT`
+   * grant, which nothing can grant back, so this pairing hands somebody an
+   * account that signs in and belongs to neither portal, permanently. There is
+   * no state to recover it from; the only fix is not to offer it.
+   */
+  if (role.permissions.length === 0) {
+    return failure(
+      `${role.name} does not do anything yet, so an invitation to it would `
+      + 'take away applicant access and give nothing back. Choose what it may '
+      + 'do first.',
+    )
+  }
   if (!identifierSchema.safeParse(input.userId).success) {
     return failure(USER_NOT_FOUND_MESSAGE)
   }
@@ -476,11 +497,37 @@ export const acceptRoleInvite = async (
    * somebody offer a weak role and then strengthen it before it was accepted.
    */
   const role = await findRoleById(context.db, invite.roleId)
+  /*
+   * The issuer's authority is re-read too, not only the role's version.
+   *
+   * The ceiling is checked when an invitation is issued, and the version pin
+   * stops the role being strengthened afterwards — but nothing stopped the
+   * *issuer* being demoted afterwards. An invitation outliving the authority
+   * that made it is a way to keep authority the office has removed: issue one
+   * to a second account, be revoked, redeem it up to forty-eight hours later,
+   * and exactly what was taken away exists again somewhere else.
+   *
+   * Everywhere else in this service authority is read live, and a revocation
+   * takes effect on the next request. This is that rule applied to the one
+   * path that spans two requests days apart.
+   */
+  const issuer = await findUserAuthority(context.db, invite.issuerId)
+  const issuerStillMay = issuer.superAdministrator || (
+    holdsPermission(
+      { permissions: permissionsOf(issuer) },
+      'role',
+      'invite',
+    ) && withinAuthority(
+      { superAdministrator: false, permissions: permissionsOf(issuer) },
+      role?.permissions ?? [],
+    )
+  )
   if (
     !subject ||
     subject.deleted ||
     !subject.emailVerified ||
     !role ||
+    !issuerStillMay ||
     role.version !== invite.roleVersion ||
     // The address the invitation was sent to is no longer the account's, so
     // whoever holds the link is no longer necessarily the account holder.

@@ -598,6 +598,58 @@ describe('inviting somebody to a staff role', () => {
 
   beforeEach(officeRoles)
 
+  it('will not offer a role that does nothing, because accepting one strands you', async () => {
+    /*
+     * A role starts empty — naming one and deciding what it may do are two
+     * acts — and the empty set is a subset of every authority, so the ceiling
+     * admits it. Accepting spends the invitee's `APPLICANT` grant, which
+     * nothing can give back, so the pairing hands somebody an account that
+     * signs in and belongs to neither portal, with no state to recover from.
+     */
+    const founder = await sessionHolding(['SUPER_ADMIN'])
+    await composeRole('EMPTY_ROLE', [], founder.userId)
+    const invitee = await sessionHolding(['APPLICANT'])
+
+    const attempt = await invite(founder.cookie, invitee.userId, 'EMPTY_ROLE')
+    expect(attempt.result.success, 'an empty role cannot be offered').toBe(false)
+    expect(attempt.result.message).toMatch(/does not do anything yet/u)
+
+    // And it is absent from what a picker is offered, so the refusal is never
+    // the first anybody hears of it.
+    const { body } = await graphql<{
+      access: { invitableRoles: { response: { key: string }[] | null } }
+    }>('query { access { invitableRoles { response { key } } } }', founder.cookie)
+    expect(body.data!.access.invitableRoles.response!.map((role) => role.key))
+      .not.toContain('EMPTY_ROLE')
+  })
+
+  it('refuses an invitation once the issuer has lost the authority behind it', async () => {
+    /*
+     * The ceiling is checked when an invitation is issued and the role's
+     * version is pinned, so it cannot be strengthened afterwards — but the
+     * issuer can be demoted afterwards, and the token lives forty-eight hours.
+     * Without this, revoking somebody's authority leaves a way to recreate it
+     * on another account they control.
+     */
+    // `CASEWORKER` holds `role`/`invite` and is composed by `officeRoles`.
+    const issuer = await sessionHolding(['CASEWORKER'])
+    const invitee = await sessionHolding(['APPLICANT'])
+
+    const sent = await invite(issuer.cookie, invitee.userId, 'DESK_REVIEWER')
+    expect(sent.result.success, sent.result.message ?? '').toBe(true)
+
+    // The office takes the issuer's authority away before the link is opened.
+    await env.DB.prepare(
+      `UPDATE core_user_role_grant SET revoked_at = ?, revocation_reason = 'DEMOTED'
+        WHERE user_id = ? AND role_id IS NOT NULL AND revoked_at IS NULL`,
+    ).bind(Date.now(), issuer.userId).run()
+
+    expect(await accept(sent.token!)).toMatchObject({ success: false })
+    expect(await activeRoles(invitee.userId), 'still an applicant, nothing more')
+      .toEqual(['APPLICANT'])
+  })
+
+
   it('swaps the applicant grant for the role, and never returns the link', async () => {
     const admin = await sessionHolding(['SUPER_ADMIN'])
     const subject = await applicantAccount()

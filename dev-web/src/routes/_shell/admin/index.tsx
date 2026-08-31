@@ -351,7 +351,7 @@ function CaseworkQueues() {
                 </span>
               </Link>
             ) : null}
-            {can(user, 'role', 'invite') ? (
+            {can(user, 'role', 'invite') && can(user, 'user', 'read') ? (
               <Link
                 to="/admin/invite"
                 className={styles.quickActionTile}

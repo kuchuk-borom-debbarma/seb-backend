@@ -172,6 +172,19 @@ function AuditHistory() {
               </option>
             ))}
           </select>
+          {/*
+            Reading the history and reading the roles are separate permissions,
+            so this list can legitimately be refused to somebody who may read
+            everything here. Said out loud, because the alternative is a filter
+            that quietly offers two options and looks complete.
+          */}
+          {composedRoles.data && !composedRoles.data.success ? (
+            <span className="field-hint">
+              The roles the office composed are not listed here — that needs
+              permission to read them. Filtering by one of those is the part
+              missing, not the history itself.
+            </span>
+          ) : null}
         </div>
 
         <div>

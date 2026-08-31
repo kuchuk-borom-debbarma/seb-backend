@@ -87,14 +87,24 @@ for (const file of walk(join(root, 'src/services'), /\.ts$/u)) {
 const fieldFn = new Map()
 for (const file of walk(join(root, 'src/graphql/resolvers'), /\.ts$/u)) {
   const source = readFileSync(file, 'utf8')
-  let owner = null
-  for (const line of source.split('\n')) {
-    const type = /^\s{2}(\w+):\s*\{/u.exec(line)
-    if (type) owner = type[1]
-    const field = /^\s{4}(\w+):[^\n]*?=>\s*(\w+)\(/u.exec(line)
-    if (field && owner && pairOf.has(field[2])) {
-      fieldFn.set(`${owner}.${field[1]}`, field[2])
-    }
+  /*
+   * By position, not line by line.
+   *
+   * A resolver is written on one line where its arguments fit and across five
+   * where they do not, and matching only the first shape silently dropped every
+   * multi-line one — including `AccessQuery.userByEmail`, which is the guarded
+   * read this check exists to notice. A regex that matches less than it should
+   * reports agreement, which is the failure mode worth engineering against.
+   */
+  const owners = [...source.matchAll(/^ {2}(\w+):\s*\{/gmu)]
+  const fields = [...source.matchAll(/^ {4}(\w+):/gmu)]
+  for (const [index, field] of fields.entries()) {
+    const owner = owners.filter((match) => match.index < field.index).at(-1)?.[1]
+    if (!owner) continue
+    const until = fields[index + 1]?.index ?? source.length
+    const body = source.slice(field.index, until)
+    const call = /=>\s*(\w+)\(/u.exec(body)
+    if (call && pairOf.has(call[1])) fieldFn.set(`${owner}.${field[1]}`, call[1])
   }
 }
 
@@ -120,8 +130,8 @@ for (const file of walk(join(root, 'src/graphql'), /\.graphql$/u)) {
 }
 
 /** Walks a document's selection path down to the type that owns its leaf. */
-const ownerOf = (path) => {
-  let type = 'Mutation'
+const ownerOf = (path, root) => {
+  let type = root
   for (const step of path.slice(0, -1)) {
     const next = fieldType.get(`${type}.${step}`)
     if (!next) return null
@@ -130,7 +140,23 @@ const ownerOf = (path) => {
   return type
 }
 
-/** Which pairs each client document sends. */
+/**
+ * Which pairs each client mutation sends.
+ *
+ * **Mutations only, and that is a real limit rather than an oversight.**
+ * Guarded *queries* belong here too — the invitation screen was admitted on
+ * `role`/`invite` while its first step looks an account up, which the API
+ * guards with `user`/`read` — but a screen almost never names a query document
+ * itself. It imports `managedUserQuery` from a `*Queries` module, so proving
+ * which guarded reads a screen actually performs means resolving *which export*
+ * it imported, not merely which module. Attributing every document in that
+ * module to every importer was tried and reported four screens for reads they
+ * do not make.
+ *
+ * A check that over-reports gets switched off, and one that under-reports at
+ * least never lies about what it looked at. So this covers the controls, and
+ * the reads are stated here as uncovered.
+ */
 const documentPairs = new Map()
 for (const file of walk(client, /\.graphql$/u)) {
   const source = readFileSync(file, 'utf8')
@@ -148,9 +174,11 @@ for (const file of walk(client, /\.graphql$/u)) {
        * caught, and would otherwise have read as "no screen sends anything".
        */
       if (selection?.[2]) {
-        const owner = ownerOf([...path, selection[1]])
-        const fn = owner && fieldFn.get(`${owner}.${selection[1]}`)
-        if (fn) pairs.add(pairOf.get(fn))
+        for (const root of ['Mutation', 'Query']) {
+          const owner = ownerOf([...path, selection[1]], root)
+          const fn = owner && fieldFn.get(`${owner}.${selection[1]}`)
+          if (fn) pairs.add(pairOf.get(fn))
+        }
       }
       if (selection && line.includes('{')) path.push(selection[1])
       if (line.includes('}') && !line.includes('{')) path.pop()
@@ -168,6 +196,12 @@ for (const file of walk(client, /\.tsx?$/u)) {
     if (source.includes(`${name}Document`)) for (const pair of pairs) needed.add(pair)
   }
   if (needed.size < 2) continue
+  /*
+   * Asked across the same reach the sending was counted over. A screen that
+   * draws `<AwardActions>` has not failed to gate the release form — that
+   * component asks for itself, and blaming the parent for a child that gates
+   * correctly is how a check earns its way into being ignored.
+   */
   const asked = new Set(
     [...source.matchAll(/\bcan\(\s*[^,]+,\s*'([a-z_]+)'\s*,\s*'([a-z_]+)'\s*\)/gu)]
       .map(([, resource, action]) => `${resource}:${action}`),

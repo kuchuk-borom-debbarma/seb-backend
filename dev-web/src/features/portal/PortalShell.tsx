@@ -97,7 +97,9 @@ export function PlatformNavigation({
   const administrationLinks = [
     can(user, 'programme_cycle', 'read'),
     can(user, 'announcement', 'read'),
-    can(user, 'role', 'invite'),
+    // Both, because the invite screen looks somebody up before it can offer
+    // anything — the same pair its own gate asks for.
+    can(user, 'role', 'invite') && can(user, 'user', 'read'),
     can(user, 'role', 'read'),
     isSuperAdministrator(user),
     can(user, 'audit', 'read'),
@@ -219,7 +221,7 @@ export function PlatformNavigation({
                       onNavigate={onClose}
                     />
                   ) : null}
-                  {can(user, 'role', 'invite') ? (
+                  {can(user, 'role', 'invite') && can(user, 'user', 'read') ? (
                     <NavLink
                       to="/admin/invite"
                       label="Invite a colleague"

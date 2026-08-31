@@ -289,6 +289,14 @@ correction the API refuses. It pairs with `noUnusedLocals`: this proves the
 permission is asked for, and the compiler proves the answer is used, because a
 flag that stops gating a control becomes an unread binding.
 
+It covers **mutations only**, and that limit is deliberate rather than
+forgotten. Guarded reads belong in it too, but a screen imports
+`managedUserQuery` from a `*Queries` module rather than naming the document, so
+proving which reads a screen makes means resolving which *export* it imported.
+Attributing every document in a module to every importer was tried and reported
+four screens for reads they do not make — and a check that over-reports gets
+switched off.
+
 `fallow` gates dead code, duplication and complexity, and its thresholds live in
 [`.fallowrc.json`](.fallowrc.json) with a written reason beside each override —
 a raised limit with no sentence explaining it is indistinguishable from one

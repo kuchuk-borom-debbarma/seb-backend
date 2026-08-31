@@ -30,11 +30,18 @@ export const Route = createFileRoute('/_shell/admin/invite')({
 
 function InviteGate() {
   const { user } = Route.useRouteContext()
-  if (!can(user, 'role', 'invite')) {
+  /*
+   * Two permissions, because the screen needs both to work. Inviting is the
+   * point of it, but the first step looks somebody up by address, and the API
+   * guards that with `user`/`read`. Admitting on the invite pair alone let a
+   * role composed without the other one reach a screen where every lookup was
+   * refused and there was no way forward.
+   */
+  if (!can(user, 'role', 'invite') || !can(user, 'user', 'read')) {
     return (
       <PermissionRefusal
         title="Invite a colleague"
-        needs="anybody whose role may invite a colleague"
+        needs="anybody whose role may both look an account up and invite a colleague"
       />
     )
   }

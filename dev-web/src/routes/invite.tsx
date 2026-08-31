@@ -41,6 +41,21 @@ import styles from './sign-in.module.css'
 const roleWords = (key: string): string =>
   key.replace(/_/gu, ' ').toLowerCase()
 
+/**
+ * "a" or "an", by what the word actually starts with.
+ *
+ * The table this replaced carried the article inside each name — "an approver"
+ * — and deriving the name from the key dropped it while the template kept a
+ * hardcoded "a". Every role beginning with a vowel then read "a auditor" on the
+ * one screen a new colleague sees first.
+ *
+ * Sound, not spelling, is the real rule, and no short function gets that right
+ * for every word. This gets it right for the vowels, which is every role key
+ * the catalogue's own vocabulary can produce.
+ */
+const article = (word: string): string =>
+  /^[aeiou]/iu.test(word) ? 'an' : 'a'
+
 export const Route = createFileRoute('/invite')({
   component: AcceptInvitePage,
 })
@@ -84,7 +99,9 @@ function AcceptInvitePage() {
     return (
       <main className={styles.page}>
         <div className={styles.card}>
-          <h1>You are now a {roleWords(accepted)}</h1>
+          <h1>
+            You are now {article(roleWords(accepted))} {roleWords(accepted)}
+          </h1>
           <p>
             Your applicant access has been exchanged for it, so the programme office is
             where you work from now.

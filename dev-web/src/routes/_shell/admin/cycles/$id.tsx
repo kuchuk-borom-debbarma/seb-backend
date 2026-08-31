@@ -291,8 +291,16 @@ function AdminCyclePage() {
 
   if (!data || !head || !policy) return null
 
+  /*
+   * Every write on this screen, so a control cannot be pressed twice while one
+   * is in flight. A mutation left out of this list keeps its own button live:
+   * the second press quotes the version the first has already spent, and the
+   * API refuses it as stale — so a change that did land reports that the record
+   * changed.
+   */
   const busy =
     transition.isPending ||
+    changeClosingTime.isPending ||
     changeGuidance.isPending ||
     changeDraft.isPending ||
     removeDraft.isPending
