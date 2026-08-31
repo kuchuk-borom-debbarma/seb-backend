@@ -22,8 +22,9 @@ fragment CycleFields on ProgrammeCycle {
   cycleCode
   displayName
   cycleYear
-  policyReference
+  policyDocument { version originalFilename sizeBytes uploadedAt }
   applicantGuidance
+  categoryAMaximumMonths
   status
   opensAt
   closesAt
@@ -167,6 +168,7 @@ query ApplicationById($id: ID!) {
             version
             programmeCycleVersion
             declarationAcceptedAt
+            applicationCategory
             priorSanctionOrderNumber priorSanctionDate
             priorNetDisbursedAmountPaise continuousOperationMonths
           }
@@ -436,6 +438,19 @@ query SubmittedCopy($applicationId: ID!) {
         response {
           url
         }
+      }
+    }
+  }
+}
+
+# Fetched on click, never cached: the URL expires in minutes.
+query CyclePolicyDocumentDownloadUrl($cycleId: ID!) {
+  seb {
+    application {
+      cyclePolicyDocumentDownloadUrl(cycleId: $cycleId) {
+        success
+        message
+        response { downloadUrl expiresAt }
       }
     }
   }

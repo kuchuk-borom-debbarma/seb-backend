@@ -31,7 +31,7 @@ import {
   type DeskReviewDraft,
 } from '#/features/admin/DeskReviewForm'
 import { statusTone } from '#/features/admin/queues'
-import { cycleReasonsQuery, workspaceQuery } from '#/features/admin/workspaceQueries'
+import { workspaceQuery } from '#/features/admin/workspaceQueries'
 import { formatBytes } from '#/features/application/documents'
 import { fieldLabel, stageTitle } from '#/features/application/draft'
 import styles from '#/features/admin/Workspace.module.css'
@@ -80,7 +80,9 @@ function WorkspacePage() {
   const mayWrite = can(viewer, 'STAFF_WRITE')
   const mayDecide = can(viewer, 'DECIDE')
   const { data: workspace } = useQuery(workspaceQuery(id))
-  const { data: reasons } = useQuery(cycleReasonsQuery(workspace?.cycleCode))
+  // Pinned to the same cycle version the API validates against, so the picker
+  // never offers an id a later cycle revision has re-minted.
+  const reasons = workspace?.reasons
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['workspace', id] })
 

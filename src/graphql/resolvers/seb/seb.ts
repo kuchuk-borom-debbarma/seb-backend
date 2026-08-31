@@ -8,6 +8,7 @@ import {
   applicationTimeline,
   availableProgrammeCycles,
   createEnterprise,
+  cyclePolicyDocumentDownloadUrl,
   documentDownloadUrl,
   enterpriseById,
   expansionEligibility,
@@ -153,6 +154,11 @@ export const sebResolvers = {
       args: { documentId: string },
       context: GraphQLContext,
     ) => documentDownloadUrl(args.documentId, context),
+    cyclePolicyDocumentDownloadUrl: (
+      _parent: unknown,
+      args: { cycleId: string },
+      context: GraphQLContext,
+    ) => cyclePolicyDocumentDownloadUrl(args.cycleId, context),
   },
   SebApplicationMutation: {
     startInitial: (

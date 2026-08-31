@@ -111,8 +111,8 @@ export const openTestClient = async (): Promise<OpenedClient> => {
   await client.connect()
   /*
    * Dropped and recreated, so a previous run's leftovers cannot make this one
-   * pass — the same reasoning `setup-local-db.mjs` records about guarding with
-   * `IF NOT EXISTS`.
+   * pass. Guarding with `IF NOT EXISTS` instead would make a re-run *look*
+   * successful against a table already there in an older shape.
    */
   await client.query('DROP SCHEMA IF EXISTS public CASCADE')
   await client.query('CREATE SCHEMA public')

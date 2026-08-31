@@ -255,6 +255,7 @@ const ROLE_LABELS: Record<ManageableRole, string> = {
   REVIEWER: 'reviewer',
   APPROVER: 'approver',
   ADMIN: 'programme administrator',
+  ANNOUNCER: 'announcer',
   SUPER_ADMIN: 'super administrator',
 }
 
@@ -287,7 +288,9 @@ const invitePortalUrl = (context: AuthOperationContext, token: string): string =
  */
 const INVITABLE_ROLES: Partial<Record<UserRole, readonly ManageableRole[]>> = {
   ADMIN: ['REVIEWER', 'APPROVER'],
-  SUPER_ADMIN: ['REVIEWER', 'APPROVER', 'ADMIN'],
+  // ANNOUNCER controls what the public landing page says, so only a super
+  // administrator may create one — ADMIN's row deliberately omits it.
+  SUPER_ADMIN: ['REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER'],
 }
 
 const invitableBy = (roles: readonly UserRole[]): Set<ManageableRole> =>

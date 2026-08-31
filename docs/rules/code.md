@@ -280,16 +280,29 @@ and regenerated; `npm run db:schema:check` regenerates and fails on any
 difference, which is what keeps the file a description rather than a second
 copy that can drift.
 
-There is no migration chain, because nothing is deployed and no database holds
-anything that has to survive — applying the schema means recreating it.
+A deployed database exists now, so changes to it travel as an ordered chain
+under `database/migrations/`: `npm run db:generate` diffs the Drizzle schema
+against the chain and writes the next file, `npm run db:migrate` applies what
+the database `DATABASE_URL` names has not seen. The chain runs from a single
+`0000_baseline` that builds everything from nothing — it was collapsed to one
+file while the programme was still in development, after every existing
+database had been migrated to that exact shape and had its bookkeeping
+re-marked by hand. That rewrite was a development-era, one-time act: now that
+databases carry real state, the chain only grows.
+
+**The baseline's journal `when` is backdated on purpose** — leave it alone. The
+migrator's only gate is `newest recorded created_at < when`, so carrying the
+collapsed chain's final timestamp is what makes a database that finished the
+old chain skip the baseline instead of replaying the whole schema over tables
+it already has. Generated entries after it carry their own real timestamps and
+need no thought; a hand-written `when` is a decision about which databases
+will replay, and only the baseline gets one.
 **`IF NOT EXISTS` is not a migration**: against a table already present in an
 older shape the statement is skipped and reported as success, leaving the
 database on the old definition while the code assumes the new one. That is why
-`db:setup:local` drops and rebuilds instead of guarding.
-
-The day a database exists that cannot be thrown away, this reverses and changes
-to existing tables become ordered files. Until then, adding one would be
-ceremony that hides the real rule.
+the end-to-end reset (`npm run test:e2e-db`) drops and recreates its database
+before migrating instead of guarding — recreating is cheaper where nothing has
+to survive, and cannot leave an old shape behind.
 
 **One ordering rule survives either way.** A composite foreign key needs its
 referenced columns covered by a unique *constraint*, not a unique index, because

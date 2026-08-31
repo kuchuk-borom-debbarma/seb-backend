@@ -88,7 +88,8 @@ export const createEnterprise = async (
 ): Promise<SebResult<Enterprise>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
-  const normalized = normalizeEnterpriseProfile(input)
+  const now = new Date()
+  const normalized = normalizeEnterpriseProfile(input, now)
   if (!normalized.value) {
     return failure(validationFailureMessage(normalized.message, 'Invalid enterprise details.'))
   }
@@ -110,7 +111,6 @@ export const createEnterprise = async (
   if (held.held >= limit.limit) return failure(enterpriseLimitReached(limit.limit))
   if (held.nameTaken) return failure(DUPLICATE_ENTERPRISE_NAME_MESSAGE)
 
-  const now = new Date()
   const status = profile.establishmentDate === null ? 'PROPOSED' : 'ACTIVE'
   const enterpriseId = crypto.randomUUID()
   const inserted = await runConstraintSafeInsert(() =>
@@ -158,12 +158,12 @@ export const updateEnterprise = async (
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
     return failure('Expected version must be a positive integer.')
   }
-  const normalized = normalizeEnterpriseProfile(input.profile)
+  const now = new Date()
+  const normalized = normalizeEnterpriseProfile(input.profile, now)
   if (!normalized.value) {
     return failure(validationFailureMessage(normalized.message, 'Invalid enterprise details.'))
   }
   const profile = normalized.value
-  const now = new Date()
   const status = profile.establishmentDate === null ? 'PROPOSED' : 'ACTIVE'
   const updated = await runConstraintSafe(() =>
     updateEnterpriseAggregate(context.db, {

@@ -20,6 +20,7 @@ import {
   Home,
   LayoutDashboard,
   LogOut,
+  Megaphone,
   Menu,
   MonitorSmartphone,
   Settings,
@@ -49,7 +50,9 @@ export const portalFor = (pathname: string): Portal =>
   pathname === '/admin' || pathname.startsWith('/admin/') ? 'office' : 'applicant'
 
 export const canUsePortal = (portal: Portal, user: SignedInUser): boolean =>
-  portal === 'office' ? can(user, 'STAFF_READ') : isApplicant(user)
+  portal === 'office'
+    ? can(user, 'STAFF_READ') || can(user, 'ANNOUNCE')
+    : isApplicant(user)
 
 /** Draw the navigation that works when somebody opens a portal they cannot use. */
 export const navPortalFor = (addressed: Portal, user: SignedInUser): Portal => {
@@ -134,27 +137,30 @@ export function PlatformNavigation({
             </NavGroup>
           ) : (
             <>
-              <NavGroup title="Workspace" collapsed={collapsed}>
-                <NavLink
-                  to="/admin"
-                  label="Dashboard"
-                  icon={LayoutDashboard}
-                  exact
-                  onNavigate={onClose}
-                />
-                <NavLink
-                  to="/admin/queue"
-                  label="Applications"
-                  icon={ClipboardList}
-                  activePrefixes={['/admin/queue', '/admin/applications']}
-                  onNavigate={onClose}
-                />
-              </NavGroup>
+              {can(user, 'STAFF_READ') ? (
+                <NavGroup title="Workspace" collapsed={collapsed}>
+                  <NavLink
+                    to="/admin"
+                    label="Dashboard"
+                    icon={LayoutDashboard}
+                    exact
+                    onNavigate={onClose}
+                  />
+                  <NavLink
+                    to="/admin/queue"
+                    label="Applications"
+                    icon={ClipboardList}
+                    activePrefixes={['/admin/queue', '/admin/applications']}
+                    onNavigate={onClose}
+                  />
+                </NavGroup>
+              ) : null}
 
               {can(user, 'STAFF_WRITE') ||
               can(user, 'ROLE_ADMIN') ||
               can(user, 'ROLE_INVITE') ||
-              can(user, 'AUDIT_READ') ? (
+              can(user, 'AUDIT_READ') ||
+              can(user, 'ANNOUNCE') ? (
                 <NavGroup title="Administration" collapsed={collapsed}>
                   {can(user, 'STAFF_WRITE') ? (
                     <NavLink
@@ -162,6 +168,15 @@ export function PlatformNavigation({
                       label="Programme cycles"
                       icon={CalendarDays}
                       activePrefixes={['/admin/cycles']}
+                      onNavigate={onClose}
+                    />
+                  ) : null}
+                  {can(user, 'ANNOUNCE') ? (
+                    <NavLink
+                      to="/admin/announcements"
+                      label="Announcement banner"
+                      icon={Megaphone}
+                      activePrefixes={['/admin/announcements']}
                       onNavigate={onClose}
                     />
                   ) : null}

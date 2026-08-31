@@ -47,7 +47,6 @@ const currentInput = (
   cycleCode: cycle.head.cycleCode,
   displayName: cycle.head.displayName,
   cycleYear: cycle.head.cycleYear,
-  policyReference: cycle.version.policyReference,
   applicantGuidance: cycle.version.applicantGuidance,
   partnerBankGuidance: cycle.version.partnerBankGuidance,
   // Dates, not strings: the resolver coerces the wire's `DateTime` before the

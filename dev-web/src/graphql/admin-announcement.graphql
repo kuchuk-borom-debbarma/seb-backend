@@ -1,0 +1,113 @@
+# The announcer's board. One read renders the whole screen, so the list and
+# the reorder version can never come from two moments.
+fragment AnnouncementCardFields on AdminAnnouncement {
+  id
+  tag
+  dateLabel
+  title
+  body
+  icon
+  link {
+    kind
+    target
+  }
+  endsAt
+  published
+  sortOrder
+  currentVersion
+  createdAt
+  updatedAt
+}
+
+query AdminAnnouncementBoard {
+  admin {
+    announcement {
+      board {
+        success
+        message
+        response {
+          boardVersion
+          announcements {
+            ...AnnouncementCardFields
+          }
+        }
+      }
+    }
+  }
+}
+
+mutation CreateAnnouncement($input: AnnouncementInput!) {
+  admin {
+    announcement {
+      create(input: $input) {
+        success
+        message
+        response {
+          ...AnnouncementCardFields
+        }
+      }
+    }
+  }
+}
+
+mutation UpdateAnnouncement($id: ID!, $expectedVersion: Int!, $input: AnnouncementInput!) {
+  admin {
+    announcement {
+      update(id: $id, expectedVersion: $expectedVersion, input: $input) {
+        success
+        message
+        response {
+          ...AnnouncementCardFields
+        }
+      }
+    }
+  }
+}
+
+mutation SetAnnouncementPublished($id: ID!, $expectedVersion: Int!, $published: Boolean!, $reason: String) {
+  admin {
+    announcement {
+      setPublished(id: $id, expectedVersion: $expectedVersion, published: $published, reason: $reason) {
+        success
+        message
+        response {
+          ...AnnouncementCardFields
+        }
+      }
+    }
+  }
+}
+
+mutation RemoveAnnouncement($id: ID!, $expectedVersion: Int!, $reason: String!) {
+  admin {
+    announcement {
+      remove(id: $id, expectedVersion: $expectedVersion, reason: $reason) {
+        success
+        message
+        response {
+          boardVersion
+          announcements {
+            ...AnnouncementCardFields
+          }
+        }
+      }
+    }
+  }
+}
+
+mutation ReorderAnnouncements($ids: [ID!]!, $expectedBoardVersion: Int!) {
+  admin {
+    announcement {
+      reorder(ids: $ids, expectedBoardVersion: $expectedBoardVersion) {
+        success
+        message
+        response {
+          boardVersion
+          announcements {
+            ...AnnouncementCardFields
+          }
+        }
+      }
+    }
+  }
+}

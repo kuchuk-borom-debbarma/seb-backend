@@ -362,6 +362,7 @@ function EnterpriseDetails({
               id="establishmentDate"
               className={styles.dateInput}
               type="date"
+              max={new Date().toISOString().slice(0, 10)}
               value={values.establishmentDate ?? ''}
               onChange={(event) => set('establishmentDate', orNull(event.target.value))}
             />
@@ -370,6 +371,10 @@ function EnterpriseDetails({
             Leave empty if the enterprise is still proposed.
           </span>
         </div>
+        <span className={styles.fieldHint}>
+          Your funding category is worked out from this date automatically when you
+          apply — it is never something you choose.
+        </span>
       </div>
 
       <div className={styles.fieldGroup}>

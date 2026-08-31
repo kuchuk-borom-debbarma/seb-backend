@@ -10,7 +10,8 @@
  * It needs a Postgres listening at the binding's local connection string. When
  * there is none the tests that use it are **skipped, loudly**, rather than
  * passing: a connection test that quietly passes without connecting is worse
- * than no connection test. `npm run db:setup:local` provides one.
+ * than no connection test. `npm run db:migrate` against a local Postgres
+ * provides one.
  */
 import { env } from 'cloudflare:test'
 import { openDatabase } from '../../src/db'

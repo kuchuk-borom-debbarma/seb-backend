@@ -12,9 +12,23 @@ import {
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import { applicantDashboardQuery } from '#/features/dashboard/dashboardQueries'
+import { formatBytes } from '#/features/application/documents'
 import { cyclesQuery } from '#/features/application/queries'
+import { CyclePolicyDocumentDownloadUrlDocument } from '#/graphql/generated/operations'
 import { formatDate, formatRelative, humanize } from '#/lib/format'
+import { gql } from '#/lib/graphql'
+import { unwrap } from '#/lib/result'
 import styles from '#/features/application/Cycles.module.css'
+
+/**
+ * Fetched on click rather than rendered as a link: the signed URL expires in
+ * minutes, so a cached one would be dead by the time it was followed.
+ */
+const openPolicyDocument = async (cycleId: string): Promise<void> => {
+  const data = await gql(CyclePolicyDocumentDownloadUrlDocument, { cycleId })
+  const link = unwrap(data.seb.application.cyclePolicyDocumentDownloadUrl)
+  window.open(link.downloadUrl, '_blank', 'noopener')
+}
 
 export const Route = createFileRoute('/_shell/_applicant/cycles')({
   loader: ({ context }) => context.queryClient.ensureQueryData(cyclesQuery),
@@ -278,17 +292,28 @@ function CyclesPage() {
                       </span>
                     </div>
 
-                    <div className={styles.infoRow}>
-                      <div className={styles.infoRowLeft}>
-                        <div className={styles.infoIconBadge} data-color="purple">
-                          <FileText aria-hidden="true" />
+                    {/* Only when published and cleared: the API refuses the
+                        download for anything else, so a row for a missing
+                        file would be a button that only ever fails. */}
+                    {cycle.policyDocument ? (
+                      <div className={styles.infoRow}>
+                        <div className={styles.infoRowLeft}>
+                          <div className={styles.infoIconBadge} data-color="purple">
+                            <FileText aria-hidden="true" />
+                          </div>
+                          <span className={styles.infoLabel}>Policy document</span>
                         </div>
-                        <span className={styles.infoLabel}>Policy reference</span>
+                        <span className={styles.infoValue}>
+                          <button
+                            type="button"
+                            className="button"
+                            onClick={() => void openPolicyDocument(cycle.id)}
+                          >
+                            Download PDF ({formatBytes(cycle.policyDocument.sizeBytes)})
+                          </button>
+                        </span>
                       </div>
-                      <span className={styles.infoValue}>
-                        {cycle.policyReference ?? '—'}
-                      </span>
-                    </div>
+                    ) : null}
 
                     <div className={styles.infoRow}>
                       <div className={styles.infoRowLeft}>

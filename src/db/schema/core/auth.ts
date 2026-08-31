@@ -22,6 +22,9 @@ export const userRoles = [
   'REVIEWER',
   'APPROVER',
   'ADMIN',
+  // Manages the public announcement banner and nothing else — deliberately no
+  // casework authority, so a communications hire never reads an application.
+  'ANNOUNCER',
   'SUPER_ADMIN',
 ] as const
 export type UserRole = (typeof userRoles)[number]
@@ -100,7 +103,7 @@ export const coreUserRoleGrant = pgTable(
   (table) => [
     check(
       'core_user_role_grant_role_check',
-      sql`${table.role} IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'SUPER_ADMIN')`,
+      sql`${table.role} IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER', 'SUPER_ADMIN')`,
     ),
     // Active grants contain no revocation metadata. Automated revocation may
     // have no user actor, but every closed grant must retain when and why.

@@ -431,13 +431,17 @@ session/challenge digests.
 ## Setup, testing, and limitations
 
 Regenerate the canonical empty-database schema with `npm run db:schema:generate`
-and verify drift with `npm run db:schema:check`. Use `npm run db:setup:local`
-for
-a local Postgres, `npm test` for the service suite, `npm run test:coverage` for
-the application coverage gate, and `npm run check` for the complete gate.
+and verify drift with `npm run db:schema:check`. Build or update any database
+with `npm run db:migrate` (override `DATABASE_URL` inline for one that is not
+the deployed database), `npm test` for the service suite, `npm run
+test:coverage` for the application coverage gate, and `npm run check` for the
+complete gate.
 
-The base schema is replaceable because no production database exists; no
-incremental migration is added. Programme-cycle administration, intake, desk
+A deployed database exists, so every schema change travels as an incremental
+migration under `database/migrations/` (`db:generate`, then `db:migrate`); the
+chain is never rewritten. Its single `0000_baseline` is the residue of a
+development-era consolidation performed before real data, with every existing
+database converged first. Programme-cycle administration, intake, desk
 review, bank evidence, programme decisions, awards, payments, assessments, and
 recovery now exist under the administrator namespace, and role administration
 under the `access` namespace. Rate limiting, account recovery, best-effort

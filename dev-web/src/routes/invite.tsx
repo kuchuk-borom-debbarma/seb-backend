@@ -35,6 +35,7 @@ const ROLE_NAMES: Record<string, string> = {
   REVIEWER: 'a reviewer',
   APPROVER: 'an approver',
   ADMIN: 'a programme officer',
+  ANNOUNCER: 'an announcer',
   SUPER_ADMIN: 'a super administrator',
 }
 

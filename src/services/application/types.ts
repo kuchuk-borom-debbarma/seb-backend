@@ -237,8 +237,25 @@ export type ProgrammeCycle = {
   cycleCode: string
   displayName: string
   cycleYear: number
-  policyReference: string | null
+  /**
+   * The order or circular this cycle implements, as a downloadable PDF.
+   * Null until the office publishes one *and* its malware scan is ACCEPTED —
+   * an applicant is never shown a file nobody may download.
+   */
+  policyDocument: {
+    version: number
+    originalFilename: string
+    sizeBytes: number
+    uploadedAt: Date
+  } | null
   applicantGuidance: string | null
+  /**
+   * The current rule version's Category A threshold, in months of trading.
+   * The one policy scalar the applicant surface repeats, so the screens can
+   * say which way an establishment date points before submission stamps the
+   * category for real.
+   */
+  categoryAMaximumMonths: number | null
   /**
    * The cycle's own lifecycle state, which is not the same as whether an
    * application may start in it: a cycle can be OPEN but outside its

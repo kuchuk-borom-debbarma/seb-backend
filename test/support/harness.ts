@@ -40,6 +40,17 @@ import { shimDatabase, type ShimDatabase } from './d1-shim'
 
 const SCHEMA = readFileSync(new URL('../../database/schema.sql', import.meta.url), 'utf8')
 
+/*
+ * The announcement board's one row. A migrated database is seeded by the
+ * baseline migration, but this harness builds from `database/schema.sql`,
+ * which carries no rows — so the statement is repeated here, and again after
+ * every truncate, because the product assumes the row exists and reads must
+ * never create it.
+ */
+const ANNOUNCEMENT_BOARD_SEED =
+  `INSERT INTO "seb_announcement_board" ("id", "current_version", "updated_at") ` +
+  `VALUES ('BOARD', 1, now()) ON CONFLICT DO NOTHING`
+
 /**
  * The connection the mocked `withDatabase` hands out.
  *
@@ -95,6 +106,7 @@ export const activeShim = (): ShimDatabase => {
 export const freshDatabase = async (): Promise<{ db: Database; DB: ShimDatabase }> => {
   const opened = await openTestClient()
   await opened.client.exec(SCHEMA)
+  await opened.client.exec(ANNOUNCEMENT_BOARD_SEED)
   const db = drizzleOver(opened)
   const shim = shimDatabase(opened.client)
   current = {
@@ -126,6 +138,9 @@ export const resetDatabase = async (): Promise<void> => {
   await current.client.exec(
     `TRUNCATE ${current.tables.map((name) => `"${name}"`).join(', ')} RESTART IDENTITY CASCADE`,
   )
+  // The truncate takes the announcement board's seeded row with everything
+  // else, and the product assumes it exists.
+  await current.client.exec(ANNOUNCEMENT_BOARD_SEED)
 }
 
 /*

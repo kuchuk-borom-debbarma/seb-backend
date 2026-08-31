@@ -11,8 +11,14 @@
 import { eq } from 'drizzle-orm'
 import type { AppBindings } from '../../bindings'
 import type { Database } from '../../db'
-import { sebApplicationDocumentVersion } from '../../db/schema'
-import { recordDocumentScanResult } from '../admin/document-scanner'
+import {
+  sebApplicationDocumentVersion,
+  sebCyclePolicyDocumentVersion,
+} from '../../db/schema'
+import {
+  recordDocumentScanResult,
+  recordPolicyDocumentScanResult,
+} from '../admin/document-scanner'
 import { documentScanner } from './index'
 
 /**
@@ -54,6 +60,30 @@ export const scanDocumentVersion = async (
   const outcome = await documentScanner(env).scan(version.objectKey)
   const recorded = await recordDocumentScanResult(db, {
     documentVersionId,
+    status: outcome.verdict,
+    scannerReference: outcome.reference,
+    safeMessage: outcome.message,
+    scannedAt: new Date(),
+  })
+  return recorded ? 'RECORDED' : 'NOT_RECORDED'
+}
+
+/** The cycle policy PDF's twin of `scanDocumentVersion`, same dispositions. */
+export const scanPolicyDocumentVersion = async (
+  db: Database,
+  env: AppBindings,
+  policyDocumentVersionId: string,
+): Promise<ScanDisposition> => {
+  const [version] = await db
+    .select({ objectKey: sebCyclePolicyDocumentVersion.r2ObjectKey })
+    .from(sebCyclePolicyDocumentVersion)
+    .where(eq(sebCyclePolicyDocumentVersion.id, policyDocumentVersionId))
+    .limit(1)
+  if (!version) return 'GONE'
+
+  const outcome = await documentScanner(env).scan(version.objectKey)
+  const recorded = await recordPolicyDocumentScanResult(db, {
+    documentVersionId: policyDocumentVersionId,
     status: outcome.verdict,
     scannerReference: outcome.reference,
     safeMessage: outcome.message,

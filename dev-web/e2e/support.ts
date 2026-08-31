@@ -8,6 +8,43 @@
 import { readFile } from 'node:fs/promises'
 import { expect, type Page } from '@playwright/test'
 
+
+/**
+ * Publishes a policy PDF on the cycle page the browser is already on.
+ *
+ * The local scanner is permissive and its verdict lands just after the
+ * upload's own response, so the API is polled — cheaper than reloading the
+ * page under a parallel run — until the verdict is the ACCEPTED that opening
+ * the cycle waits for, and the page then reloads once to show it.
+ */
+export const uploadPolicyDocument = async (page: Page): Promise<void> => {
+  const cycleId = page.url().match(/\/admin\/cycles\/([0-9a-f-]{36})/u)?.[1]
+  if (!cycleId) throw new Error(`Not on a cycle page: ${page.url()}`)
+  await page.setInputFiles('input[type="file"][accept="application/pdf"]', {
+    name: 'policy.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< >>\n%%EOF\n'),
+  })
+  // Finalization done: the card names the file. The verdict may still lag.
+  await expect(page.getByText('policy.pdf', { exact: false }).first()).toBeVisible()
+  await expect
+    .poll(async () => {
+      const response = await page.request.post(`${WORKER_URL}/graphql`, {
+        data: {
+          query: `query($id: ID!) { admin { programmeCycle { byId(id: $id) {
+            response { policyDocument { scanStatus } }
+          } } } }`,
+          variables: { id: cycleId },
+        },
+        headers: { 'content-type': 'application/json' },
+      })
+      const body = await response.json()
+      return body.data?.admin.programmeCycle.byId.response?.policyDocument?.scanStatus
+    }, { timeout: 30_000 })
+    .toBe('ACCEPTED')
+  await page.reload()
+}
+
 export const WORKER_URL = 'http://localhost:9899'
 const WORKER_LOG = new URL('../.playwright/worker.log', import.meta.url).pathname
 
@@ -191,7 +228,7 @@ export const navigationSections = async (page: Page): Promise<string[]> => {
  * administrator; the cycle code is unique per call so runs never collide.
  *
  * Every field filled here is one the API requires to open a cycle — it refuses
- * without a policy reference, guidance and both dates.
+ * without a policy PDF, guidance and an opening date.
  */
 export const openProgrammeCycle = async (
   page: Page,
@@ -206,17 +243,14 @@ export const openProgrammeCycle = async (
   await expect(page.getByLabel('Cycle code')).toHaveValue(/^SEP-\d{4}$/u)
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(name ?? code)
-  await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/07')
   await page
     .getByLabel('Guidance for applicants')
     .fill('Attach a detailed project report.')
   const local = (value: Date) => value.toISOString().slice(0, 16)
   await page.getByLabel('Applications open').fill(local(new Date(Date.now() - 3_600_000)))
-  await page
-    .getByLabel('Applications close')
-    .fill(local(new Date(Date.now() + 2_592_000_000)))
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
+  await uploadPolicyDocument(page)
   await page.getByRole('button', { name: 'Open for applications' }).click()
   await page.getByLabel('Reason for this action').fill('Opening for the programme year.')
   await page.getByRole('button', { name: 'Confirm' }).click()
@@ -398,15 +432,11 @@ const openCycleWithoutDocuments = async (
   await expect(page.getByLabel('Cycle code')).toHaveValue(/^SEP-\d{4}$/u)
   await page.getByLabel('Cycle code').fill(code)
   await page.getByLabel('Name', { exact: true }).fill(code)
-  await page.getByLabel('Policy reference').fill('TTAADC/SEP/2026/07')
   await page
     .getByLabel('Guidance for applicants')
     .fill('No documents are required in this cycle.')
   const local = (value: Date) => value.toISOString().slice(0, 16)
   await page.getByLabel('Applications open').fill(local(new Date(Date.now() - 3_600_000)))
-  await page
-    .getByLabel('Applications close')
-    .fill(local(new Date(Date.now() + 2_592_000_000)))
 
   if (configureIdentifiers) {
     // The identifier rules live on the wizard's last step.
@@ -432,6 +462,7 @@ const openCycleWithoutDocuments = async (
   // Each of those was a cycle revision, so the page is holding a version that
   // has moved on — and opening quotes the version it was rendered with.
   await page.reload()
+  await uploadPolicyDocument(page)
 
   await page.getByRole('button', { name: 'Open for applications' }).click()
   await page.getByLabel('Reason for this action').fill('Opening for the programme year.')
@@ -462,6 +493,50 @@ type FormQuestionRow = {
  * `OPTIONAL`, one mutation apiece — each is a cycle revision, so each quotes
  * the version the last one produced.
  */
+/**
+ * Sets a closing time on an open cycle through the API.
+ *
+ * The wizard no longer offers one — cycles stay open until the office closes
+ * them — but the server mutation remains for cycles that carry a deadline,
+ * and the applicant-facing closing notice is what a spec arranges this for.
+ */
+export const setClosingTime = async (
+  page: Page,
+  cycleId: string,
+  closesAt: Date,
+): Promise<void> => {
+  const call = async (query: string, variables: Record<string, unknown>) => {
+    const response = await page.request.post(`${WORKER_URL}/graphql`, {
+      data: { query, variables },
+      headers: { 'content-type': 'application/json' },
+    })
+    const body = await response.json()
+    expect(body.errors, JSON.stringify(body.errors)).toBeUndefined()
+    return body.data
+  }
+  const read = await call(
+    `query($id: ID!) { admin { programmeCycle { byId(id: $id) { response {
+      head { currentVersion }
+    } } } } }`,
+    { id: cycleId },
+  )
+  const changed = await call(
+    `mutation($input: CycleClosingInput!) {
+      admin { programmeCycle { changeClosingTime(input: $input) { success message } } }
+    }`,
+    { input: {
+      id: cycleId,
+      expectedVersion: read.admin.programmeCycle.byId.response.head.currentVersion,
+      closesAt: closesAt.toISOString(),
+      reason: 'The spec needs a published deadline.',
+    } },
+  )
+  expect(
+    changed.admin.programmeCycle.changeClosingTime.success,
+    changed.admin.programmeCycle.changeClosingTime.message ?? '',
+  ).toBe(true)
+}
+
 const makeDocumentsOptional = async (page: Page, cycleId: string): Promise<void> => {
   const call = async (query: string, variables: Record<string, unknown>) => {
     const response = await page.request.post(`${WORKER_URL}/graphql`, {
@@ -633,4 +708,42 @@ export const latestInviteLink = async (recipient: string): Promise<string> => {
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
   throw new Error(`No invitation link for ${recipient} appeared in the Worker log within 10 seconds.`)
+}
+
+/**
+ * Signs somebody up, invites them to a role, and accepts on their behalf.
+ *
+ * The whole flow, because it is the only way to become staff: there is no
+ * seeded reviewer to borrow, which is the point of the invitation existing.
+ */
+export const inviteSomebodyTo = async (
+  page: Page,
+  role: 'Reviewer' | 'Approver' | 'Announcer',
+) => {
+  const email = uniqueEmail('invited')
+  // Signup deliberately creates no session, so there is nobody to sign out.
+  await signUpApplicant(page, email)
+
+  await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+  await page.goto('/admin/invite')
+  await page.getByLabel('Their email address').fill(email)
+  await page.getByRole('button', { name: 'Look them up' }).click()
+  await expect(page.getByRole('heading', { name: email })).toBeVisible()
+  // Selected by value rather than label, because the labels carry a
+  // description after the role name.
+  await page.getByLabel('Invite them to be').selectOption(role.toUpperCase())
+  await page.getByLabel('Why').fill('Joining the intake team')
+  await page.getByRole('button', { name: 'Send the invitation' }).click()
+  await expect(page.getByText(`Invitation sent to ${email}`)).toBeVisible()
+
+  // The link is never shown to the issuer; it only exists in what was sent.
+  await expect(page.getByText('/invite#')).toHaveCount(0)
+  const link = await latestInviteLink(email)
+  await signOut(page)
+
+  await signIn(page, email, PASSWORD)
+  await page.goto(link)
+  await page.getByRole('button', { name: 'Accept the invitation' }).click()
+  await expect(page.getByRole('heading', { name: /You are now/u })).toBeVisible()
+  return email
 }

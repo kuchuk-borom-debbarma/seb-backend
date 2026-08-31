@@ -232,6 +232,9 @@ const RATE_LIMIT_POLICY = {
       periodSeconds: 60,
     },
   ],
+  // The office's policy PDF upload carries no allowance, like every other
+  // admin operation: CYCLE_ADMIN is the programme's most trusted authority,
+  // and every binding here may back exactly one allowance.
 } as const satisfies Record<string, readonly RateLimitBucket[]>
 
 /**

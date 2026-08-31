@@ -30,7 +30,8 @@ import { base64FromBytes } from '../../src/services/storage/policy'
  * open a connection *from inside workerd*, they are also what proves the
  * Hyperdrive binding and `nodejs_compat` work. Skipped rather than passed when
  * no Postgres is listening: a connection test that quietly passes without
- * connecting is worse than none. `npm run db:setup:local` provides one.
+ * connecting is worse than none. `npm run db:migrate` against a local
+ * Postgres provides one.
  */
 const HAS_DATABASE = await databaseIsReachable()
 const itWithDatabase = HAS_DATABASE

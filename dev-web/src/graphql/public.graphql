@@ -1,0 +1,24 @@
+# The one unauthenticated read: the landing page's notice board. Fetched by a
+# loader on `/`, so the cards arrive in the server-rendered HTML.
+query PublicAnnouncementBanner {
+  public {
+    announcementBanner {
+      success
+      message
+      response {
+        announcements {
+          id
+          tag
+          dateLabel
+          title
+          body
+          icon
+          link {
+            kind
+            target
+          }
+        }
+      }
+    }
+  }
+}

@@ -115,23 +115,14 @@ export const headJustMovedTo = (
 )`
 
 
-export const normalizeRequiredText = (
-  value: string,
-  maximumLength: number,
-): string | null => {
-  const normalized = value.trim()
-  return normalized && normalized.length <= maximumLength ? normalized : null
-}
-
-export const normalizeOptionalText = (
-  value: string | null | undefined,
-  maximumLength: number,
-): string | null | 'INVALID' => {
-  if (value === null || value === undefined) return null
-  const normalized = value.trim()
-  if (!normalized) return null
-  return normalized.length <= maximumLength ? normalized : 'INVALID'
-}
+/*
+ * Re-exported rather than moved out of every caller's import, like
+ * `constraintSafe` above: the definitions live in `services/text.ts` because
+ * the announcement service needs them too. Imported as well, because this
+ * file's own preamble below still normalizes reasons.
+ */
+import { normalizeRequiredText } from '../text'
+export { normalizeRequiredText, normalizeOptionalText } from '../text'
 
 /*
  * Re-exported rather than reimplemented. This was a second definition reading

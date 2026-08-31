@@ -26,6 +26,12 @@ enum ManageableRole {
   ADMIN
 
   """
+  Writes the public landing page's announcement banner and nothing else.
+  Granted or invited only by a super administrator.
+  """
+  ANNOUNCER
+
+  """
   Everything, including changing what other accounts may do. Never available
   by invitation — only an existing super administrator can create another.
   """

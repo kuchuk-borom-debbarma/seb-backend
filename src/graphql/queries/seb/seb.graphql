@@ -402,6 +402,21 @@ type SebApplicationQuery {
     """From `ApplicationDocument.id`. Must belong to the signed-in applicant."""
     documentId: ID!
   ): DocumentDownloadResult!
+
+  """
+  A short-lived link to download a cycle's published policy PDF.
+
+  **Use case:** the policy document button on a programme cycle page. Fetch it
+  when the applicant clicks rather than up front — it expires, and it is not a
+  stable address for the file.
+
+  **Refuses:** a cycle with no published document, and any file that has not
+  cleared checking.
+  """
+  cyclePolicyDocumentDownloadUrl(
+    """Which programme cycle."""
+    cycleId: ID!
+  ): DocumentDownloadResult!
 }
 
 """Where one page sits in a longer list."""
@@ -531,14 +546,26 @@ type ProgrammeCycle {
   """The policy year this cycle belongs to."""
   cycleYear: Int!
 
-  """The policy document this cycle implements, where one is published."""
-  policyReference: String
+  """
+  The policy PDF this cycle implements — the order or circular — where one is
+  published and has cleared checking. Fetch the download link on click via
+  `cyclePolicyDocumentDownloadUrl`.
+  """
+  policyDocument: CyclePolicyDocument
 
   """
   Guidance written for applicants by the programme office. Rendered as-is on
   the application screens.
   """
   applicantGuidance: String
+
+  """
+  How many months of trading make an enterprise `CATEGORY_A` on this cycle.
+  The category itself is computed by the server at submission — this scalar is
+  exposed so the screens can say which way an establishment date points. Null
+  when the cycle sets no threshold and does not sort by category.
+  """
+  categoryAMaximumMonths: Int
 
   """
   The cycle's own lifecycle state, which is **not** the same as whether an
@@ -555,6 +582,21 @@ type ProgrammeCycle {
 
   """When the window closes. Null while it is unscheduled."""
   closesAt: DateTime
+}
+
+"""A cycle's published policy PDF, as an applicant may read it."""
+type CyclePolicyDocument {
+  """Which published revision this is. Replacements count up."""
+  version: Int!
+
+  """The file's own name, as it downloads."""
+  originalFilename: String!
+
+  """The file's size in bytes, so the screen can say what a click costs."""
+  sizeBytes: Int!
+
+  """When this revision was published."""
+  uploadedAt: DateTime!
 }
 
 """Who the applicant is waiting on."""

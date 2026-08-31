@@ -307,6 +307,35 @@ export function FormEditor({
     save.mutate({ kind: 'replace', template: { ...current, stages } })
   }
 
+  /*
+   * Question order is array order on the write too, so a move must send the
+   * whole array back through `replace` — the per-question update pins the
+   * stored sortOrder on the server, so it can never renumber a neighbour.
+   */
+  const moveField = (fieldKey: string, delta: -1 | 1) => {
+    const current = toTemplateInput(template, definitions)
+    const at = current.fields.findIndex((field) => field.fieldKey === fieldKey)
+    if (at < 0) return
+    const moved = current.fields[at]!
+    // A question only trades places with a sibling — same stage, same parent
+    // (null at top level) — and the swap happens at the two absolute indices,
+    // so every other stage's and group's order rides through untouched.
+    const siblings = current.fields
+      .map((field, index) => ({ field, index }))
+      .filter(
+        ({ field }) =>
+          field.stageKey === moved.stageKey &&
+          field.parentFieldKey === moved.parentFieldKey,
+      )
+    const place = siblings.findIndex(({ index }) => index === at)
+    const neighbour = siblings[place + delta]
+    if (!neighbour) return
+    const fields = [...current.fields]
+    fields[at] = neighbour.field
+    fields[neighbour.index] = moved
+    save.mutate({ kind: 'replace', template: { ...current, fields } })
+  }
+
   const saveQuestion = () => {
     if (!questionDraft || !questionPlace) return
     const stageKey = pane === 'structures' ? '' : pane
@@ -578,6 +607,7 @@ export function FormEditor({
               }}
               onStageDraftChange={setStageDraft}
               onMoveStage={(delta) => moveStage(stage.key, delta)}
+              onMoveQuestion={moveField}
               onRemoveStage={() =>
                 save.mutate({ kind: 'removeStage', stageKey: stage.key })
               }
@@ -706,6 +736,7 @@ function StagePane({
   onEditStage,
   onStageDraftChange,
   onMoveStage,
+  onMoveQuestion,
   onRemoveStage,
   questionDraft,
   questionPlace,
@@ -724,6 +755,7 @@ function StagePane({
   onEditStage: () => void
   onStageDraftChange: (draft: StageDraft) => void
   onMoveStage: (delta: -1 | 1) => void
+  onMoveQuestion: (fieldKey: string, delta: -1 | 1) => void
   onRemoveStage: () => void
   questionDraft: AttributeDraft | null
   questionPlace: { existingKey: string | null; parentFieldKey: string | null } | null
@@ -765,6 +797,10 @@ function StagePane({
       ? structureKeyOf(field.repeatGroupKey!, template, definitions)
       : null
     const structure = definitions.find((each) => each.definitionKey === structureKey)
+    // Where the row sits among its siblings — the questions beside it, not
+    // the whole form — so the arrows stop exactly at its list's two ends.
+    const siblings = parentFieldKey ? membersOf(parentFieldKey) : topLevel
+    const place = siblings.findIndex((each) => each.key === field.key)
     return (
       <div key={field.key}>
         <div
@@ -796,11 +832,37 @@ function StagePane({
             </span>
           ) : null}
           {derived ? (
+            /*
+             * No move buttons here either: a derived member's place in its
+             * group is the structure definition's order, edited there.
+             */
             <span className={styles.derivedTag}>
               from structure {structure?.label ?? structureKey}
             </span>
           ) : (
             <span className={styles.questionActions}>
+              <button
+                type="button"
+                className="button"
+                data-variant="ghost"
+                aria-label={`Move ${field.label} earlier`}
+                disabled={!canAct || place <= 0}
+                title={canAct ? undefined : 'Write a change reason above first.'}
+                onClick={() => onMoveQuestion(field.key, -1)}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                className="button"
+                data-variant="ghost"
+                aria-label={`Move ${field.label} later`}
+                disabled={!canAct || place === siblings.length - 1}
+                title={canAct ? undefined : 'Write a change reason above first.'}
+                onClick={() => onMoveQuestion(field.key, 1)}
+              >
+                ↓
+              </button>
               <button
                 type="button"
                 className="button"
@@ -979,6 +1041,23 @@ function StructuresPane({
       )
       .map((field) => field.label)
 
+  /*
+   * Order is the draft's array order, and `putGroupDefinition` sends the
+   * array — so a move only rewrites the local draft (nothing persists until
+   * Save structure), keeping any open editor on the member it was opened for.
+   */
+  const moveMember = (index: number, delta: -1 | 1) => {
+    if (!draft) return
+    const to = index + delta
+    if (to < 0 || to >= draft.members.length) return
+    const members = [...draft.members]
+    members[index] = draft.members[to]!
+    members[to] = draft.members[index]!
+    onChange({ ...draft, members })
+    if (openMember === index) setOpenMember(to)
+    else if (openMember === to) setOpenMember(index)
+  }
+
   const editor = draft ? (
     <div className={styles.editor}>
       <div className={styles.grid}>
@@ -1021,6 +1100,26 @@ function StructuresPane({
               {member.key} · {humanize(member.fieldType).toLowerCase()}
             </span>
             <span className={styles.questionActions}>
+              <button
+                type="button"
+                className="button"
+                data-variant="ghost"
+                aria-label={`Move ${member.label || member.key} earlier`}
+                disabled={index === 0}
+                onClick={() => moveMember(index, -1)}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                className="button"
+                data-variant="ghost"
+                aria-label={`Move ${member.label || member.key} later`}
+                disabled={index === draft.members.length - 1}
+                onClick={() => moveMember(index, 1)}
+              >
+                ↓
+              </button>
               <button
                 type="button"
                 className="button"

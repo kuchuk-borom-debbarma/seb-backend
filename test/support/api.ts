@@ -24,10 +24,13 @@ export const graphql = async <T>(
   query: string,
   variables: Record<string, unknown> = {},
   cookie?: string,
+  /** Extra request headers, for tests about what an audit row retains. */
+  extraHeaders: Record<string, string> = {},
 ): Promise<GraphQLBody<T>> => {
   const headers = new Headers({
     'content-type': 'application/json',
     origin: 'https://app.example.test',
+    ...extraHeaders,
   })
   if (cookie) headers.set('cookie', cookie)
   const response = await SELF.fetch('https://api.example.test/graphql', {
@@ -116,6 +119,37 @@ export const emptyFormTemplate = '{ stages: [], fields: [], options: [], conditi
 
 export type CycleHead = { id: string; currentVersion: number }
 
+/**
+ * A published policy PDF, seeded as rows.
+ *
+ * Raw SQL under this file's own exception: the real path PUTs bytes to R2 and
+ * waits for the malware scanner, and the service suite runs neither. The rows
+ * mirror exactly what `finalizePolicyDocumentUpload` plus an ACCEPTED verdict
+ * would leave behind, which is what opening a cycle demands.
+ */
+export const seedPolicyDocument = async (cycleId: string): Promise<void> => {
+  const documentId = crypto.randomUUID()
+  const versionId = crypto.randomUUID()
+  const now = new Date().toISOString()
+  await env.DB.prepare(`INSERT INTO seb_cycle_policy_document (
+    id, programme_cycle_id, current_version, created_at, updated_at
+  ) VALUES (?, ?, 1, ?, ?)`).bind(documentId, cycleId, now, now).run()
+  await env.DB.prepare(`INSERT INTO seb_cycle_policy_document_version (
+    id, document_id, version, operation, r2_object_key, original_filename,
+    content_type, size_bytes, checksum, uploaded_by_user_id, created_at
+  ) VALUES (?, ?, 1, 'UPLOAD', ?, 'policy.pdf', 'application/pdf', 1024, ?,
+    (SELECT id FROM core_user LIMIT 1), ?)`)
+    .bind(versionId, documentId, `cycles/${cycleId}/policy/${versionId}`,
+      'c2hhLTI1Ni10ZXN0LWNoZWNrc3VtLXZhbHVlLTAwMDA=', now)
+    .run()
+  await env.DB.prepare(`INSERT INTO seb_cycle_policy_document_scan (
+    id, document_version_id, sequence_number, status, scanner_reference,
+    safe_message, scanned_at, created_at
+  ) VALUES (?, ?, 1, 'ACCEPTED', 'seed', NULL, ?, ?)`)
+    .bind(crypto.randomUUID(), versionId, now, now)
+    .run()
+}
+
 /** A cycle created and opened, which is the only state an applicant can use. */
 export const openCycle = async (
   cookie: string,
@@ -126,7 +160,6 @@ export const openCycle = async (
     cycleCode: `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
     displayName: 'Mission SEP Test Cycle',
     cycleYear: 2026,
-    policyReference: 'TTAADC/MSEP/2026',
     applicantGuidance: 'Applicant guide.',
     partnerBankGuidance: 'Published partner-bank roster.',
     opensAt: new Date(Date.now() - 1_000).toISOString(),
@@ -141,6 +174,7 @@ export const openCycle = async (
   }`, { input }, cookie)
   const head = expectSuccess(created, 'cycle create').admin.programmeCycle.create
   if (!head.success) throw new Error(`cycle create refused: ${head.message}`)
+  await seedPolicyDocument(head.response.head.id)
 
   const opened = await graphql<any>(`mutation($input: CycleTransitionInput!) {
     admin { programmeCycle { open(input: $input) {

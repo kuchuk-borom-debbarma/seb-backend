@@ -10,9 +10,11 @@ import adminQueryTypeDefs from './queries/admin/admin.graphql'
 import auditQueryTypeDefs from './queries/audit/audit.graphql'
 import sebMutationTypeDefs from './mutations/seb/seb.graphql'
 import sebQueryTypeDefs from './queries/seb/seb.graphql'
+import publicQueryTypeDefs from './queries/public/public.graphql'
 import { accessResolvers } from './resolvers/access/access'
 import { authResolvers } from './resolvers/auth/auth'
 import { adminResolvers } from './resolvers/admin/admin'
+import { publicResolvers } from './resolvers/public/public'
 import { auditResolvers } from './resolvers/audit/audit'
 import { sebResolvers } from './resolvers/seb/seb'
 import { rateLimitPlugin } from './rate-limit'
@@ -278,6 +280,7 @@ const schema = createSchema<GraphQLContext>({
     auditQueryTypeDefs,
     sebQueryTypeDefs,
     sebMutationTypeDefs,
+    publicQueryTypeDefs,
   ],
   resolvers: [
     {
@@ -319,6 +322,7 @@ const schema = createSchema<GraphQLContext>({
     auditResolvers,
     adminResolvers,
     sebResolvers,
+    publicResolvers,
   ],
 })
 

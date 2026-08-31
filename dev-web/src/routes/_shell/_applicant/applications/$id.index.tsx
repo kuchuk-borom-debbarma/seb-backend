@@ -15,6 +15,7 @@ import {
   FilePenLine,
   FileText,
   Landmark,
+  Layers,
   Lock,
   Megaphone,
   Paperclip,
@@ -36,7 +37,10 @@ import {
   issuesForStep,
   REVIEW,
 } from '#/features/application/ApplicationJourney'
-import type { ApplicationStatus } from '#/graphql/generated/schema'
+import type {
+  ApplicationCategory,
+  ApplicationStatus,
+} from '#/graphql/generated/schema'
 import { formatDate, formatDateTime, humanize } from '#/lib/format'
 import styles from '#/features/application/ApplicationDetails.module.css'
 
@@ -50,6 +54,12 @@ import styles from '#/features/application/ApplicationDetails.module.css'
  */
 /** The statuses in which a sanction order can exist. */
 const FUNDED_STATUSES = new Set<string>(['SANCTIONED', 'DISBURSED'])
+
+/** Stamped by the server at submission; shown here, never chosen. */
+const CATEGORY_LABELS: Record<ApplicationCategory, string> = {
+  CATEGORY_A: 'Category A',
+  CATEGORY_B: 'Category B',
+}
 
 /** The happy-path stages of the pipeline, in workflow order. */
 const PIPELINE_STAGES: Array<{
@@ -562,6 +572,22 @@ function ApplicationPage() {
                     )}
                   </span>
                 </div>
+
+                {/* Absent until a submission on a sorting cycle stamps it, so
+                    a draft never shows a category it does not have yet. */}
+                {application.snapshot.applicationCategory ? (
+                  <div className={styles.detailRow}>
+                    <div className={styles.detailRowLeft}>
+                      <div className={styles.detailIconBadge}>
+                        <Layers aria-hidden="true" />
+                      </div>
+                      <span className={styles.detailLabel}>Funding category</span>
+                    </div>
+                    <span className={styles.detailValue}>
+                      {CATEGORY_LABELS[application.snapshot.applicationCategory]}
+                    </span>
+                  </div>
+                ) : null}
 
                 <div className={styles.detailRow}>
                   <div className={styles.detailRowLeft}>

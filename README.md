@@ -180,7 +180,8 @@ enumerate them.
 ```bash
 npm install
 cp .env.example .env.local          # then fill in the required values
-npm run db:setup:local              # applies database/schema.sql
+psql postgresql://postgres:postgres@localhost:5432/postgres -c 'CREATE DATABASE seb_backend'   # once
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/seb_backend npm run db:migrate      # builds the schema
 npm run local                       # the Worker, on http://localhost:9999
 cd dev-web && npm install && npm run local   # the client, on :9990
 ```
@@ -241,7 +242,9 @@ and why nothing in this repository does it for you.
 | `test:neon` | The service suite against a Postgres named by `TEST_DATABASE_URL` |
 | `fallow` | Dead code, duplication and complexity |
 | `test:worker` | The isolated Worker the end-to-end suite drives |
-| `db:setup:local` | Applies the canonical schema to the local database |
+| `test:e2e-db` | Drops, recreates and migrates the suite's own database — `test:worker` runs it first |
+| `db:generate` | Writes the next migration from the Drizzle schema's diff against the chain |
+| `db:migrate` | Applies pending migrations to the database `DATABASE_URL` names |
 | `db:schema:generate` | Rewrites `database/schema.sql` from the Drizzle schema |
 | `db:schema:check` | Fails if the two have diverged, or if the schema will not re-apply |
 | `check:sdl` … `check:scanner` | Nine focused guardrails: SDL descriptions, audit actions, insert arity, untyped comparisons, SQL aliases, rate-limit coverage, the document size limit, scanner and deploy configuration |

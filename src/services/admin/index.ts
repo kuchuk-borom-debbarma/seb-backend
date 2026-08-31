@@ -1,4 +1,5 @@
 export * from './controllers/programme-cycle'
+export * from './controllers/policy-document'
 export * from './controllers/intake'
 export * from './controllers/analytics'
 export * from './controllers/decision'

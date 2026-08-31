@@ -29,7 +29,6 @@ import {
 import {
   AdminCycleByIdDocument,
   ArchiveCycleDocument,
-  ChangeCycleClosingDocument,
   CloseCycleDocument,
   OpenCycleDocument,
   SoftDeleteCycleDraftDocument,
@@ -42,6 +41,7 @@ import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { can } from '#/lib/session'
 import { CycleForm } from '#/features/admin/CycleForm'
+import { PolicyDocumentCard } from '#/features/admin/PolicyDocumentCard'
 import { toTemplateInput } from '#/features/admin/formAuthoring'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from '#/features/admin/officeGuidance'
@@ -128,12 +128,10 @@ function AdminCyclePage() {
   const { data } = useQuery(cycleQuery(id))
 
   const [reason, setReason] = useState('')
-  const [closesAt, setClosesAt] = useState('')
   const [guidance, setGuidance] = useState<string | null>(null)
 
   // Modal Dialog States. Removal shares the transition dialog because it takes
   // the same shape — a version guard and a retained reason.
-  const [showClosingModal, setShowClosingModal] = useState(false)
   const [showGuidanceModal, setShowGuidanceModal] = useState(false)
   const [draftReasonMissing, setDraftReasonMissing] = useState(false)
   const [transitionAction, setTransitionAction] = useState<
@@ -169,7 +167,6 @@ function AdminCyclePage() {
   const settle = async () => {
     await refresh()
     setReason('')
-    setShowClosingModal(false)
     setShowGuidanceModal(false)
     setTransitionAction(null)
   }
@@ -192,27 +189,6 @@ function AdminCyclePage() {
     // A refusal usually means the version moved — an edit on the form screen
     // is a revision too. Refetch so the next attempt quotes the fresh one,
     // while the dialog stays to show the refusal.
-    onError: refresh,
-  })
-
-  const changeClosing = useMutation({
-    // Null removes the closing time: the cycle takes applications until the
-    // office closes it.
-    mutationFn: async (nextClosesAt: string | null) => {
-      const result = await gql(ChangeCycleClosingDocument, {
-        input: {
-          id,
-          expectedVersion: head?.currentVersion ?? 0,
-          closesAt: nextClosesAt,
-          reason,
-        },
-      })
-      return unwrap(result.admin.programmeCycle.changeClosingTime)
-    },
-    onSuccess: async () => {
-      setClosesAt('')
-      await settle()
-    },
     onError: refresh,
   })
 
@@ -273,13 +249,11 @@ function AdminCyclePage() {
 
   const busy =
     transition.isPending ||
-    changeClosing.isPending ||
     changeGuidance.isPending ||
     changeDraft.isPending ||
     removeDraft.isPending
   const error =
     transition.error ??
-    changeClosing.error ??
     changeGuidance.error ??
     changeDraft.error ??
     removeDraft.error
@@ -307,7 +281,6 @@ function AdminCyclePage() {
           cycleCode: head.cycleCode,
           displayName: head.displayName,
           cycleYear: head.cycleYear,
-          policyReference: head.policyReference,
           applicantGuidance: head.applicantGuidance,
           partnerBankGuidance: head.partnerBankGuidance,
           opensAt: head.opensAt,
@@ -317,8 +290,11 @@ function AdminCyclePage() {
             maximumApplicantAge: policy.maximumApplicantAge,
             categoryAMaximumMonths: policy.categoryAMaximumMonths,
             expansionWaitMonths: policy.expansionWaitMonths,
-            majorityOwnershipRequired: policy.majorityOwnershipRequired,
-            jurisdiction: policy.jurisdiction,
+            // The form no longer asks for either, so a legacy draft that
+            // stored null must not round-trip it — the fixed programme policy
+            // fills the blank. A stored non-null value passes through honestly.
+            majorityOwnershipRequired: policy.majorityOwnershipRequired ?? true,
+            jurisdiction: policy.jurisdiction ?? 'TTAADC',
             fundingCeilingState: policy.fundingCeilingState,
             fundingCeilingAmountPaise: policy.fundingCeilingAmountPaise,
             fundingCeilingScope: policy.fundingCeilingScope,
@@ -602,48 +578,24 @@ function AdminCyclePage() {
 
             {/* Lifecycle Action Bars. Only the transitions the current state
                 actually permits are offered: a draft opens (or is removed); an
-                open cycle closes or moves its closing time; a closed cycle is
-                archived. */}
+                open cycle closes; a closed cycle is archived. */}
             {isOpen ? (
-              <>
-                <div className={styles.actionBanner}>
-                  <div className={styles.actionBannerLeft}>
-                    <Clock size={16} aria-hidden="true" />
-                    <span>Move the closing time</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.outlineActionButton}
-                    onClick={() => {
-                      setClosesAt(
-                        head.closesAt
-                          ? new Date(head.closesAt).toISOString().slice(0, 16)
-                          : '',
-                      )
-                      setReason('')
-                      setShowClosingModal(true)
-                    }}
-                  >
-                    Change closing time
-                  </button>
+              <div className={styles.actionBanner}>
+                <div className={styles.actionBannerLeft}>
+                  <Lock size={16} aria-hidden="true" />
+                  <span>Stop taking applications</span>
                 </div>
-                <div className={styles.actionBanner}>
-                  <div className={styles.actionBannerLeft}>
-                    <Lock size={16} aria-hidden="true" />
-                    <span>Stop taking applications</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.outlineActionButton}
-                    onClick={() => {
-                      setReason('')
-                      setTransitionAction('close')
-                    }}
-                  >
-                    Close to new applications
-                  </button>
-                </div>
-              </>
+                <button
+                  type="button"
+                  className={styles.outlineActionButton}
+                  onClick={() => {
+                    setReason('')
+                    setTransitionAction('close')
+                  }}
+                >
+                  Close to new applications
+                </button>
+              </div>
             ) : isDraft ? (
               <>
                 <div className={styles.actionBanner}>
@@ -745,16 +697,24 @@ function AdminCyclePage() {
                   </td>
                 </tr>
 
-                {/* Policy reference */}
+                {/* Policy document — the order or circular this cycle
+                    implements, uploaded as a versioned PDF. */}
                 <tr className={styles.policyRow}>
                   <td className={styles.policyKeyCell}>
                     <div className={styles.policyIconBadge}>
                       <FileText size={18} aria-hidden="true" />
                     </div>
-                    <span className={styles.policyKeyText}>Policy reference</span>
+                    <span className={styles.policyKeyText}>Policy document</span>
                   </td>
                   <td className={styles.policyValueCell}>
-                    {head.policyReference ?? '—'}
+                    <PolicyDocumentCard
+                      cycleId={head.id}
+                      document={data.cycle.policyDocument ?? null}
+                      canManage={
+                        can(user, 'CYCLE_ADMIN') && (isDraft || isOpen)
+                      }
+                      onChanged={refresh}
+                    />
                   </td>
                 </tr>
 
@@ -902,7 +862,10 @@ function AdminCyclePage() {
                   </td>
                 </tr>
 
-                {/* Approved reasons */}
+                {/* Approved reasons — the catalogue itself, not a count. This
+                    is the only screen where the office can read what its
+                    pickers will offer, so a bare number hid the one thing the
+                    row exists to show. */}
                 <tr className={styles.policyRow}>
                   <td className={styles.policyKeyCell}>
                     <div className={styles.policyIconBadge}>
@@ -910,7 +873,23 @@ function AdminCyclePage() {
                     </div>
                     <span className={styles.policyKeyText}>Approved reasons</span>
                   </td>
-                  <td className={styles.policyValueCell}>{data.cycle.reasons.length}</td>
+                  <td className={styles.policyValueCell}>
+                    {data.cycle.reasons.length === 0 ? (
+                      <span className="muted">None</span>
+                    ) : (
+                      <div className={styles.assessmentPillsWrap}>
+                        {data.cycle.reasons.map((reasonRow) => (
+                          <span
+                            key={reasonRow.id}
+                            className={styles.assessmentPill}
+                            title={`${humanize(reasonRow.context)} · ${reasonRow.code}`}
+                          >
+                            <span>{reasonRow.label}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -1054,84 +1033,6 @@ function AdminCyclePage() {
           </details>
         </div>
       ) : null}
-
-      {/* Modal: Change Closing Time */}
-      {showClosingModal && (
-        <div className={styles.modalOverlay} role="dialog" aria-modal="true">
-          <div className={styles.modalDialog}>
-            <div className={styles.modalHeader}>
-              <h3 className={styles.modalTitle}>Change closing time</h3>
-              <button
-                type="button"
-                className={styles.modalCloseButton}
-                onClick={() => setShowClosingModal(false)}
-              >
-                <X size={16} aria-hidden="true" />
-              </button>
-            </div>
-            <div className={styles.modalBody}>
-              <div>
-                <label className="field-label" htmlFor="newClosesAt">
-                  New closing time
-                </label>
-                <input
-                  id="newClosesAt"
-                  className="input"
-                  type="datetime-local"
-                  value={closesAt}
-                  onChange={(event) => setClosesAt(event.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="field-label" htmlFor="closingReason">
-                  Reason for this change
-                </label>
-                <input
-                  id="closingReason"
-                  className="input"
-                  placeholder="Retained in the cycle's history"
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                />
-              </div>
-              {changeClosing.error ? (
-                <p className="notice" data-tone="error" role="alert" style={{ margin: 0 }}>
-                  {messageFor(changeClosing.error)}
-                </p>
-              ) : null}
-            </div>
-            <div className={styles.modalFooter}>
-              <button
-                type="button"
-                className="button"
-                onClick={() => setShowClosingModal(false)}
-                disabled={busy}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="button"
-                disabled={!canAct}
-                title="The cycle stays open until the office closes it."
-                onClick={() => changeClosing.mutate(null)}
-              >
-                Remove the closing time
-              </button>
-              <button
-                type="button"
-                className="button"
-                data-variant="primary"
-                disabled={!canAct || !closesAt}
-                onClick={() => changeClosing.mutate(new Date(closesAt).toISOString())}
-              >
-                {changeClosing.isPending ? 'Updating…' : 'Change closing time'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Modal: Update Guidance */}
       {showGuidanceModal && (

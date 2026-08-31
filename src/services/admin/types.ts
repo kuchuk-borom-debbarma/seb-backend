@@ -227,7 +227,6 @@ export type ProgrammeCycleInput = {
   cycleCode: string
   displayName: string
   cycleYear: number
-  policyReference?: string | null
   applicantGuidance?: string | null
   partnerBankGuidance?: string | null
   opensAt?: Date | null

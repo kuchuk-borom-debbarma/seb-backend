@@ -13,7 +13,10 @@ import { cleanupExpiredDocumentUploads } from './services/application'
 import { handleLocalStorageRequest } from './services/storage/route'
 import { confirmationPdfResponse } from './services/application/confirmation-link'
 import { drainMemoryQueue, usesLocalQueue, type QueueMessage } from './services/queue'
-import { scanDocumentVersion } from './services/document-scanner/consume'
+import {
+  scanDocumentVersion,
+  scanPolicyDocumentVersion,
+} from './services/document-scanner/consume'
 import {
   rateLimiter,
   RATE_LIMITED_MESSAGE,
@@ -22,7 +25,10 @@ import {
 } from './services/rate-limit'
 import { callerAddress } from './services/rate-limit/identity'
 import { relaysThroughWorker } from './services/storage'
-import { closeExpiredProgrammeCycles } from './services/admin'
+import {
+  cleanupExpiredCyclePolicyUploads,
+  closeExpiredProgrammeCycles,
+} from './services/admin'
 
 const app = new Hono<{ Bindings: AppBindings }>()
 
@@ -69,8 +75,18 @@ const operationContext = (
  * isolate serves many people, and a connection held across them is a slot that
  * leaks rather than a cache that helps. Hyperdrive holds the real pool, so
  * opening one costs a hop rather than a handshake.
+ *
+ * A deployed environment may name its database directly: `DATABASE_URL`,
+ * provisioned with `wrangler secret put`, wins over the Hyperdrive binding
+ * there. Deliberately only where `ENVIRONMENT` is set — Wrangler loads
+ * `.env.local` into a local Worker's vars, and the same variable an operator
+ * keeps for the deployed database must not quietly point `npm run local` or
+ * the end-to-end suite at it. A developer's machine keeps its local database.
  */
-const connectionString = (env: AppBindings): string => env.HYPERDRIVE.connectionString
+const connectionString = (env: AppBindings): string =>
+  (env.ENVIRONMENT?.trim() && env.DATABASE_URL?.trim())
+    ? env.DATABASE_URL.trim()
+    : env.HYPERDRIVE.connectionString
 
 
 // FRONTEND_ORIGINS is parsed on demand so tests and local Wrangler overrides can
@@ -422,7 +438,9 @@ const deliverLocalQueue = async (env: AppBindings): Promise<void> => {
     for (const message of pending) {
       // A failure leaves the document unopenable, which is the safe direction.
       // Never the error or the body: both can name a stored object.
-      await scanDocumentVersion(db, env, message.documentVersionId)
+      await (message.kind === 'POLICY_DOCUMENT_SCAN_REQUESTED'
+        ? scanPolicyDocumentVersion(db, env, message.policyDocumentVersionId)
+        : scanDocumentVersion(db, env, message.documentVersionId))
         .catch(() => console.error('Scanning a queued document failed'))
     }
   })
@@ -489,6 +507,7 @@ export default {
         const jobs: [string, () => Promise<unknown>][] = [
           ['expired authentication', () => cleanupExpiredAuthentication(db)],
           ['expired document uploads', () => cleanupExpiredDocumentUploads({ db, env })],
+          ['expired policy uploads', () => cleanupExpiredCyclePolicyUploads({ db, env })],
           // Its own loaders, for the same reason a request gets its own: a
           // scheduled run is a separate instant from anybody's request.
           ['programme cycles past their close', () => closeExpiredProgrammeCycles(
@@ -509,9 +528,10 @@ export default {
   /**
    * Consumer for queued work.
    *
-   * One kind of message exists: a request to scan a stored document. Which
-   * scanner examines it is `SCANNER_TRANSPORT`'s decision, and
-   * `services/document-scanner` holds it; this holds none of it.
+   * Every message kind is a request to scan a stored file — an applicant's
+   * document or a cycle's policy PDF. Which scanner examines it is
+   * `SCANNER_TRANSPORT`'s decision, and `services/document-scanner` holds it;
+   * this holds none of it.
    *
    * A message that could not be settled is left unacknowledged so the platform
    * redelivers it. The document stays unopenable until it succeeds, which is
@@ -526,11 +546,17 @@ export default {
     await withDatabase(connectionString(env as AppBindings), async (db) => {
       for (const message of messages.messages) {
         try {
-          const disposition = await scanDocumentVersion(
-            db,
-            env as AppBindings,
-            message.body.documentVersionId,
-          )
+          const disposition = message.body.kind === 'POLICY_DOCUMENT_SCAN_REQUESTED'
+            ? await scanPolicyDocumentVersion(
+                db,
+                env as AppBindings,
+                message.body.policyDocumentVersionId,
+              )
+            : await scanDocumentVersion(
+                db,
+                env as AppBindings,
+                message.body.documentVersionId,
+              )
           if (disposition === 'NOT_RECORDED') message.retry()
           else message.ack()
         } catch {

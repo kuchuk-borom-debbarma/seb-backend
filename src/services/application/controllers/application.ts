@@ -11,6 +11,7 @@ import {
   findLatestSubmittedVersion,
   findOpenProgrammeCycle,
   findProgrammeCycleIdentity,
+  findDownloadablePolicyDocument,
   findSubmissionPolicy,
   findUserEmailById,
   findDraftChanges,
@@ -71,12 +72,14 @@ import type {
   ApplicationSummary,
   ApplicationType,
   Connection,
+  DownloadAuthorization,
   ExpansionClaim,
   ExpansionEligibility,
   ProgrammeCycle,
   SebResult,
   TimelineEvent,
 } from '../types'
+import { storage } from '../../storage'
 import { changedStageKeys, pruneHidden } from '../form/answers'
 import {
   normalizeAnswers,
@@ -123,6 +126,30 @@ export const myProgrammeCycles = async (
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
   return success({ cycles: await listApplicantProgrammeCycles(context.db, applicant.id) })
+}
+
+/**
+ * A short-lived download URL for a cycle's published policy PDF.
+ *
+ * Fetched on click rather than embedded in the cycle read, because the URL
+ * expires in minutes and a cached query would serve dead links. Fails closed
+ * for draft or deleted cycles and for any file whose scan is not ACCEPTED.
+ */
+export const cyclePolicyDocumentDownloadUrl = async (
+  cycleId: string,
+  context: ApplicationOperationContext,
+): Promise<SebResult<DownloadAuthorization>> => {
+  const applicant = await currentApplicant(context)
+  if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
+  const document = await findDownloadablePolicyDocument(context.db, cycleId)
+  if (!document) return failure('The policy document is not available.')
+  return success(
+    await storage(context.env, context.requestUrl).authorizeDownload(
+      document.r2ObjectKey,
+      document.originalFilename,
+      new Date(),
+    ),
+  )
 }
 
 export const myApplications = async (

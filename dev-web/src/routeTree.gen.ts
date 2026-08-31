@@ -27,6 +27,7 @@ import { Route as ShellAccountProfileRouteImport } from './routes/_shell/account
 import { Route as ShellAccountSecurityRouteImport } from './routes/_shell/account/security'
 import { Route as ShellAccountSessionsRouteImport } from './routes/_shell/account/sessions'
 import { Route as ShellAdminIndexRouteImport } from './routes/_shell/admin/index'
+import { Route as ShellAdminAnnouncementsRouteImport } from './routes/_shell/admin/announcements'
 import { Route as ShellAdminAuditRouteImport } from './routes/_shell/admin/audit'
 import { Route as ShellAdminInviteRouteImport } from './routes/_shell/admin/invite'
 import { Route as ShellAdminQueueRouteImport } from './routes/_shell/admin/queue'
@@ -139,6 +140,11 @@ const ShellAccountSessionsRoute = ShellAccountSessionsRouteImport.update({
 const ShellAdminIndexRoute = ShellAdminIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => ShellAdminRouteRoute,
+} as any)
+const ShellAdminAnnouncementsRoute = ShellAdminAnnouncementsRouteImport.update({
+  id: '/announcements',
+  path: '/announcements',
   getParentRoute: () => ShellAdminRouteRoute,
 } as any)
 const ShellAdminAuditRoute = ShellAdminAuditRouteImport.update({
@@ -297,6 +303,7 @@ export interface FileRoutesByFullPath {
   '/account/profile': typeof ShellAccountProfileRoute
   '/account/security': typeof ShellAccountSecurityRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
+  '/admin/announcements': typeof ShellAdminAnnouncementsRoute
   '/admin/audit': typeof ShellAdminAuditRoute
   '/admin/invite': typeof ShellAdminInviteRoute
   '/admin/queue': typeof ShellAdminQueueRoute
@@ -338,6 +345,7 @@ export interface FileRoutesByTo {
   '/account/profile': typeof ShellAccountProfileRoute
   '/account/security': typeof ShellAccountSecurityRoute
   '/account/sessions': typeof ShellAccountSessionsRoute
+  '/admin/announcements': typeof ShellAdminAnnouncementsRoute
   '/admin/audit': typeof ShellAdminAuditRoute
   '/admin/invite': typeof ShellAdminInviteRoute
   '/admin/queue': typeof ShellAdminQueueRoute
@@ -384,6 +392,7 @@ export interface FileRoutesById {
   '/_shell/account/profile': typeof ShellAccountProfileRoute
   '/_shell/account/security': typeof ShellAccountSecurityRoute
   '/_shell/account/sessions': typeof ShellAccountSessionsRoute
+  '/_shell/admin/announcements': typeof ShellAdminAnnouncementsRoute
   '/_shell/admin/audit': typeof ShellAdminAuditRoute
   '/_shell/admin/invite': typeof ShellAdminInviteRoute
   '/_shell/admin/queue': typeof ShellAdminQueueRoute
@@ -429,6 +438,7 @@ export interface FileRouteTypes {
     | '/account/profile'
     | '/account/security'
     | '/account/sessions'
+    | '/admin/announcements'
     | '/admin/audit'
     | '/admin/invite'
     | '/admin/queue'
@@ -470,6 +480,7 @@ export interface FileRouteTypes {
     | '/account/profile'
     | '/account/security'
     | '/account/sessions'
+    | '/admin/announcements'
     | '/admin/audit'
     | '/admin/invite'
     | '/admin/queue'
@@ -515,6 +526,7 @@ export interface FileRouteTypes {
     | '/_shell/account/profile'
     | '/_shell/account/security'
     | '/_shell/account/sessions'
+    | '/_shell/admin/announcements'
     | '/_shell/admin/audit'
     | '/_shell/admin/invite'
     | '/_shell/admin/queue'
@@ -680,6 +692,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof ShellAdminIndexRouteImport
+      parentRoute: typeof ShellAdminRouteRoute
+    }
+    '/_shell/admin/announcements': {
+      id: '/_shell/admin/announcements'
+      path: '/announcements'
+      fullPath: '/admin/announcements'
+      preLoaderRoute: typeof ShellAdminAnnouncementsRouteImport
       parentRoute: typeof ShellAdminRouteRoute
     }
     '/_shell/admin/audit': {
@@ -861,6 +880,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface ShellAdminRouteRouteChildren {
+  ShellAdminAnnouncementsRoute: typeof ShellAdminAnnouncementsRoute
   ShellAdminAuditRoute: typeof ShellAdminAuditRoute
   ShellAdminInviteRoute: typeof ShellAdminInviteRoute
   ShellAdminQueueRoute: typeof ShellAdminQueueRoute
@@ -876,6 +896,7 @@ interface ShellAdminRouteRouteChildren {
 }
 
 const ShellAdminRouteRouteChildren: ShellAdminRouteRouteChildren = {
+  ShellAdminAnnouncementsRoute: ShellAdminAnnouncementsRoute,
   ShellAdminAuditRoute: ShellAdminAuditRoute,
   ShellAdminInviteRoute: ShellAdminInviteRoute,
   ShellAdminQueueRoute: ShellAdminQueueRoute,

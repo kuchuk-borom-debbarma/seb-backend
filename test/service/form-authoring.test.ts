@@ -26,7 +26,7 @@ const draftCycle = async (cookie: string) => {
   }`, { input: {
     cycleCode: `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
     displayName: 'Authoring test', cycleYear: 2026,
-    policyReference: 'TTAADC/MSEP/2026', applicantGuidance: 'Guide.',
+    applicantGuidance: 'Guide.',
     partnerBankGuidance: 'Roster.',
     opensAt: new Date(Date.now() + 86_400_000).toISOString(),
     closesAt: new Date(Date.now() + 172_800_000).toISOString(),

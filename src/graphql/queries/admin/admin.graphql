@@ -22,6 +22,118 @@ type AdminQuery {
 
   """Aggregate reporting over the intake casework."""
   analytics: AdminAnalyticsQuery!
+
+  """The landing page's announcement banner, as its authors see it."""
+  announcement: AdminAnnouncementQuery!
+}
+
+"""Reading the announcement banner with its drafts and its ordering guard."""
+type AdminAnnouncementQuery {
+  """
+  Every card, drafts and expired ones included, with the version the reorder
+  must quote.
+
+  **Use case:** `/admin/announcements` — the whole screen renders from this
+  one read, so it can never show a list and a version from two moments.
+
+  **Refuses:** a caller without the authority to manage the banner.
+  """
+  board: AdminAnnouncementBoardResult!
+}
+
+"""The board, or the reason it could not be read."""
+type AdminAnnouncementBoardResult implements BaseResponse {
+  """Whether the board was read."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — an authority refusal, a stale
+  `expectedBoardVersion` on a reorder, or a reorder list the board outgrew.
+  """
+  message: String
+
+  """The board. Null whenever `success` is false."""
+  response: AdminAnnouncementBoard
+}
+
+"""The whole banner as the office sees it."""
+type AdminAnnouncementBoard {
+  """
+  Send back as `expectedBoardVersion` when reordering. Creating or removing a
+  card moves it too, so a reorder built from an outdated list is refused
+  rather than renumbering the wrong set.
+  """
+  boardVersion: Int!
+
+  """Every card that has not been removed, in display order."""
+  announcements: [AdminAnnouncement!]!
+}
+
+"""One card, or the reason the operation on it was refused."""
+type AdminAnnouncementResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — a field over its cap, a link of the
+  wrong shape, or a stale `expectedVersion` when somebody else acted first.
+  """
+  message: String
+
+  """The card as it now stands. Null whenever `success` is false."""
+  response: AdminAnnouncement
+}
+
+"""One card, with the lifecycle the public read hides."""
+type AdminAnnouncement {
+  """Stable identifier, named by every edit."""
+  id: ID!
+
+  """The short category chip on the card. **Example:** `"Notice"`."""
+  tag: String!
+
+  """The optional free-text label beside the tag. Null when left off."""
+  dateLabel: String
+
+  """The card's headline, and the text of its link when it has one."""
+  title: String!
+
+  """One or two sentences under the headline."""
+  body: String!
+
+  """Which of the fixed pictograms the card carries."""
+  icon: AnnouncementIcon!
+
+  """Where the card leads. Null for a card that is only a statement."""
+  link: AnnouncementLink
+
+  """
+  When the card stops showing to the public. Null means it stays until
+  withdrawn. A past value is legal — the card simply is not shown.
+  """
+  endsAt: DateTime
+
+  """
+  Whether the public may see it. A hidden card is a draft the office can
+  finish and flip live later.
+  """
+  published: Boolean!
+
+  """Where the card sits in the display order. Rewritten by every reorder."""
+  sortOrder: Int!
+
+  """
+  Optimistic-concurrency token for this card. Read it with the card, send it
+  back in `expectedVersion`; a concurrent edit refuses instead of silently
+  overwriting.
+  """
+  currentVersion: Int!
+
+  """When the card was first authored."""
+  createdAt: DateTime!
+
+  """When the card last changed, edits and reorders alike."""
+  updatedAt: DateTime!
 }
 
 """Reading the intake casework as aggregates rather than rows."""
@@ -79,6 +191,23 @@ type AdminProgrammeCycleQuery {
     """Which cycle."""
     id: ID!
   ): AdminCycleResult!
+
+  """
+  A short-lived download URL for one version of a cycle's policy PDF.
+
+  **Use case:** the download links on the policy document card. Fetched on
+  click — the URL expires in minutes, so it must never sit in a cached query.
+
+  **Refuses:** a missing document, and any version whose latest scan verdict
+  is not ACCEPTED.
+  """
+  policyDocumentDownloadUrl(
+    """The cycle whose policy PDF to download."""
+    cycleId: ID!
+
+    """Which retained version. Omit for the current one."""
+    version: Int
+  ): DocumentDownloadResult!
 
   """
   How many applications sit in each status for one cycle.
@@ -775,9 +904,6 @@ type AdminProgrammeCycle {
   """The policy year this cycle belongs to."""
   cycleYear: Int!
 
-  """The policy document this cycle implements."""
-  policyReference: String
-
   """Guidance written for applicants."""
   applicantGuidance: String
 
@@ -857,6 +983,69 @@ type AdminCyclePolicy {
 }
 
 """
+Where a stored file stands with the malware scanner. Everything fails closed:
+only ACCEPTED may be downloaded or published.
+"""
+enum AdminDocumentScanStatus {
+  """Queued or in progress. Not yet downloadable."""
+  PENDING
+
+  """Scanned clean. Downloadable."""
+  ACCEPTED
+
+  """The scanner refused it. Upload a clean copy."""
+  REJECTED
+
+  """The scanner could not conclude. It will be retried; not downloadable."""
+  ERROR
+}
+
+"""One retained version of a cycle's policy PDF."""
+type AdminCyclePolicyDocumentVersion {
+  """1 for the first upload, counting up with each replacement."""
+  version: Int!
+
+  """`UPLOAD` for the first version, `REPLACE` for every later one."""
+  operation: String!
+
+  """The file's own name, as it uploads and downloads."""
+  originalFilename: String!
+
+  """The exact stored size in bytes."""
+  sizeBytes: Int!
+
+  """When this version was recorded."""
+  uploadedAt: DateTime!
+
+  """This version's scan verdict. Only ACCEPTED may be downloaded."""
+  scanStatus: AdminDocumentScanStatus!
+}
+
+"""A cycle's policy PDF: the current file and its whole retained history."""
+type AdminCyclePolicyDocument {
+  """Stable identifier."""
+  id: ID!
+
+  """The version currently published. Send back when replacing."""
+  currentVersion: Int!
+
+  """The current file's own name."""
+  originalFilename: String!
+
+  """The current file's size in bytes."""
+  sizeBytes: Int!
+
+  """When the current version was recorded."""
+  uploadedAt: DateTime!
+
+  """The current version's scan verdict."""
+  scanStatus: AdminDocumentScanStatus!
+
+  """Every retained version, newest first."""
+  versions: [AdminCyclePolicyDocumentVersion!]!
+}
+
+"""
 One cycle with the complete rule set of its current version.
 
 **Use case:** the cycle editor, which shows every rule back so an unconfigured
@@ -865,6 +1054,13 @@ cycle is visible rather than assumed.
 type AdminCycleAggregate {
   """The cycle itself."""
   head: AdminProgrammeCycle!
+
+  """
+  The policy PDF this cycle implements — the order or circular — with its
+  whole retained history. Null until one is uploaded; the cycle cannot open
+  without one whose scan verdict is ACCEPTED.
+  """
+  policyDocument: AdminCyclePolicyDocument
 
   """
   The rules of this cycle's current version — the eligibility bounds, the
@@ -1406,6 +1602,15 @@ type AdminWorkspace {
   desk-review form asks for exactly these.
   """
   identifierRules: [AdminIdentifierRule!]!
+
+  """
+  The approved reasons of the cycle version this application's newest
+  submission is pinned to. Every reason-taking action on this file validates
+  its `reasonCategoryId` against exactly this list, so a picker built from it
+  can never offer an id the API refuses — reading the cycle's current version
+  instead would, because revising a cycle re-mints every reason row.
+  """
+  reasons: [AdminReasonCategory!]!
 
   """Every referral to a partner bank."""
   referrals: [AdminBankReferral!]!

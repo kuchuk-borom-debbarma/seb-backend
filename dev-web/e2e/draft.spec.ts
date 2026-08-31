@@ -3,6 +3,7 @@ import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
   openProgrammeCycle,
+  setClosingTime,
   signIn,
   startApplication,
 } from './support'
@@ -132,6 +133,10 @@ test.describe('the closing date', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     cycleCode = await openProgrammeCycle(page, { prefix: 'SEP-D' })
+    // The wizard no longer takes a deadline; this notice is about a cycle
+    // that carries one, so the spec sets it through the API.
+    const cycleId = page.url().match(/\/admin\/cycles\/([0-9a-f-]{36})/u)![1]!
+    await setClosingTime(page, cycleId, new Date(Date.now() + 30 * 86_400_000))
     await page.context().clearCookies()
   })
 

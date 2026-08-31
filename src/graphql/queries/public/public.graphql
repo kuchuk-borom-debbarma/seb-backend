@@ -1,0 +1,131 @@
+extend type Query {
+  """
+  What the portal says to everybody, signed in or not.
+
+  **Requires no session.** The one other read like it is `health`. Everything
+  under it is content the office wrote for the public, filtered server-side to
+  what is published and current — nothing here can name a person or an
+  application.
+  """
+  public: PublicQuery!
+}
+
+"""Reading the portal's public-facing content."""
+type PublicQuery {
+  """
+  The landing page's announcement banner.
+
+  **Use case:** the notice board on the public landing page, rendered before
+  anyone signs in. Cards come back in the order the office arranged them.
+
+  **Refuses:** nothing — an empty banner is an ordinary successful answer, and
+  the page simply hides the board.
+  """
+  announcementBanner: PublicAnnouncementBannerResult!
+}
+
+"""The banner, or the reason it could not be read."""
+type PublicAnnouncementBannerResult implements BaseResponse {
+  """Whether the banner was read."""
+  success: Boolean!
+
+  """What to show when `success` is false. Null on the ordinary path."""
+  message: String
+
+  """The banner. Null whenever `success` is false."""
+  response: PublicAnnouncementBanner
+}
+
+"""Every card the public may currently see, in display order."""
+type PublicAnnouncementBanner {
+  """
+  Published cards that have not passed their end time, arranged by the office.
+  Empty is a normal state and the board is simply not shown.
+  """
+  announcements: [PublicAnnouncement!]!
+}
+
+"""One card on the banner."""
+type PublicAnnouncement {
+  """Stable identifier, useful as a rendering key and nothing more."""
+  id: ID!
+
+  """The short category chip on the card. **Example:** `"Notice"`."""
+  tag: String!
+
+  """
+  A free-text label shown beside the tag — a month, "Official", "Advisory".
+  Null when the office left it off, and the card omits the element.
+  """
+  dateLabel: String
+
+  """The card's headline, and the text of its link when it has one."""
+  title: String!
+
+  """One or two sentences under the headline. The card clamps long text."""
+  body: String!
+
+  """Which of the fixed pictograms the card carries."""
+  icon: AnnouncementIcon!
+
+  """Where the card leads. Null for a card that is only a statement."""
+  link: AnnouncementLink
+}
+
+"""
+Where a card leads, and — through its kind — how a renderer must treat it.
+The target was validated against its kind when the office saved it; a client
+still renders only kinds it knows.
+"""
+type AnnouncementLink {
+  """What the target is: an outside address, a page here, or a landing-page section."""
+  kind: AnnouncementLinkKind!
+
+  """
+  The validated destination. **Example:** `"https://ttaadc.gov.in/order.pdf"`
+  for EXTERNAL, `"/faq"` for ROUTE, `"#eligibility"` for ANCHOR.
+  """
+  target: String!
+}
+
+"""How a link's target must be read. A client renders only kinds it knows."""
+enum AnnouncementLinkKind {
+  """A full http or https address on another site. Opens in a new tab."""
+  EXTERNAL
+
+  """A path on this portal. **Example:** `"/faq"`."""
+  ROUTE
+
+  """A section of the landing page itself. **Example:** `"#eligibility"`."""
+  ANCHOR
+}
+
+"""
+The fixed set of pictograms a card may carry. A key rather than an image,
+because the client owns the artwork; an unknown key falls back to a default.
+"""
+enum AnnouncementIcon {
+  """A hand raising a seedling — the programme's own mark."""
+  SEEDLING
+
+  """A document page, for guidelines and templates."""
+  FILE_TEXT
+
+  """A shield with a check, for verification and eligibility notices."""
+  SHIELD_CHECK
+
+  """A civic building, for institutional and banking notices."""
+  LANDMARK
+
+  """A question mark in a circle, for help and FAQ pointers."""
+  HELP_CIRCLE
+
+  """A megaphone, for general announcements."""
+  MEGAPHONE
+
+  """A calendar page, for dates and deadlines."""
+  CALENDAR
+
+  """The rupee sign, for funding and disbursement notices."""
+  INDIAN_RUPEE
+}

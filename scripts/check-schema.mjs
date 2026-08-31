@@ -9,11 +9,10 @@
  *
  * `--write` regenerates the file, which is `npm run db:schema:generate`.
  *
- * There is deliberately no migration chain. Nothing is deployed and no database
- * exists that has to be kept, so the schema file *is* the schema and recreating
- * is the whole of applying it. The day a database exists that cannot be thrown
- * away, this becomes an ordered chain instead — and the note in
- * `src/db/schema/README.md` says so.
+ * The migration chain under `database/migrations/` is how a deployed database
+ * moves; this file is how anyone reads what the schema *is* without walking
+ * the chain, and how a local scratch database applies it in one step. Both are
+ * generated from the same Drizzle schema, which is what keeps them one story.
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
