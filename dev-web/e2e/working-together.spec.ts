@@ -167,7 +167,15 @@ test.describe('working the same file', () => {
      * claim was mistakenly credited with providing.
      */
     await otherPage.getByRole('button', { name: 'Complete the review' }).click()
-    await expect(otherPage.getByText(/The record changed/u)).toBeVisible()
+    /*
+     * Scoped to the dialog the reviewer is standing in. The screen keeps its
+     * inline copy of the form behind the open one, so the refusal is in the
+     * document twice — a page-wide match resolves to two elements and reads as
+     * "the refusal never came", which is the opposite of what happened.
+     */
+    await expect(
+      otherPage.getByRole('dialog').getByText(/The record changed/u),
+    ).toBeVisible()
 
     // And the screen recovers rather than stranding: reloading shows the state
     // the winner left behind.
