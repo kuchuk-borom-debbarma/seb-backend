@@ -117,8 +117,9 @@ psql "$DATABASE_URL" -c 'DELETE FROM core_session'
 - `catalog.generated.ts`: derived from it, and what the code imports — a JSON
   import gives widened types, and every guard here fails at build time instead.
   `npm run check:catalog` fails if the two disagree.
-- `permissions.ts`: the wildcard, and what a person's grants add up to. The one
-  place that decides either.
+- `permissions.ts`: the wildcard, what a person's grants add up to, and the
+  ceiling on what they may offer somebody else. The one place that decides any
+  of the three.
 - `controllers/auth.ts`: validation, authentication policy, response envelopes,
   cookies, and orchestration. Each use case is a directly exported function.
 - `controllers/access.ts`: granting, revoking and inviting.
@@ -281,6 +282,7 @@ role hierarchy, retained grant lifecycle, and the role-administration rules.
 | `authenticatedWithPermission` | `controllers/auth.ts` | Requires the resource/act pair the operation names; the two arguments check against each other |
 | `authenticatedSuperAdministrator` | `controllers/auth.ts` | The wildcard holder only; composing a role, and granting or revoking one |
 | `holdsPermission`, `permissionsOf`, `catalogue` | `permissions.ts` | The wildcard, and what grants add up to |
+| `withinAuthority` | `permissions.ts` | The invitation ceiling, shared by `inviteRole` and `invitableRoles` so the list offered and the rule enforced are one rule |
 | `startApplicantSignup`, `verifyApplicantSignup` | `controllers/auth.ts` | One challenge, then one verified applicant |
 | `signIn`, `signOut`, `currentSession`, `sessions` | `controllers/auth.ts` | Session lifecycle and the caller's own device list |
 | `revokeSession`, `revokeOtherSessions`, `revokeAllSessions` | `controllers/auth.ts` | Session revocation |

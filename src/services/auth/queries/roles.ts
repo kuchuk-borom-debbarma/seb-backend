@@ -66,7 +66,7 @@ const OUTER_ROLE_ID = sql.raw('"core_role"."id"')
  * here.** A resource can be removed from the catalogue while its rows survive,
  * and the direction that must fail is closed — see `permissions.ts`.
  */
-const roleSelection = (db: Database) => ({
+const roleSelection = {
   id: coreRole.id,
   key: coreRole.key,
   name: coreRole.name,
@@ -81,7 +81,7 @@ const roleSelection = (db: Database) => ({
   memberCount: sql<number>`(
     SELECT count(*)::int FROM ${coreUserRoleGrant} g
      WHERE g.role_id = ${OUTER_ROLE_ID} AND g.revoked_at IS NULL)`,
-})
+}
 
 type RoleRow = {
   id: string
@@ -117,7 +117,7 @@ const toManagedRole = (row: RoleRow): ManagedRole => ({
 /** Every live role, in the order an operator reads them. */
 export const findRoles = async (db: Database): Promise<ManagedRole[]> => {
   const rows = await db
-    .select(roleSelection(db))
+    .select(roleSelection)
     .from(coreRole)
     .where(isNull(coreRole.deletedAt))
     .orderBy(coreRole.name)
@@ -126,7 +126,7 @@ export const findRoles = async (db: Database): Promise<ManagedRole[]> => {
 
 const findRoleWhere = async (db: Database, where: SQL): Promise<ManagedRole | null> => {
   const [row] = await db
-    .select(roleSelection(db))
+    .select(roleSelection)
     .from(coreRole)
     .where(and(where, isNull(coreRole.deletedAt)))
     .limit(1)
@@ -141,12 +141,17 @@ export const findRoleByKey = (db: Database, key: string): Promise<ManagedRole | 
 
 export type CreateRoleInput = {
   role: typeof coreRole.$inferInsert
-  permissions: readonly Permission[]
   audit: AuditEventRecord
 }
 
 /**
- * Creates a role and its permissions in one statement.
+ * Creates a role holding nothing, with its audit row.
+ *
+ * No permissions are written here, and the parameter for them is deliberately
+ * absent rather than accepted and usually empty: naming a role and deciding
+ * what it may do are two acts, so a role is never live half-configured, and
+ * `updateRoleWrite` is the one place a permission set is written. A second
+ * place would be a second set of concurrency rules for the same rows.
  *
  * `constraintSafe` because the unique key is the authority on a duplicate: the
  * controller's own "that key is taken" read is a decision about whether a row
@@ -162,14 +167,6 @@ export const createRoleWrite = async (
     SELECT 1 FROM ${coreRole} WHERE ${coreRole.id} = ${input.role.id})`
   const written = await constraintSafe(() => batch(db, (tx) => [
     tx.insert(coreRole).values(input.role),
-    ...input.permissions.map((permission) =>
-      tx.insert(coreRolePermission).values({
-        id: crypto.randomUUID(),
-        roleId: input.role.id!,
-        resource: permission.resource,
-        action: permission.action,
-        createdAt: input.role.createdAt,
-      })),
     insertAuditEventWhere(tx, input.audit, roleExists),
   ]))
   return written !== null

@@ -258,8 +258,9 @@ incident that produced it:
   guard looked present at both call sites and was doing its job at neither.
 - `currentAnnouncer` named the one announcement capability for all six banner
   operations. Reading the board and publishing to it are separate permissions
-  now, so it was deleted rather than given an argument — a helper whose whole
-  body is one call is not worth the class of bug it enables.
+  now, so it was replaced by a `currentStaff` that takes the pair as arguments —
+  the same shape the admin service's has. The helper still exists; what was
+  removed is its authority to choose.
 - `cycleTransition` serves closing a cycle and archiving one, and named
   `CYCLE_ADMIN` for itself. **That was correct when it was written**: both were
   one capability, so there was nothing to choose between. Splitting them made it

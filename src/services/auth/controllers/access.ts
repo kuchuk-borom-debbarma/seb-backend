@@ -32,8 +32,8 @@ import {
   revokeRoleWrite,
   usableSuperAdminExistsExcluding,
 } from '../queries/access'
-import { findRoleById, findRoleByKey, type ManagedRole } from '../queries/roles'
-import { permissionKey } from '../permissions'
+import { findRoleById, findRoleByKey } from '../queries/roles'
+import { withinAuthority } from '../permissions'
 import {
   auditEvent,
   AUTH_REQUIRED_MESSAGE,
@@ -311,32 +311,6 @@ const invitePortalUrl = (context: AuthOperationContext, token: string): string =
   return `${base.replace(/\/+$/u, '')}/invite#${token}`
 }
 
-/**
- * Whether an issuer may offer this role: is it a subset of what they hold?
- *
- * Without a ceiling, "an administrator may invite" is a privilege escalation —
- * somebody could invite a second account to more than they hold and obtain
- * through it exactly the authority they are directly forbidden.
- *
- * This used to be a hand-written table of role names, and with composed roles
- * that table cannot be written at all: the roles are not known when the code
- * is. So the rule generalizes to what it always meant, and reads the actual
- * permission sets. A super administrator holds the wildcard, so every role is a
- * subset and they may offer any of them.
- *
- * Nobody is ever invited to super administrator. That stays bootstrap or a
- * direct grant by somebody who already is one, and it is not a composed role,
- * so no role reachable here can carry it.
- */
-const withinIssuersAuthority = (
-  actor: { superAdministrator: boolean; permissions: readonly { resource: string; action: string }[] },
-  role: ManagedRole,
-): boolean => {
-  if (actor.superAdministrator) return true
-  const held = new Set(actor.permissions.map((p) => permissionKey(p.resource, p.action)))
-  return role.permissions.every((p) => held.has(permissionKey(p.resource, p.action)))
-}
-
 /** Said to anyone whose link does not open, whatever the reason. */
 const INVITE_UNUSABLE_MESSAGE =
   'This invitation is not usable. Ask for a new one.'
@@ -363,7 +337,13 @@ export const inviteRole = async (
    * list, and telling everybody else which keys are real is an enumeration
    * this namespace deliberately does not offer.
    */
-  if (!role || !withinIssuersAuthority(actor, role)) {
+  /*
+   * The ceiling itself is `withinAuthority` in `../permissions`, shared with
+   * `invitableRoles` so the list a picker offers and the rule this refuses by
+   * are the same rule. Nobody is ever invited to super administrator: it is not
+   * a composed role, so no role reachable here can carry it.
+   */
+  if (!role || !withinAuthority(actor, role.permissions)) {
     return failure('You cannot invite somebody to that role.')
   }
   if (!identifierSchema.safeParse(input.userId).success) {

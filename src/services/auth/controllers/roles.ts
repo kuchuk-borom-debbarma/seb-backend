@@ -17,7 +17,7 @@
  * concurrent attempts. The two are deliberately redundant.
  */
 import { z } from 'zod'
-import { auditActions } from '../../../db/schema'
+import { auditActions, builtinRoles, legacyRoles } from '../../../db/schema'
 import { failure, success } from '../../envelope'
 import { constraintSafe } from '../../constraints'
 import { normalizeRequiredText } from '../../text'
@@ -27,8 +27,10 @@ import {
   catalogue,
   grants,
   isCataloguePermission,
+  permissionKey,
   resourceDescriptions,
   resources,
+  withinAuthority,
   type Permission,
 } from '../permissions'
 import { findActorPasswordHash } from '../queries/access'
@@ -61,16 +63,14 @@ const RESERVED_KEY_MESSAGE = 'That key is reserved.'
  * Mirrors `core_role_key_check` and `core_role_key_reserved_check`. The schema
  * is the authority; this exists so the ordinary case is a sentence rather than
  * a caught constraint violation.
+ *
+ * Built from the schema's own tuples rather than retyped. A third hand-written
+ * copy of the reserved words would go stale in the one direction that matters:
+ * a key this forgot would reach the database, and the CHECK would refuse it as
+ * an unhandled constraint violation instead of the sentence below.
  */
 const KEY_PATTERN = /^[A-Z][A-Z0-9_]{1,62}$/u
-const RESERVED_KEYS = new Set([
-  'APPLICANT',
-  'SUPER_ADMIN',
-  'REVIEWER',
-  'APPROVER',
-  'ADMIN',
-  'ANNOUNCER',
-])
+const RESERVED_KEYS: ReadonlySet<string> = new Set([...builtinRoles, ...legacyRoles])
 
 /** The catalogue, shaped for a role editor to render. */
 export type PermissionCatalogue = {
@@ -142,12 +142,9 @@ export const invitableRoles = async (
   const actor = await authenticatedWithPermission(context, 'role', 'invite')
   if (!actor) return failure(AUTH_REQUIRED_MESSAGE)
   const all = await findRoles(context.db)
-  if (actor.superAdministrator) return success(all)
-  const held = new Set(actor.permissions.map((p) => `${p.resource}:${p.action}`))
-  return success(
-    all.filter((role) =>
-      role.permissions.every((p) => held.has(`${p.resource}:${p.action}`))),
-  )
+  // The same predicate `inviteRole` refuses by, so the list and the refusal
+  // cannot disagree.
+  return success(all.filter((role) => withinAuthority(actor, role.permissions)))
 }
 
 /**
@@ -163,12 +160,12 @@ const normalizePermissions = (
   const wanted = new Set<string>()
   for (const { resource, action } of requested) {
     if (!isCataloguePermission(resource, action)) return null
-    wanted.add(`${resource}:${action}`)
+    wanted.add(permissionKey(resource, action))
   }
   // Returned in catalogue order and deduplicated, so two roles built from the
   // same set store identically and compare equal.
   return catalogue
-    .filter((pair) => wanted.has(`${pair.resource}:${pair.action}`))
+    .filter((pair) => wanted.has(permissionKey(pair.resource, pair.action)))
     .map((pair) => ({ ...pair }))
 }
 
@@ -241,7 +238,6 @@ export const createRole = async (
       deleteReason: null,
       createdByUserId: actor.user.id,
     },
-    permissions: [],
     audit: auditEvent(context, {
       action: auditActions.roleCreated,
       entityType: 'CORE_ROLE',

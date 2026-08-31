@@ -1,11 +1,12 @@
 /**
  * Reading the audit history.
  *
- * One capability guards everything here — `AUDIT_READ`, which only
- * `SUPER_ADMIN` holds. That is a deliberately narrow gate, because the history
- * carries more about people than any other read in the portal: who did what,
- * from which address, with which browser, across every applicant and every
- * member of staff.
+ * One permission guards everything here — `audit`/`read`. It is a catalogue
+ * pair like any other, so the office may compose a role that holds only this
+ * and nothing else, but it is worth composing deliberately: the history carries
+ * more about people than any other read in the portal — who did what, from
+ * which address, with which browser, across every applicant and every member of
+ * staff.
  *
  * The filters are validated here so a caller learns which one was wrong; the
  * query decides what is actually returned.

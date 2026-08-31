@@ -3,6 +3,7 @@
  * validator — the one place an announcer-authored href is decided safe.
  */
 import { coreAuditEvent, type auditActions } from '../../db/schema'
+import { authenticatedWithPermission, type ActionOf, type Resource } from '../auth'
 import type {
   AnnouncementLink,
   AnnouncementOperationContext,
@@ -35,15 +36,26 @@ const MAX_EXTERNAL_LINK_LENGTH = 2_000
 const MAX_ROUTE_LINK_LENGTH = 500
 const MAX_ANCHOR_LINK_LENGTH = 200
 
-/*
- * `currentAnnouncer` used to live here, and it named `announcement`'s one
- * capability for itself while serving all six operations. That is what
+/**
+ * The caller, if they hold the permission this operation needs.
+ *
+ * `currentAnnouncer` used to stand here and named `announcement`'s one
+ * capability *for* its callers while serving all six operations. That is what
  * `docs/rules/code.md` forbids — reading the board and publishing to it are
- * different authorities now, and a helper choosing between them would give
- * anybody who may read the board the power to change what the public sees. Each
- * operation names its own pair instead; a helper whose whole body is one call
- * is not worth the class of bug it enables.
+ * different authorities now, and a preamble choosing between them would give
+ * anybody who may read the board the power to change what the public sees.
+ *
+ * So the pair is required arguments, exactly as in the admin service's
+ * `currentStaff`: every operation still names what it needs, and this only
+ * spares each of them the `?.user ?? null` unwrapping. It is not shared with
+ * that service because each service's guard takes its own operation context,
+ * and a `support.ts` is per service by construction.
  */
+export const currentStaff = async <R extends Resource>(
+  context: AnnouncementOperationContext,
+  resource: R,
+  action: ActionOf<R>,
+) => (await authenticatedWithPermission(context, resource, action))?.user ?? null
 
 export type AnnouncementAuditAction = (typeof auditActions)[keyof typeof auditActions]
 

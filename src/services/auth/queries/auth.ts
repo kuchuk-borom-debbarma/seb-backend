@@ -19,6 +19,7 @@ import {
   builtinRoles,
   type BuiltinRole,
 } from '../../../db/schema'
+import { permissionKey } from '../permissions'
 
 export type UserRecord = typeof coreUser.$inferSelect
 export type UserRoleGrantRecord = typeof coreUserRoleGrant.$inferSelect
@@ -189,7 +190,9 @@ export const findUserAuthority = async (
   for (const { role, key, resource, action } of rows) {
     const name = role ?? key
     if (name !== null) names.add(name)
-    if (resource !== null && action !== null) grantedKeys.add(`${resource}:${action}`)
+    if (resource !== null && action !== null) {
+      grantedKeys.add(permissionKey(resource, action))
+    }
   }
   return {
     superAdministrator: names.has('SUPER_ADMIN'),

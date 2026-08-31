@@ -1,7 +1,7 @@
 /**
  * Authorization and input validation for intake and desk review.
  *
- * Nothing is reserved before it is worked on. Holding the right capability is
+ * Nothing is reserved before it is worked on. Holding the right permission is
  * what permits an action, and the version term inside each write predicate is
  * what settles two officers acting at once — so the refusals decided here
  * explain which rule stopped somebody, while the predicates in
@@ -173,7 +173,7 @@ export const intakeWorkspace = async (
  * not be able to tell an unsubmitted draft from an ID that was never real.
  */
 /*
- * The capability is the caller's to state, not this helper's to assume.
+ * The permission is the caller's to state, not this helper's to assume.
  *
  * It once served both a read and a write while naming a capability itself, so
  * the write silently inherited the read's answer and a reviewer — who may

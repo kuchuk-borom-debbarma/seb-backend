@@ -1,15 +1,17 @@
 /**
- * The announcer's side of the banner: authoring, ordering, withdrawing.
+ * The office's side of the banner: authoring, ordering, withdrawing.
  *
- * Every operation is capability-gated (`ANNOUNCE` — held by announcers, and by
- * super administrators through the capability spread) and every write is
- * optimistic: per-card edits quote the card's version, and the reorder quotes
- * the board's, because two reorders touch no common card row and need one row
- * they both contend for.
+ * Every operation names its own `announcement` permission — reading the board,
+ * writing a card, publishing one, withdrawing one and reordering them are five
+ * separate authorities, so a role composed to read the banner cannot change
+ * what the public sees.
+ *
+ * Every write is optimistic: per-card edits quote the card's version, and the
+ * reorder quotes the board's, because two reorders touch no common card row and
+ * need one row they both contend for.
  */
 import { auditActions } from '../../../db/schema'
 import { failure, success } from '../../envelope'
-import { authenticatedWithPermission } from '../../auth'
 import { normalizeOptionalText, normalizeRequiredText } from '../../text'
 import {
   createAnnouncement,
@@ -24,6 +26,7 @@ import {
 import {
   announcementAudit,
   BOARD_MISMATCH_MESSAGE,
+  currentStaff,
   MAX_BODY_LENGTH,
   MAX_DATE_LABEL_LENGTH,
   MAX_REASON_LENGTH,
@@ -44,7 +47,7 @@ import type {
 export const announcementBoard = async (
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncementBoard>> => {
-  const announcer = (await authenticatedWithPermission(context, 'announcement', 'read'))?.user ?? null
+  const announcer = await currentStaff(context, 'announcement', 'read')
   if (!announcer) return failure(PERMISSION_MESSAGE)
   return success(await readBoard(context.db))
 }
@@ -96,7 +99,7 @@ export const createAnnouncementController = async (
   input: AnnouncementFieldsInput,
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncement>> => {
-  const announcer = (await authenticatedWithPermission(context, 'announcement', 'create'))?.user ?? null
+  const announcer = await currentStaff(context, 'announcement', 'create')
   if (!announcer) return failure(PERMISSION_MESSAGE)
   const normalized = normalizedFields(input)
   if (normalized.fields === null) return failure(normalized.message)
@@ -122,7 +125,7 @@ export const updateAnnouncementController = async (
   input: AnnouncementFieldsInput & { id: string; expectedVersion: number },
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncement>> => {
-  const announcer = (await authenticatedWithPermission(context, 'announcement', 'update'))?.user ?? null
+  const announcer = await currentStaff(context, 'announcement', 'update')
   if (!announcer) return failure(PERMISSION_MESSAGE)
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
     return failure('That update request is not valid.')
@@ -153,7 +156,7 @@ export const setAnnouncementPublishedController = async (
   input: { id: string; expectedVersion: number; published: boolean; reason?: string | null },
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncement>> => {
-  const announcer = (await authenticatedWithPermission(context, 'announcement', 'publish'))?.user ?? null
+  const announcer = await currentStaff(context, 'announcement', 'publish')
   if (!announcer) return failure(PERMISSION_MESSAGE)
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
     return failure('That update request is not valid.')
@@ -183,7 +186,7 @@ export const removeAnnouncementController = async (
   input: { id: string; expectedVersion: number; reason: string },
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncementBoard>> => {
-  const announcer = (await authenticatedWithPermission(context, 'announcement', 'remove'))?.user ?? null
+  const announcer = await currentStaff(context, 'announcement', 'remove')
   if (!announcer) return failure(PERMISSION_MESSAGE)
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
     return failure('That update request is not valid.')
@@ -216,7 +219,7 @@ export const reorderAnnouncementsController = async (
   input: { ids: string[]; expectedBoardVersion: number },
   context: AnnouncementOperationContext,
 ): Promise<AnnouncementResult<AdminAnnouncementBoard>> => {
-  const announcer = (await authenticatedWithPermission(context, 'announcement', 'reorder'))?.user ?? null
+  const announcer = await currentStaff(context, 'announcement', 'reorder')
   if (!announcer) return failure(PERMISSION_MESSAGE)
   if (!Number.isInteger(input.expectedBoardVersion) || input.expectedBoardVersion < 1) {
     return failure('That reorder request is not valid.')

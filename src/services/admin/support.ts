@@ -2,7 +2,7 @@
  * Shared policy-layer helpers for the administrative controllers.
  *
  * What belongs here is what is genuinely this service's: its refusal messages,
- * its capability preamble, its audit-row builder. The response envelope itself
+ * its permission preamble, its audit-row builder. The response envelope itself
  * is **not** — `success` and `failure` were once defined identically in four
  * support modules, which is one decision copied rather than four decisions, and
  * copies drift. They live in `services/envelope.ts` now.

@@ -124,3 +124,39 @@ export const holdsPermission = <R extends Resource>(
   authority.permissions.some(
     (held) => held.resource === resource && held.action === action,
   )
+
+/**
+ * Whether an authority covers a whole set of pairs — the invitation ceiling.
+ *
+ * Without a ceiling, "an administrator may invite" is a privilege escalation:
+ * somebody could invite a second account to more than they hold and obtain
+ * through it exactly the authority they are directly forbidden.
+ *
+ * This used to be a hand-written table of role names, and with composed roles
+ * that table cannot be written at all — the roles are not known when the code
+ * is. So the rule generalizes to what it always meant and reads the actual
+ * sets. A super administrator holds the wildcard, so every role is a subset.
+ *
+ * It lives here rather than beside `inviteRole` because two operations ask it:
+ * the mutation, which refuses, and `invitableRoles`, which lists what would be
+ * accepted. Two copies of a ceiling drift, and the direction they drift in is
+ * a picker offering a role the mutation then refuses — or worse, the reverse.
+ *
+ * Pairs are compared as strings rather than by type, because the wanted set is
+ * usually rows read from the database and a row can name a resource the
+ * catalogue no longer has. Such a pair is in nobody's held set, so it is not a
+ * subset of anything — which fails closed, in the required direction.
+ */
+export const withinAuthority = (
+  actor: {
+    superAdministrator: boolean
+    permissions: readonly { resource: string; action: string }[]
+  },
+  wanted: readonly { resource: string; action: string }[],
+): boolean => {
+  if (actor.superAdministrator) return true
+  const held = new Set(
+    actor.permissions.map((pair) => permissionKey(pair.resource, pair.action)),
+  )
+  return wanted.every((pair) => held.has(permissionKey(pair.resource, pair.action)))
+}

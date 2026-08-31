@@ -11,11 +11,11 @@ extend type Query {
 """Reading the signed-in identity."""
 type AuthQuery {
   """
-  Who is signed in, with the roles and capabilities they hold **now**.
+  Who is signed in, with the roles and permissions they hold **now**.
 
-  Roles are read live rather than carried in a token, so revoking one takes
-  effect on the very next request. A client must never assume a role it saw
-  earlier is still held.
+  Both are read live rather than carried in a token, so revoking a role or
+  editing what one may do takes effect on the very next request. A client must
+  never assume a permission it saw earlier is still held.
 
   **Use case:** deciding what the interface offers. It never decides what is
   permitted — every operation is re-checked by the API.
