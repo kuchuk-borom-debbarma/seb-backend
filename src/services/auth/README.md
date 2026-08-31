@@ -161,10 +161,10 @@ last-super-administrator guard, the bootstrap role swap, and session
 deactivation from drifting apart.
 
 A super administrator may look up one identity by exact email or ID — never a
-list, which would enumerate accounts — and grant or revoke `ADMIN` and
-`SUPER_ADMIN`. `APPLICANT` is deliberately outside this API: verified signup is
-its only source and nothing can grant it back, so allowing its revocation would
-strip an applicant permanently.
+list, which would enumerate accounts — and grant or revoke `SUPER_ADMIN` or any
+role the office composed, named by its key. `APPLICANT` is deliberately
+outside this API: verified signup is its only source and nothing can grant it
+back, so allowing its revocation would strip an applicant permanently.
 
 Every mutation requires a fresh password confirmation from the caller, checked
 after the cheap authorization and validation so an unauthorized request never

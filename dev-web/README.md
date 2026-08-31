@@ -212,8 +212,11 @@ The client is a public site and two portals sharing one institution.
 - **`/dashboard` — the applicant portal.** Overview, enterprises, applications
   and the cycles you can apply in. Needs the `APPLICANT` role.
 - **`/admin` — the programme office.** Intake, cycle administration, and role
-  management at `/admin/access`. Needs `ADMIN` or
-  `SUPER_ADMIN`; the access screen needs `SUPER_ADMIN` specifically.
+  management at `/admin/access`. The door needs **any** office permission rather
+  than a named one — roles are composed, so a door listing acceptable
+  permissions would lock out exactly the narrow roles the model exists to
+  allow. What somebody cannot do is decided screen by screen; the access screen
+  needs `SUPER_ADMIN` specifically.
 - **Shared** — `/guide` and the account screens under `/settings` and
   `/account`, reachable from either portal.
 

@@ -147,9 +147,9 @@ Sign-in requires only that the person holds at least one active role of any
 kind. Applicant operations additionally require an active `APPLICANT` grant.
 Therefore:
 
-- an `ADMIN`/`SUPER_ADMIN` user who holds no `APPLICANT` grant signs in
-  normally and reaches administrative operations;
-- an `APPLICANT` plus `ADMIN`/`SUPER_ADMIN` user can use both namespaces;
+- somebody holding an office permission but no `APPLICANT` grant signs in
+  normally and reaches the operations that permission names;
+- somebody holding `APPLICANT` as well can use both namespaces;
 - revoking `APPLICANT` immediately stops applicant access while leaving the
   underlying session available for administrative authorization; and
 - a person whose every grant has been revoked cannot sign in, and the sessions

@@ -11,7 +11,7 @@ Bootstrap is deliberately narrow:
 - it requires a separate temporary bearer-safe secret containing 32 through 512
   ASCII characters;
 - it works only before any `SUPER_ADMIN` grant has ever existed; and
-- it creates `SUPER_ADMIN`, not a redundant `ADMIN` grant.
+- it grants exactly one role, `SUPER_ADMIN`, and nothing else.
 
 The promoted person's `APPLICANT` grant is revoked in the same transition, so
 their only active role afterwards is `SUPER_ADMIN`. Both role events are

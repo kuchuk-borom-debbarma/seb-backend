@@ -22,9 +22,15 @@ eligibility, evidence, or approval rules.
 - Policy decisions that are not settled appear in the final section with the
   exact question, owner, and effect of leaving the decision open.
 
-Throughout this document, **administrator** means a signed-in person with an
-active `ADMIN` or `SUPER_ADMIN` role. **Super administrator** specifically means
-a person with an active `SUPER_ADMIN` role.
+Throughout this document, **administrator** means a signed-in person holding any
+programme-office permission — whatever the role carrying it is called, because
+the office composes its own. **Super administrator** specifically means a person
+with an active `SUPER_ADMIN` grant, which is the wildcard and is the one role
+never stored as a row.
+
+The word is deliberately not a role name. It was `ADMIN` or `SUPER_ADMIN` when
+those were four fixed roles; naming a role here again would go stale the first
+time somebody composed another.
 
 ## Product model and fixed rules
 
@@ -534,15 +540,14 @@ namespace. Account recovery remains incomplete.
   administrator-only account and a losing request changes neither role.
 - [x] Refuse to promote an applicant who owns any enterprise, because losing
   `APPLICANT` would strand that enterprise permanently: role administration
-  deliberately covers `ADMIN` and `SUPER_ADMIN` only, so nothing can grant
-  `APPLICANT` back.
+  deliberately excludes `APPLICANT`, so nothing can grant it back.
 - [x] Delete the promoted account's existing sessions in the same transition, so
   administrative authority requires a fresh sign-in.
 - [x] Record the promoted user, time, role grant, role revocation, and fixed
   bootstrap reason without retaining the password, configured email, or
   temporary secret.
-- [x] Give administrators a sign-in journey that works for an `ADMIN` or
-  `SUPER_ADMIN` who is not also an applicant.
+- [x] Give administrators a sign-in journey that works for anybody holding an
+  office permission who is not also an applicant.
 - [x] Refuse sign-in for a person whose every role grant has been revoked, and
   destroy their existing sessions rather than only refusing them, so restoring a
   role cannot revive a previously issued token.

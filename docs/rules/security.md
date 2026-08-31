@@ -85,7 +85,7 @@ header comment, exactly what is standing between it and the world:
 
 Anything sealed and handed to a person must be **tamper-evident**, not merely
 unreadable. An unauthenticated ciphertext is malleable: somebody holding an
-invitation to `REVIEWER` could flip bits and see what came out. AES-GCM
+invitation to a weak role could flip bits and see what came out. AES-GCM
 authenticates as it decrypts, so a modified byte fails instead of producing a
 different invitation.
 
