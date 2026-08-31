@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-query'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
+import { Dialog } from '#/components/Dialog'
 import {
   Archive,
   ArrowLeft,
@@ -1117,6 +1118,7 @@ function AdminCyclePage() {
 
       {/* Modal: Move or lift the closing time */}
       {closesAt !== null && (
+        <Dialog open onClose={() => setClosesAt(null)}>
         <div className={styles.modalOverlay} role="dialog" aria-modal="true">
           <div className={styles.modalDialog}>
             <div className={styles.modalHeader}>
@@ -1189,10 +1191,12 @@ function AdminCyclePage() {
             </div>
           </div>
         </div>
+        </Dialog>
       )}
 
       {/* Modal: Update Guidance */}
       {showGuidanceModal && (
+        <Dialog open onClose={() => setShowGuidanceModal(false)}>
         <div className={styles.modalOverlay} role="dialog" aria-modal="true">
           <div className={styles.modalDialog}>
             <div className={styles.modalHeader}>
@@ -1253,10 +1257,12 @@ function AdminCyclePage() {
             </div>
           </div>
         </div>
+        </Dialog>
       )}
 
       {/* Modal: Transition Confirmation (Open / Close / Archive / Remove) */}
       {transitionAction && (
+        <Dialog open onClose={() => setTransitionAction(null)}>
         <div className={styles.modalOverlay} role="dialog" aria-modal="true">
           <div className={styles.modalDialog}>
             <div className={styles.modalHeader}>
@@ -1332,6 +1338,7 @@ function AdminCyclePage() {
             </div>
           </div>
         </div>
+        </Dialog>
       )}
     </main>
   )

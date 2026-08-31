@@ -314,7 +314,10 @@ export const registerEnterprise = async (
  * same code with the fix in one of them, every spec that started an
  * application depended on some other spec having opened a second cycle first.
  */
-const chooseProgrammeCycle = async (page: Page, cycleCode: string): Promise<void> => {
+export const chooseProgrammeCycle = async (
+  page: Page,
+  cycleCode: string,
+): Promise<void> => {
   const cycle = page.getByLabel('Programme cycle')
   const label = await cycle.locator('option').filter({ hasText: cycleCode }).innerText()
   if (await cycle.isDisabled()) {

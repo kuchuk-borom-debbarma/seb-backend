@@ -57,6 +57,51 @@ test.describe('the announcement banner', () => {
     await expect(panel.getByText('The window opens Monday')).toBeVisible()
   })
 
+  /**
+   * A dialog behaves like one: the page behind it is out of reach.
+   *
+   * Every modal here was a fixed overlay with `role="dialog"` on it and
+   * nothing else — which covers the screen for a mouse and does nothing for a
+   * keyboard or a screen reader. `aria-modal` is a claim, and this is the
+   * check that it is true: the page behind is `inert`, so Tab cannot leave the
+   * dialog and nothing behind it can be reached.
+   */
+  test('holds focus and shuts the page behind it away', async ({ page }) => {
+    await inviteSomebodyTo(page, 'BANNER_EDITOR')
+    await page.goto('/admin/announcements')
+    await page.getByRole('button', { name: /New announcement|Write the first announcement/u })
+      .first().click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+
+    // Everything that is not the dialog is inert, so nothing behind it is
+    // focusable — which is what makes the tab order stay inside.
+    const pageIsInert = await page.evaluate(() => {
+      const dialogRoot = document.querySelector('[role="dialog"]')
+      return Array.from(document.body.children)
+        .filter((child) => !child.contains(dialogRoot))
+        .every((child) => (child as HTMLElement).inert)
+    })
+    expect(pageIsInert, 'the page behind the dialog is inert').toBe(true)
+
+    // Tabbing repeatedly never lands outside it.
+    for (let press = 0; press < 12; press += 1) {
+      await page.keyboard.press('Tab')
+      const inside = await dialog.evaluate(
+        (node) => node.contains(document.activeElement),
+      )
+      expect(inside, `focus stayed in the dialog after ${press + 1} tabs`).toBe(true)
+    }
+
+    // Escape closes it, and the page comes back.
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(
+      page.getByRole('heading', { name: 'Announcement banner' }),
+    ).toBeVisible()
+  })
+
   test('a hidden draft stays off the landing page until flipped live', async ({ page }) => {
     await inviteSomebodyTo(page, 'BANNER_EDITOR')
     await page.goto('/admin/announcements')

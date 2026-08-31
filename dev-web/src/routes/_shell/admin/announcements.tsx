@@ -11,6 +11,7 @@ import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-q
 import { createFileRoute } from '@tanstack/react-router'
 import { Megaphone, Pencil, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
+import { Dialog } from '#/components/Dialog'
 import { PageHeader } from '#/components/PageHeader'
 import { AnnouncementCard } from '#/features/announcements/AnnouncementCard'
 import {
@@ -419,6 +420,7 @@ function AnnouncementsPage() {
       ) : null}
 
       {removing ? (
+        <Dialog open onClose={() => setRemoving(null)}>
         <div className={styles.modalOverlay} role="dialog" aria-modal="true">
           <div className={`${styles.modalDialog} ${styles.modalDialogNarrow}`}>
             <div className={styles.modalHeader}>
@@ -475,6 +477,7 @@ function AnnouncementsPage() {
             </div>
           </div>
         </div>
+        </Dialog>
       ) : null}
     </main>
   )
@@ -525,6 +528,7 @@ function AnnouncementEditor({
     (draft.linkKind !== 'NONE' && (!draft.linkTarget.trim() || linkInvalid))
 
   return (
+    <Dialog open onClose={onCancel}>
     <div className={styles.modalOverlay} role="dialog" aria-modal="true">
       <div className={styles.modalDialog}>
         <div className={styles.modalHeader}>
@@ -738,5 +742,6 @@ function AnnouncementEditor({
         </div>
       </div>
     </div>
+    </Dialog>
   )
 }

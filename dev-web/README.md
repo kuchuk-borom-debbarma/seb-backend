@@ -454,6 +454,16 @@ Held by tests rather than asserted in a document:
   at 360px.
 - **Keyboard.** Every control is reachable by Tab and lands with a visible focus
   ring; nothing traps focus.
+- **A dialog behaves like one.** `src/components/Dialog.tsx` portals a modal out
+  of the page and makes everything else `inert`, which is what stops Tab walking
+  out of a dialog into the form behind it and stops a screen reader announcing a
+  page nobody can act on. Every modal on this client goes through it. Asserted:
+  the page behind is inert, twelve tab presses never leave the dialog, and
+  Escape closes it.
+
+  The portal is not decoration. Each dialog is written inside the screen it
+  belongs to, so the subtree that has to become inert *contains* the dialog —
+  marking it in place would disable the dialog too.
 - **Reduced motion.** The stylesheet neutralizes animation and smooth scrolling,
   and the one place that scrolls from JavaScript reads the preference — an
   explicit `behavior` option overrides the stylesheet, so it has to.

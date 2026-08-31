@@ -42,6 +42,7 @@ import {
   CompleteDeskReviewDocument,
   StartDeskReviewDocument,
 } from '#/graphql/generated/operations'
+import { Dialog } from '#/components/Dialog'
 import { formatDateTime, humanize } from '#/lib/format'
 import { can, canAny } from '#/lib/session'
 import { gql } from '#/lib/graphql'
@@ -612,22 +613,27 @@ function NextStep({
             >
               {hasReview ? 'Open review form' : 'Open desk review'}
             </button>
-            {error ? (
-              <p
-                className="notice"
-                data-tone="error"
-                role="alert"
-                style={{ marginTop: '0.75rem' }}
-              >
-                {error}
-              </p>
-            ) : null}
+            {/*
+              No refusal here. Completing a review is only ever started from
+              the dialog, and the dialog stays open holding the message — so a
+              copy on the card behind it could never say anything the dialog
+              was not already saying, and said it as a second `role="alert"`
+              that a screen reader announced over the first.
+
+              `start` writes to the same state, but a failed start leaves the
+              application submitted, which is the branch above.
+            */}
           </div>
         </section>
 
         <DeskReviewModal
           open={modalOpen}
-          onClose={() => setModalOpen(false)}
+          // Closing drops any refusal with it: it belonged to the attempt the
+          // person has just walked away from.
+          onClose={() => {
+            setError(null)
+            setModalOpen(false)
+          }}
           hasReview={hasReview}
           submitted={submitted}
           reasons={reasons}
@@ -1026,6 +1032,7 @@ function InternalNotes({
 
       {/* Add / Correct Internal Note Modal */}
       {modalOpen ? (
+        <Dialog open onClose={closeModal}>
         <div
           className={styles.noteModalOverlay}
           onClick={(event) => {
@@ -1135,6 +1142,7 @@ function InternalNotes({
             </form>
           </div>
         </div>
+        </Dialog>
       ) : null}
     </section>
   )

@@ -4,6 +4,7 @@
  * Every status the programme has, placed under the desk that holds the file at
  * that moment, in the order they happen.
  */
+import { Dialog } from '#/components/Dialog'
 import type { Permission } from '#/lib/session'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -797,7 +798,7 @@ export function RouteDiagram({
 
       {/* Interactive Stage Details Drawer (Mockup 2) */}
       {activeStage !== null ? (
-        <>
+        <Dialog open onClose={() => setSelectedStageIndex(null)}>
           <div
             className={styles.drawerBackdrop}
             onClick={() => setSelectedStageIndex(null)}
@@ -917,7 +918,7 @@ export function RouteDiagram({
               </button>
             </div>
           </aside>
-        </>
+        </Dialog>
       ) : null}
     </div>
   )

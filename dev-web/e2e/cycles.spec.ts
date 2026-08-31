@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
+  chooseProgrammeCycle,
   signIn,
   signUpApplicant,
   uniqueEmail,
@@ -174,7 +175,7 @@ test.describe('cycle administration', () => {
     if (await journeySelect.isEnabled()) {
       await journeySelect.selectOption({ label: 'Journey Works' })
     }
-    await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
+    await chooseProgrammeCycle(applicantPage, code)
     await applicantPage.getByRole('button', { name: 'Next' }).click()
     await applicantPage.getByRole('radio', { name: 'Initial application' }).check()
     await applicantPage
@@ -216,7 +217,7 @@ test.describe('cycle administration', () => {
     if (await unfundedSelect.isEnabled()) {
       await unfundedSelect.selectOption({ label: 'Unfunded Works' })
     }
-    await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
+    await chooseProgrammeCycle(applicantPage, code)
     await applicantPage.getByRole('button', { name: 'Next' }).click()
 
     // The API's own wording, not a message invented by the client.
