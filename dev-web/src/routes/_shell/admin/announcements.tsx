@@ -21,7 +21,7 @@ import {
 import { resolveAnnouncementLink } from '#/features/announcements/link'
 import { announcementBoardQuery } from '#/features/announcements/queries'
 import styles from '#/features/announcements/Announcements.module.css'
-import { CapabilityRefusal } from '#/features/portal/CapabilityRefusal'
+import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
 import {
   CreateAnnouncementDocument,
   RemoveAnnouncementDocument,
@@ -126,9 +126,9 @@ function AnnouncementsGate() {
   const { user } = Route.useRouteContext()
   if (!can(user, 'announcement', 'read')) {
     return (
-      <CapabilityRefusal
+      <PermissionRefusal
         title="Announcement banner"
-        needs="anybody whose role may write the public banner"
+        needs="anybody whose role may read the public banner"
       />
     )
   }
@@ -136,6 +136,18 @@ function AnnouncementsGate() {
 }
 
 function AnnouncementsPage() {
+  /*
+   * Reading the board and changing it are separate permissions, so the controls
+   * are drawn separately from the screen. The board was gated on `read` alone
+   * while every button was gated on nothing — so a role composed to read it saw
+   * a full editor whose every action the API refused.
+   */
+  const { user } = Route.useRouteContext()
+  const mayCreate = can(user, 'announcement', 'create')
+  const mayUpdate = can(user, 'announcement', 'update')
+  const mayPublish = can(user, 'announcement', 'publish')
+  const mayRemove = can(user, 'announcement', 'remove')
+  const mayReorder = can(user, 'announcement', 'reorder')
   const queryClient = useQueryClient()
   const { data: board } = useSuspenseQuery(announcementBoardQuery)
   const [editing, setEditing] = useState<
@@ -253,14 +265,16 @@ function AnnouncementsPage() {
         title="Announcement banner"
         description="What the landing page's notice board says, in the order it says it."
         actions={
-          <button
-            type="button"
-            className="button"
-            data-variant="primary"
-            onClick={() => setEditing({ mode: 'create', draft: EMPTY_DRAFT })}
-          >
-            New announcement
-          </button>
+          mayCreate ? (
+            <button
+              type="button"
+              className="button"
+              data-variant="primary"
+              onClick={() => setEditing({ mode: 'create', draft: EMPTY_DRAFT })}
+            >
+              New announcement
+            </button>
+          ) : undefined
         }
       />
 
@@ -277,14 +291,16 @@ function AnnouncementsPage() {
             Nothing is on the banner yet. The landing page hides the board until
             the first card is published.
           </p>
-          <button
-            type="button"
-            className="button"
-            data-variant="primary"
-            onClick={() => setEditing({ mode: 'create', draft: EMPTY_DRAFT })}
-          >
-            Write the first announcement
-          </button>
+          {mayCreate ? (
+            <button
+              type="button"
+              className="button"
+              data-variant="primary"
+              onClick={() => setEditing({ mode: 'create', draft: EMPTY_DRAFT })}
+            >
+              Write the first announcement
+            </button>
+          ) : null}
         </div>
       ) : (
         <div className={styles.boardCard}>
@@ -294,28 +310,30 @@ function AnnouncementsPage() {
               && new Date(card.endsAt).getTime() <= now
             return (
               <div key={card.id} className={styles.row}>
-                <div className={styles.moveButtons}>
-                  <button
-                    type="button"
-                    className="button"
-                    data-variant="ghost"
-                    aria-label={`Move ${card.title} earlier`}
-                    disabled={index === 0 || reorder.isPending}
-                    onClick={() => move(index, -1)}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className="button"
-                    data-variant="ghost"
-                    aria-label={`Move ${card.title} later`}
-                    disabled={index === board.announcements.length - 1 || reorder.isPending}
-                    onClick={() => move(index, 1)}
-                  >
-                    ↓
-                  </button>
-                </div>
+                {mayReorder ? (
+                  <div className={styles.moveButtons}>
+                    <button
+                      type="button"
+                      className="button"
+                      data-variant="ghost"
+                      aria-label={`Move ${card.title} earlier`}
+                      disabled={index === 0 || reorder.isPending}
+                      onClick={() => move(index, -1)}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="button"
+                      data-variant="ghost"
+                      aria-label={`Move ${card.title} later`}
+                      disabled={index === board.announcements.length - 1 || reorder.isPending}
+                      onClick={() => move(index, 1)}
+                    >
+                      ↓
+                    </button>
+                  </div>
+                ) : null}
                 <div className={styles.rowIcon}>
                   <Icon className="size-5" aria-hidden="true" />
                 </div>
@@ -329,41 +347,55 @@ function AnnouncementsPage() {
                   </div>
                 </div>
                 <div className={styles.rowActions}>
-                  <button
-                    type="button"
-                    className={styles.liveBadge}
-                    data-live={card.published ? 'true' : 'false'}
-                    title={card.published ? 'Shown to the public — click to hide' : 'Hidden draft — click to publish'}
-                    disabled={togglePublished.isPending}
-                    onClick={() => togglePublished.mutate(card)}
-                  >
-                    {card.published ? 'Live' : 'Hidden'}
-                  </button>
-                  <button
-                    type="button"
-                    className="button"
-                    data-variant="ghost"
-                    aria-label={`Edit ${card.title}`}
-                    onClick={() => {
-                      setNotice(null)
-                      setEditing({ mode: 'edit', card, draft: draftFrom(card) })
-                    }}
-                  >
-                    <Pencil className="size-4" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="button"
-                    data-variant="ghost"
-                    aria-label={`Remove ${card.title}`}
-                    onClick={() => {
-                      setNotice(null)
-                      setRemoveReason('')
-                      setRemoving(card)
-                    }}
-                  >
-                    <Trash2 className="size-4" aria-hidden="true" />
-                  </button>
+                  {mayPublish ? (
+                    <button
+                      type="button"
+                      className={styles.liveBadge}
+                      data-live={card.published ? 'true' : 'false'}
+                      title={card.published ? 'Shown to the public — click to hide' : 'Hidden draft — click to publish'}
+                      disabled={togglePublished.isPending}
+                      onClick={() => togglePublished.mutate(card)}
+                    >
+                      {card.published ? 'Live' : 'Hidden'}
+                    </button>
+                  ) : (
+                    // Still worth saying which it is; only the flip is withheld.
+                    <span
+                      className={styles.liveBadge}
+                      data-live={card.published ? 'true' : 'false'}
+                    >
+                      {card.published ? 'Live' : 'Hidden'}
+                    </span>
+                  )}
+                  {mayUpdate ? (
+                    <button
+                      type="button"
+                      className="button"
+                      data-variant="ghost"
+                      aria-label={`Edit ${card.title}`}
+                      onClick={() => {
+                        setNotice(null)
+                        setEditing({ mode: 'edit', card, draft: draftFrom(card) })
+                      }}
+                    >
+                      <Pencil className="size-4" aria-hidden="true" />
+                    </button>
+                  ) : null}
+                  {mayRemove ? (
+                    <button
+                      type="button"
+                      className="button"
+                      data-variant="ghost"
+                      aria-label={`Remove ${card.title}`}
+                      onClick={() => {
+                        setNotice(null)
+                        setRemoveReason('')
+                        setRemoving(card)
+                      }}
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                    </button>
+                  ) : null}
                 </div>
               </div>
             )

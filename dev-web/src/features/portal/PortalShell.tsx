@@ -1,8 +1,8 @@
 /**
  * The signed-in platform shell.
  *
- * Navigation is offered from live capabilities, exactly like the API's own
- * authorization policy. The shell never grants authority; it only avoids
+ * Navigation is offered from live permissions, read from the same session the
+ * API authorizes against. The shell never grants authority; it only avoids
  * presenting controls the next request would refuse.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -36,6 +36,7 @@ import { forgetGuide } from '#/features/guide/GuideContext'
 import { gql } from '#/lib/graphql'
 import {
   belongsInTheOffice,
+  holdsOnlyTheBanner,
   can,
   isApplicant,
   isSuperAdministrator,
@@ -86,6 +87,22 @@ export function PlatformNavigation({
   collapsed: boolean
   onToggleCollapsed: () => void
 }) {
+  /*
+   * How many links the Administration group would hold.
+   *
+   * Counted from the same conditions the links themselves use, so the group
+   * cannot be drawn empty and cannot hide a link it contains — which a separate
+   * list of permissions did both of, in turn.
+   */
+  const administrationLinks = [
+    can(user, 'programme_cycle', 'read'),
+    can(user, 'announcement', 'read'),
+    can(user, 'role', 'invite'),
+    can(user, 'role', 'read'),
+    isSuperAdministrator(user),
+    can(user, 'audit', 'read'),
+  ].filter(Boolean).length
+
   return (
     <nav
       className={styles.sidebar}
@@ -144,7 +161,19 @@ export function PlatformNavigation({
             </NavGroup>
           ) : (
             <>
-              {can(user, 'application', 'read') ? (
+              {/*
+                * The dashboard is where sign-in lands every member of staff, so
+                * it is offered to anybody the door admitted — not only to
+                * casework readers. A role composed of `analytics`/`read` alone
+                * has the dashboard's reporting panel and nothing else, and
+                * gating this on casework left it with no link to its own screen.
+                *
+                * The one exception is the holder of nothing but the banner,
+                * because the door itself forwards them off `/admin` — so the
+                * link would say Dashboard and land on the announcement board.
+                * Asked with the door's own predicate, not a second one.
+                */}
+              {holdsOnlyTheBanner(user) ? null : (
                 <NavGroup title="Workspace" collapsed={collapsed}>
                   <NavLink
                     to="/admin"
@@ -153,22 +182,24 @@ export function PlatformNavigation({
                     exact
                     onNavigate={onClose}
                   />
-                  <NavLink
-                    to="/admin/queue"
-                    label="Applications"
-                    icon={ClipboardList}
-                    activePrefixes={['/admin/queue', '/admin/applications']}
-                    onNavigate={onClose}
-                  />
+                  {can(user, 'application', 'read') ? (
+                    <NavLink
+                      to="/admin/queue"
+                      label="Applications"
+                      icon={ClipboardList}
+                      activePrefixes={['/admin/queue', '/admin/applications']}
+                      onNavigate={onClose}
+                    />
+                  ) : null}
                 </NavGroup>
-              ) : null}
+              )}
 
-              {can(user, 'programme_cycle', 'read') ||
-              isSuperAdministrator(user) ||
-              can(user, 'role', 'read') ||
-              can(user, 'role', 'invite') ||
-              can(user, 'audit', 'read') ||
-              can(user, 'announcement', 'read') ? (
+              {/*
+                * Shown only when it would hold something. Every term below is a
+                * link drawn beneath it, so the condition cannot drift from the
+                * contents the way a separate list of permissions would.
+                */}
+              {administrationLinks > 0 ? (
                 <NavGroup title="Administration" collapsed={collapsed}>
                   {can(user, 'programme_cycle', 'read') ? (
                     <NavLink
@@ -411,7 +442,13 @@ function PortalSelector({
   onNavigate: () => void
 }) {
   const selectorRef = useRef<HTMLDetailsElement | null>(null)
-  const hasBoth = isApplicant(user) && can(user, 'application', 'read')
+  /*
+   * Asked the way the door asks it. This read `application`/`read`, so somebody
+   * holding an announcement-only or audit-only role beside their applicant
+   * grant was admitted to the office and then offered no way back into it —
+   * the door/navigation disagreement `belongsInTheOffice` exists to end.
+   */
+  const hasBoth = isApplicant(user) && belongsInTheOffice(user)
   const label = portal === 'applicant' ? 'Applicant' : 'Programme office'
 
   const closeSelector = () => {
@@ -615,7 +652,7 @@ function AccountMenu({
           >
             <MonitorSmartphone aria-hidden="true" /> Security
           </Link>
-          {isApplicant(user) && can(user, 'application', 'read') ? (
+          {isApplicant(user) && belongsInTheOffice(user) ? (
             <Link
               to={portal === 'applicant' ? '/admin' : '/dashboard'}
               className={styles.menuItem}

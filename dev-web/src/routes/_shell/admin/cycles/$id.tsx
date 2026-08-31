@@ -900,7 +900,7 @@ function AdminCyclePage() {
       {/*
        * What this cycle asks, stage by stage — read-only here, with the
        * door to the editor beside it. The editor is offered only to the
-       * capability the API gates it on, and only while the cycle is a
+       * permission the API gates it on, and only while the cycle is a
        * draft, because that is the only time the API will accept a change.
        */}
       {template ? (

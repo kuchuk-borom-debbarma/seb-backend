@@ -44,7 +44,9 @@ test.describe('being invited into the office', () => {
     await expect(
       page.getByText('This screen is open to anybody whose role may read the activity history.'),
     ).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Back to intake' })).toBeVisible()
+    await expect(
+      page.getByRole('link', { name: 'Back to the programme office' }),
+    ).toBeVisible()
   })
 
   test('an approver sees casework and still governs nothing', async ({ page }) => {

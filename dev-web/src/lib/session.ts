@@ -110,30 +110,6 @@ export const isApplicant = (user: RoleBearer | undefined): boolean =>
   hasRole(user, 'APPLICANT')
 
 /**
- * Every resource the programme office console is built on.
- *
- * Listed rather than inferred, because applicant access is not an office
- * permission and must not open that door. Adding a resource to the server's
- * catalogue without adding it here means its holders reach a refusal instead of
- * their screen — so this names resources rather than pairs: one entry per kind
- * of work, not one per act.
- */
-const OFFICE_RESOURCES = [
-  'application',
-  'decision',
-  'funding',
-  'recovery',
-  'programme_cycle',
-  'form_template',
-  'policy_document',
-  'announcement',
-  'audit',
-  'user',
-  'role',
-  'analytics',
-] as const
-
-/**
  * Whether somebody belongs in the office at all.
  *
  * **One definition, because the door and the navigation must agree.** They did
@@ -142,15 +118,19 @@ const OFFICE_RESOURCES = [
  * history got an office shell with nothing in it — admitted to the building and
  * shown no way to the one room it holds.
  *
+ * *Any* permission at all, rather than a list of office resources. Applicant
+ * access is deliberately not a catalogue permission, so holding one already
+ * means office work — and a list here would be a second copy of
+ * `auth/catalog.json` with nothing checking the two agree, silently locking out
+ * the holders of whatever resource was added to the server and forgotten here.
+ *
  * Deliberately wider than any screen behind it. A refusal on the screen you
  * asked for is a sentence you can act on; a refusal at the door is being told
  * you are in the wrong building while standing in the right one.
  */
 export const belongsInTheOffice = (
   user: (RoleBearer & PermissionBearer) | undefined,
-): boolean =>
-  isSuperAdministrator(user) ||
-  OFFICE_RESOURCES.some((resource) => canAny(user, resource))
+): boolean => isSuperAdministrator(user) || (user?.permissions.length ?? 0) > 0
 
 /** True only for somebody whose whole office authority is the banner. */
 export const holdsOnlyTheBanner = (
@@ -158,5 +138,4 @@ export const holdsOnlyTheBanner = (
 ): boolean =>
   !isSuperAdministrator(user) &&
   canAny(user, 'announcement') &&
-  !OFFICE_RESOURCES.filter((resource) => resource !== 'announcement')
-    .some((resource) => canAny(user, resource))
+  (user?.permissions ?? []).every((held) => held.resource === 'announcement')

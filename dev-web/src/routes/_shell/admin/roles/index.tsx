@@ -20,8 +20,13 @@ import { useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { KeyRound, Plus, Users } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
-import { CapabilityRefusal } from '#/features/portal/CapabilityRefusal'
-import { humanizeKey, rolesQuery, type Role } from '#/features/roles/roleQueries'
+import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
+import {
+  humanizeKey,
+  permissionKey,
+  rolesQuery,
+  type Role,
+} from '#/features/roles/roleQueries'
 import { can, isSuperAdministrator } from '#/lib/session'
 
 export const Route = createFileRoute('/_shell/admin/roles/')({
@@ -33,7 +38,7 @@ function RolesGate() {
   const { user } = Route.useRouteContext()
   if (!can(user, 'role', 'read')) {
     return (
-      <CapabilityRefusal
+      <PermissionRefusal
         title="Roles"
         needs="anybody who may read the office's roles"
       />
@@ -135,7 +140,7 @@ function RoleSummary({ role, mayCompose }: { role: Role; mayCompose: boolean }) 
       ) : (
         <ul className="chip-list">
           {role.permissions.map((permission) => (
-            <li key={`${permission.resource}:${permission.action}`} className="chip">
+            <li key={permissionKey(permission)} className="chip">
               {humanizeKey(permission.resource)}: {permission.action}
             </li>
           ))}

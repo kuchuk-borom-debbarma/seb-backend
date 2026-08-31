@@ -125,12 +125,16 @@ test.describe('the programme office', () => {
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
 
     // Role management does not, and is not advertised.
-    await expect(sidebar(page).getByRole('link', { name: 'Access' })).toHaveCount(0)
+    await expect(sidebar(page).getByRole('link', { name: 'Users & access' })).toHaveCount(0)
     await page.goto('/admin/access')
+    /*
+     * The *screen* refusal, not the portal one. This account is the programme
+     * office and is standing in it; being told this part of the portal is for
+     * the programme office would be both untrue and unactionable. What it needs
+     * to know is which authority it lacks.
+     */
     await expect(
-      page.getByRole('heading', {
-        name: 'This part of Mission SEP is for the programme office',
-      }),
+      page.getByText('This screen is open to super administrators.'),
     ).toBeVisible()
   })
 })

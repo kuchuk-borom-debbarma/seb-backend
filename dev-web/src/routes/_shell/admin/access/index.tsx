@@ -20,7 +20,7 @@ import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
 import { managedUserQuery } from '#/features/access/accessQueries'
-import { CapabilityRefusal } from '#/features/portal/CapabilityRefusal'
+import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
 import { GrantRoleDocument, RevokeRoleDocument } from '#/graphql/generated/operations'
 import { formatDateTime, humanize, readableReason } from '#/lib/format'
 import { isSuperAdministrator } from '#/lib/session'
@@ -59,6 +59,21 @@ function AccessPage() {
   const { data, isFetching } = useQuery(managedUserQuery(search.email))
   const user = data?.response
 
+  /*
+   * A role's name is written by whoever composed it, so it is read rather than
+   * derived. Derivation was all there was when the roles were four fixed
+   * values; now a key spelled `CASEWORK_READER` may be named "Intake desk", and
+   * showing the key back to the operator who typed the name is confusing in
+   * exactly the place authority is being handed out.
+   *
+   * The fallback still derives, and has to: `SUPER_ADMIN` has no row by design,
+   * and the history table shows roles that were retired years ago.
+   */
+  const composed = useQuery(rolesQuery)
+  const grantable = [SUPER_ADMINISTRATOR, ...(composed.data?.response ?? [])]
+  const nameOf = (key: string): string =>
+    grantable.find((candidate) => candidate.key === key)?.name ?? humanize(key)
+
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['managed-user', search.email] })
 
@@ -71,7 +86,7 @@ function AccessPage() {
      * this says.
      */
     return (
-      <CapabilityRefusal
+      <PermissionRefusal
         title="Users & access"
         needs="super administrators"
       />
@@ -165,7 +180,7 @@ function AccessPage() {
                     <span>
                       {user.roles.length === 0
                         ? 'None'
-                        : user.roles.map((role) => humanize(role)).join(', ')}
+                        : user.roles.map((role) => nameOf(role)).join(', ')}
                     </span>
                   </div>
                   <div>
@@ -180,7 +195,13 @@ function AccessPage() {
               </div>
             </section>
 
-            <GrantRole userId={user.id} held={user.roles} onChanged={refresh} />
+            <GrantRole
+              userId={user.id}
+              held={user.roles}
+              grantable={grantable}
+              nameOf={nameOf}
+              onChanged={refresh}
+            />
 
             <section className="card">
               <div className="card-header">
@@ -207,7 +228,7 @@ function AccessPage() {
                         key={grant.id}
                         className={grant.revokedAt ? 'muted' : undefined}
                       >
-                        <td>{humanize(grant.role)}</td>
+                        <td>{nameOf(grant.role)}</td>
                         <td>
                           {formatDateTime(grant.grantedAt)}
                           {/* A null granter is a trusted system transition —
@@ -236,7 +257,7 @@ function AccessPage() {
                           {!grant.revokedAt && grant.role !== 'APPLICANT' ? (
                             <RevokeRole
                               grantId={grant.id}
-                              role={grant.role}
+                              role={nameOf(grant.role)}
                               onChanged={refresh}
                             />
                           ) : null}
@@ -271,13 +292,16 @@ const SUPER_ADMINISTRATOR = {
 function GrantRole({
   userId,
   held,
+  grantable,
+  nameOf,
   onChanged,
 }: {
   userId: string
   held: readonly string[]
+  grantable: readonly { key: string; name: string }[]
+  nameOf: (key: string) => string
   onChanged: () => Promise<unknown>
 }) {
-  const composed = useQuery(rolesQuery)
   const [role, setRole] = useState('')
   const [reason, setReason] = useState('')
   const [password, setPassword] = useState('')
@@ -301,7 +325,7 @@ function GrantRole({
       setDone(null)
     },
     onSuccess: async () => {
-      setDone(`${humanize(role as string)} granted.`)
+      setDone(`${nameOf(role)} granted.`)
       setRole('')
       setReason('')
       setPassword('')
@@ -311,8 +335,7 @@ function GrantRole({
   })
 
   // Offering a role somebody already holds would only produce a refusal.
-  const available = [SUPER_ADMINISTRATOR, ...(composed.data?.response ?? [])]
-    .filter((candidate) => !held.includes(candidate.key))
+  const available = grantable.filter((candidate) => !held.includes(candidate.key))
 
   return (
     <section className="card">
@@ -411,7 +434,8 @@ function GrantRole({
  * Closing one grant.
  *
  * The grant is named exactly, so acting on a row that has already changed fails
- * loudly rather than closing a different grant.
+ * loudly rather than closing a different grant. `role` is the name an operator
+ * reads, not the key — it is only ever put in the question.
  */
 function RevokeRole({
   grantId,
@@ -465,7 +489,7 @@ function RevokeRole({
       }}
     >
       <label className="field-label" htmlFor={`revoke-reason-${grantId}`}>
-        Why revoke {humanize(role)}?
+        Why revoke {role}?
       </label>
       <input
         id={`revoke-reason-${grantId}`}

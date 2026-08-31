@@ -4,7 +4,7 @@ mutation SignIn($email: String!, $password: String!) {
       success
       message
       response {
-        user { id email roles }
+        user { id email roles permissions { resource action } }
       }
     }
   }

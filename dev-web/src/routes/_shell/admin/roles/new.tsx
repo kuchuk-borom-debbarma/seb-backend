@@ -15,7 +15,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
-import { CapabilityRefusal } from '#/features/portal/CapabilityRefusal'
+import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
 import { rolesQuery } from '#/features/roles/roleQueries'
 import { CreateRoleDocument } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
@@ -30,7 +30,7 @@ function ComposeGate() {
   const { user } = Route.useRouteContext()
   if (!isSuperAdministrator(user)) {
     return (
-      <CapabilityRefusal
+      <PermissionRefusal
         title="Compose a role"
         needs="super administrators"
       />

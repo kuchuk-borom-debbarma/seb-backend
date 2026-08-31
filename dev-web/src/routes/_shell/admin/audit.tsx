@@ -16,7 +16,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Pager } from '#/components/ListControls'
 import { PageHeader } from '#/components/PageHeader'
 import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
-import { CapabilityRefusal } from '#/features/portal/CapabilityRefusal'
+import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
 import { AuditActionsDocument, AuditEventsDocument } from '#/graphql/generated/operations'
 import { formatDateTime, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
@@ -113,13 +113,13 @@ function AuditPage() {
    * Checked here as well as by the API. A screen nobody may use should not
    * render and then fill with a refusal.
    *
-   * A capability refusal rather than a portal one: a reviewer reaching this is
-   * in the right place and simply does not hold this, which is a different
-   * sentence from "this part is for the programme office".
+   * A permission refusal rather than a portal one: somebody holding another
+   * office permission is in the right place and simply does not hold this one,
+   * which is a different sentence from "this part is for the programme office".
    */
   if (!can(user, 'audit', 'read')) {
     return (
-      <CapabilityRefusal
+      <PermissionRefusal
         title="Activity history"
         needs="anybody whose role may read the activity history"
       />

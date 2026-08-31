@@ -15,7 +15,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
-import { CapabilityRefusal } from '#/features/portal/CapabilityRefusal'
+import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
 import { InviteRoleDocument } from '#/graphql/generated/operations'
 import { formatDateTime } from '#/lib/format'
 import { managedUserQuery } from '#/features/access/accessQueries'
@@ -32,7 +32,7 @@ function InviteGate() {
   const { user } = Route.useRouteContext()
   if (!can(user, 'role', 'invite')) {
     return (
-      <CapabilityRefusal
+      <PermissionRefusal
         title="Invite a colleague"
         needs="anybody whose role may invite a colleague"
       />
@@ -189,7 +189,19 @@ function InvitePage() {
                   </option>
                 ))}
               </select>
-              {offered.isSuccess && roles.length === 0 ? (
+              {/*
+                A refusal and an empty list are different answers and read
+                differently. `isSuccess` covers both: react-query means the
+                request resolved, while the envelope's `success` means the API
+                agreed. Keying the sentence below on the former announced the
+                ceiling to somebody whose request had actually been refused,
+                and the refusal's own message was never shown at all.
+              */}
+              {offered.data && !offered.data.success ? (
+                <p className="field-error" role="alert">
+                  {offered.data.message ?? 'The roles you may offer could not be read.'}
+                </p>
+              ) : offered.data?.success && roles.length === 0 ? (
                 /*
                  * An empty list is a rule, not a fault: you may offer only a
                  * role whose permissions you already hold, and this account

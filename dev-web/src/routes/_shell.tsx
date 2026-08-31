@@ -92,7 +92,7 @@ function ShellFrame({
   const { tour } = useGuide()
   const navigation = usePlatformNavigation()
   /*
-   * Capability decides the portal, not just the address. They differ only when
+   * Authority decides the portal, not just the address. They differ only when
    * somebody has opened a portal they cannot use — and then the whole shell,
    * masthead and measure alike, is the one they belong to. The refusal on the
    * page says where they are; the chrome around it stays somewhere real.

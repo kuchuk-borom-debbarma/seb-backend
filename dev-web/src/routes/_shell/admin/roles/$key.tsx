@@ -26,7 +26,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Minus, Plus, Trash2, Users } from 'lucide-react'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
-import { CapabilityRefusal } from '#/features/portal/CapabilityRefusal'
+import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
 import {
   catalogueQuery,
   humanizeKey,
@@ -51,7 +51,7 @@ function EditGate() {
   const { user } = Route.useRouteContext()
   const { key } = Route.useParams()
   if (!isSuperAdministrator(user)) {
-    return <CapabilityRefusal title="Edit a role" needs="super administrators" />
+    return <PermissionRefusal title="Edit a role" needs="super administrators" />
   }
   return <EditLoader roleKey={key} />
 }
@@ -198,9 +198,8 @@ function EditPage({ role }: { role: Role }) {
         </div>
 
         {(catalogue.data?.response?.resources ?? []).map((resource) => {
-          const all = resource.actions.map(
-            (act) => `${resource.resource}:${act.action}`,
-          )
+          const all = resource.actions.map((act) =>
+            permissionKey({ resource: resource.resource, action: act.action }))
           const every = all.every((pair) => chosen.has(pair))
           return (
             <fieldset key={resource.resource} className="stack">
@@ -224,7 +223,10 @@ function EditPage({ role }: { role: Role }) {
                 {every ? ' Clear all' : ' Select all'}
               </button>
               {resource.actions.map((act) => {
-                const pair = `${resource.resource}:${act.action}`
+                const pair = permissionKey({
+                  resource: resource.resource,
+                  action: act.action,
+                })
                 return (
                   <label key={pair} className="checkbox">
                     <input

@@ -98,9 +98,9 @@ const readSaved = (walker: Walker): Position | null => {
 }
 
 /*
- * Roles and capabilities both: a tour is offered on the capability the office
- * itself is gated on, so a reviewer and an approver are offered the office
- * tours rather than only an administrator.
+ * Roles and permissions both: a tour is offered on the permission its screen is
+ * gated on, so whoever can reach a screen is offered the tour of it — whatever
+ * the role that carries them there is called.
  */
 type Walker =
   { roles: readonly string[]; permissions: readonly Permission[] } | undefined
