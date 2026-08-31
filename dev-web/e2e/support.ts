@@ -45,7 +45,8 @@ export const uploadPolicyDocument = async (page: Page): Promise<void> => {
   await page.reload()
 }
 
-export const WORKER_URL = 'http://localhost:9899'
+export const WORKER_URL =
+  `http://localhost:${process.env.SEB_E2E_WORKER_PORT ?? 9899}`
 const WORKER_LOG = new URL('../.playwright/worker.log', import.meta.url).pathname
 
 /** The password every seeded account uses. Long enough for the signup policy. */
