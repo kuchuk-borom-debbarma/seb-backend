@@ -130,11 +130,22 @@ for optimistic concurrency.
   nullable column.
 - `core_audit_event`: append-only security and administrative audit trail. It
   must never contain credentials, OTPs, tokens, digests, or document contents.
-  Two rules make that structural rather than a matter of care: `changes_json` is
-  written as `NULL` unconditionally by every builder, and metadata is typed as a
-  flat `Record<string, string | number | boolean | null>`, so a form object
-  cannot be logged by accident. `action` comes from a closed catalogue of names
-  rather than a free string, so audit queries cannot be defeated by a typo.
+  **Two generations of row live in it**, told apart by `payload_version`:
+  - `0` — written before each action declared its shape. What it recorded is
+    in `metadata_json` as loose flat JSON text, and is read exactly as stored.
+  - `1` — `payload` (`jsonb`) holds the action's declared payload, parsed
+    against its strict schema in `services/audit-vocabulary` before the row was
+    built; `metadata_json` is `NULL`. A `CHECK` refuses a row that mixes the
+    two, so a reader can always say which column is the evidence.
+
+  `metadata_json` is never rewritten into `payload`: the history does not edit
+  itself. `subject_user_id` (who the event was about) and `application_id`
+  (which application it belongs to, for its documents, review and money too)
+  are denormalized so a person's or an application's history is one indexed
+  read. `application_id` has no foreign key on purpose — `core_*` does not
+  depend on `seb_*`, and an application's history outlives its row.
+  `changes_json` is still written as `NULL` by the one builder, and `action`
+  comes from a closed catalogue, so audit queries cannot be defeated by a typo.
 
 ### `seb`: enterprise and application workflow
 
@@ -427,7 +438,8 @@ middle. Until it is enabled the interface must go on saying "starts with".
   a scan.
 - A composite foreign key needs a unique **constraint**, not a unique index; see
   "Changing a table that already exists" below for why.
-- JSON text is limited to safe audit/event metadata, not form fields or files.
+- JSON is limited to safe audit/event metadata — for audit rows, the declared
+  payloads of `services/audit-vocabulary` — never form fields or files.
 
 ## Current assumptions
 
@@ -485,12 +497,15 @@ middle. Until it is enabled the interface must go on saying "starts with".
   where one is built from `schema.sql`) so reads stay read-only. `sort_order`
   is deliberately not unique — in-place renumbering would transiently
   collide — and reads break ties by `(sort_order, created_at, id)`.
-- `core_audit_event` carries five indexes, and the fifth is the one worth
-  knowing about. `core_audit_event_created_idx` on `(created_at, id)` exists
-  because every other index leads with a filter column, so the unfiltered
-  newest-first read — the likeliest query against the largest table — scanned
-  and sorted. That pair is exactly the keyset cursor, so the seek and the
-  ordering share one index.
+- `core_audit_event` carries seven indexes. `core_audit_event_created_idx` on
+  `(created_at, id)` exists because every other index leads with a filter
+  column, so the unfiltered newest-first read — the likeliest query against the
+  largest table — scanned and sorted. That pair is exactly the keyset cursor, so
+  the seek and the ordering share one index. The two newest,
+  `core_audit_event_subject_idx` and `core_audit_event_application_idx`, lead
+  with the person or the application and then follow the same cursor; both are
+  **partial** (`IS NOT NULL`), because most rows have neither and an index of
+  NULLs would cost every insert and serve no read.
 - `seb_document_upload_intent.size_bytes` is capped at 5 MB by a `CHECK`. That
   is a **backstop, deliberately wider than the rule**: the service and the
   browser both refuse at 2 MB, which is what the malware scanner accepts. The

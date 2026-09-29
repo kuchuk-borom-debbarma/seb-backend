@@ -18,7 +18,8 @@ asked.
 | [`application/`](application/README.md) | Everything an applicant owns — enterprises, drafts, the form engine, evidence, submission |
 | [`admin/`](admin/README.md) | Programme cycles, form authoring, and the whole post-submission staff workflow |
 | [`auth/`](auth/README.md) | Identity, sessions, signup, account self-service, the permission catalogue, and role administration |
-| [`audit/`](audit/README.md) | Reading the history of who changed what |
+| [`audit/`](audit/README.md) | Reading the history of who changed what, and exporting it |
+| [`audit-vocabulary/`](audit-vocabulary/index.ts) | What each audited action records, and how it is read |
 | [`storage/`](storage/README.md) | Where documents live: a bucket, a provider, or this Worker |
 | [`external-notification/`](external-notification/README.md) | Getting a message to a person |
 | [`document-scanner/`](document-scanner/README.md) | Whether a stored document is safe to open |
@@ -46,7 +47,9 @@ support.ts     each service's own refusal messages, its permission
                preamble, and its error-classification helpers
       │
 envelope.ts    the one response envelope, shared by every service
-audit-event.ts the one audit row, shared by every service
+audit-event.ts the one audit row and the one statement that writes it,
+               shared by every service; what each action records is
+               declared in audit-vocabulary/
 ```
 
 ### Why the checks are repeated
@@ -145,10 +148,12 @@ still says which service is answering.
 Nor the audit row, for the same reason and with more at stake: which request
 headers become the trail's record of *where a request came from* is one choice
 about evidence, and four copies of it meant a change to that choice landing in
-three. It lives in `audit-event.ts`. Each service still keeps a thin wrapper —
-`adminAudit`, `auditEvent`, `announcementAudit`, `auditRecord` — because each
-narrows `action` and `entityType` to the vocabulary that service may write, so
-a controller naming another service's action does not compile.
+three. It lives in `audit-event.ts`, with the one insert every service uses.
+Each service still keeps a thin wrapper — `adminAudit`, `auditEvent`,
+`announcementAudit`, `auditRecord` — narrowed to the actions that service may
+write, so a controller naming another service's action does not compile, and
+each action's payload is checked against its declaration in
+`audit-vocabulary/` at compile time and again at the write.
 
 **`ownership.ts`** in the application service is a documented exception to the
 layering: it needs the query layer, and `support.ts` is what the query layer

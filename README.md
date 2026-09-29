@@ -76,7 +76,7 @@ The office composes its own roles. A role is a name, a purpose, and a set of
 
 The permissions themselves are fixed in code, in
 [`auth/catalog.json`](src/services/auth/catalog.json): twelve resources,
-twenty-two acts, thirty-seven pairs. The office may combine them freely but
+twenty-three acts, thirty-eight pairs. The office may combine them freely but
 cannot invent one, so a permission nothing enforces cannot be composed into a
 role and read as coverage.
 
@@ -121,7 +121,7 @@ by mistake.
 | `form_template` | `update` |
 | `policy_document` | `read` `upload` |
 | `announcement` | `read` `create` `update` `publish` `remove` `reorder` |
-| `audit` | `read` |
+| `audit` | `read` `export` |
 | `user` | `read` |
 | `role` | `read` `invite` |
 | `analytics` | `read` |
