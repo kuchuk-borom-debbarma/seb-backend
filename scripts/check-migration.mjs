@@ -83,12 +83,16 @@ async function seed() {
       [id, email],
     )
   }
+  // Both timestamps come from the database's `now()`. A revocation time taken
+  // from the JS clock is read *before* the statement runs, so it lands a few
+  // microseconds earlier than `granted_at` and the revocation check refuses it.
   const grant = async (id, userId, role, revoked) => {
     await db.query(
       `INSERT INTO core_user_role_grant (id, user_id, role, grant_reason, granted_at,
          revoked_at, revocation_reason)
-       VALUES ($1, $2, $3, 'FIXTURE', now(), $4, $5)`,
-      [id, userId, role, revoked ? new Date() : null, revoked ? 'FIXTURE' : null],
+       VALUES ($1, $2, $3, 'FIXTURE', now(),
+         CASE WHEN $4::boolean THEN now() END, $5)`,
+      [id, userId, role, revoked, revoked ? 'FIXTURE' : null],
     )
   }
 
