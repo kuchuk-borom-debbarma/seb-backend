@@ -6,7 +6,7 @@ const links = [
   { label: 'Home', href: '/#top' },
   { label: 'Goals', href: '/#goals' },
   { label: 'Eligibility', href: '/#eligibility' },
-  { label: 'About SEP', href: '/#about' },
+  { label: 'Sectors', href: '/#project' },
   { label: 'How It Works', href: '/#how-it-works' },
   { label: 'FAQs', href: '/faq' },
 ]
@@ -21,7 +21,6 @@ const SECTION_STYLES: Record<string, SectionStyle> = {
   top: { bg: '#0f172a', isLight: false },
   goals: { bg: '#0c1829', isLight: false, border: 'rgba(255, 255, 255, 0.08)' },
   eligibility: { bg: '#faf9f6', isLight: true, border: 'rgba(0, 0, 0, 0.06)' },
-  about: { bg: '#ded8ce', isLight: true, border: 'rgba(24, 23, 21, 0.08)' },
   project: { bg: '#ffffff', isLight: true, border: 'rgba(0, 0, 0, 0.06)' },
   'how-it-works': { bg: '#0c141f', isLight: false, border: 'rgba(255, 255, 255, 0.08)' },
   contact: { bg: '#ffffff', isLight: true, border: 'rgba(0, 0, 0, 0.06)' },
@@ -54,7 +53,6 @@ export function Header({ standalone = false }: { standalone?: boolean } = {}) {
       'top',
       'goals',
       'eligibility',
-      'about',
       'project',
       'how-it-works',
       'contact',
@@ -152,12 +150,12 @@ export function Header({ standalone = false }: { standalone?: boolean } = {}) {
               scrollingDown ? 'scale-90' : 'scale-100'
             }`}
           >
-            <Logo light={!isLight} />
+            <Logo light={!isLight} prominent />
           </a>
 
-          {/* Desktop Horizontal Navigation Menu (>=1024px) */}
+          {/* Desktop Horizontal Navigation Menu (>=1280px) */}
           <nav
-            className={`hidden items-center transition-all duration-500 lg:flex ${
+            className={`hidden items-center transition-all duration-500 xl:flex ${
               scrollingDown
                 ? 'gap-5 xl:gap-7 text-[13.5px] xl:text-[14px]'
                 : 'gap-6 xl:gap-8 text-[14px] xl:text-[14.5px]'
@@ -211,12 +209,12 @@ export function Header({ standalone = false }: { standalone?: boolean } = {}) {
               />
             </a>
 
-            {/* Mobile / Tablet Menu Trigger (<1024px) */}
+            {/* Compact menu leaves room for the larger brand through 1279px. */}
             <button
               type="button"
               onClick={() => setMobileMenuOpen((prev) => !prev)}
               aria-label={mobileMenuOpen ? 'Close menu' : 'Open navigation menu'}
-              className={`lg:hidden flex size-11 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+              className={`xl:hidden flex size-11 items-center justify-center rounded-lg transition-colors cursor-pointer ${
                 !isLight
                   ? 'text-white bg-white/10 hover:bg-white/20'
                   : 'text-[#181715] bg-[#181715]/5 hover:bg-[#181715]/10'
@@ -229,10 +227,10 @@ export function Header({ standalone = false }: { standalone?: boolean } = {}) {
       </header>
 
       {/* ========================================================================= */}
-      {/* MOBILE / TABLET SLIDE-OVER NAVIGATION DRAWER (<1024px)                    */}
+      {/* COMPACT NAVIGATION DRAWER (<1280px)                                        */}
       {/* ========================================================================= */}
       {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
+        <div className="fixed inset-0 z-50 xl:hidden flex">
           {/* Backdrop */}
           <div
             onClick={() => setMobileMenuOpen(false)}

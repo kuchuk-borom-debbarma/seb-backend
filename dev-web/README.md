@@ -227,6 +227,13 @@ The client is a public site and two portals sharing one institution.
 - **Shared** — `/guide` and the account screens under `/settings` and
   `/account`, reachable from either portal.
 
+The public hero alternates between a silent Mission SEP logo animation and the
+TTAADC administrative building photo. Visitors can select either slide; it
+advances every 11 seconds unless reduced motion is requested. The whole animated
+mark fits within the screen, and reduced-motion visitors see its still poster.
+Sign-in keeps the institutional logo above a single form; it has no illustrated
+story panel.
+
 Signing in lands each account in the portal its roles fit, so an officer with no
 applicant grant never has to read a refusal after every sign-in. Opening a
 portal you cannot use **refuses in place** rather than redirecting: the screen
