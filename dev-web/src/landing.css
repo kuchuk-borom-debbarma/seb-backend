@@ -16,10 +16,14 @@
   font-family: 'Playfair Display', Georgia, serif;
 }
 
-/* Ensure landing site links and buttons are not overridden by global styles.css a { color: var(--green) } */
-a {
-  color: inherit;
-  text-decoration: none;
+/* Ensure landing site links and buttons are not overridden by global styles.css a { color: var(--green) }.
+   Layered for the same reason as that rule: an unlayered element default
+   beats every Tailwind utility, turning text-white invisible. */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 
 header nav a {

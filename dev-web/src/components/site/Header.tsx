@@ -25,9 +25,12 @@ const SECTION_STYLES: Record<string, SectionStyle> = {
   project: { bg: '#ffffff', isLight: true, border: 'rgba(0, 0, 0, 0.06)' },
   'how-it-works': { bg: '#0c141f', isLight: false, border: 'rgba(255, 255, 255, 0.08)' },
   contact: { bg: '#ffffff', isLight: true, border: 'rgba(0, 0, 0, 0.06)' },
+  /* Pages without the landing hero (e.g. /faq) have no dark section behind
+     the header; without this theme they render white links on a light page. */
+  standalone: { bg: '#faf9f6', isLight: true, border: 'rgba(0, 0, 0, 0.06)' },
 }
 
-export function Header() {
+export function Header({ standalone = false }: { standalone?: boolean } = {}) {
   const [activeSection, setActiveSection] = useState('top')
   const [solid, setSolid] = useState(false)
   const [scrollingDown, setScrollingDown] = useState(false)
@@ -113,9 +116,11 @@ export function Header() {
     }
   }
 
-  const currentTheme = SECTION_STYLES[activeSection] ?? SECTION_STYLES.top!
+  const currentTheme = standalone
+    ? SECTION_STYLES.standalone!
+    : (SECTION_STYLES[activeSection] ?? SECTION_STYLES.top!)
   const isHero = activeSection === 'top'
-  const isTransparentTop = isHero && !solid
+  const isTransparentTop = !standalone && isHero && !solid
 
   const backgroundColor = isTransparentTop ? 'transparent' : currentTheme.bg
   const isLight = currentTheme.isLight

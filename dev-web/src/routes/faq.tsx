@@ -126,7 +126,7 @@ function FaqPage() {
 
   return (
     <SmoothScroll>
-      <Header />
+      <Header standalone />
 
       <main className="min-h-screen bg-[#faf9f6] text-[#15233d] pt-28 pb-20 md:pt-36 md:pb-28">
         {/* Page Hero Banner */}
