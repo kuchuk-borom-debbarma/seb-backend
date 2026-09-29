@@ -334,11 +334,20 @@ export const startApplication = async (
     prefix = 'applicant',
     businessName = 'Test Works',
     cycleCode,
-  }: { prefix?: string; businessName?: string; cycleCode: string },
+    signedIn = false,
+  }: {
+    prefix?: string
+    businessName?: string
+    cycleCode: string
+    /** The caller has already signed an applicant in; use them. */
+    signedIn?: boolean
+  },
 ): Promise<string> => {
-  const email = uniqueEmail(prefix)
-  await signUpApplicant(page, email)
-  await signIn(page, email)
+  if (!signedIn) {
+    const email = uniqueEmail(prefix)
+    await signUpApplicant(page, email)
+    await signIn(page, email)
+  }
 
   await registerEnterprise(page, businessName)
 
@@ -423,6 +432,96 @@ export const submitApplication = async (
   await page.getByRole('button', { name: 'Submit application' }).click()
   await expect(page).toHaveURL(new RegExp(`/applications/${id}/submitted$`, 'u'))
 
+  return { email, id }
+}
+
+/**
+ * The answers a complete initial application gives, as the API takes them.
+ *
+ * For the default template the cycle form creates. Two things the API insists
+ * on: a save replaces the whole answer set, so every question is present and
+ * an unanswered one is an explicit null; and the owners are members of a
+ * reusable group, so their keys are qualified by the group (`OWNERS__NAME`).
+ * Every conditional question is answered "no".
+ */
+const COMPLETE_ANSWERS = {
+  OWNERS: [
+    {
+      OWNERS__NAME: 'Rina Debbarma',
+      OWNERS__DESIGNATION: 'PROPRIETOR',
+      OWNERS__DATE_OF_BIRTH: '1995-02-10',
+      OWNERS__GENDER: 'FEMALE',
+      OWNERS__RELATIONSHIP_TYPE: 'DAUGHTER_OF',
+      OWNERS__RELATED_PERSON_NAME: 'Maya Debbarma',
+    },
+  ],
+  TOTAL_PROJECT_COST_PAISE: 50_000_000,
+  SEED_FUND_REQUESTED_PAISE: 10_000_000,
+  BANK_LOAN_PROPOSED_PAISE: 0,
+  PROMOTER_CONTRIBUTION_PAISE: 1_000_000,
+  RECEIVED_GOVERNMENT_FUNDING: false,
+  GOVERNMENT_SCHEME_NAME: null,
+  GOVERNMENT_FUNDING_AMOUNT_PAISE: null,
+  GOVERNMENT_FUNDING_SANCTION_YEAR: null,
+  HAS_EXISTING_BANK_CREDIT: false,
+  EXISTING_BANK_NAME: null,
+  EXISTING_CREDIT_AMOUNT_PAISE: null,
+  EXISTING_CREDIT_STATUS: null,
+  NOC_REQUIRED: false,
+}
+
+/**
+ * A submitted application, reached by the applicant's own screens up to the
+ * form and by the API the form itself calls from there.
+ *
+ * For a spec about what happens *after* submission. The form's own specs own
+ * filling the form in; a spec about the office's view of a file should not
+ * fail because a form label changed, and the answers it saves and the
+ * submission it makes are the same mutations the form sends — nothing here
+ * writes a row the product could not.
+ */
+export const submittedThroughApi = async (
+  page: Page,
+  { prefix = 'submitted', businessName = 'Submitted Works' }: { prefix?: string; businessName?: string } = {},
+): Promise<{ email: string; id: string }> => {
+  await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+  const cycleCode = await openCycleWithoutDocuments(page, prefix.toUpperCase())
+  await page.context().clearCookies()
+
+  const email = uniqueEmail(prefix)
+  await signUpApplicant(page, email)
+  await signIn(page, email)
+  const id = await startApplication(page, { cycleCode, businessName, signedIn: true })
+
+  // The browser's own session, so the API sees the applicant exactly as the
+  // form would.
+  const call = async (query: string, variables: Record<string, unknown>) => {
+    const response = await page.request.post(`${WORKER_URL}/graphql`, {
+      data: { query, variables },
+      headers: { 'content-type': 'application/json' },
+    })
+    const body = await response.json()
+    expect(body.errors, JSON.stringify(body.errors)).toBeUndefined()
+    return body.data
+  }
+  const saved = (await call(
+    `mutation($input: SaveApplicationDraftInput!) { seb { application { saveDraft(input: $input) {
+      success message response { currentVersion statusVersion } } } } }`,
+    { input: { applicationId: id, expectedVersion: 1, expectedStatusVersion: 1, answers: COMPLETE_ANSWERS } },
+  )).seb.application.saveDraft
+  expect(saved.success, saved.message).toBe(true)
+  const submitted = (await call(
+    `mutation($input: ApplicationVersionInput!) { seb { application { submit(input: $input) {
+      success message } } } }`,
+    {
+      input: {
+        applicationId: id,
+        expectedVersion: saved.response.currentVersion,
+        expectedStatusVersion: saved.response.statusVersion,
+      },
+    },
+  )).seb.application.submit
+  expect(submitted.success, submitted.message).toBe(true)
   return { email, id }
 }
 

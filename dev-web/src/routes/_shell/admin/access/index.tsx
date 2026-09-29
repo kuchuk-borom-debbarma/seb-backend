@@ -15,7 +15,7 @@
  * strip somebody permanently.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
@@ -23,7 +23,7 @@ import { managedUserQuery } from '#/features/access/accessQueries'
 import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
 import { GrantRoleDocument, RevokeRoleDocument } from '#/graphql/generated/operations'
 import { formatDateTime, humanize, readableReason } from '#/lib/format'
-import { isSuperAdministrator } from '#/lib/session'
+import { can, isSuperAdministrator } from '#/lib/session'
 import { rolesQuery } from '#/features/roles/roleQueries'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
@@ -167,11 +167,19 @@ function AccessPage() {
                   <p className="eyebrow">Account</p>
                   <h2 style={{ marginTop: '0.25rem' }}>{user.email}</h2>
                 </div>
-                {user.deleted ? (
-                  <span className="badge" data-tone="error">
-                    Closed
-                  </span>
-                ) : null}
+                <div className="row">
+                  {user.deleted ? (
+                    <span className="badge" data-tone="error">
+                      Closed
+                    </span>
+                  ) : null}
+                  {/* What they did and what was done to them, in one view. */}
+                  {can(operator, 'audit', 'read') ? (
+                    <Link to="/admin/audit" search={{ involving: user.id }} className="button">
+                      Activity
+                    </Link>
+                  ) : null}
+                </div>
               </div>
               <div className="card-body">
                 <div className="detail-grid">

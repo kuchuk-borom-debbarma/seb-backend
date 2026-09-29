@@ -1,10 +1,9 @@
 /** Input validation and authorization for bank evidence and the decision. */
-import { auditActions } from '../../../db/schema'
 import { parseDateOnly } from '../../application/validation'
 import { findUserEmailById } from '../../application/queries/application'
 import { formatPaise } from '../../application/confirmation'
 import { confirmationPdfUrl } from '../../application/confirmation-link'
-import { createAuditEvent } from '../../auth/queries/auth'
+import { insertAuditEvent } from '../../audit-event'
 import { sendNotification } from '../../external-notification'
 import {
   cancelBankReferralWrite,
@@ -311,16 +310,16 @@ const sendApprovalNotification = async (
     }, context.env)
   } catch {
     // Guarded itself, so the recorded decision can never be disturbed.
-    await bestEffort(createAuditEvent(context.db, {
-      ...adminAudit(context, {
-        actorUserId: input.actorId,
-        action: auditActions.approvalNotificationFailed,
-        entityType: 'SEB_APPLICATION',
-        entityId: input.applicationId,
-        now: new Date(),
-      }),
+    await bestEffort(insertAuditEvent(context.db, adminAudit(context, {
+      actorUserId: input.actorId,
+      action: 'SEB.APPROVAL_NOTIFICATION_FAILED',
+      entityType: 'SEB_APPLICATION',
+      entityId: input.applicationId,
+      applicationId: input.applicationId,
       outcome: 'FAILURE',
-    }), 'An approval notification failed')
+      now: new Date(),
+      payload: { decisionReference: input.decisionReference },
+    })), 'An approval notification failed')
   }
 }
 

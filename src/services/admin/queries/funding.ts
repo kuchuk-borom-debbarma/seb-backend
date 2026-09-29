@@ -2,7 +2,6 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
 import { batch, type Database } from '../../../db'
 import {
-  coreAuditEvent,
   sebApplication,
   sebApplicationEvent,
   sebAwardAssessment,
@@ -15,7 +14,9 @@ import {
   sebProgrammeDecision,
   sebUtilizationObligation,
 } from '../../../db/schema'
-import { changedExactlyOne, headJustMovedTo } from '../support'
+import { insertAuditEventWhere } from '../../audit-event'
+import { auditReason } from '../../audit-vocabulary/fields'
+import { adminAudit, changedExactlyOne, headJustMovedTo } from '../support'
 import type { AdminOperationContext, AssessmentType, RecoveryComponent } from '../types'
 
 export const fundingWorkspace = async (db: Database, applicationId: string) => {
@@ -116,12 +117,15 @@ export const createAwardWrite = async (
         'Funding support was sanctioned.', NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebFundingAward} WHERE ${sebFundingAward.id} = ${id})
     `),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.AWARD_CREATED',
-        'SEB_FUNDING_AWARD', ${id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL,
-        ${input.now}
-      WHERE EXISTS (SELECT 1 FROM ${sebFundingAwardVersion} WHERE ${sebFundingAwardVersion.id} = ${versionId})
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      action: 'SEB.AWARD_CREATED',
+      entityType: 'SEB_FUNDING_AWARD',
+      entityId: id,
+      actorUserId: input.actorId,
+      applicationId: input.applicationId,
+      payload: { decisionId: input.decisionId, sanctionOrder: input.sanctionOrder, sanctionDate: input.sanctionDate },
+      now: input.now,
+    }), sql`EXISTS (SELECT 1 FROM ${sebFundingAwardVersion} WHERE ${sebFundingAwardVersion.id} = ${versionId})`),
   ])
   return changedExactlyOne(updated) ? id : null
 }
@@ -214,16 +218,27 @@ export const changeAwardWrite = async (
           AND ${sebFundingAwardVersion.version} = ${next}
       )
     `),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.AWARD_CHANGED',
-        'SEB_FUNDING_AWARD', ${input.awardId}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, ${JSON.stringify({ status: input.status })}, ${input.now}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebFundingAwardVersion}
-        WHERE ${sebFundingAwardVersion.fundingAwardId} = ${input.awardId}
-          AND ${sebFundingAwardVersion.version} = ${next}
-      )
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      action: 'SEB.AWARD_CHANGED',
+      entityType: 'SEB_FUNDING_AWARD',
+      entityId: input.awardId,
+      actorUserId: input.actorId,
+      applicationId: input.applicationId,
+      payload: {
+        changeType: input.changeType,
+        status: input.status,
+        closureDisposition: input.closureDisposition ?? undefined,
+        amountPaise: input.amountPaise,
+        reasonCategoryId: input.reasonCategoryId,
+        reason: auditReason(input.reason),
+        version: next,
+      },
+      now: input.now,
+    }), sql`EXISTS (
+      SELECT 1 FROM ${sebFundingAwardVersion}
+      WHERE ${sebFundingAwardVersion.fundingAwardId} = ${input.awardId}
+        AND ${sebFundingAwardVersion.version} = ${next}
+    )`),
   ])
   return changedExactlyOne(changed)
 }
@@ -299,12 +314,23 @@ export const recordReleaseWrite = async (
       )`,
       sql`EXISTS (SELECT 1 FROM ${sebDisbursement} WHERE ${sebDisbursement.id} = ${id})`,
     )),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RELEASE_RECORDED',
-        'SEB_DISBURSEMENT', ${id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL,
-        ${input.now}
-      WHERE EXISTS (SELECT 1 FROM ${sebUtilizationObligation} WHERE ${sebUtilizationObligation.id} = ${obligationId})
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      action: 'SEB.RELEASE_RECORDED',
+      entityType: 'SEB_DISBURSEMENT',
+      entityId: id,
+      actorUserId: input.actorId,
+      applicationId: input.applicationId,
+      payload: {
+        awardId: input.awardId,
+        amountPaise: input.amountPaise,
+        occurredAt: input.occurredAt.toISOString(),
+        externalReference: input.externalReference,
+        approvalReference: input.approvalReference,
+        ledgerVersion: next,
+        physicalVerificationRequired: input.physicalVerificationRequired,
+      },
+      now: input.now,
+    }), sql`EXISTS (SELECT 1 FROM ${sebUtilizationObligation} WHERE ${sebUtilizationObligation.id} = ${obligationId})`),
     tx.insert(sebApplicationEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'RELEASE_RECORDED',
         ${input.actorId}, NULL, NULL, NULL, NULL, 'DISBURSED', NULL,
@@ -378,12 +404,22 @@ export const reverseReleaseWrite = async (
         ${input.applicantMessage}, NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebDisbursement} WHERE id = ${id})
     `),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RELEASE_REVERSED',
-        'SEB_DISBURSEMENT', ${id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL,
-        ${input.now}
-      WHERE EXISTS (SELECT 1 FROM ${sebDisbursement} WHERE id = ${id})
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      action: 'SEB.RELEASE_REVERSED',
+      entityType: 'SEB_DISBURSEMENT',
+      entityId: id,
+      actorUserId: input.actorId,
+      applicationId: input.applicationId,
+      payload: {
+        releaseId: input.releaseId,
+        amountPaise: input.amountPaise,
+        occurredAt: input.occurredAt.toISOString(),
+        externalReference: input.externalReference,
+        reasonCategoryId: input.reasonCategoryId,
+        ledgerVersion: next,
+      },
+      now: input.now,
+    }), sql`EXISTS (SELECT 1 FROM ${sebDisbursement} WHERE id = ${id})`),
   ])
   return changedExactlyOne(changed) ? id : null
 }
@@ -440,12 +476,22 @@ export const recordAssessmentWrite = async (
         ${input.applicantSummary}, NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebAwardAssessment} WHERE id = ${id})
     `),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.ASSESSMENT_RECORDED',
-        'SEB_AWARD_ASSESSMENT', ${id}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        ${JSON.stringify({ type: input.type, outcome: input.outcome })}, ${input.now}
-      WHERE EXISTS (SELECT 1 FROM ${sebAwardAssessment} WHERE id = ${id})
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      action: 'SEB.ASSESSMENT_RECORDED',
+      entityType: 'SEB_AWARD_ASSESSMENT',
+      entityId: id,
+      actorUserId: input.actorId,
+      applicationId: input.applicationId,
+      payload: {
+        type: input.type,
+        outcome: input.outcome,
+        assessmentNumber: number,
+        evidenceReference: input.evidenceReference,
+        assessedAt: input.assessedAt.toISOString(),
+        obligationId: input.obligationId ?? undefined,
+      },
+      now: input.now,
+    }), sql`EXISTS (SELECT 1 FROM ${sebAwardAssessment} WHERE id = ${id})`),
   ])
   return changedExactlyOne(result) ? id : null
 }
@@ -555,6 +601,18 @@ const recoveryOutstandingSql = (recoveryCaseId: string, component?: RecoveryComp
   ), 0)
 `
 
+/*
+ * The application a recovery act belongs to, as SQL evaluated inside the audit
+ * insert. Recovery inputs name only the award or the case, and reading the
+ * application first would be a second round trip and a second instant — the
+ * value recorded must be the one the guarded statement saw.
+ */
+const awardApplication = (awardId: string) =>
+  sql`(SELECT ${sebFundingAward.applicationId} FROM ${sebFundingAward} WHERE ${sebFundingAward.id} = ${awardId})`
+
+const recoveryCaseApplication = (recoveryCaseId: string) =>
+  sql`(SELECT ${sebRecoveryCase.applicationId} FROM ${sebRecoveryCase} WHERE ${sebRecoveryCase.id} = ${recoveryCaseId})`
+
 export const openRecoveryWrite = async (
   context: AdminOperationContext,
   input: {
@@ -593,12 +651,22 @@ export const openRecoveryWrite = async (
      * audit trail and not only the ledger — the ledger says what the balance
      * is, the trail says who moved it.
      */
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_OPENED',
-        'SEB_RECOVERY_CASE', ${id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL,
-        ${input.now}
-      WHERE EXISTS (SELECT 1 FROM ${sebRecoveryCase} WHERE ${sebRecoveryCase.id} = ${id})
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      action: 'SEB.RECOVERY_OPENED',
+      entityType: 'SEB_RECOVERY_CASE',
+      entityId: id,
+      actorUserId: input.actorId,
+      // The input names the award only; its application is read by this same
+      // statement rather than by a query taken before the batch.
+      applicationId: awardApplication(input.awardId),
+      payload: {
+        awardId: input.awardId,
+        officialReference: input.officialReference,
+        officialDate: input.officialDate,
+        reasonCategoryId: input.reasonCategoryId,
+      },
+      now: input.now,
+    }), sql`EXISTS (SELECT 1 FROM ${sebRecoveryCase} WHERE ${sebRecoveryCase.id} = ${id})`),
   ])
   return changedExactlyOne(inserted) ? id : null
 }
@@ -671,17 +739,29 @@ export const recordRecoveryEntryWrite = async (
       sql`EXISTS (SELECT 1 FROM ${sebRecoveryEntry} WHERE ${sebRecoveryEntry.id} = ${id})`,
     )),
     /*
-     * The entry type is recorded in the metadata, because a waiver and a
+     * The entry type is recorded in the payload, because a waiver and a
      * receipt are the same shape and very different acts — a trail that could
      * not tell them apart would be no use for the one that matters.
      */
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_ENTRY_RECORDED',
-        'SEB_RECOVERY_CASE', ${input.recoveryCaseId}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, ${JSON.stringify({ entryType: input.entryType, component: input.component })},
-        ${input.now}
-      WHERE EXISTS (SELECT 1 FROM ${sebRecoveryEntry} WHERE ${sebRecoveryEntry.id} = ${id})
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      action: 'SEB.RECOVERY_ENTRY_RECORDED',
+      entityType: 'SEB_RECOVERY_CASE',
+      entityId: input.recoveryCaseId,
+      actorUserId: input.actorId,
+      applicationId: recoveryCaseApplication(input.recoveryCaseId),
+      payload: {
+        entryId: id,
+        entryType: input.entryType,
+        component: input.component,
+        amountPaise: input.amountPaise,
+        externalReference: input.externalReference,
+        occurredAt: input.occurredAt.toISOString(),
+        relatedEntryId: input.relatedEntryId ?? undefined,
+        reasonCategoryId: input.reasonCategoryId ?? undefined,
+        ledgerVersion: next,
+      },
+      now: input.now,
+    }), sql`EXISTS (SELECT 1 FROM ${sebRecoveryEntry} WHERE ${sebRecoveryEntry.id} = ${id})`),
   ])
   return changedExactlyOne(inserted) ? id : null
 }
@@ -710,16 +790,19 @@ export const closeRecoveryWrite = async (
           AND ${sebRecoveryCase.currentVersion} = ${next}
       )
     `),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_CLOSED',
-        'SEB_RECOVERY_CASE', ${input.recoveryCaseId}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${input.now}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebRecoveryCase}
-        WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
-          AND ${sebRecoveryCase.currentVersion} = ${next}
-      )
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      action: 'SEB.RECOVERY_CLOSED',
+      entityType: 'SEB_RECOVERY_CASE',
+      entityId: input.recoveryCaseId,
+      actorUserId: input.actorId,
+      applicationId: recoveryCaseApplication(input.recoveryCaseId),
+      payload: { reason: auditReason(input.reason), version: next },
+      now: input.now,
+    }), sql`EXISTS (
+      SELECT 1 FROM ${sebRecoveryCase}
+      WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
+        AND ${sebRecoveryCase.currentVersion} = ${next}
+    )`),
   ])
   return changedExactlyOne(changed)
 }
@@ -771,16 +854,19 @@ export const cancelRecoveryWrite = async (
      * behind, so without this the case would vanish from the trail entirely
      * rather than merely being unexplained.
      */
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorId}, 'SEB.RECOVERY_CANCELLED',
-        'SEB_RECOVERY_CASE', ${input.recoveryCaseId}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${input.now}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebRecoveryCase}
-        WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
-          AND ${sebRecoveryCase.currentVersion} = ${next}
-      )
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      action: 'SEB.RECOVERY_CANCELLED',
+      entityType: 'SEB_RECOVERY_CASE',
+      entityId: input.recoveryCaseId,
+      actorUserId: input.actorId,
+      applicationId: recoveryCaseApplication(input.recoveryCaseId),
+      payload: { reason: auditReason(input.reason), version: next },
+      now: input.now,
+    }), sql`EXISTS (
+      SELECT 1 FROM ${sebRecoveryCase}
+      WHERE ${sebRecoveryCase.id} = ${input.recoveryCaseId}
+        AND ${sebRecoveryCase.currentVersion} = ${next}
+    )`),
   ])
   return changedExactlyOne(changed)
 }

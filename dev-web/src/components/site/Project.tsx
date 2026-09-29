@@ -171,9 +171,9 @@ export function Project() {
         scrollTrigger: {
           trigger: section,
           start: 'top top',
-          end: '+=2200',
+          end: '+=500',
           pin: true,
-          scrub: 1.1,
+          scrub: 0.1,
           anticipatePin: 1,
           invalidateOnRefresh: true,
         },
@@ -188,10 +188,10 @@ export function Project() {
             rotation: 0,
             scale: 1,
             opacity: 1,
-            duration: 0.9,
+            duration: 0.18,
             ease: 'back.out(1.5)',
           },
-          0.05,
+          0,
         )
       }
 
@@ -204,10 +204,10 @@ export function Project() {
             rotation: -8,
             scale: 1,
             opacity: 1,
-            duration: 0.95,
+            duration: 0.2,
             ease: 'back.out(1.4)',
           },
-          0.28,
+          0.025,
         )
       }
       if (cardRightInner) {
@@ -219,10 +219,10 @@ export function Project() {
             rotation: 8,
             scale: 1,
             opacity: 1,
-            duration: 0.95,
+            duration: 0.2,
             ease: 'back.out(1.4)',
           },
-          0.28,
+          0.025,
         )
       }
 
@@ -235,10 +235,10 @@ export function Project() {
             rotation: -16,
             scale: 1,
             opacity: 1,
-            duration: 0.95,
+            duration: 0.2,
             ease: 'back.out(1.3)',
           },
-          0.48,
+          0.05,
         )
       }
       if (cardRightOuter) {
@@ -250,14 +250,14 @@ export function Project() {
             rotation: 16,
             scale: 1,
             opacity: 1,
-            duration: 0.95,
+            duration: 0.2,
             ease: 'back.out(1.3)',
           },
-          0.48,
+          0.05,
         )
       }
 
-      tl.to({}, { duration: 1.1 })
+      tl.to({}, { duration: 0.35 })
     })
 
     return () => mm.revert()

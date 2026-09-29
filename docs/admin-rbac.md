@@ -40,7 +40,7 @@ it back, so role administration deliberately cannot touch it.
 
 Every pair a role can be given lives in
 [`auth/catalog.json`](../src/services/auth/catalog.json): twelve resources,
-twenty-two acts, and the thirty-seven pairs that actually exist. A resource
+twenty-three acts, and the thirty-eight pairs that actually exist. A resource
 offers only the acts that mean something on it, so `audit`/`award` is not a
 permission nobody holds — it is not a permission at all.
 
@@ -54,7 +54,7 @@ permission nobody holds — it is not a permission at all.
 | `form_template` | `update` |
 | `policy_document` | `read` `upload` |
 | `announcement` | `read` `create` `update` `publish` `remove` `reorder` |
-| `audit` | `read` |
+| `audit` | `read` `export` |
 | `user` | `read` |
 | `role` | `read` `invite` |
 | `analytics` | `read` |
@@ -337,10 +337,14 @@ into a mass sign-out.
 Role changes use the fixed actions `RBAC.ROLE_GRANTED` and `RBAC.ROLE_REVOKED`;
 composing one adds `RBAC.ROLE_CREATED`, `RBAC.ROLE_UPDATED` and
 `RBAC.ROLE_RETIRED`; invitations add `RBAC.ROLE_INVITE_ISSUED`,
-`RBAC.ROLE_INVITE_ACCEPTED` and `RBAC.ROLE_INVITE_REFUSED`. Safe audit metadata
-is limited to public user, grant and role IDs, a role key, and counts. It must
-not contain passwords, hashes, OTPs, invitation tokens, cookie values, or
-document and form contents.
+`RBAC.ROLE_INVITE_ACCEPTED` and `RBAC.ROLE_INVITE_REFUSED`. Each records a
+declared payload (see [`audit-vocabulary/access.ts`](../src/services/audit-vocabulary/access.ts)):
+the person whose access changed, the role by key, how it came about — directly,
+at signup, by the bootstrap — and **the operator's reason, bounded to 500
+characters**. The full reason stays on the grant row. A refused invitation
+records which check it failed, while the holder of the link is still told one
+sentence whatever the cause. An audit row must not contain passwords, hashes,
+OTPs, invitation tokens, cookie values, or document and form contents.
 
 `RBAC.ROLE_UPDATED` records how many permissions the role now holds, not which.
 The pairs live on the role; a second, diverging copy of somebody's authority in
@@ -349,10 +353,12 @@ retained history would be worse than no record of the size.
 **The invitation token is never recorded.** An audit row carrying it would be a
 second copy of a live credential, readable by anybody who may read audits.
 
-That history is now readable in the portal rather than only through a SQL
-client, by anybody holding `audit`/`read` — a permission the office composes
-into a role deliberately, and one it should think about, because that history
-carries more about people than any other read. See the
+That history is readable in the portal by anybody holding `audit`/`read` — a
+permission the office composes into a role deliberately, because that history
+carries more about people than any other read. A role that also holds
+`audit`/`export` may take a CSV copy of a filtered view; every export is itself
+recorded with its filter, its row count and the reason given for it, because a
+copy outlives every permission that allowed it. See the
 [audit service](../src/services/audit/README.md).
 
 ## Deliberate exclusions

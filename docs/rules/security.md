@@ -33,6 +33,42 @@ and callers log the fact rather than the error object.
 so at the one place it happens. Tests assert the thrown message contains
 neither the key, the recipient, nor the code.
 
+## What an audit row may carry
+
+The activity history is not a log: it is retained evidence, readable in the
+portal by roles holding `audit`/`read`. So it is allowed some things a log is
+not, and refused others a log would never see.
+
+| Recorded | Because |
+| --- | --- |
+| Full email addresses — a sign-up, an address change, a sign-in attempt | The office decided the history must name who, and an address is how a person is found. **This does not relax the log rule above**: a Worker log still never carries one. |
+| An operator's reason, at most 500 characters | It is what makes a grant, a correction or a retirement explicable later. The whole reason stays on the record it explains. |
+| Amounts, references, dates, outcomes | They are the facts an auditor asks about, copied from the record at the instant it changed. |
+
+| Never recorded | Because |
+| --- | --- |
+| Passwords, hashes, OTPs, invite tokens, cookies, provider tokens | Credentials, and the history is readable by more people than any credential should be |
+| Object keys and file names | A storage identifier is enough to ask for a file |
+| Message bodies, internal note text, guidance text, applicant form answers | Business content has one home, its own record; a second copy in the history drifts and is believed anyway |
+
+Three mechanisms enforce this rather than good intentions:
+
+- **Every payload is a strict schema** in `services/audit-vocabulary`, parsed
+  before the row is written. An undeclared key fails the write.
+- **`check:audit` refuses a payload key shaped like a secret** — `password`,
+  `token`, `otp`, `hash`, `secret`, `cookie`, `objectKey`, `body`, `answers`,
+  `note` — by name, because the type system cannot tell a secret from a string.
+- **The credential paths record no caller text.** They drop the request labels,
+  because their caller is not yet anybody; their payloads are
+  `callerTextFree`, holding no free text at all, and an address only after it
+  has parsed as one. Dropping labels for any other action throws.
+
+An export is CSV opened in a spreadsheet, and several cells hold text somebody
+else chose. A cell starting `=`, `+`, `-`, `@`, tab or carriage return is
+prefixed with an apostrophe so it is read as text, never run as a formula by
+the reader — who, by holding `audit`/`export`, is among the most privileged
+people in the office.
+
 ## Secrets are separated by purpose
 
 Three secrets exist and none is a synonym for another:

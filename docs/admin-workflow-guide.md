@@ -253,7 +253,8 @@ if no requests remain, the application returns to desk review.
 
 Internal notes are append-only and staff-only. Correcting “Branch is Agartala”
 means adding a note that references the original. Neither note enters applicant
-events or general audit metadata.
+events, and the activity history records only that a note was added — and which
+note it corrects — never its text.
 
 ## Offline bank evaluation
 

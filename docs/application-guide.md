@@ -414,10 +414,12 @@ Dependent inserts therefore use `INSERT ... SELECT ... WHERE EXISTS` predicates
 tied to the winning root update. Batches remain bounded; cleanup is paginated.
 
 Business roots soft-delete; sessions alone hard-delete. Versions, submissions,
-events, ledgers, and assessments are append-only. Safe audit metadata includes
-`{ "phaseNumber": 2, "type": "EXPANSION" }`. Unsafe metadata includes form
-answers, names, filenames, object keys, URLs, checksums, passwords, OTPs, or
-session/challenge digests.
+events, ledgers, and assessments are append-only. Each audit row carries its
+action's declared payload — starting an expansion records
+`{ "type": "EXPANSION", "phaseNumber": 2, "enterpriseId": …, "programmeCycleId": … }`,
+a submission its reference number and version. A payload never carries form
+answers, enterprise names, filenames, object keys, URLs, checksums, passwords,
+OTPs, or session/challenge digests.
 
 ## Setup, testing, and limitations
 

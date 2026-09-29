@@ -11,6 +11,7 @@ import {
   sebFundingCase,
   sebFundingCaseVersion,
 } from '../../../db/schema'
+import { insertAuditEventWhere } from '../../audit-event'
 import { sqlNullable, type AuditRecord } from '../support'
 import type {
   BusinessSector,
@@ -265,14 +266,7 @@ export const insertEnterpriseAggregate = async (
         WHERE ${sebFundingCase.id} = ${input.fundingCaseId}
       )
     `),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
-        ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
-        ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
-        ${sqlNullable(input.audit.userAgent)}, NULL,
-        ${sqlNullable(input.audit.metadataJson)}, ${input.now}
-      WHERE ${exists}
-    `),
+    insertAuditEventWhere(tx, input.audit, exists),
   ])
   return changedExactlyOne(created)
 }
@@ -327,13 +321,7 @@ export const updateEnterpriseAggregate = async (
         AND ${sebEnterprise.updatedAt} = ${input.now}
     )
   `)
-  const audit = db.insert(coreAuditEvent).select(sql`
-    SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
-      ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
-      ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
-      ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now}
-    WHERE EXISTS (
+  const audit = insertAuditEventWhere(db, input.audit, sql`EXISTS (
       SELECT 1 FROM ${sebEnterprise}
       WHERE ${sebEnterprise.id} = ${input.enterpriseId}
         AND ${sebEnterprise.currentVersion} = ${nextVersion}
@@ -428,13 +416,7 @@ export const setEnterpriseDeleted = async (
   // The audit row is also a unique, per-operation claim. Statements later in
   // the D1 batch depend on this exact ID, rather than a millisecond timestamp
   // that a second request could accidentally share with the winning request.
-  const claim = db.insert(coreAuditEvent).select(sql`
-    SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
-      ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
-      ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
-      ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now}
-    WHERE EXISTS (
+  const claim = insertAuditEventWhere(db, input.audit, sql`EXISTS (
       SELECT 1 FROM ${sebEnterprise}
       WHERE ${sebEnterprise.id} = ${input.enterpriseId}
         AND ${sebEnterprise.portalOwnerUserId} = ${input.userId}

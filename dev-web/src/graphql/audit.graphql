@@ -1,34 +1,101 @@
-# The activity history, readable only by a super administrator.
+# The activity history, readable by anybody whose role may read it.
 #
-# Every filter is optional and they combine. `actorUserIds` and `actorRole` are
-# the two halves of "these people, or everybody holding a role".
+# Every filter is optional and they combine. Three are about people and answer
+# different questions: `actorUserIds` is what they did, `subjectUserIds` is what
+# was done to them, and `involvingUserId` is either — one person's history.
+
+fragment AuditPersonFields on AuditActor {
+  id
+  email
+  roles
+}
+
+# Everything a row shows. The entry dialog asks for the same shape, so a row and
+# its expanded view can never disagree about what an event said.
+fragment AuditEventFields on AuditEvent {
+  id
+  action
+  actionLabel
+  category
+  summary
+  detailed
+  entityType
+  entityId
+  outcome
+  createdAt
+  requestId
+  ipAddress
+  userAgent
+  payloadJson
+  actor { ...AuditPersonFields }
+  subject { ...AuditPersonFields }
+  application { id label exists }
+  details {
+    key
+    label
+    kind
+    value
+    reference { id label exists }
+  }
+}
+
 query AuditEvents($input: AuditQueryInput) {
   audit {
     events(input: $input) {
       success
       message
       response {
-        nodes {
-          id
-          action
-          entityType
-          entityId
-          outcome
-          createdAt
-          requestId
-          ipAddress
-          metadata
-          actor { id email roles }
-        }
+        nodes { ...AuditEventFields }
         pageInfo { endCursor hasNextPage totalCount }
       }
     }
   }
 }
 
-# The actions that actually occur, so the filter offers no dead ends.
+# One entry, and the others its request produced.
+query AuditEvent($id: ID!) {
+  audit {
+    event(id: $id) {
+      success
+      message
+      response {
+        event { ...AuditEventFields }
+        sameRequest { ...AuditEventFields }
+      }
+    }
+  }
+}
+
+# The actions that actually occur, labelled and grouped, so the filter offers
+# no dead ends.
 query AuditActions {
   audit {
-    actions { success message response }
+    actions {
+      success
+      message
+      response { action label category }
+    }
+  }
+}
+
+# The person filter: a whole address to an id, or the ids a URL already holds
+# back to the addresses a person can read.
+query AuditPeople($input: AuditPeopleInput!) {
+  audit {
+    people(input: $input) {
+      success
+      message
+      response { ...AuditPersonFields }
+    }
+  }
+}
+
+mutation ExportAuditEvents($input: AuditExportInput!) {
+  audit {
+    exportEvents(input: $input) {
+      success
+      message
+      response { filename csv rowCount truncated }
+    }
   }
 }

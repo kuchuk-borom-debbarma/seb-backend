@@ -55,6 +55,7 @@ import { getCurrentSession } from './auth'
 import { findActorPasswordHash } from '../queries/access'
 import { AUTH_REQUIRED_MESSAGE, auditEvent, normalizeEmail } from '../support'
 import { bestEffort } from '../../best-effort'
+import { auditEmail } from '../../audit-vocabulary/fields'
 import type {
   AuthOperationContext,
   AuthResult,
@@ -120,8 +121,10 @@ const issueChallenge = async (
     recipient: string
     subject: string
     body: (otp: string) => string
-    requestedAction: (typeof auditActions)[keyof typeof auditActions]
-    failedAction: (typeof auditActions)[keyof typeof auditActions]
+    requestedAction: typeof auditActions.passwordResetRequested | typeof auditActions.emailChangeRequested
+    failedAction:
+      | typeof auditActions.passwordResetNotificationFailed
+      | typeof auditActions.emailChangeNotificationFailed
   },
   /*
    * Always the same shape. There is deliberately no failure arm: every way this
@@ -170,6 +173,8 @@ const issueChallenge = async (
       entityType: 'CORE_ACCOUNT_CHALLENGE',
       entityId: id,
       actorUserId: input.userId,
+      // Never the code or its digest: where it went and until when.
+      payload: { recipient: auditEmail(input.recipient), expiresAt: expiresAt.toISOString() },
       // The request headers are dropped for the reason every credential-bearing
       // operation drops them: a hostile header must not be able to copy itself
       // into retained history beside a secret.
@@ -195,6 +200,7 @@ const issueChallenge = async (
         entityId: id,
         actorUserId: input.userId,
         outcome: 'FAILURE',
+        payload: {},
         includeRequestMetadata: false,
       }),
     )
@@ -236,7 +242,7 @@ const proveChallenge = async (
   purpose: 'PASSWORD_RESET' | 'EMAIL_CHANGE',
   challengeToken: string,
   otp: string,
-  failedAction: (typeof auditActions)[keyof typeof auditActions],
+  failedAction: typeof auditActions.passwordResetOtpFailed | typeof auditActions.emailChangeOtpFailed,
 ) => {
   const secret = requireSecret(context)
   const now = new Date()
@@ -264,6 +270,8 @@ const proveChallenge = async (
         entityId: challenge.id,
         actorUserId: challenge.userId,
         outcome: 'FAILURE',
+        // This attempt is the one being spent.
+        payload: { attemptsRemaining: Math.max(challenge.attemptsRemaining - 1, 0) },
         includeRequestMetadata: false,
       }),
     )
@@ -343,6 +351,7 @@ export const completePasswordReset = async (
       entityType: 'CORE_USER',
       entityId: challenge.userId,
       actorUserId: challenge.userId,
+      payload: {},
       includeRequestMetadata: false,
     }),
   })
@@ -397,6 +406,7 @@ export const changePassword = async (
       entityType: 'CORE_USER',
       entityId: current.user.id,
       actorUserId: current.user.id,
+      payload: {},
       includeRequestMetadata: false,
     }),
   })
@@ -520,6 +530,10 @@ export const completeEmailChange = async (
       entityType: 'CORE_USER',
       entityId: current.user.id,
       actorUserId: current.user.id,
+      payload: {
+        previousEmail: auditEmail(current.user.email),
+        newEmail: auditEmail(challenge.email),
+      },
       includeRequestMetadata: false,
     }),
   })
@@ -557,6 +571,7 @@ export const changeDisplayName = async (
       entityType: 'CORE_USER',
       entityId: current.user.id,
       actorUserId: current.user.id,
+      payload: { displayName: value },
     }),
   })
   if (!changed) return failure('Your name could not be changed. Please try again.')

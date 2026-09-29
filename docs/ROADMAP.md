@@ -1070,23 +1070,43 @@ administrator — writes cards the public reads without signing in.
 - [ ] Provide ageing reports showing time spent in each review stage.
 - [ ] Provide a revision report by stage and reason category to identify
   common applicant difficulties.
-- [ ] Allow exports only to authorized administrators and record who exported,
-  when, which filters were used, and the purpose.
-- [ ] Exports exclude passwords, authentication secrets, private document links,
-  and staff-only security data.
-- [ ] Provide a complete application history showing submissions, status
-  changes, revision requests, decisions, awards, releases, reversals, and
-  assessments in event order.
+- [x] Export the activity history as CSV only for a role holding `audit`/`export`
+  as well as `audit`/`read`, and record who exported, when, which filter was
+  used, how many rows it carried, and the purpose they gave. No export is
+  returned without that record. One file carries at most 10,000 events and
+  says when it was cut; exports are limited to five a minute per session.
+- [x] The activity-history export carries no passwords, authentication secrets,
+  one-time codes, invitation tokens, object keys or document contents, and a
+  cell a spreadsheet would run as a formula is neutralized.
+- [ ] Exports of the other reports in this section — they do not exist yet, and
+  each will need the same authority and the same record of who took it.
+- [x] Provide a complete application history in event order: its drafts,
+  evidence, submissions, desk review and revision requests, bank referral and
+  outcome, decision, award, releases, reversals, assessments and recovery —
+  every event on the application or on any record belonging to it — shown on
+  the office's application page and in the activity history by application
+  or by reference number.
 - [x] Provide a role-change history for super administrators.
-- [x] Let a super administrator read the whole recorded history — who did what,
-  to which record, with what outcome — scoped by named people, by everybody
-  holding a role, by application, by action and by date, and paged the same way
-  every other list is.
+- [x] Let anybody whose role holds `audit`/`read` read the whole recorded
+  history, scoped by the people who acted, the people it was about, one
+  person's whole history, everybody holding a role, category, action, kind of
+  record, one record, application or reference number, outcome, date and
+  request, and paged the same way every other list is.
 - [x] Read that history from what was actually recorded rather than from a list
   of actions the current code can write, so a filter never offers a dead end.
-- [ ] Widen the per-application view to include events recorded against an
-  application's own documents and submissions. Today it matches only events
-  whose subject is the application itself.
+- [x] Every recorded action says what it did in its own terms — a sign-up the
+  address it was for, a decision its outcome and amount, a grant the person,
+  the role and the reason — as labelled details and one plain sentence, with
+  the people, roles, applications and cycles it names shown by name. Events
+  recorded before actions declared their details are shown exactly as stored
+  and marked as such.
+- [x] Open one entry to see everything it recorded, where the request came
+  from, and every other entry the same request produced.
+- [x] Reach a person's whole history from their record in Users & access, and a
+  role's from its page.
+- [ ] Search the text of recorded reasons. It needs `pg_trgm` for an indexed
+  substring match, which is not enabled; until then entries are found by the
+  filters above.
 
 ---
 

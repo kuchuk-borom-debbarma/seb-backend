@@ -13,8 +13,13 @@
  * the business record — a flat map of primitives, never the form itself.
  */
 import { sql, type SQL } from 'drizzle-orm'
-import { sebApplication, type auditActions } from '../../db/schema'
-import { auditEventRow, type AuditEventRow } from '../audit-event'
+import { sebApplication } from '../../db/schema'
+import {
+  auditEventRow,
+  type ActionWrittenBy,
+  type AuditEventInput,
+  type AuditEventRecord,
+} from '../audit-event'
 import { failure } from '../envelope'
 /*
  * Re-exported rather than moved out of every caller's import: `constraintSafe`
@@ -60,28 +65,20 @@ export const currentStaff = async <R extends Resource>(
   return authenticated?.user ?? null
 }
 
-export type AdminAuditAction = (typeof auditActions)[keyof typeof auditActions]
+/** The actions the programme office's service may record. */
+export type AdminAuditAction = ActionWrittenBy<'admin'>
 
 /**
- * Audit metadata stays deliberately smaller than the business record.
+ * Builds one declared audit row for an administrative act.
  *
  * The row itself is built by `services/audit-event.ts`, shared with every other
- * service. What this adds is the vocabulary: an administrative action, written
- * against an entity this service owns, always as a success — a refusal here
- * never reaches a write.
+ * service. What this adds is the narrowing to this service's actions, and that
+ * an act here always happens at the instant its transaction was stamped with.
  */
-export const adminAudit = (
+export const adminAudit = <A extends AdminAuditAction>(
   context: AdminOperationContext,
-  input: {
-    actorUserId: string | null
-    action: AdminAuditAction
-    entityType: string
-    entityId: string
-    now: Date
-    metadata?: Record<string, string | number | boolean | null>
-  },
-): AuditEventRow =>
-  auditEventRow(context, { ...input, createdAt: input.now })
+  input: AuditEventInput<A> & { now: Date },
+): AuditEventRecord => auditEventRow(context, { ...input, createdAt: input.now })
 
 /**
  * Whether the head update that opens this transaction actually landed.

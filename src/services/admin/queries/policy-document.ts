@@ -10,13 +10,13 @@
 import { and, desc, eq, isNotNull, lte, or, sql } from 'drizzle-orm'
 import { batch, changedExactlyOne, type Database, type Transaction } from '../../../db'
 import {
-  coreAuditEvent,
   sebCyclePolicyDocument,
   sebCyclePolicyDocumentScan,
   sebCyclePolicyDocumentVersion,
   sebCyclePolicyUploadIntent,
 } from '../../../db/schema'
 import { appendWhenChanged } from '../../application/support'
+import { insertAuditEventWhere, type AuditEventRecord } from '../../audit-event'
 
 export type PolicyUploadIntentRecord = typeof sebCyclePolicyUploadIntent.$inferSelect
 
@@ -113,14 +113,14 @@ const latestScanStatus = async (
 export const insertPolicyUploadIntent = async (
   db: Database,
   intent: typeof sebCyclePolicyUploadIntent.$inferInsert,
-  audit: typeof coreAuditEvent.$inferInsert,
+  audit: AuditEventRecord,
 ): Promise<void> => {
   // A plain insert is race-safe here: a stale `expectedDocumentVersion` makes
   // the later guarded finalize miss, and an intent that never finalizes is
   // exactly what the scheduled cleanup exists to sweep.
   await batch(db, (tx) => [
     tx.insert(sebCyclePolicyUploadIntent).values(intent),
-    tx.insert(coreAuditEvent).values(audit),
+    insertAuditEventWhere(tx, audit, sql`TRUE`),
   ])
 }
 
@@ -145,7 +145,7 @@ export const finalizePolicyUploadIntent = async (
     nextVersion: number
     userId: string
     now: Date
-    audit: typeof coreAuditEvent.$inferInsert
+    audit: AuditEventRecord
   },
 ): Promise<boolean> => {
   const newDocument = input.nextVersion === 1
@@ -229,18 +229,11 @@ export const finalizePolicyUploadIntent = async (
           AND ${sebCyclePolicyUploadIntent.status} = 'FINALIZED'
       )
     `)
-  const audit = (tx: Transaction) => tx.insert(coreAuditEvent).select(sql`
-    SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
-      ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
-      ${input.audit.requestId ?? null}, ${input.audit.ipAddress ?? null},
-      ${input.audit.userAgent ?? null}, NULL, ${input.audit.metadataJson ?? null},
-      ${input.now}
-    WHERE EXISTS (
-      SELECT 1 FROM ${sebCyclePolicyUploadIntent}
-      WHERE ${sebCyclePolicyUploadIntent.id} = ${input.intent.id}
-        AND ${sebCyclePolicyUploadIntent.status} = 'FINALIZED'
-    )
-  `)
+  const audit = (tx: Transaction) => insertAuditEventWhere(tx, input.audit, sql`EXISTS (
+    SELECT 1 FROM ${sebCyclePolicyUploadIntent}
+    WHERE ${sebCyclePolicyUploadIntent.id} = ${input.intent.id}
+      AND ${sebCyclePolicyUploadIntent.status} = 'FINALIZED'
+  )`)
   const [changed] = await batch(db, (tx) => [
     createOrAdvance(tx),
     insertVersion(tx),

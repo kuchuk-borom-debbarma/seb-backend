@@ -7,7 +7,6 @@
  * accepted — the policy document is the order or circular the cycle
  * implements, and it is served to every applicant.
  */
-import { auditActions } from '../../../db/schema'
 import { failure, success } from '../../envelope'
 import {
   afterSuccessfulClaim,
@@ -131,10 +130,10 @@ export const issueCyclePolicyUpload = async (
     },
     adminAudit(context, {
       actorUserId: administrator.id,
-      action: auditActions.cyclePolicyUploadIssued,
+      action: 'SEB.CYCLE_POLICY_UPLOAD_ISSUED',
       entityType: 'SEB_CYCLE_POLICY_UPLOAD_INTENT',
       entityId: uploadId,
-      metadata: { cycleId: input.cycleId },
+      payload: { cycleId: input.cycleId, sizeBytes: input.sizeBytes },
       now,
     }),
   )
@@ -191,10 +190,10 @@ export const finalizeCyclePolicyUpload = async (
     now,
     audit: adminAudit(context, {
       actorUserId: administrator.id,
-      action: auditActions.cyclePolicyFinalized,
+      action: 'SEB.CYCLE_POLICY_FINALIZED',
       entityType: 'SEB_CYCLE_POLICY_DOCUMENT',
       entityId: documentId,
-      metadata: { cycleId: intent.programmeCycleId, version: nextVersion },
+      payload: { cycleId: intent.programmeCycleId, version: nextVersion },
       now,
     }),
   }))

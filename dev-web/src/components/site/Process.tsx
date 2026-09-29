@@ -128,28 +128,28 @@ export function Process() {
         scrollTrigger: {
           trigger: desktopStageRef.current,
           start: 'top top',
-          end: () => `+=${window.innerHeight * (steps.length * 0.75)}`,
+          end: () => `+=${window.innerHeight * (steps.length * 0.2)}`,
           pin: true,
-          scrub: 1.1,
+          scrub: 0.1,
           anticipatePin: 1,
           invalidateOnRefresh: true,
         },
       })
 
-      tl.to(line, { opacity: 1, scaleY: 1, duration: steps.length * 0.95 }, 0)
+      tl.to(line, { opacity: 1, scaleY: 1, duration: steps.length * 0.4 }, 0)
 
       items.forEach((item, index) => {
         const iconNode = item.querySelector<HTMLElement>('.proc-icon-badge')
         const textNode = item.querySelector<HTMLElement>('.proc-text-block')
 
-        const at = index * 0.95
+        const at = index * 0.4
 
         if (iconNode) {
-          tl.to(iconNode, { opacity: 1, scale: 1, duration: 0.35 }, at)
+          tl.to(iconNode, { opacity: 1, scale: 1, duration: 0.2 }, at)
         }
 
         if (textNode) {
-          tl.to(textNode, { opacity: 1, y: 0, duration: 0.38 }, at + 0.05)
+          tl.to(textNode, { opacity: 1, y: 0, duration: 0.2 }, at + 0.01)
         }
       })
     })

@@ -178,6 +178,13 @@ Built:
   withdrawal of a correction request.
 - **Access** — exact-address lookup, the complete role history, and grant and
   revoke with the operator's own password as a step-up.
+- **Activity history** — every recorded action, read as a sentence with its
+  labelled details: filtered by a person (what they did, what was done to them,
+  or both), a role, a kind of activity or one action, an application, a range
+  of days and an outcome; each entry opens in full with the other entries its
+  request produced; the filtered view exports as CSV with a stated reason. An
+  application's workspace shows its own latest entries, a person's access
+  record links to their history, and a role links to its own.
 - **Decisions** — referral to a partner bank, recording and correcting its
   outcome, and recording and correcting the programme's decision.
 - **Funding** — issuing the sanction order, the award ledger, releasing a
@@ -219,6 +226,13 @@ The client is a public site and two portals sharing one institution.
   needs `SUPER_ADMIN` specifically.
 - **Shared** — `/guide` and the account screens under `/settings` and
   `/account`, reachable from either portal.
+
+The public hero alternates between a silent Mission SEP logo animation and the
+TTAADC administrative building photo. Visitors can select either slide; it
+advances every 11 seconds unless reduced motion is requested. The whole animated
+mark fits within the screen, and reduced-motion visitors see its still poster.
+Sign-in keeps the institutional logo above a single form; it has no illustrated
+story panel.
 
 Signing in lands each account in the portal its roles fit, so an officer with no
 applicant grant never has to read a refusal after every sign-in. Opening a
@@ -393,10 +407,18 @@ pause.
 matches" with a way to clear the filters, or "Nothing here yet" with the real
 first action. Knowing the total is what makes that distinction possible.
 
-Shared controls live in `src/components/ListControls.tsx` — `SearchBox` and
-`Pager`. The pager reports `1–20 of 143` rather than an unlabelled Next button,
-and says "continued" past the first page because a keyset cursor cannot know
-which page number it is on.
+Shared controls live in `src/components/ListControls.tsx` — `SearchBox`,
+`Pager`, `MultiSelectFilter` and `ListEmpty` — and reading filters back out of
+the address in `src/lib/search.ts`, which keeps a value only while it still
+means something the API would accept, so a stale bookmark narrows nothing
+rather than breaking the screen. The pager reports `1–20 of 143` rather than an
+unlabelled Next button, and says "continued" past the first page because a
+keyset cursor cannot know which page number it is on.
+
+**Every route's search keys share one namespace** in the router's types, so a
+new list names its keys to collide with nothing already there — the activity
+history uses `kinds`, not `categories`, and `since`/`until`, not `from`/`to`.
+A collision is not cosmetic: the other screen's own links stop type-checking.
 
 ## The form is rendered, not written
 

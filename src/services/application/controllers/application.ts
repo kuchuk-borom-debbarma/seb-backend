@@ -97,7 +97,8 @@ import {
 import { ROLE_CANONICAL_KEY } from '../../../db/schema'
 import { confirmationPdfUrl } from '../confirmation-link'
 import { sendNotification } from '../../external-notification'
-import { createAuditEvent } from '../../auth/queries/auth'
+import { insertAuditEvent } from '../../audit-event'
+import { auditReason } from '../../audit-vocabulary/fields'
 
 const EMPTY_EXPANSION_CLAIM: ExpansionClaim = {
   priorSanctionOrderNumber: null,
@@ -294,7 +295,15 @@ const startApplication = async (
         action: auditActions.applicationStarted,
         entityType: 'SEB_APPLICATION',
         entityId: applicationId,
-        metadata: { type: expansion ? 'EXPANSION' : 'INITIAL', phaseNumber },
+        // The id, not a subselect: the application row is inserted by this
+        // same batch, and the audit row does not wait for it to exist.
+        applicationId,
+        payload: {
+          type: expansion ? 'EXPANSION' : 'INITIAL',
+          phaseNumber,
+          enterpriseId: source.enterprise.id,
+          programmeCycleId: cycle.id,
+        },
         now,
       }),
     }),
@@ -455,6 +464,8 @@ export const saveApplicationDraft = async (
       action: auditActions.applicationSaved,
       entityType: 'SEB_APPLICATION',
       entityId: application.id,
+      applicationId: application.id,
+      payload: { version: application.currentVersion + 1 },
       now,
     }),
   }))
@@ -529,11 +540,12 @@ const changeApplicationDeletion = async (
     restoreAwardFirstReleaseAt = evaluated.award.firstReleaseAt
   }
   const now = new Date()
+  const reason = deleted ? (input.reason?.trim() || 'REMOVED_BY_APPLICANT') : null
   const changed = await runConstraintSafe(() => setApplicationDeleted(context.db, {
       head,
       userId: applicant.id,
       deleted,
-      reason: deleted ? (input.reason?.trim() || 'REMOVED_BY_APPLICANT') : null,
+      reason,
       restoreAwardId,
       restoreAwardNetDisbursedPaise,
       restoreAwardFirstReleaseAt,
@@ -543,6 +555,8 @@ const changeApplicationDeletion = async (
         action: deleted ? auditActions.applicationDeleted : auditActions.applicationRestored,
         entityType: 'SEB_APPLICATION',
         entityId: head.id,
+        applicationId: head.id,
+        payload: reason === null ? {} : { reason: auditReason(reason) },
         now,
       }),
     }))
@@ -621,16 +635,16 @@ const sendSubmissionConfirmation = async (
   } catch {
     // Guarded itself: the audit write failing must not throw into the
     // submission that has already succeeded.
-    await bestEffort(createAuditEvent(context.db, {
-      ...auditRecord(context, {
-        actorUserId: applicantId,
-        action: auditActions.submissionConfirmationFailed,
-        entityType: 'SEB_APPLICATION',
-        entityId: application.id,
-        now: new Date(),
-      }),
+    await bestEffort(insertAuditEvent(context.db, auditRecord(context, {
+      actorUserId: applicantId,
+      action: auditActions.submissionConfirmationFailed,
+      entityType: 'SEB_APPLICATION',
+      entityId: application.id,
+      applicationId: application.id,
       outcome: 'FAILURE',
-    }), 'A submission confirmation failed')
+      payload: {},
+      now: new Date(),
+    })), 'A submission confirmation failed')
   }
 }
 
@@ -699,37 +713,52 @@ const submit = async (
   )
   const readableVersion = requireInvariant(currentVersionRecord, 'Application version is missing.')
 
-  const submitted = await runConstraintRetry(() => submitApplicationSnapshot(context.db, {
-    head: application,
-    currentVersion: readableVersion,
-    userId: applicant.id,
-    answerRows: answersToRows(rules.template, answers),
-    expansionClaim: expansionEvidence.claim,
-    qualifyingAwardId: expansionEvidence.qualifyingAwardId,
-    qualifyingReleaseAt: expansionEvidence.qualifyingReleaseAt,
-    revisionStageKeys: revisionStageKeys ? [...revisionStageKeys] : undefined,
-    programmeCycleVersion: readableVersion.programmeCycleVersion,
-    referenceNumber: createReferenceNumber(cycle?.cycleYear ?? new Date().getUTCFullYear()),
-    resubmission,
-    requiredDocumentFieldKeys: requiredDocumentFieldKeys(rules.template, answers),
-    // Frozen onto the snapshot here, from the same facts the validator read —
-    // the moment of submission is what the sorting must reflect.
-    applicationCategory: applicationCategoryOf(
+  const submitted = await runConstraintRetry(() => {
+    // Minted per attempt, as it always was, and named once so the snapshot and
+    // its audit row carry the same reference. A resubmission keeps the one the
+    // first submission issued — `submitApplicationSnapshot` prefers the head's.
+    const referenceNumber = application.referenceNumber
+      ?? createReferenceNumber(cycle?.cycleYear ?? new Date().getUTCFullYear())
+    const applicationCategory = applicationCategoryOf(
       facts?.establishmentDate ?? null,
       rules.policy.categoryAMaximumMonths,
       now,
-    ),
-    now,
-    audit: auditRecord(context, {
-      actorUserId: applicant.id,
-      action: resubmission
-        ? auditActions.applicationResubmitted
-        : auditActions.applicationSubmitted,
-      entityType: 'SEB_APPLICATION',
-      entityId: application.id,
+    )
+    return submitApplicationSnapshot(context.db, {
+      head: application,
+      currentVersion: readableVersion,
+      userId: applicant.id,
+      answerRows: answersToRows(rules.template, answers),
+      expansionClaim: expansionEvidence.claim,
+      qualifyingAwardId: expansionEvidence.qualifyingAwardId,
+      qualifyingReleaseAt: expansionEvidence.qualifyingReleaseAt,
+      revisionStageKeys: revisionStageKeys ? [...revisionStageKeys] : undefined,
+      programmeCycleVersion: readableVersion.programmeCycleVersion,
+      referenceNumber,
+      resubmission,
+      requiredDocumentFieldKeys: requiredDocumentFieldKeys(rules.template, answers),
+      // Frozen onto the snapshot here, from the same facts the validator read —
+      // the moment of submission is what the sorting must reflect.
+      applicationCategory,
       now,
-    }),
-  }), 3)
+      audit: auditRecord(context, {
+        actorUserId: applicant.id,
+        action: resubmission
+          ? auditActions.applicationResubmitted
+          : auditActions.applicationSubmitted,
+        entityType: 'SEB_APPLICATION',
+        entityId: application.id,
+        applicationId: application.id,
+        payload: {
+          referenceNumber,
+          version: application.currentVersion + 1,
+          ...(applicationCategory === null ? {} : { applicationCategory }),
+          ...(revisionStageKeys ? { revisionStageCount: revisionStageKeys.size } : {}),
+        },
+        now,
+      }),
+    })
+  }, 3)
   const result = await completeGuardedOperation(
     submitted === true,
     'The application changed. Refresh it and try again.',

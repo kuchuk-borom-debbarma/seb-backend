@@ -12,6 +12,7 @@
  */
 import { parseDateOnly } from '../validation'
 import type { ValidationIssueCode } from './codes'
+import { rupees } from '../../money'
 import type { AnswerValue, FormField } from './types'
 
 export type RuleFailure = {
@@ -19,8 +20,6 @@ export type RuleFailure = {
   readonly message: string
 }
 
-const rupees = (paise: number): string =>
-  `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
 
 /*
  * Three checkers, one per shape of answer, and the dispatch below.

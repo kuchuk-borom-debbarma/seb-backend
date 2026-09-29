@@ -37,34 +37,52 @@ export type AuditResult<T> = Envelope<T>
 /** Newest first is the default because recent activity is what gets read. */
 export type AuditOrder = 'NEWEST_FIRST' | 'OLDEST_FIRST'
 
+export type { AuditCategory, AuditDetailKind } from '../audit-vocabulary/types'
+import type { AuditCategory, AuditDetailKind } from '../audit-vocabulary/types'
+
 /**
- * How a caller narrows the history.
+ * How a caller narrows the history. Shared by the page and by the export, so
+ * an export always contains exactly the rows the screen was showing.
  *
- * Every filter is optional and they combine with AND. `actorUserIds` and
- * `actorRole` are the two halves of "selected people, or everybody holding a
- * role" — supplying both narrows to selected people who also hold that role,
- * which is a coherent question rather than a contradiction.
+ * Every filter is optional and they combine with AND. Three of them are about
+ * people and answer different questions:
+ *
+ * - `actorUserIds` — what these people did;
+ * - `subjectUserIds` — what was done to these people;
+ * - `involvingUserId` — either, for one person: their whole history.
+ *
+ * `actorRole` narrows to actors holding a role *now*, which is the question a
+ * role-scoped reviewer asks; the grant history answers the other one.
  */
-export type AuditFilters = {
-  first: number
-  after: { timestamp: Date; id: string } | null
+export type AuditFilter = {
   actorUserIds?: readonly string[] | null
   actorRole?: string | null
+  subjectUserIds?: readonly string[] | null
+  involvingUserId?: string | null
+  categories?: readonly AuditCategory[] | null
+  actions?: readonly string[] | null
+  entityTypes?: readonly string[] | null
+  entityId?: string | null
+  /** Everything that happened to one application: its documents, review, decision and money too. */
   applicationId?: string | null
-  entityType?: string | null
-  action?: readonly string[] | null
+  /** The same, named by the reference number an officer actually has in hand. */
+  applicationReference?: string | null
   outcome?: 'SUCCESS' | 'FAILURE' | null
   from?: Date | null
   to?: Date | null
-  order?: AuditOrder | null
+  requestId?: string | null
+}
+
+/** A validated page request. */
+export type AuditPageRequest = {
+  first: number
+  after: { timestamp: Date; id: string } | null
+  order: AuditOrder
+  filter: AuditFilter
 }
 
 /**
- * One recorded event.
- *
- * The actor arrives resolved — id, address and the roles held now — because a
- * bare id is unreadable and a client that had to look each one up would turn a
- * page of fifty into fifty-one requests.
+ * A person as the history shows them.
  *
  * `roles` are the roles held **now**, not at the time of the event. The grant
  * history could answer the second question and this deliberately does not try:
@@ -77,18 +95,47 @@ export type AuditActor = {
   roles: string[]
 }
 
+/** Another record an event names, resolved to something a person recognizes. */
+export type AuditReference = {
+  id: string
+  /** An address, a role's name, a reference number — or null when unknown. */
+  label: string | null
+  /** False when the record no longer exists, so the screen does not link to nothing. */
+  exists: boolean
+}
+
+/** One labelled value from an event's payload. */
+export type AuditDetail = {
+  key: string
+  label: string
+  kind: AuditDetailKind
+  /** As recorded, as text: money in paise, dates in ISO form. Null when absent. */
+  value: string | null
+  reference: AuditReference | null
+}
+
+/** One recorded event, read. */
 export type AuditEvent = {
   id: string
   action: string
+  actionLabel: string
+  category: AuditCategory
+  /** One sentence a person can read without the details beside it. */
+  summary: string
+  /** True for a row written with a declared payload; false for one written before. */
+  detailed: boolean
   entityType: string
   entityId: string | null
   outcome: 'SUCCESS' | 'FAILURE'
   actor: AuditActor | null
+  subject: AuditActor | null
+  application: AuditReference | null
+  details: AuditDetail[]
+  /** The stored payload, or a legacy row's metadata, as JSON text. */
+  payloadJson: string | null
   requestId: string | null
   ipAddress: string | null
   userAgent: string | null
-  /** Stored JSON text, passed through rather than parsed and reshaped. */
-  metadata: string | null
   createdAt: Date
 }
 
@@ -96,4 +143,27 @@ export type AuditEvent = {
 export type AuditConnection = {
   nodes: AuditEvent[]
   pageInfo: { endCursor: string | null; hasNextPage: boolean; totalCount: number }
+}
+
+/** One event and the others its request produced. */
+export type AuditEventDetail = {
+  event: AuditEvent
+  /** Same request id within ten minutes, oldest first, at most fifty. */
+  sameRequest: AuditEvent[]
+}
+
+/** An action name a filter can offer, as the screen labels it. */
+export type AuditActionName = {
+  action: string
+  label: string
+  category: AuditCategory
+}
+
+/** The file an export produced. */
+export type AuditExport = {
+  filename: string
+  csv: string
+  rowCount: number
+  /** True when the filter matched more rows than one export carries. */
+  truncated: boolean
 }

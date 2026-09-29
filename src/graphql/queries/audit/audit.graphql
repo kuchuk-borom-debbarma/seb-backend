@@ -2,8 +2,10 @@ extend type Query {
   """
   The portal's activity history.
 
-  **Use case:** `/admin/audit`. Readable only by a super administrator — this
-  carries more about people than any other read in the portal.
+  **Use case:** `/admin/audit`, the Activity section of an application, and a
+  person's activity from `/admin/access`. Readable by anybody whose role holds
+  `audit`/`read` — this carries more about people than any other read in the
+  portal, so that permission is worth composing deliberately.
   """
   audit: AuditQuery!
 }
@@ -29,25 +31,86 @@ enum AuditOutcome {
   FAILURE
 }
 
+"""The family an action belongs to, for filtering and grouping."""
+enum AuditCategory {
+  """Signing in and out, and devices."""
+  SIGN_IN
+  """Signing up, passwords, addresses and names."""
+  ACCOUNT
+  """Roles, grants and invitations."""
+  ACCESS
+  """An applicant's enterprise profile."""
+  ENTERPRISE
+  """An application from start to submission."""
+  APPLICATION
+  """Evidence attached to an application."""
+  DOCUMENT
+  """The programme office's review: notes, desk review, corrections."""
+  REVIEW
+  """Referral to a partner bank and its answer."""
+  BANK
+  """The programme's decision."""
+  DECISION
+  """Sanction, payments and their use."""
+  FUNDING
+  """Recovering money that was paid."""
+  RECOVERY
+  """Programme cycles and their policy."""
+  PROGRAMME
+  """The public announcement banner."""
+  ANNOUNCEMENT
+  """The activity history itself — its exports."""
+  AUDIT
+  """An action this version does not recognize, such as one since renamed."""
+  OTHER
+}
+
+"""How one recorded value should be read and shown."""
+enum AuditDetailKind {
+  """Text as recorded."""
+  TEXT
+  """An operator's reason, at most 500 characters. The full text stays on the record it explains."""
+  REASON
+  """An email address."""
+  EMAIL
+  """A code from a fixed set, such as a decision outcome."""
+  ENUM
+  """`"true"` or `"false"`."""
+  BOOLEAN
+  """A whole number."""
+  COUNT
+  """Money, as a decimal string of **paise** — never rupees."""
+  MONEY
+  """A calendar date, `YYYY-MM-DD`."""
+  DATE
+  """An instant, ISO 8601."""
+  DATETIME
+  """The identifier of a record that has no name of its own to show."""
+  ID
+  """A person, named by `reference`."""
+  USER
+  """A role, by its key, named by `reference`."""
+  ROLE
+  """An application, named by its reference number in `reference`."""
+  APPLICATION
+  """An enterprise, named by `reference`."""
+  ENTERPRISE
+  """A programme cycle, named by `reference`."""
+  CYCLE
+  """The filters an export used, as JSON text."""
+  FILTERS
+}
+
 """
-How the history is filtered, ordered and paged.
+Which part of the history to read. Shared by the page and by the export, so
+an export holds exactly the rows the screen was showing.
 
-Every filter is optional and they combine with AND.
-
-`actorUserIds` and `actorRole` are the two halves of "selected people, or
-everybody holding a role". Supplying both narrows to selected people who also
-hold that role, which is a coherent question rather than a contradiction.
+Every field is optional and they combine with AND. Three are about people and
+answer different questions: `actorUserIds` is what these people did,
+`subjectUserIds` is what was done to them, and `involvingUserId` is either —
+one person's whole history.
 """
-input AuditQueryInput {
-  """How many to return, 1–100. Defaults to 20."""
-  first: Int
-
-  """
-  The previous page's `endCursor`. Opaque, and it remembers which ordering it
-  came from — reusing one under a different `order` is refused.
-  """
-  after: String
-
+input AuditFilterInput {
   """
   Only events by these people. **At most 50.** A person-picker will never
   legitimately need more, and an unbounded `IN (…)` is a way to make one
@@ -61,27 +124,39 @@ input AuditQueryInput {
   """
   actorRole: String
 
-  """
-  Only events recorded against this application itself.
+  """Only events about these people — a grant they received, a decision on their application. **At most 50.**"""
+  subjectUserIds: [ID!]
 
-  Events recorded against one of its documents or submissions carry their own
-  entity id and are **not** included — a subtlety worth knowing before
-  concluding that nothing happened to a file.
+  """Only events this person did or that were about them."""
+  involvingUserId: ID
+
+  """Only actions in these families."""
+  categories: [AuditCategory!]
+
+  """
+  Only these actions, by code. **At most 50.** Use `actions` for the names that
+  actually occur.
+  """
+  actions: [String!]
+
+  """
+  Only events about these kinds of record. **At most 20.**
+
+  **Example:** `["SEB_PROGRAMME_DECISION"]`
+  """
+  entityTypes: [String!]
+
+  """Only events about this one record. Usually combined with `entityTypes`."""
+  entityId: String
+
+  """
+  Everything that happened to this application: the application itself and its
+  documents, review, bank referral, decision and money.
   """
   applicationId: ID
 
-  """
-  Only events about this kind of record.
-
-  **Example:** `"SEB_APPLICATION"`
-  """
-  entityType: String
-
-  """
-  Only these actions. **At most 50.** Use `actions` for the names that
-  actually occur.
-  """
-  action: [String!]
+  """The same, by the reference number printed on the application. Case does not matter."""
+  applicationReference: String
 
   """Only successes, or only refusals."""
   outcome: AuditOutcome
@@ -92,15 +167,42 @@ input AuditQueryInput {
   """Only events at or before this instant."""
   to: DateTime
 
+  """Only events from this request."""
+  requestId: String
+}
+
+"""How the history is ordered and paged, and which part of it."""
+input AuditQueryInput {
+  """How many to return, 1–100. Defaults to 20."""
+  first: Int
+
+  """
+  The previous page's `endCursor`. Opaque, and it remembers which ordering it
+  came from — reusing one under a different `order` is refused.
+  """
+  after: String
+
   """Which way round to read. Defaults to newest first."""
   order: AuditOrder
+
+  """Which part of the history. Omitted, the whole of it."""
+  filter: AuditFilterInput
+}
+
+"""Asks for people by exact address, or by the ids a filter already holds. Exactly one."""
+input AuditPeopleInput {
+  """A whole sign-in address. There is no partial match."""
+  email: String
+
+  """Ids to name. **At most 50.**"""
+  ids: [ID!]
 }
 
 """
-Who did something, resolved rather than left as a bare id.
+A person as the history shows them, resolved rather than left as a bare id.
 
-Every actor on a page is looked up together, so a page of fifty does not become
-fifty-one requests.
+Everybody on a page is resolved in the same read, so a page of fifty does not
+become fifty-one requests.
 """
 type AuditActor {
   """Stable identifier."""
@@ -116,6 +218,40 @@ type AuditActor {
   roles: [String!]!
 }
 
+"""Another record an event names, as something a person recognizes."""
+type AuditReference {
+  """The record's identifier — for a role, its key."""
+  id: ID!
+
+  """
+  What it is called: an address, a role's name, a reference number. Null for
+  a draft application, which has no reference yet, and for a record that no
+  longer exists.
+  """
+  label: String
+
+  """False when the record no longer exists, so a screen does not link to nothing."""
+  exists: Boolean!
+}
+
+"""One labelled value an event recorded."""
+type AuditDetail {
+  """The key it was recorded under. Stable and safe to branch on."""
+  key: String!
+
+  """What to call it on screen."""
+  label: String!
+
+  """How to read and show the value."""
+  kind: AuditDetailKind!
+
+  """The value as text — see `kind` for its form. Null when not recorded."""
+  value: String
+
+  """For the person, role, application, enterprise and cycle kinds: what the value names."""
+  reference: AuditReference
+}
+
 """One recorded action."""
 type AuditEvent {
   """Stable identifier."""
@@ -127,6 +263,28 @@ type AuditEvent {
   **Example:** `"SEB.DESK_REVIEW_STARTED"`
   """
   action: String!
+
+  """What was done, in words. **Example:** `"Started a desk review"`"""
+  actionLabel: String!
+
+  """The family the action belongs to."""
+  category: AuditCategory!
+
+  """
+  One sentence a person can read without the details beside it.
+
+  **Example:** `"Gave asha@example.in the role Casework reader directly"`.
+  An amount in it is already written in rupees for reading; the exact figure,
+  in paise, is in `details`.
+  """
+  summary: String!
+
+  """
+  True when the event recorded a declared set of details. False for events
+  recorded before actions declared theirs, whose `details` are shown exactly as
+  stored.
+  """
+  detailed: Boolean!
 
   """What kind of record it was done to."""
   entityType: String!
@@ -144,6 +302,21 @@ type AuditEvent {
   """
   actor: AuditActor
 
+  """Who it was about — the holder of a grant, the applicant of a file. Null when nobody in particular."""
+  subject: AuditActor
+
+  """The application it belongs to, when it belongs to one."""
+  application: AuditReference
+
+  """What it recorded, labelled, in the order the action declares them."""
+  details: [AuditDetail!]!
+
+  """
+  Everything it recorded, as stored JSON text — for a reader who wants the raw
+  record. `details` is the labelled form of the same thing.
+  """
+  payloadJson: String
+
   """The request this belonged to, for correlating several events."""
   requestId: String
 
@@ -152,13 +325,6 @@ type AuditEvent {
 
   """Which browser made it, where it was recorded."""
   userAgent: String
-
-  """
-  The stored JSON text, passed through exactly as written. Its shape depends
-  on the action and is not part of this contract — read it, do not depend on
-  it.
-  """
-  metadata: String
 
   """When it happened."""
   createdAt: DateTime!
@@ -180,13 +346,51 @@ type AuditEventConnectionResult implements BaseResponse {
 
   """
   What to show when `success` is false — a caller without the authority to
-  read the history, an invalid page size, or a cursor from a different
-  ordering.
+  read the history, an invalid filter or page size, or a cursor from a
+  different ordering.
   """
   message: String
 
   """The page. Null whenever `success` is false."""
   response: AuditEventConnection
+}
+
+"""One event, and the others the same request produced."""
+type AuditEventDetail {
+  """The entry that was asked for, with every detail it recorded."""
+  event: AuditEvent!
+
+  """
+  Other events with the same request id within ten minutes of it, oldest first,
+  at most fifty. Empty when the event recorded no request id. Bounded in time
+  because a request id is sometimes the caller's own header, which anybody can
+  repeat.
+  """
+  sameRequest: [AuditEvent!]!
+}
+
+"""One event, or the reason there is none."""
+type AuditEventDetailResult implements BaseResponse {
+  """Whether the event was returned."""
+  success: Boolean!
+
+  """What to show when `success` is false — no such entry, or no authority to read it."""
+  message: String
+
+  """The event. Null whenever `success` is false."""
+  response: AuditEventDetail
+}
+
+"""An action a filter can offer."""
+type AuditActionName {
+  """The code to filter by."""
+  action: String!
+
+  """What to call it."""
+  label: String!
+
+  """The family to group it under."""
+  category: AuditCategory!
 }
 
 """The action names that occur, or the reason they could not be read."""
@@ -197,22 +401,37 @@ type AuditActionsResult implements BaseResponse {
   """What to show when `success` is false."""
   message: String
 
-  """The names, alphabetically. Null whenever `success` is false."""
-  response: [String!]
+  """The names that occur, in code order. Null whenever `success` is false."""
+  response: [AuditActionName!]
+}
+
+"""People for a filter, or the reason they could not be read."""
+type AuditPeopleResult implements BaseResponse {
+  """Whether the people were returned."""
+  success: Boolean!
+
+  """What to show when `success` is false — an incomplete address, or no authority."""
+  message: String
+
+  """
+  The people found: none, or one for an address; those that exist for ids.
+  Null whenever `success` is false.
+  """
+  response: [AuditActor!]
 }
 
 """
 Reading the activity history.
 
-Every field here is readable only by a super administrator. The history carries
-more about people than any other read in the portal — who did what, from which
-address, with which browser — so the gate is deliberately narrow.
+Every field here needs `audit`/`read`. The history carries more about people
+than any other read in the portal — who did what, from which address, with
+which browser — so that permission is worth composing deliberately.
 """
 type AuditQuery {
   """
   The history, filtered and paged.
 
-  **Use case:** `/admin/audit`.
+  **Use case:** `/admin/audit`, and every screen that shows a slice of it.
   """
   events(
     """Filters, ordering and paging. Every field is optional."""
@@ -220,7 +439,30 @@ type AuditQuery {
   ): AuditEventConnectionResult!
 
   """
-  The action names that actually occur, so a filter offers no dead ends.
+  One event, with the others its request produced.
+
+  **Use case:** the entry view opened from a row of the history.
+  """
+  event(
+    """The event's id."""
+    id: ID!
+  ): AuditEventDetailResult!
+
+  """
+  People for the history's person filter.
+
+  **Use case:** turning an address typed into the filter into the id it
+  filters by, and naming the ids a bookmarked view already holds. Exact match
+  only, so this cannot be used to list accounts.
+  """
+  people(
+    """An exact address, or ids — exactly one of the two."""
+    input: AuditPeopleInput!
+  ): AuditPeopleResult!
+
+  """
+  The action names that actually occur, labelled and categorized, so a filter
+  offers no dead ends.
 
   **Use case:** populating the action picker. Fetch once alongside the first
   page.

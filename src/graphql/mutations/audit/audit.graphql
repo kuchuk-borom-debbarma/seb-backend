@@ -1,0 +1,77 @@
+extend type Mutation {
+  """
+  Taking a copy of the activity history.
+
+  **Use case:** the Export button on `/admin/audit`. Needs both `audit`/`read`
+  and `audit`/`export`.
+  """
+  audit: AuditMutation!
+}
+
+"""What to export, and why."""
+input AuditExportInput {
+  """
+  The same filter the history page takes, so the file holds exactly the rows
+  on screen. Omitted, the whole history — up to the row limit.
+  """
+  filter: AuditFilterInput
+
+  """
+  Why this copy is being taken. Required, and kept in the history with the
+  export: an export is the one read that leaves the portal. At most 500
+  characters are kept.
+  """
+  purpose: String!
+}
+
+"""An exported file."""
+type AuditExport {
+  """A name to save it under."""
+  filename: String!
+
+  """
+  The file, as CSV text with a header row. Cells a spreadsheet would read as a
+  formula are prefixed with an apostrophe, because several hold text somebody
+  else chose.
+  """
+  csv: String!
+
+  """How many events it holds."""
+  rowCount: Int!
+
+  """
+  True when the filter matched more than one export carries — **10,000
+  events** — and the file stops there. Narrow the filter to take the rest.
+  """
+  truncated: Boolean!
+}
+
+"""An exported file, or the reason there is none."""
+type AuditExportResult implements BaseResponse {
+  """Whether the file was produced."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false — no authority, a missing purpose, or
+  an invalid filter.
+  """
+  message: String
+
+  """The file. Null whenever `success` is false."""
+  response: AuditExport
+}
+
+"""Acting on the activity history. It is never edited — only copied."""
+type AuditMutation {
+  """
+  Exports the filtered history as a CSV file, and records that it did.
+
+  **The export is itself recorded** — who, when, which filter, how many rows
+  and why — before the file is returned; if that record cannot be written, no
+  file is. Limited to five per minute per session.
+  """
+  exportEvents(
+    """The filter and the reason."""
+    input: AuditExportInput!
+  ): AuditExportResult!
+}

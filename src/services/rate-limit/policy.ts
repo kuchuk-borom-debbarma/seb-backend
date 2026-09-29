@@ -235,6 +235,23 @@ const RATE_LIMIT_POLICY = {
   // The office's policy PDF upload carries no allowance, like every other
   // admin operation: shaping the programme is among its most trusted
   // authorities, and every binding here may back exactly one allowance.
+  /**
+   * Exporting the activity history.
+   *
+   * The one staff operation with an allowance, because it is the one whose
+   * cost is the caller's to choose: each export reads up to ten thousand rows
+   * and builds the file in the Worker's memory. Counted per session, so one
+   * reader's loop cannot spend the office's allowance. Five a minute is far
+   * above a person downloading what they are looking at.
+   */
+  'audit.exportEvents': [
+    {
+      binding: 'RL_AUDIT_EXPORT_SESSION',
+      dimension: 'SESSION',
+      limit: 5,
+      periodSeconds: 60,
+    },
+  ],
 } as const satisfies Record<string, readonly RateLimitBucket[]>
 
 /**

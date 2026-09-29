@@ -38,10 +38,22 @@ only its own type alias, so a call site still says which service is answering.
 copied is the evidence: which request headers become the trail's record of
 where a request came from. That is one choice, and made in four places a change
 to it lands in three. It lives in
-[`services/audit-event.ts`](../../src/services/audit-event.ts). Each service
-keeps a thin wrapper, because each narrows `action` and `entityType` to the
-vocabulary it may write — a controller naming another service's action should
-not compile, and that is the part which genuinely is per service.
+[`services/audit-event.ts`](../../src/services/audit-event.ts), together with
+**the one statement that writes the table**, `insertAuditEventWhere`: twenty-five
+hand-written copies of that insert once recorded no request labels and no
+details, and each looked locally plausible. `check:audit` now refuses an
+`insert(coreAuditEvent)` anywhere else. Each service keeps a thin wrapper,
+narrowed with `ActionWrittenBy` to the actions it may write — a controller
+naming another service's action does not compile.
+
+**What a row records is declared, per action,** in
+[`services/audit-vocabulary`](../../src/services/audit-vocabulary/): a strict
+payload schema, a label and kind per field, who the event is about, and whether
+it belongs to an application. The builder takes the action as a literal type,
+so a call site passing the wrong payload does not compile, and parses the
+payload at runtime, so a value the type could not see fails the write. Two
+actions a call site chooses between with a ternary share one schema object —
+otherwise the union of the two is what is checked, and neither one is.
 
 The worked example is the last-super-administrator guard in
 [`auth/queries/access.ts`](../../src/services/auth/queries/access.ts): two

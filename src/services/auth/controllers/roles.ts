@@ -17,6 +17,7 @@
  * concurrent attempts. The two are deliberately redundant.
  */
 import { z } from 'zod'
+import { auditReason } from '../../audit-vocabulary/fields'
 import { auditActions, builtinRoles, legacyRoles } from '../../../db/schema'
 import { failure, success } from '../../envelope'
 import { constraintSafe } from '../../constraints'
@@ -252,7 +253,7 @@ export const createRole = async (
       entityType: 'CORE_ROLE',
       entityId: id,
       actorUserId: actor.user.id,
-      metadata: { key },
+      payload: { roleKey: key, roleName: fields.name },
       createdAt: now,
     }),
   })
@@ -313,7 +314,7 @@ export const updateRole = async (
     permissions,
     actorUserId: actor.user.id,
     now,
-    // Metadata names the role and the size of what it now holds. The pairs
+    // The payload names the role and the size of what it now holds. The pairs
     // themselves live on the role; copying them here would put a second,
     // diverging record of authority into retained history.
     audit: auditEvent(context, {
@@ -321,7 +322,12 @@ export const updateRole = async (
       entityType: 'CORE_ROLE',
       entityId: role.id,
       actorUserId: actor.user.id,
-      metadata: { key: role.key, permissionCount: permissions.length },
+      payload: {
+        roleKey: role.key,
+        permissionCount: permissions.length,
+        // The version this write creates, which is what the guard above checks.
+        version: input.expectedVersion + 1,
+      },
       createdAt: now,
     }),
   }))
@@ -389,7 +395,7 @@ export const deleteRole = async (
       entityType: 'CORE_ROLE',
       entityId: role.id,
       actorUserId: actor.user.id,
-      metadata: { key: role.key },
+      payload: { roleKey: role.key, reason: auditReason(reason) },
       createdAt: now,
     }),
   }))

@@ -31,6 +31,18 @@
  * form is already load-bearing: it is typed, so a name the catalogue does not
  * declare is a TypeScript error, and several are passed positionally to a
  * shared helper rather than named as a property.
+ *
+ * Two further rules keep the typed history honest:
+ *
+ *   * **One insert.** `insert(coreAuditEvent)` may appear only in
+ *     `services/audit-event.ts`. Twenty-five hand-written copies of that
+ *     statement once wrote no request labels and no metadata, and nothing
+ *     noticed because each copy was locally plausible.
+ *   * **No secret-shaped payload key.** The vocabulary's schemas are what a
+ *     row may carry, so a key named for a password, a token, a message body or
+ *     an applicant's answers is refused by name — the type system cannot tell
+ *     a secret from a string, but a reviewer's intent shows in what it is
+ *     called.
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -63,8 +75,11 @@ if (declared.size === 0) {
  * one, so counting them would make every action look reachable.
  */
 const writers = sources.filter(
-  (path) => path !== 'db/schema/core/audit.ts',
+  (path) => path !== 'db/schema/core/audit.ts' && !path.startsWith('services/audit-vocabulary/'),
 )
+
+/** The one file allowed to build the insert. */
+const INSERT_HOME = 'services/audit-event.ts'
 
 /** Comments cannot write an audit row, so they must not look like they do. */
 const withoutComments = (text) =>
@@ -133,17 +148,38 @@ for (const action of [...declared].sort()) {
 
 /*
  * The reverse direction needs a narrower net: plenty of SCREAMING_CASE strings
- * with a dot are not audit actions. Only look at the ones written next to an
- * audit insert.
+ * with a dot are not audit actions. Only look at the ones in a region that
+ * builds an audit row.
  */
 for (const path of writers) {
   const text = withoutComments(readFileSync(new URL(path, root), 'utf8'))
-  if (!text.includes('coreAuditEvent')) continue
+  if (path !== INSERT_HOME && /insert\(coreAuditEvent\)/u.test(text)) {
+    problems.push(
+      `${path} inserts into core_audit_event itself — build the row with auditEventRow and write it with insertAuditEventWhere from ${INSERT_HOME}`,
+    )
+  }
   for (const region of auditWritingRegions(text)) {
-    for (const match of region.matchAll(/'((?:SEB|AUTH|RBAC|USER)\.[A-Z_]+)'/gu)) {
+    for (const match of region.matchAll(/'((?:SEB|AUTH|RBAC|USER|AUDIT)\.[A-Z_]+)'/gu)) {
       if (!declared.has(match[1])) {
         problems.push(`${path} writes ${match[1]}, which the catalogue does not declare`)
       }
+    }
+  }
+}
+
+/*
+ * Keys a payload must never have. Matched against every property name in the
+ * vocabulary, which over-reads (it sees `label` and `fields` too) in the safe
+ * direction: none of those is shaped like a secret.
+ */
+const BANNED_KEY =
+  /^(?:\w*(?:password|hash|otp|token|secret|cookie|objectkey|storagekey)\w*|body|answers?|note|notetext)$/iu
+const vocabulary = sources.filter((path) => path.startsWith('services/audit-vocabulary/'))
+for (const path of vocabulary) {
+  const text = withoutComments(readFileSync(new URL(path, root), 'utf8'))
+  for (const match of text.matchAll(/^\s*(\w+)\??:/gmu)) {
+    if (BANNED_KEY.test(match[1])) {
+      problems.push(`${path} declares a payload key named ${match[1]} — an audit row must not carry it`)
     }
   }
 }

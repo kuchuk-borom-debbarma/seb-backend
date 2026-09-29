@@ -12,7 +12,6 @@ import { batch, type Database } from '../../../db'
 import { encodeAdminCursor } from '../pagination'
 import type { PageInfo } from '../types'
 import {
-  coreAuditEvent,
   sebApplication,
   sebApplicationAssignmentEvent,
   sebApplicationSubmission,
@@ -25,17 +24,13 @@ import {
   sebRevisionRequest,
   sebProgrammeDecision,
 } from '../../../db/schema'
-import { changedExactlyOne, disclosedSelfReview, headJustMovedTo } from '../support'
+import { insertAuditEventWhere } from '../../audit-event'
+import { auditReason } from '../../audit-vocabulary/fields'
+import { adminAudit, changedExactlyOne, disclosedSelfReview, headJustMovedTo } from '../support'
 import type { AdminOperationContext, BankOutcome, DecisionOutcome } from '../types'
 
-const auditSelect = (
-  context: AdminOperationContext,
-  input: { actorId: string; action: string; type: string; id: string; now: Date; guard: ReturnType<typeof sql> },
-) => context.db.insert(coreAuditEvent).select(sql`
-  SELECT ${crypto.randomUUID()}, ${input.actorId}, ${input.action}, ${input.type},
-    ${input.id}, 'SUCCESS', NULL, NULL, NULL, NULL, NULL, ${input.now}
-  WHERE ${input.guard}
-`)
+/** Revision stages a bank outcome or decision sent back, for its audit row. */
+const revisionCount = (revisions: readonly unknown[]) => revisions.length
 
 export const createBankReferralWrite = async (
   context: AdminOperationContext,
@@ -95,14 +90,21 @@ export const createBankReferralWrite = async (
         ${input.applicantMessage}, NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebPartnerBankReferral} WHERE ${sebPartnerBankReferral.id} = ${id})
     `),
-    auditSelect(context, {
-      actorId: input.actorId,
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorId,
       action: 'SEB.BANK_REFERRED',
-      type: 'SEB_PARTNER_BANK_REFERRAL',
-      id,
+      entityType: 'SEB_PARTNER_BANK_REFERRAL',
+      entityId: id,
+      applicationId: input.applicationId,
       now: input.now,
-      guard: sql`EXISTS (SELECT 1 FROM ${sebPartnerBankReferral} WHERE ${sebPartnerBankReferral.id} = ${id})`,
-    }),
+      payload: {
+        bankName: input.bankName,
+        bankBranch: input.bankBranch ?? undefined,
+        referralReference: input.referralReference,
+        referralDate: input.referralDate,
+        submissionId: input.submissionId,
+      },
+    }), sql`EXISTS (SELECT 1 FROM ${sebPartnerBankReferral} WHERE ${sebPartnerBankReferral.id} = ${id})`),
   ])
   return changedExactlyOne(changed)
 }
@@ -198,14 +200,22 @@ export const recordBankOutcomeWrite = async (
         ${nextStatus}, NULL, ${input.applicantSummary}, NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebPartnerBankOutcome} WHERE ${sebPartnerBankOutcome.id} = ${outcomeId})
     `),
-    auditSelect(context, {
-      actorId: input.actorId,
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorId,
       action: 'SEB.BANK_OUTCOME_RECORDED',
-      type: 'SEB_PARTNER_BANK_OUTCOME',
-      id: outcomeId,
+      entityType: 'SEB_PARTNER_BANK_OUTCOME',
+      entityId: outcomeId,
+      applicationId: input.applicationId,
       now: input.now,
-      guard: sql`EXISTS (SELECT 1 FROM ${sebPartnerBankOutcome} WHERE ${sebPartnerBankOutcome.id} = ${outcomeId})`,
-    }),
+      payload: {
+        referralId: input.referralId,
+        outcome: input.outcome,
+        decisionReference: input.decisionReference,
+        decisionDate: input.decisionDate,
+        availableLoanAmountPaise: input.availableLoanAmountPaise ?? undefined,
+        revisionCount: revisionCount(input.revisions),
+      },
+    }), sql`EXISTS (SELECT 1 FROM ${sebPartnerBankOutcome} WHERE ${sebPartnerBankOutcome.id} = ${outcomeId})`),
   ])
   return changedExactlyOne(changed)
 }
@@ -261,15 +271,19 @@ export const cancelBankReferralWrite = async (
           AND ${sebPartnerBankReferral.status} = 'CANCELLED'
       )
     `),
-    auditSelect(context, {
-      actorId: input.actorId, action: 'SEB.BANK_REFERRAL_CANCELLED',
-      type: 'SEB_PARTNER_BANK_REFERRAL', id: input.referralId, now: input.now,
-      guard: sql`EXISTS (
-        SELECT 1 FROM ${sebPartnerBankReferral}
-        WHERE ${sebPartnerBankReferral.id} = ${input.referralId}
-          AND ${sebPartnerBankReferral.currentVersion} = ${next}
-      )`,
-    }),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorId,
+      action: 'SEB.BANK_REFERRAL_CANCELLED',
+      entityType: 'SEB_PARTNER_BANK_REFERRAL',
+      entityId: input.referralId,
+      applicationId: input.applicationId,
+      now: input.now,
+      payload: { reasonCategoryId: input.reasonCategoryId, reason: auditReason(input.reason) },
+    }), sql`EXISTS (
+      SELECT 1 FROM ${sebPartnerBankReferral}
+      WHERE ${sebPartnerBankReferral.id} = ${input.referralId}
+        AND ${sebPartnerBankReferral.currentVersion} = ${next}
+    )`),
   ])
   return changedExactlyOne(changed)
 }
@@ -360,11 +374,25 @@ export const correctBankOutcomeWrite = async (
         ${input.applicantSummary}, NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebPartnerBankOutcome} WHERE id = ${id})
     `),
-    auditSelect(context, {
-      actorId: input.actorId, action: 'SEB.BANK_OUTCOME_CORRECTED',
-      type: 'SEB_PARTNER_BANK_OUTCOME', id, now: input.now,
-      guard: sql`EXISTS (SELECT 1 FROM ${sebPartnerBankOutcome} WHERE id = ${id})`,
-    }),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorId,
+      action: 'SEB.BANK_OUTCOME_CORRECTED',
+      entityType: 'SEB_PARTNER_BANK_OUTCOME',
+      entityId: id,
+      applicationId: input.applicationId,
+      now: input.now,
+      payload: {
+        referralId: input.referralId,
+        outcome: input.outcome,
+        decisionReference: input.decisionReference,
+        decisionDate: input.decisionDate,
+        availableLoanAmountPaise: input.availableLoanAmountPaise ?? undefined,
+        revisionCount: revisionCount(input.revisions),
+        supersedesOutcomeId: input.supersedesOutcomeId,
+        correctionReasonCategoryId: input.correctionReasonCategoryId,
+        reason: auditReason(input.correctionReason),
+      },
+    }), sql`EXISTS (SELECT 1 FROM ${sebPartnerBankOutcome} WHERE id = ${id})`),
   ])
   return changedExactlyOne(changed)
 }
@@ -513,6 +541,28 @@ const nextDecisionNumber = (applicationId: string): SQL => sql`(
   WHERE existing.application_id = ${applicationId}
 )`
 
+/**
+ * What a decision's audit row records about it — the same facts whether it is
+ * recorded or corrected, so the two cannot describe one decision differently.
+ */
+const decisionAuditFacts = (input: {
+  outcome: DecisionOutcome
+  reference: string
+  date: string
+  approvedAmountPaise: number | null
+  requestedAmountPaise: number
+  reasonCategoryId: string | null
+  revisions: readonly unknown[]
+}) => ({
+  outcome: input.outcome,
+  reference: input.reference,
+  date: input.date,
+  approvedAmountPaise: input.approvedAmountPaise ?? undefined,
+  requestedAmountPaise: input.requestedAmountPaise,
+  reasonCategoryId: input.reasonCategoryId ?? undefined,
+  revisionCount: revisionCount(input.revisions),
+})
+
 export const recordDecisionWrite = async (
   context: AdminOperationContext,
   input: {
@@ -586,16 +636,27 @@ export const recordDecisionWrite = async (
         ${input.applicantMessage}, NULL, ${input.now}
       WHERE ${decided}
     `),
-    auditSelect(context, {
-      actorId: input.actorId, action: 'SEB.DECISION_RECORDED',
-      type: 'SEB_PROGRAMME_DECISION', id, now: input.now,
-      guard: decided,
-    }),
-    auditSelect(context, {
-      actorId: input.actorId, action: 'SEB.SELF_REVIEW_DISCLOSED',
-      type: 'SEB_PROGRAMME_DECISION', id, now: input.now,
-      guard: sql`${disclosed} AND ${decided}`,
-    }),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorId,
+      action: 'SEB.DECISION_RECORDED',
+      entityType: 'SEB_PROGRAMME_DECISION',
+      entityId: id,
+      applicationId: input.applicationId,
+      now: input.now,
+      payload: {
+        ...decisionAuditFacts(input),
+        submissionId: input.submissionId,
+      },
+    }), decided),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorId,
+      action: 'SEB.SELF_REVIEW_DISCLOSED',
+      entityType: 'SEB_PROGRAMME_DECISION',
+      entityId: id,
+      applicationId: input.applicationId,
+      now: input.now,
+      payload: { stage: 'DECISION' },
+    }), sql`${disclosed} AND ${decided}`),
   ])
   return changedExactlyOne(changed)
 }
@@ -725,21 +786,34 @@ export const correctDecisionWrite = async (
       FROM ${sebProgrammeDecision} AS corrected
       WHERE corrected.id = ${id}
     `),
-    auditSelect(context, {
-      actorId: input.actorId, action: 'SEB.DECISION_CORRECTED',
-      type: 'SEB_PROGRAMME_DECISION', id, now: input.now,
-      guard: corrected,
-    }),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorId,
+      action: 'SEB.DECISION_CORRECTED',
+      entityType: 'SEB_PROGRAMME_DECISION',
+      entityId: id,
+      applicationId: input.applicationId,
+      now: input.now,
+      payload: {
+        ...decisionAuditFacts(input),
+        supersedesDecisionId: input.supersedesDecisionId,
+        correctionReasonCategoryId: input.correctionReasonCategoryId,
+        reason: auditReason(input.correctionReason),
+      },
+    }), corrected),
     /*
      * A correction is its own act, so it carries its own disclosure. A
      * disclosure made when the original decision was recorded says nothing
      * about who is superseding it, possibly months later.
      */
-    auditSelect(context, {
-      actorId: input.actorId, action: 'SEB.SELF_REVIEW_DISCLOSED',
-      type: 'SEB_PROGRAMME_DECISION', id, now: input.now,
-      guard: sql`${disclosed} AND ${corrected}`,
-    }),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorId,
+      action: 'SEB.SELF_REVIEW_DISCLOSED',
+      entityType: 'SEB_PROGRAMME_DECISION',
+      entityId: id,
+      applicationId: input.applicationId,
+      now: input.now,
+      payload: { stage: 'DECISION_CORRECTION' },
+    }), sql`${disclosed} AND ${corrected}`),
   ])
   return changedExactlyOne(changed)
 }

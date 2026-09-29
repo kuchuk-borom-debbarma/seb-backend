@@ -4,11 +4,17 @@ import logoRightWhite from '@/assets/mission-sep-white.png'
 
 export function Logo({
   light = false,
+  prominent = false,
   className = '',
 }: {
   light?: boolean
+  prominent?: boolean
   className?: string
 }) {
+  const heightClass = prominent
+    ? 'h-9.5 sm:h-10.5 md:h-12 xl:h-12.5'
+    : 'h-7.5 sm:h-8.5 md:h-9.5 lg:h-10'
+
   return (
     <div className={`flex items-center transition-all duration-300 ${className}`}>
       {/* Left Circular Emblem (Always shown in full color) */}
@@ -18,7 +24,7 @@ export function Logo({
           alt="TTAADC Seal"
           width={60}
           height={60}
-          className="h-7.5 sm:h-8.5 md:h-9.5 lg:h-10 w-auto object-contain shrink-0"
+          className={`${heightClass} w-auto object-contain shrink-0`}
         />
       </div>
 
@@ -30,7 +36,7 @@ export function Logo({
           alt="TTAADC Mission SEP"
           width={190}
           height={60}
-          className={`h-7.5 sm:h-8.5 md:h-9.5 lg:h-10 w-auto object-contain transition-opacity duration-300 drop-shadow-sm ${
+          className={`${heightClass} w-auto object-contain transition-opacity duration-300 drop-shadow-sm ${
             light ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'
           }`}
         />
@@ -41,7 +47,7 @@ export function Logo({
           alt="TTAADC Mission SEP"
           width={190}
           height={60}
-          className={`h-7.5 sm:h-8.5 md:h-9.5 lg:h-10 w-auto object-contain transition-opacity duration-300 ${
+          className={`${heightClass} w-auto object-contain transition-opacity duration-300 ${
             !light ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'
           }`}
         />

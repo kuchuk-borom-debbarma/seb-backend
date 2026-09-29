@@ -157,6 +157,10 @@
     {
       "key": "invite",
       "description": "Offer somebody a role they accept themselves. Bounded by what the issuer already holds."
+    },
+    {
+      "key": "export",
+      "description": "Take a copy out of the portal as a file. Separate from reading, because a copy outlives every permission that allowed it."
     }
   ],
 
@@ -169,7 +173,7 @@
     "form_template": ["update"],
     "policy_document": ["read", "upload"],
     "announcement": ["read", "create", "update", "publish", "remove", "reorder"],
-    "audit": ["read"],
+    "audit": ["read", "export"],
     "user": ["read"],
     "role": ["read", "invite"],
     "analytics": ["read"]

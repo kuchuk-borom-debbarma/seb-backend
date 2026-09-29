@@ -8,6 +8,7 @@ import accessQueryTypeDefs from './queries/access/access.graphql'
 import authQueryTypeDefs from './queries/auth/auth.graphql'
 import adminQueryTypeDefs from './queries/admin/admin.graphql'
 import auditQueryTypeDefs from './queries/audit/audit.graphql'
+import auditMutationTypeDefs from './mutations/audit/audit.graphql'
 import sebMutationTypeDefs from './mutations/seb/seb.graphql'
 import sebQueryTypeDefs from './queries/seb/seb.graphql'
 import publicQueryTypeDefs from './queries/public/public.graphql'
@@ -278,6 +279,7 @@ const schema = createSchema<GraphQLContext>({
     adminQueryTypeDefs,
     adminMutationTypeDefs,
     auditQueryTypeDefs,
+    auditMutationTypeDefs,
     sebQueryTypeDefs,
     sebMutationTypeDefs,
     publicQueryTypeDefs,

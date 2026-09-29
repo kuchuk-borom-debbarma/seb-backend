@@ -51,7 +51,7 @@ const publicBanner = () => graphql<any>(`query {
 const auditRows = async (action: string) =>
   env.DB.prepare(
     `SELECT actor_user_id AS actor, entity_type AS "entityType", entity_id AS "entityId",
-       metadata_json AS metadata
+       payload::text AS payload
      FROM core_audit_event WHERE action = ? ORDER BY created_at`,
   ).bind(action).all() as Promise<{ results: Array<Record<string, string | null>> }>
 
@@ -541,23 +541,45 @@ describe('what the history retains', () => {
     expect(createdRows.results[0]).toMatchObject({
       actor: announcer.userId, entityType: 'SEB_ANNOUNCEMENT', entityId: id,
     })
+    expect(JSON.parse(createdRows.results[0]!.payload!)).toEqual({
+      title: 'Audited', published: true,
+    })
 
     const updatedRows = await auditRows('SEB.ANNOUNCEMENT_UPDATED')
     expect(updatedRows.results.length).toBe(2)
-    expect(JSON.parse(updatedRows.results[1]!.metadata!)).toEqual({
-      published: false, reason: 'Pausing it.',
+    expect(JSON.parse(updatedRows.results[0]!.payload!)).toEqual({ change: 'EDITED', version: 2 })
+    expect(JSON.parse(updatedRows.results[1]!.payload!)).toEqual({
+      change: 'UNPUBLISHED', version: 3, reason: 'Pausing it.',
     })
 
     const reorderedRows = await auditRows('SEB.ANNOUNCEMENT_REORDERED')
     expect(reorderedRows.results).toEqual([expect.objectContaining({
       entityType: 'SEB_ANNOUNCEMENT_BOARD', entityId: 'BOARD',
     })])
-    expect(JSON.parse(reorderedRows.results[0]!.metadata!)).toEqual({ count: 2 })
+    expect(JSON.parse(reorderedRows.results[0]!.payload!)).toEqual({ count: 2 })
 
     const removedRows = await auditRows('SEB.ANNOUNCEMENT_REMOVED')
     expect(removedRows.results.length).toBe(1)
-    expect(JSON.parse(removedRows.results[0]!.metadata!)).toEqual({
+    expect(JSON.parse(removedRows.results[0]!.payload!)).toEqual({
       reason: 'Withdrawn for the record.',
     })
+  })
+
+  it('keeps a long reason bounded, and the card keeps it whole', async () => {
+    const announcer = await signIn({ permissions: permissionsOn('announcement') })
+    const id = (await create(announcer.cookie, { title: 'Long reason' }))
+      .data.admin.announcement.create.response.id
+    const reason = `${'Withdrawn because the date moved. '.repeat(29)}End.`
+    expect(reason.length).toBeGreaterThan(500)
+    await graphql<any>(`mutation($id: ID!, $expectedVersion: Int!, $reason: String!) {
+      admin { announcement { remove(id: $id, expectedVersion: $expectedVersion, reason: $reason) { success } } }
+    }`, { id, expectedVersion: 1, reason }, announcer.cookie)
+
+    const [row] = (await auditRows('SEB.ANNOUNCEMENT_REMOVED')).results
+    const recorded = JSON.parse(row!.payload!).reason as string
+    // Cut at the audit limit with a visible ellipsis, never silently.
+    expect(recorded).toHaveLength(500)
+    expect(recorded.endsWith('…')).toBe(true)
+    expect(reason.startsWith(recorded.slice(0, -1))).toBe(true)
   })
 })

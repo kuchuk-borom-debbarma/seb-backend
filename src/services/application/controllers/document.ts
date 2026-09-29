@@ -224,7 +224,8 @@ export const issueDocumentUpload = async (
       action: auditActions.documentUploadIssued,
       entityType: 'SEB_DOCUMENT_UPLOAD_INTENT',
       entityId: uploadId,
-      metadata: { fieldKey: input.fieldKey },
+      applicationId: application.id,
+      payload: { fieldKey: input.fieldKey, contentType: input.contentType, sizeBytes: input.sizeBytes },
       now,
     }),
   )
@@ -309,7 +310,13 @@ export const finalizeDocumentUpload = async (
         action: auditActions.documentFinalized,
         entityType: 'SEB_APPLICATION_DOCUMENT',
         entityId: documentId,
-        metadata: { fieldKey: intent.fieldKey, version: nextVersion },
+        applicationId: intent.applicationId,
+        payload: {
+          fieldKey: intent.fieldKey,
+          version: nextVersion,
+          contentType: intent.contentType,
+          sizeBytes: intent.sizeBytes,
+        },
         now,
       }),
     }))
@@ -414,6 +421,8 @@ const changeDocumentDeletion = async (
       action: deleted ? auditActions.documentDeleted : auditActions.documentRestored,
       entityType: 'SEB_APPLICATION_DOCUMENT',
       entityId: input.documentId,
+      applicationId: application.id,
+      payload: { fieldKey: document.fieldKey },
       now,
     }),
   })

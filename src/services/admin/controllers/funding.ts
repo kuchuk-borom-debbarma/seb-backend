@@ -1,11 +1,11 @@
 /** Authorization and strict input validation for post-decision funding work. */
 import { desc, eq } from 'drizzle-orm'
-import { auditActions, sebFundingAward, sebProgrammeDecision } from '../../../db/schema'
+import { sebFundingAward, sebProgrammeDecision } from '../../../db/schema'
 import { parseDateOnly } from '../../application/validation'
 import { findUserEmailById } from '../../application/queries/application'
 import { formatPaise } from '../../application/confirmation'
 import { confirmationPdfUrl } from '../../application/confirmation-link'
-import { createAuditEvent } from '../../auth/queries/auth'
+import { insertAuditEvent } from '../../audit-event'
 import { sendNotification } from '../../external-notification'
 import {
   cancelRecoveryWrite,
@@ -102,16 +102,16 @@ const sendSanctionNotification = async (
     }, context.env)
   } catch {
     // Guarded itself, so the created award can never be disturbed.
-    await bestEffort(createAuditEvent(context.db, {
-      ...adminAudit(context, {
-        actorUserId: input.actorId,
-        action: auditActions.sanctionNotificationFailed,
-        entityType: 'SEB_APPLICATION',
-        entityId: input.applicationId,
-        now: new Date(),
-      }),
+    await bestEffort(insertAuditEvent(context.db, adminAudit(context, {
+      actorUserId: input.actorId,
+      action: 'SEB.SANCTION_NOTIFICATION_FAILED',
+      entityType: 'SEB_APPLICATION',
+      entityId: input.applicationId,
+      applicationId: input.applicationId,
       outcome: 'FAILURE',
-    }), 'A sanction notification failed')
+      payload: {},
+      now: new Date(),
+    })), 'A sanction notification failed')
   }
 }
 
@@ -265,16 +265,16 @@ const sendReleaseNotification = async (
     }, context.env)
   } catch {
     // Guarded itself, so the recorded release can never be disturbed.
-    await bestEffort(createAuditEvent(context.db, {
-      ...adminAudit(context, {
-        actorUserId: input.actorId,
-        action: auditActions.releaseNotificationFailed,
-        entityType: 'SEB_APPLICATION',
-        entityId: input.applicationId,
-        now: new Date(),
-      }),
+    await bestEffort(insertAuditEvent(context.db, adminAudit(context, {
+      actorUserId: input.actorId,
+      action: 'SEB.RELEASE_NOTIFICATION_FAILED',
+      entityType: 'SEB_APPLICATION',
+      entityId: input.applicationId,
+      applicationId: input.applicationId,
       outcome: 'FAILURE',
-    }), 'A release notification failed')
+      payload: {},
+      now: new Date(),
+    })), 'A release notification failed')
   }
 }
 

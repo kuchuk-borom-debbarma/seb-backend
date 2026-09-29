@@ -12,6 +12,8 @@ import {
   type Permission,
   type Resource,
 } from '../permissions'
+import { insertAuditEvent, type AuditEventRecord } from '../../audit-event'
+import { auditEmail } from '../../audit-vocabulary/fields'
 import { clearSessionCookie, readSessionToken, setSessionCookie } from '../cookies'
 import {
   createChallengeToken,
@@ -28,7 +30,6 @@ import {
   cancelSignupChallengesForEmail,
   cleanupExpiredAuthenticationState,
   consumeWrongOtpAttempt,
-  createAuditEvent,
   createSignupChallenge,
   createUserFromSignupChallenge,
   createUserSession,
@@ -46,7 +47,6 @@ import {
   grantFirstSuperAdmin,
   listUserSessions,
   markSignupChallengeDeliveryFailed,
-  type AuditEventRecord,
   type PublicUserRecord,
   type PublicSessionRecord,
   type SessionRecord,
@@ -208,7 +208,7 @@ export const getCurrentSession = async (
         // The holder is deactivated, so they are the subject of this deletion
         // rather than its authority.
         actorUserId: null,
-        metadata: { scope: 'ALL', reason: 'NO_ACTIVE_ROLE' },
+        payload: { scope: 'ALL', cause: 'NO_ACTIVE_ROLE' },
       }),
     )
     clearSessionCookie(context)
@@ -315,6 +315,7 @@ export const startApplicantSignup = async (
       action: auditActions.signupChallengeCreated,
       entityType: 'CORE_SIGNUP_CHALLENGE',
       entityId: id,
+      payload: { email: auditEmail(email), expiresAt: expiresAt.toISOString() },
       createdAt: now,
     }),
   )
@@ -339,6 +340,7 @@ export const startApplicantSignup = async (
         entityType: 'CORE_SIGNUP_CHALLENGE',
         entityId: id,
         outcome: 'FAILURE',
+        payload: {},
         createdAt: failedAt,
       }),
     )
@@ -421,6 +423,8 @@ export const verifyApplicantSignup = async (
         entityType: 'CORE_SIGNUP_CHALLENGE',
         entityId: challenge.id,
         outcome: 'FAILURE',
+        // This attempt is the one being spent.
+        payload: { attemptsRemaining: Math.max(challenge.attemptsRemaining - 1, 0) },
         createdAt: now,
       }),
     )
@@ -468,13 +472,19 @@ export const verifyApplicantSignup = async (
       action: auditActions.userCreated,
       entityType: 'CORE_USER',
       entityId: newUser.id,
+      payload: {
+        via: 'VERIFIED_SIGNUP',
+        email: auditEmail(challenge.email),
+        signupChallengeId: challenge.id,
+      },
       createdAt,
     }),
     roleAuditEvent: auditEvent(context, {
       action: auditActions.roleGranted,
       entityType: 'CORE_USER_ROLE_GRANT',
       entityId: applicantRoleGrant.id,
-      metadata: { userId: newUser.id, role: APPLICANT_ROLE },
+      // No actor: nobody granted this but the verified signup itself.
+      payload: { subjectUserId: newUser.id, role: APPLICANT_ROLE, via: 'SIGNUP' },
       createdAt,
     }),
   })
@@ -498,7 +508,7 @@ const recordFirstSuperAdminFailure = (
   context: AuthOperationContext,
   userId: string,
   authenticated: boolean,
-): Promise<void> => createAuditEvent(
+): Promise<void> => insertAuditEvent(
   context.db,
   auditEvent(context, {
     action: auditActions.firstSuperAdminBootstrap,
@@ -506,6 +516,9 @@ const recordFirstSuperAdminFailure = (
     entityId: userId,
     actorUserId: authenticated ? userId : null,
     outcome: 'FAILURE',
+    // Which of the two refusals, never what was typed: a wrong password, or a
+    // right one whose guarded grant the database would not make.
+    payload: { failure: authenticated ? 'NOT_PERMITTED' : 'WRONG_PASSWORD' },
     // This endpoint carries two credentials. Its audit rows intentionally omit
     // caller-controlled request labels so a malicious User-Agent/request ID
     // cannot copy either credential into retained history.
@@ -544,7 +557,12 @@ const attemptFirstSuperAdminGrant = (
       entityType: 'CORE_USER_ROLE_GRANT',
       entityId: roleGrant.id,
       actorUserId: candidate.id,
-      metadata: { userId: candidate.id, role: FIRST_SUPER_ADMIN_ROLE },
+      payload: {
+        subjectUserId: candidate.id,
+        role: FIRST_SUPER_ADMIN_ROLE,
+        via: 'BOOTSTRAP',
+        reason: FIRST_SUPER_ADMIN_BOOTSTRAP_REASON,
+      },
       createdAt: now,
       includeRequestMetadata: false,
     }),
@@ -557,9 +575,10 @@ const attemptFirstSuperAdminGrant = (
       entityType: 'CORE_USER',
       entityId: candidate.id,
       actorUserId: candidate.id,
-      metadata: {
-        userId: candidate.id,
+      payload: {
+        subjectUserId: candidate.id,
         role: APPLICANT_ROLE,
+        via: 'BOOTSTRAP',
         reason: FIRST_SUPER_ADMIN_BOOTSTRAP_REASON,
       },
       createdAt: now,
@@ -570,12 +589,9 @@ const attemptFirstSuperAdminGrant = (
       entityType: 'CORE_USER',
       entityId: candidate.id,
       actorUserId: candidate.id,
-      metadata: {
-        grantId: roleGrant.id,
-        role: FIRST_SUPER_ADMIN_ROLE,
-        revokedRole: APPLICANT_ROLE,
-        reason: FIRST_SUPER_ADMIN_BOOTSTRAP_REASON,
-      },
+      // The grant and the revocation each record themselves beside this row;
+      // this one says which grant the bootstrap made.
+      payload: { grantId: roleGrant.id },
       createdAt: now,
       includeRequestMetadata: false,
     }),
@@ -655,12 +671,13 @@ export const signIn = async (
   if (!emailSchema.safeParse(email).success || !passwordSchema.safeParse(input.password).success) {
     // Validation failures are still authentication failures worth auditing. No
     // user is authenticated at this point, and credentials never enter the log.
-    await createAuditEvent(
+    await insertAuditEvent(
       context.db,
       auditEvent(context, {
         action: auditActions.signInFailed,
         entityType: 'CORE_USER',
         outcome: 'FAILURE',
+        payload: { reason: 'INVALID_INPUT', email: auditEmail(email) },
       }),
     )
     return failure('Invalid email or password.')
@@ -674,7 +691,7 @@ export const signIn = async (
     input.password,
   )
   if (!user || !passwordMatches || user.emailVerifiedAt === null) {
-    await createAuditEvent(
+    await insertAuditEvent(
       context.db,
       auditEvent(context, {
         action: auditActions.signInFailed,
@@ -683,6 +700,12 @@ export const signIn = async (
         // Supplying a user's email does not authenticate the caller as that
         // user. The target may be recorded as the entity, but actor stays null.
         outcome: 'FAILURE',
+        // Computed after the password work, from values already in hand, so
+        // naming the cause here changes nothing about how long a refusal takes.
+        payload: {
+          reason: !user ? 'NO_ACTIVE_ACCOUNT' : !passwordMatches ? 'WRONG_PASSWORD' : 'EMAIL_UNVERIFIED',
+          email: auditEmail(email),
+        },
       }),
     )
     return failure('Invalid email or password.')
@@ -708,6 +731,7 @@ export const signIn = async (
       entityType: 'CORE_SESSION',
       entityId: session.id,
       actorUserId: user.id,
+      payload: { sessionExpiresAt: session.expiresAt.toISOString() },
       createdAt: now,
     }),
   )
@@ -715,13 +739,14 @@ export const signIn = async (
     // A role revocation or user deletion that wins during password hashing must
     // also win sign-in. Do not set a cookie or report a successful session from
     // the stale credential read.
-    await createAuditEvent(
+    await insertAuditEvent(
       context.db,
       auditEvent(context, {
         action: auditActions.signInFailed,
         entityType: 'CORE_USER',
         entityId: user.id,
         outcome: 'FAILURE',
+        payload: { reason: 'ACCESS_CHANGED', email: auditEmail(email) },
       }),
     )
     return failure('Invalid email or password.')
@@ -782,6 +807,7 @@ export const signOut = async (
           entityType: 'CORE_SESSION',
           entityId: current.session.id,
           actorUserId: current.user.id,
+          payload: {},
         }),
       )
     }
@@ -808,6 +834,7 @@ export const revokeSession = async (
       entityType: 'CORE_SESSION',
       entityId: sessionId,
       actorUserId: current.user.id,
+      payload: { currentDevice: sessionId === current.session.id },
     }),
   )
   if (!deleted) return failure('The session was not found.')
@@ -830,7 +857,7 @@ export const revokeOtherSessions = async (
       entityType: 'CORE_USER',
       entityId: current.user.id,
       actorUserId: current.user.id,
-      metadata: { scope: 'OTHER' },
+      payload: { scope: 'OTHER', cause: 'SELF_SERVICE' },
     }),
   )
   return success({ value: true })
@@ -850,7 +877,7 @@ export const revokeAllSessions = async (
       entityType: 'CORE_USER',
       entityId: current.user.id,
       actorUserId: current.user.id,
-      metadata: { scope: 'ALL' },
+      payload: { scope: 'ALL', cause: 'SELF_SERVICE' },
     }),
   )
   clearSessionCookie(context)

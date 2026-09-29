@@ -12,11 +12,10 @@
  * or not the message leaves, and a failure is audited so the office can see
  * an applicant who was never told.
  */
-import { auditActions } from '../../db/schema'
 import { findUserEmailById } from '../application/queries/application'
 import { findPinnedCycleRules } from '../application/queries/form-template'
 import { confirmationPdfUrl } from '../application/confirmation-link'
-import { createAuditEvent } from '../auth/queries/auth'
+import { insertAuditEvent } from '../audit-event'
 import { sendNotification } from '../external-notification'
 import { latestSubmission, loadApplicationHead } from './queries/intake'
 import { adminAudit } from './support'
@@ -82,15 +81,15 @@ export const sendRevisionRequestNotification = async (
     }, context.env)
   } catch {
     // Guarded itself, so the recorded outcome can never be disturbed.
-    await bestEffort(createAuditEvent(context.db, {
-      ...adminAudit(context, {
-        actorUserId: input.actorId,
-        action: auditActions.revisionNotificationFailed,
-        entityType: 'SEB_APPLICATION',
-        entityId: input.applicationId,
-        now: new Date(),
-      }),
+    await bestEffort(insertAuditEvent(context.db, adminAudit(context, {
+      actorUserId: input.actorId,
+      action: 'SEB.REVISION_NOTIFICATION_FAILED',
+      entityType: 'SEB_APPLICATION',
+      entityId: input.applicationId,
+      applicationId: input.applicationId,
       outcome: 'FAILURE',
-    }), 'A revision notification failed')
+      now: new Date(),
+      payload: { stageCount: input.revisions.length },
+    })), 'A revision notification failed')
   }
 }

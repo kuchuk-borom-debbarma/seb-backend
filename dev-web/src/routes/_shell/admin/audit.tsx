@@ -4,106 +4,46 @@
  * Every other office screen answers "what is the state of this application".
  * This one answers "who changed it, and when" — which is the question asked
  * after something has gone wrong, and the one the portal could not answer at
- * all until now.
+ * all until the history was readable.
  *
  * It is the most personal read in the product: who did what, from which
- * address. Only a super administrator may open it, and the route says so
- * before it renders anything rather than letting the API refuse and showing an
- * empty table.
+ * address. Only a role that may read the history may open it, and the route
+ * says so before it renders anything rather than letting the API refuse and
+ * showing an empty table. Every filter lives in the URL, and so does the entry
+ * open in the dialog, so a view — or one entry — can be sent to a colleague.
  */
-import { queryOptions, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { Pager } from '#/components/ListControls'
+import { Download } from 'lucide-react'
+import { useState } from 'react'
+import { ListEmpty, Pager } from '#/components/ListControls'
 import { PageHeader } from '#/components/PageHeader'
 import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
+import { AuditEntryDialog } from '#/features/audit/AuditEntryDialog'
+import { AuditFilters } from '#/features/audit/AuditFilters'
+import { AuditTable } from '#/features/audit/AuditTable'
+import {
+  AUDIT_PAGE_SIZE,
+  filterFor,
+  isFiltered,
+  pageQueryFor,
+  validateAuditSearch,
+  type AuditSearch,
+} from '#/features/audit/auditQueries'
+import { ExportDialog } from '#/features/audit/ExportDialog'
 import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
-import { AuditActionsDocument, AuditEventsDocument } from '#/graphql/generated/operations'
-import { formatDateTime, humanize } from '#/lib/format'
-import { gql } from '#/lib/graphql'
+import { messageFor } from '#/lib/result'
 import { can } from '#/lib/session'
-import { rolesQuery } from '#/features/roles/roleQueries'
-import { unwrap } from '#/lib/result'
-
-const PAGE_SIZE = 20
-
-/**
- * The one authority filtered by name rather than by row.
- *
- * Everything else the office holds is a role somebody composed, read live from
- * the API. A list written here would go stale the moment one was added, and a
- * filter that silently offered the wrong names is worse than none.
- */
-const SUPER_ADMINISTRATOR = 'SUPER_ADMIN'
-
-type Search = {
-  after?: string
-  actorRole?: string
-  action?: string
-  outcome?: 'SUCCESS' | 'FAILURE'
-  /*
-   * Named `oldest` rather than `order` on purpose. Every route's search
-   * parameters share one namespace in the router's types, and `order` already
-   * means something narrower on the intake queue — reusing the key made that
-   * screen's own links stop type-checking.
-   */
-  oldest?: true
-}
-
-const eventsQuery = (search: Search) =>
-  queryOptions({
-    queryKey: ['audit-events', search],
-    queryFn: async () => {
-      const data = await gql(AuditEventsDocument, {
-        input: {
-          first: PAGE_SIZE,
-          after: search.after ?? null,
-          actorRole: search.actorRole ?? null,
-          // One action at a time from the picker; the API takes a list because
-          // a future screen may offer several at once.
-          action: search.action ? [search.action] : null,
-          outcome: search.outcome ?? null,
-          order: search.oldest ? 'OLDEST_FIRST' : 'NEWEST_FIRST',
-        },
-      })
-      return unwrap(data.audit.events)
-    },
-    placeholderData: (previous) => previous,
-  })
-
-/**
- * The action names that actually occur.
- *
- * Read from the recorded history rather than from a constant, so the picker
- * never offers a filter that matches nothing. Cached for the session: the set
- * changes only when a new kind of event is recorded for the first time.
- */
-const actionsQuery = queryOptions({
-  queryKey: ['audit-actions'],
-  queryFn: async () => unwrap((await gql(AuditActionsDocument)).audit.actions),
-  staleTime: 5 * 60_000,
-})
 
 export const Route = createFileRoute('/_shell/admin/audit')({
-  validateSearch: (search: Record<string, unknown>): Search => ({
-    after: typeof search.after === 'string' ? search.after : undefined,
-    /*
-     * Any non-empty string, and unknown ones are dropped rather than refused.
-     * This was an enum membership test, so a bookmarked link naming a role that
-     * has since been retired would have thrown on a screen that could perfectly
-     * well render without the filter.
-     */
-    actorRole:
-      typeof search.actorRole === 'string' && search.actorRole
-        ? search.actorRole
-        : undefined,
-    action:
-      typeof search.action === 'string' && search.action ? search.action : undefined,
-    outcome:
-      search.outcome === 'SUCCESS' || search.outcome === 'FAILURE'
-        ? search.outcome
-        : undefined,
-    oldest: search.oldest === true ? true : undefined,
-  }),
+  validateSearch: validateAuditSearch,
+  // The open entry is not part of the page: opening one must not refetch it.
+  loaderDeps: ({ search: { event: _open, ...page } }) => page,
+  loader: async ({ context, deps }) => {
+    // Nothing is read for somebody who may not read it; the component says so.
+    if (!can(context.user, 'audit', 'read')) return
+    await context.queryClient.ensureQueryData(pageQueryFor(deps))
+  },
   component: AuditPage,
 })
 
@@ -125,179 +65,85 @@ function AuditPage() {
       />
     )
   }
-  return <AuditHistory />
+  return <AuditHistory mayExport={can(user, 'audit', 'export')} />
 }
 
-function AuditHistory() {
+/** Every filter off; paging and the open entry go with them. */
+const CLEARED: Partial<AuditSearch> = {
+  actorRole: undefined,
+  actor: undefined,
+  subject: undefined,
+  involving: undefined,
+  kinds: undefined,
+  actions: undefined,
+  types: undefined,
+  entity: undefined,
+  application: undefined,
+  reference: undefined,
+  outcome: undefined,
+  since: undefined,
+  until: undefined,
+  request: undefined,
+}
+
+function AuditHistory({ mayExport }: { mayExport: boolean }) {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  const { data } = useQuery(eventsQuery(search))
-  const { data: actions } = useQuery(actionsQuery)
-  const composedRoles = useQuery(rolesQuery)
+  const { data, error, isPending, isPlaceholderData } = useQuery(pageQueryFor(search))
+  const [exporting, setExporting] = useState(false)
 
   const events = data?.nodes ?? []
+  const filtered = isFiltered(search)
 
   /*
    * Any filter change drops the cursor. A cursor is a position in one ordered
    * set; carried into a different set it seeks to a row that is no longer
    * there, and the API refuses it rather than guessing.
    */
-  const filter = (change: Partial<Search>) =>
+  const filter = (change: Partial<AuditSearch>) =>
     navigate({ search: (previous) => ({ ...previous, ...change, after: undefined }) })
+  // The open entry is a history entry of its own, so back closes it.
+  const openEntry = (event: string | undefined) =>
+    navigate({ search: (previous) => ({ ...previous, event }) })
 
   return (
     <main className="page">
-      <PageHeader title="Activity history" description={OFFICE_LEDES.audit} />
+      <PageHeader
+        title="Activity history"
+        description={OFFICE_LEDES.audit}
+        actions={
+          mayExport ? (
+            <button type="button" className="button" onClick={() => setExporting(true)}>
+              <Download size={16} aria-hidden="true" /> Export
+            </button>
+          ) : undefined
+        }
+      />
 
-      <div className="filters">
-        <div>
-          <label className="field-label" htmlFor="audit-role">
-            Done by
-          </label>
-          <select
-            id="audit-role"
-            className="select"
-            value={search.actorRole ?? ''}
-            onChange={(event) =>
-              filter({
-                actorRole: event.target.value || undefined,
-              })
-            }
-          >
-            <option value="">Anybody</option>
-            <option value={SUPER_ADMINISTRATOR}>Anybody who is a super administrator</option>
-            {(composedRoles.data?.response ?? []).map((role) => (
-              <option key={role.key} value={role.key}>
-                Anybody holding {role.name}
-              </option>
-            ))}
-          </select>
-          {/*
-            Reading the history and reading the roles are separate permissions,
-            so this list can legitimately be refused to somebody who may read
-            everything here. Said out loud, because the alternative is a filter
-            that quietly offers two options and looks complete.
-          */}
-          {composedRoles.data && !composedRoles.data.success ? (
-            <span className="field-hint">
-              The roles the office composed are not listed here — that needs
-              permission to read them. Filtering by one of those is the part
-              missing, not the history itself.
-            </span>
-          ) : null}
-        </div>
+      <AuditFilters
+        search={search}
+        filter={filter}
+        onClear={filtered ? () => filter(CLEARED) : undefined}
+      />
 
-        <div>
-          <label className="field-label" htmlFor="audit-action">
-            Action
-          </label>
-          <select
-            id="audit-action"
-            className="select"
-            value={search.action ?? ''}
-            onChange={(event) => filter({ action: event.target.value || undefined })}
-          >
-            <option value="">Any action</option>
-            {(actions ?? []).map((action) => (
-              <option key={action} value={action}>
-                {action}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="field-label" htmlFor="audit-outcome">
-            Outcome
-          </label>
-          <select
-            id="audit-outcome"
-            className="select"
-            value={search.outcome ?? ''}
-            onChange={(event) =>
-              filter({
-                outcome: (event.target.value || undefined) as Search['outcome'],
-              })
-            }
-          >
-            <option value="">Any outcome</option>
-            <option value="SUCCESS">Succeeded</option>
-            <option value="FAILURE">Failed</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="field-label" htmlFor="audit-order">
-            Order
-          </label>
-          <select
-            id="audit-order"
-            className="select"
-            value={search.oldest ? 'oldest' : 'newest'}
-            onChange={(event) =>
-              filter({ oldest: event.target.value === 'oldest' ? true : undefined })
-            }
-          >
-            <option value="newest">Newest first</option>
-            <option value="oldest">Oldest first</option>
-          </select>
-        </div>
-      </div>
-
-      {events.length === 0 ? (
-        <p className="empty">
-          Nothing matches these filters. Widen them, or clear the action.
+      {error ? (
+        <p className="notice" data-tone="error" role="alert">
+          {messageFor(error)}
         </p>
+      ) : isPending ? (
+        <p className="muted">Reading the history…</p>
+      ) : events.length === 0 ? (
+        <ListEmpty
+          title={filtered ? 'Nothing matches' : 'Nothing recorded yet'}
+          text={
+            filtered
+              ? 'No entry matches these filters. Clearing one may bring some back.'
+              : 'Nothing has been recorded in the activity history yet.'
+          }
+          onClear={filtered ? () => filter(CLEARED) : undefined}
+        />
       ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <caption className="visually-hidden">Recorded activity</caption>
-            <thead>
-              <tr>
-                <th scope="col">When</th>
-                <th scope="col">Who</th>
-                <th scope="col">Did what</th>
-                <th scope="col">To</th>
-                <th scope="col">Outcome</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events.map((event) => (
-                <tr key={event.id}>
-                  <td className="tabular">{formatDateTime(event.createdAt)}</td>
-                  <td>
-                    {/*
-                      Some events have no actor at all — verified signup and the
-                      first-administrator bootstrap are performed by the system
-                      rather than by a person, and saying so is more honest than
-                      leaving the cell empty.
-                    */}
-                    {event.actor ? (
-                      <>
-                        <span>{event.actor.email}</span>
-                        <span className="field-hint">
-                          {event.actor.roles.length === 0
-                            ? 'No active role'
-                            : event.actor.roles.map(humanize).join(', ')}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="muted">The system</span>
-                    )}
-                  </td>
-                  <td className="tabular">{event.action}</td>
-                  <td>
-                    <span>{humanize(event.entityType)}</span>
-                    {event.entityId ? (
-                      <span className="field-hint tabular">{event.entityId}</span>
-                    ) : null}
-                  </td>
-                  <td>{event.outcome === 'SUCCESS' ? 'Succeeded' : 'Failed'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <AuditTable events={events} busy={isPlaceholderData} onOpen={openEntry} />
       )}
 
       <Pager
@@ -305,7 +151,7 @@ function AuditHistory() {
         totalCount={data?.pageInfo.totalCount ?? 0}
         hasNextPage={Boolean(data?.pageInfo.hasNextPage)}
         atStart={!search.after}
-        pageSize={PAGE_SIZE}
+        pageSize={AUDIT_PAGE_SIZE}
         onFirst={() =>
           navigate({ search: (previous) => ({ ...previous, after: undefined }) })
         }
@@ -318,6 +164,29 @@ function AuditHistory() {
           })
         }
       />
+
+      {search.event ? (
+        <AuditEntryDialog
+          id={search.event}
+          onClose={() => openEntry(undefined)}
+          onOpen={openEntry}
+          onShowRequest={(request) =>
+            navigate({
+              search: {
+                ...CLEARED,
+                request,
+                oldest: true,
+                event: undefined,
+                after: undefined,
+              },
+            })
+          }
+        />
+      ) : null}
+
+      {exporting ? (
+        <ExportDialog filter={filterFor(search)} onClose={() => setExporting(false)} />
+      ) : null}
     </main>
   )
 }

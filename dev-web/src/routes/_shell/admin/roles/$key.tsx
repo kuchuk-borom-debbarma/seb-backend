@@ -22,7 +22,7 @@
  * do. The holder count sits beside the retire control for the same reason.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Minus, Plus, Trash2, Users } from 'lucide-react'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
@@ -151,6 +151,13 @@ function EditPage({ role }: { role: Role }) {
         description={`${role.key} · held by ${role.memberCount === 1
           ? '1 account'
           : `${role.memberCount} accounts`}`}
+        actions={
+          // Composed, edited, retired: this role's own history. Only a super
+          // administrator reaches this screen, and they may read the history.
+          <Link to="/admin/audit" search={{ types: ['CORE_ROLE'], entity: role.id }} className="button">
+            History
+          </Link>
+        }
       />
 
       <form
