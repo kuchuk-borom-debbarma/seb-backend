@@ -15,6 +15,9 @@ import {
 } from '#/features/announcements/AnnouncementCard'
 import heroVideo from '@/assets/mission-sep-hero.mp4'
 import heroPoster from '@/assets/mission-sep-hero-poster.jpg'
+import heroBuilding from '@/assets/hero-landscape.jpg'
+
+type HeroSlide = 'animation' | 'building'
 
 // Custom Sprout In Hand Icon
 function SproutHandIcon({ className }: { className?: string }) {
@@ -71,7 +74,7 @@ const goalCards: GoalCard[] = [
   },
 ]
 
-function HeroVideo({ desktop }: { desktop: boolean }) {
+function HeroVideo({ desktop, active }: { desktop: boolean; active: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
@@ -85,9 +88,10 @@ function HeroVideo({ desktop }: { desktop: boolean }) {
     const syncPlayback = () => {
       // Both responsive hero variants exist in the DOM. Only the visible one
       // should decode frames, and reduced-motion visitors see the poster.
-      if (!screen.matches || reducedMotion.matches) {
+      if (!screen.matches || !active || reducedMotion.matches) {
         video.pause()
       } else {
+        video.currentTime = 0
         void video.play().catch(() => {
           // The poster remains visible if a browser blocks autoplay.
         })
@@ -102,13 +106,17 @@ function HeroVideo({ desktop }: { desktop: boolean }) {
       reducedMotion.removeEventListener('change', syncPlayback)
       video.pause()
     }
-  }, [desktop])
+  }, [desktop, active])
 
   return (
-    <div className="absolute inset-0 overflow-hidden bg-[#0c1829] pointer-events-none">
+    <div
+      aria-hidden={!active}
+      className={`absolute inset-0 overflow-hidden bg-[#0c1829] pointer-events-none transition-opacity duration-700 motion-reduce:transition-none ${active ? 'opacity-100' : 'opacity-0'}`}
+    >
       <video
         ref={videoRef}
         data-testid="mission-sep-hero-video"
+        data-active={active}
         aria-label="Animated Mission SEP logo"
         autoPlay
         muted
@@ -139,6 +147,81 @@ function HeroVideo({ desktop }: { desktop: boolean }) {
   )
 }
 
+function HeroBackground({
+  desktop,
+  activeSlide,
+}: {
+  desktop: boolean
+  activeSlide: HeroSlide
+}) {
+  const buildingActive = activeSlide === 'building'
+
+  return (
+    <div className="absolute inset-0 pointer-events-none">
+      <HeroVideo desktop={desktop} active={!buildingActive} />
+      <div
+        aria-hidden={!buildingActive}
+        className={`absolute inset-0 transition-opacity duration-700 motion-reduce:transition-none ${buildingActive ? 'opacity-100' : 'opacity-0'}`}
+      >
+        <img
+          src={heroBuilding}
+          alt="TTAADC Main Administrative Building at Tangnok Kotor, Khumulwng"
+          data-testid="hero-building-image"
+          data-active={buildingActive}
+          width={4032}
+          height={2268}
+          className="size-full object-cover object-[center_35%]"
+        />
+        <div
+          className={
+            desktop
+              ? 'absolute inset-0 bg-gradient-to-r from-slate-950/75 via-slate-900/35 to-transparent'
+              : 'absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-900/40 to-slate-950/70'
+          }
+        />
+        <div className="absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-slate-950/60 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-slate-950/50 to-transparent" />
+      </div>
+    </div>
+  )
+}
+
+function HeroSlideControls({
+  activeSlide,
+  onSelect,
+  ready,
+}: {
+  activeSlide: HeroSlide
+  onSelect: (slide: HeroSlide) => void
+  ready: boolean
+}) {
+  return (
+    <div role="group" aria-label="Hero slides" className="mt-6 flex flex-wrap gap-2">
+      {(
+        [
+          ['animation', 'Mission SEP animation'],
+          ['building', 'Council building'],
+        ] as const
+      ).map(([slide, label]) => (
+        <button
+          key={slide}
+          type="button"
+          aria-pressed={activeSlide === slide}
+          disabled={!ready}
+          onClick={() => onSelect(slide)}
+          className={`rounded-full border px-4 py-2 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors cursor-pointer ${
+            activeSlide === slide
+              ? 'border-white bg-white text-[#0c1829]'
+              : 'border-white/60 bg-[#0c1829]/40 text-white hover:bg-white/20'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export type HeroAnnouncement = AnnouncementCardData & { id: string }
 
 export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
@@ -146,10 +229,30 @@ export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
   const isFirstRender = useRef(true)
   const [headlineIndex, setHeadlineIndex] = useState(0)
   const [notifIndex, setNotifIndex] = useState(0)
+  const [heroSlide, setHeroSlide] = useState<HeroSlide>('animation')
+  const [reducedMotion, setReducedMotion] = useState(false)
+  const [controlsReady, setControlsReady] = useState(false)
   // Modulo, because the office can shorten the list under a stale index; null
   // when there is nothing to show, and the docks simply do not render.
   const activeNotif =
     announcements.length > 0 ? announcements[notifIndex % announcements.length]! : null
+
+  useEffect(() => {
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const syncPreference = () => setReducedMotion(preference.matches)
+    preference.addEventListener('change', syncPreference)
+    syncPreference()
+    setControlsReady(true)
+    return () => preference.removeEventListener('change', syncPreference)
+  }, [])
+
+  useEffect(() => {
+    if (!controlsReady || reducedMotion) return
+    const timer = window.setTimeout(() => {
+      setHeroSlide((current) => (current === 'animation' ? 'building' : 'animation'))
+    }, 11000)
+    return () => window.clearTimeout(timer)
+  }, [heroSlide, reducedMotion, controlsReady])
 
   // Auto-advance the carousel every 5.5 seconds — pointless below two cards.
   useEffect(() => {
@@ -196,6 +299,11 @@ export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
           scrub: 1.1,
           anticipatePin: 1,
           invalidateOnRefresh: true,
+          onUpdate: (self) => {
+            const heroView = root.querySelector<HTMLElement>('.desktop-hero-view')
+            if (heroView)
+              heroView.style.pointerEvents = self.progress > 0.25 ? 'none' : 'auto'
+          },
         },
       })
 
@@ -206,7 +314,6 @@ export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
           y: -40,
           duration: 0.45,
           ease: 'power2.inOut',
-          pointerEvents: 'none',
         },
         0,
       )
@@ -293,7 +400,7 @@ export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
 
         {/* Desktop Hero View */}
         <div className="desktop-hero-view hero-main-content absolute inset-0 z-20 w-full pointer-events-auto">
-          <HeroVideo desktop />
+          <HeroBackground desktop activeSlide={heroSlide} />
           <div className="relative z-10 mx-auto flex h-full max-w-[1500px] items-center px-10 pb-32 pt-28">
             <div className="w-[62%] max-w-[840px]">
               <h1 className="font-display tracking-tight text-white uppercase leading-[0.9] select-none">
@@ -314,6 +421,11 @@ export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
                 <br />
                 Business Programme (TTAADC 2026)
               </p>
+              <HeroSlideControls
+                activeSlide={heroSlide}
+                onSelect={setHeroSlide}
+                ready={controlsReady}
+              />
             </div>
           </div>
 
@@ -456,7 +568,7 @@ export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
           id="top"
           className="relative h-[100svh] min-h-[580px] w-full overflow-hidden bg-[#0c1829] flex flex-col justify-between select-none"
         >
-          <HeroVideo desktop={false} />
+          <HeroBackground desktop={false} activeSlide={heroSlide} />
           {/* Top Content: Headline & Subtitle */}
           <div className="relative z-10 px-5 pt-20 sm:pt-24 md:px-8">
             <h1 className="font-display tracking-tight text-white uppercase leading-[0.9] select-none text-[clamp(2.6rem,11.5vw,4.8rem)] min-h-[5.5rem] sm:min-h-[7.5rem]">
@@ -477,6 +589,11 @@ export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
               <br />
               Business Programme (TTAADC 2026)
             </p>
+            <HeroSlideControls
+              activeSlide={heroSlide}
+              onSelect={setHeroSlide}
+              ready={controlsReady}
+            />
           </div>
 
           {/* Bottom Docked Notifications Panel — hidden until something is published */}
