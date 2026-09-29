@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { AppBindings } from './bindings'
-import { withDatabase, type Database } from './db'
+import { DatabaseUnavailableError, withDatabase, type Database } from './db'
 import { createLoaders } from './loaders'
 import { handleGraphQLRequest } from './graphql'
 import {
@@ -31,6 +31,26 @@ import {
 } from './services/admin'
 
 const app = new Hono<{ Bindings: AppBindings }>()
+
+const DATABASE_UNAVAILABLE_MESSAGE = 'The service is temporarily unavailable.'
+
+/*
+ * The database adapter turns an unreachable socket into this one safe error.
+ * Never serialize or log the driver error here: a connection string or a
+ * database error can include credentials and statement values.
+ */
+app.onError((error, c) => {
+  if (error instanceof DatabaseUnavailableError) {
+    return c.json(
+      { success: false, message: DATABASE_UNAVAILABLE_MESSAGE, response: null },
+      503,
+    )
+  }
+  return c.json(
+    { success: false, message: 'The request could not be completed.', response: null },
+    500,
+  )
+})
 
 /**
  * Everything a service operation needs, built fresh for one request.
@@ -549,4 +569,3 @@ export default {
     })
   },
 }
-

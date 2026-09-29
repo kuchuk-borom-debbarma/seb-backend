@@ -202,13 +202,13 @@
 .cycleHeroPill {
   display: inline-flex;
   align-items: center;
-  padding: 4px 12px;
-  border: 1px solid #bfdbfe;
-  border-radius: 9999px;
-  background: #dbeafe;
-  color: #1e40af;
+  padding: 3px 10px;
+  border: 1px solid var(--brand);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--brand);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   width: fit-content;
 }
 

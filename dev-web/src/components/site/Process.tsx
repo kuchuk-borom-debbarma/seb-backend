@@ -249,17 +249,14 @@ export function Process() {
               />
 
               {steps.map((item) => (
-                <div key={`dt-${item.step}`} className="proc-desktop-item relative">
+                <div key={`dt-${item.title}`} className="proc-desktop-item relative">
                   <div className="flex items-start gap-4 xl:gap-5">
                     <div className="proc-icon-badge relative z-10 flex size-11 xl:size-12 shrink-0 items-center justify-center rounded-full border border-[#181715]/25 bg-[#ded8ce] text-[#181715] shadow-xs mt-0.5">
                       <item.Icon className="size-5 xl:size-5.5 stroke-[1.5]" />
                     </div>
 
                     <div className="proc-text-block min-w-0 flex-1">
-                      <span className="text-[11px] xl:text-[12px] font-bold uppercase tracking-[0.22em] text-[#a47b46]">
-                        {item.step}
-                      </span>
-                      <h3 className="mt-0.5 font-serif text-lg xl:text-xl font-bold tracking-tight text-[#181715]">
+                      <h3 className="font-serif text-lg xl:text-xl font-bold tracking-tight text-[#181715]">
                         {item.title}
                       </h3>
                       <p className="mt-1 text-[13px] xl:text-[14px] leading-relaxed text-[#181715]/75">
@@ -321,7 +318,7 @@ export function Process() {
         <div className="relative max-w-xl mx-auto">
           <div className="relative flex flex-col gap-6 pl-4 border-l-2 border-dashed border-[#181715]/20 ml-4">
             {steps.map((item) => (
-              <div key={`mob-${item.step}`} className="relative pl-4">
+              <div key={`mob-${item.title}`} className="relative pl-4">
                 {/* Step Icon Badge */}
                 <div className="absolute -left-[30px] top-0 flex size-9 items-center justify-center rounded-full border border-[#181715]/20 bg-[#e6e1d8] text-[#181715] shadow-xs">
                   <item.Icon className="size-4 stroke-[1.5]" />
@@ -329,10 +326,7 @@ export function Process() {
 
                 {/* Step Content */}
                 <div className="py-1">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#a47b46]">
-                    {item.step}
-                  </span>
-                  <h3 className="mt-0.5 font-serif text-base sm:text-lg font-bold tracking-tight text-[#181715]">
+                  <h3 className="font-serif text-base sm:text-lg font-bold tracking-tight text-[#181715]">
                     {item.title}
                   </h3>
                   <p className="mt-1 text-xs sm:text-[13px] leading-relaxed text-[#181715]/75">

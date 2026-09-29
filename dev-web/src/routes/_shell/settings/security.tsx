@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
+import { Lock, MonitorSmartphone } from 'lucide-react'
 import { useState } from 'react'
 import {
   ChangePasswordDocument,
@@ -17,7 +18,6 @@ import { formatDateTime, formatRelative } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { assertSucceeded, messageFor, unwrap } from '#/lib/result'
 import { forgetSession } from '#/lib/session'
-import styles from '#/features/settings/Settings.module.css'
 
 const sessionsQuery = queryOptions({
   queryKey: ['sessions'],
@@ -35,10 +35,10 @@ export const Route = createFileRoute('/_shell/settings/security')({
 
 function SecuritySettings() {
   return (
-    <>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <PasswordSection />
       <SessionsSection />
-    </>
+    </div>
   )
 }
 
@@ -65,107 +65,196 @@ function PasswordSection() {
   })
 
   return (
-    <section className={styles.section}>
-      <h2>Password</h2>
-      <p className={styles.sectionDescription}>
-        Change the password you use to sign in.
-      </p>
-      <form
-        className="stack"
-        onSubmit={(event) => {
-          event.preventDefault()
-          /*
-           * Checked here rather than by the API, because a typed-twice
-           * mismatch is not a refusal — it is this screen's own job, and
-           * sending it would spend a rate-limit allowance and a scrypt
-           * verification to be told something the browser already knew.
-           */
-          const matches = newPassword === confirmation
-          setMismatch(!matches)
-          if (matches) change.mutate()
-        }}
-      >
-        <div>
-          <label className="field-label" htmlFor="current-password">
-            Current password
-          </label>
-          <input
-            id="current-password"
-            className="input"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={currentPassword}
-            onChange={(event) => setCurrentPassword(event.target.value)}
-          />
-          <p className="field-hint">
-            Asked for so that finding this screen already open is not enough to take
-            the account over.
-          </p>
-        </div>
-
-        <div>
-          <label className="field-label" htmlFor="new-password">
-            New password
-          </label>
-          <input
-            id="new-password"
-            className="input"
-            type="password"
-            autoComplete="new-password"
-            required
-            value={newPassword}
-            onChange={(event) => setNewPassword(event.target.value)}
-          />
-          <p className="field-hint">At least 8 characters.</p>
-        </div>
-
-        <div>
-          <label className="field-label" htmlFor="confirm-password">
-            Repeat the new password
-          </label>
-          <input
-            id="confirm-password"
-            className="input"
-            type="password"
-            autoComplete="new-password"
-            required
-            aria-invalid={mismatch}
-            value={confirmation}
-            onChange={(event) => setConfirmation(event.target.value)}
-          />
-          {mismatch ? (
-            <p className="field-error" role="alert">
-              These two do not match.
-            </p>
-          ) : null}
-        </div>
-
-        <p className="field-hint">
-          Your other signed-in devices will be signed out. This one stays signed in.
-        </p>
-
-        {change.isError ? (
-          <p className="notice" data-tone="error" role="alert">
-            {messageFor(change.error)}
-          </p>
-        ) : null}
-
-        {change.isSuccess ? (
-          <p className="notice" data-tone="ok" role="status">
-            Your password has been changed.
-          </p>
-        ) : null}
-
-        <button
-          type="submit"
-          className="button"
-          data-variant="primary"
-          disabled={change.isPending}
+    <section
+      style={{
+        background: '#ffffff',
+        border: '1px solid #D9DDE2',
+        borderRadius: '12px',
+        padding: '24px 28px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+        <div
+          style={{
+            width: '44px',
+            height: '44px',
+            borderRadius: '50%',
+            background: '#EBF3FC',
+            color: '#4271B7',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            marginTop: '2px',
+          }}
         >
-          {change.isPending ? 'Changing password…' : 'Change password'}
-        </button>
-      </form>
+          <Lock size={22} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--ink)', margin: '0 0 4px' }}>
+            Password
+          </h2>
+          <p style={{ fontSize: '13.5px', color: 'var(--ink-secondary)', margin: '0 0 18px' }}>
+            Change the password you use to sign in.
+          </p>
+
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              const matches = newPassword === confirmation
+              setMismatch(!matches)
+              if (matches) change.mutate()
+            }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '640px' }}
+          >
+            <div>
+              <label
+                htmlFor="current-password"
+                style={{
+                  display: 'block',
+                  fontSize: '13.5px',
+                  fontWeight: 600,
+                  color: 'var(--ink)',
+                  marginBottom: '6px',
+                }}
+              >
+                Current password
+              </label>
+              <input
+                id="current-password"
+                className="input"
+                type="password"
+                autoComplete="current-password"
+                required
+                placeholder="Enter current password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid #D9DDE2',
+                  fontSize: '14px',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <p style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', margin: '6px 0 0' }}>
+                Asked for so that finding this screen already open is not enough to take the account over.
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="new-password"
+                style={{
+                  display: 'block',
+                  fontSize: '13.5px',
+                  fontWeight: 600,
+                  color: 'var(--ink)',
+                  marginBottom: '6px',
+                }}
+              >
+                New password
+              </label>
+              <input
+                id="new-password"
+                className="input"
+                type="password"
+                autoComplete="new-password"
+                required
+                placeholder="Enter new password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid #D9DDE2',
+                  fontSize: '14px',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <p style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', margin: '6px 0 0' }}>
+                At least 8 characters.
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="confirm-password"
+                style={{
+                  display: 'block',
+                  fontSize: '13.5px',
+                  fontWeight: 600,
+                  color: 'var(--ink)',
+                  marginBottom: '6px',
+                }}
+              >
+                Repeat the new password
+              </label>
+              <input
+                id="confirm-password"
+                className="input"
+                type="password"
+                autoComplete="new-password"
+                required
+                aria-invalid={mismatch}
+                placeholder="Repeat new password"
+                value={confirmation}
+                onChange={(event) => setConfirmation(event.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  border: mismatch ? '1px solid #C92929' : '1px solid #D9DDE2',
+                  fontSize: '14px',
+                  boxSizing: 'border-box',
+                }}
+              />
+              {mismatch ? (
+                <p className="field-error" role="alert" style={{ marginTop: '4px' }}>
+                  These two do not match.
+                </p>
+              ) : null}
+            </div>
+
+            <p style={{ fontSize: '12.5px', color: 'var(--ink-secondary)', margin: 0 }}>
+              Your other signed-in devices will be signed out. This one stays signed in.
+            </p>
+
+            {change.isError ? (
+              <p className="notice" data-tone="error" role="alert">
+                {messageFor(change.error)}
+              </p>
+            ) : null}
+
+            {change.isSuccess ? (
+              <p className="notice" data-tone="ok" role="status">
+                Your password has been changed.
+              </p>
+            ) : null}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '4px' }}>
+              <button
+                type="submit"
+                className="button"
+                data-variant="primary"
+                disabled={change.isPending}
+                style={{
+                  background: '#4271B7',
+                  color: '#ffffff',
+                  padding: '9px 22px',
+                  borderRadius: '6px',
+                  fontSize: '13.5px',
+                  fontWeight: 500,
+                }}
+              >
+                {change.isPending ? 'Changing password…' : 'Change password'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
     </section>
   )
 }
@@ -207,74 +296,124 @@ function SessionsSection() {
   const others = sessions?.filter((session) => !session.current) ?? []
 
   return (
-    <section className={styles.section}>
-      <h2>Signed-in devices</h2>
-      <p className={styles.sectionDescription}>
-        Every browser currently holding a sign-in for this account. Revoking a session
-        signs that browser out immediately.
-      </p>
-
-      <div className={styles.securityActions}>
-        <button
-          type="button"
-          className="button"
-          disabled={others.length === 0 || revoke.isPending}
-          onClick={() => revoke.mutate({ type: 'others' })}
+    <section
+      style={{
+        background: '#ffffff',
+        border: '1px solid #D9DDE2',
+        borderRadius: '12px',
+        padding: '24px 28px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+        <div
+          style={{
+            width: '44px',
+            height: '44px',
+            borderRadius: '50%',
+            background: '#EBF3FC',
+            color: '#4271B7',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            marginTop: '2px',
+          }}
         >
-          Sign out other devices
-        </button>
-        <button
-          type="button"
-          className="button"
-          data-variant="danger"
-          disabled={revoke.isPending}
-          onClick={() => revoke.mutate({ type: 'all' })}
-        >
-          Sign out everywhere
-        </button>
-      </div>
+          <MonitorSmartphone size={22} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: '16px',
+              flexWrap: 'wrap',
+              marginBottom: '16px',
+            }}
+          >
+            <div>
+              <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--ink)', margin: '0 0 4px' }}>
+                Signed-in devices
+              </h2>
+              <p style={{ fontSize: '13.5px', color: 'var(--ink-secondary)', margin: 0 }}>
+                Every browser currently holding a sign-in for this account. Revoking a session
+                signs that browser out immediately.
+              </p>
+            </div>
 
-      {revoke.isError ? (
-        <p className="notice" data-tone="error" role="alert">
-          {messageFor(revoke.error)}
-        </p>
-      ) : null}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="button"
+                data-variant="ghost"
+                disabled={others.length === 0 || revoke.isPending}
+                onClick={() => revoke.mutate({ type: 'others' })}
+                style={{ fontSize: '13px' }}
+              >
+                Sign out other devices
+              </button>
+              <button
+                type="button"
+                className="button"
+                data-variant="danger"
+                disabled={revoke.isPending}
+                onClick={() => revoke.mutate({ type: 'all' })}
+                style={{ fontSize: '13px' }}
+              >
+                Sign out everywhere
+              </button>
+            </div>
+          </div>
 
-      <div className="card">
-        <div className="table-wrap">
-          <table className="table">
-            <caption className="visually-hidden">Signed-in devices</caption>
-            <thead>
-              <tr>
-                <th scope="col">Device</th>
-                <th scope="col">Signed in</th>
-                <th scope="col">Last used</th>
-                <th scope="col">Expires</th>
-                <th scope="col">
-                  <span className="visually-hidden">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {current ? (
-                <SessionRow
-                  session={current}
-                  isCurrent
-                  busy={revoke.isPending}
-                  onRevoke={(id) => revoke.mutate({ type: 'one', id })}
-                />
-              ) : null}
-              {others.map((session) => (
-                <SessionRow
-                  key={session.id}
-                  session={session}
-                  isCurrent={false}
-                  busy={revoke.isPending}
-                  onRevoke={(id) => revoke.mutate({ type: 'one', id })}
-                />
-              ))}
-            </tbody>
-          </table>
+          {revoke.isError ? (
+            <p className="notice" data-tone="error" role="alert" style={{ marginBottom: '16px' }}>
+              {messageFor(revoke.error)}
+            </p>
+          ) : null}
+
+          <div
+            style={{
+              border: '1px solid #D9DDE2',
+              borderRadius: '8px',
+              overflow: 'hidden',
+              marginTop: '12px',
+            }}
+          >
+            <table className="table" style={{ margin: 0, width: '100%' }}>
+              <caption className="visually-hidden">Signed-in devices</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Device</th>
+                  <th scope="col">Signed in</th>
+                  <th scope="col">Last used</th>
+                  <th scope="col">Expires</th>
+                  <th scope="col">
+                    <span className="visually-hidden">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {current ? (
+                  <SessionRow
+                    session={current}
+                    isCurrent
+                    busy={revoke.isPending}
+                    onRevoke={(id) => revoke.mutate({ type: 'one', id })}
+                  />
+                ) : null}
+                {others.map((session) => (
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    isCurrent={false}
+                    busy={revoke.isPending}
+                    onRevoke={(id) => revoke.mutate({ type: 'one', id })}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
@@ -297,21 +436,38 @@ function SessionRow({
   return (
     <tr>
       <td>
-        <div className="row" style={{ gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {isCurrent ? (
-            <span className="badge" data-tone="ok">
+            <span
+              style={{
+                background: '#EAF5EE',
+                color: '#23814C',
+                fontSize: '11px',
+                fontWeight: 600,
+                padding: '2px 8px',
+                borderRadius: '4px',
+              }}
+            >
               This device
             </span>
           ) : null}
-          <span className="muted">{session.userAgent ?? 'Unknown browser'}</span>
+          <span style={{ color: 'var(--ink)', fontSize: '13px' }}>
+            {session.userAgent ?? 'Unknown browser'}
+          </span>
         </div>
         {session.ipAddress ? (
-          <span className="tabular muted">{session.ipAddress}</span>
+          <span style={{ fontSize: '12px', color: 'var(--ink-secondary)' }}>{session.ipAddress}</span>
         ) : null}
       </td>
-      <td>{formatDateTime(session.createdAt)}</td>
-      <td>{formatDateTime(session.updatedAt)}</td>
-      <td>{formatRelative(session.expiresAt)}</td>
+      <td style={{ fontSize: '13px', color: 'var(--ink-secondary)' }}>
+        {formatDateTime(session.createdAt)}
+      </td>
+      <td style={{ fontSize: '13px', color: 'var(--ink-secondary)' }}>
+        {formatDateTime(session.updatedAt)}
+      </td>
+      <td style={{ fontSize: '13px', color: 'var(--ink-secondary)' }}>
+        {formatRelative(session.expiresAt)}
+      </td>
       <td data-numeric>
         {isCurrent ? null : (
           <button
@@ -320,6 +476,7 @@ function SessionRow({
             data-variant="ghost"
             disabled={busy}
             onClick={() => onRevoke(session.id)}
+            style={{ fontSize: '12.5px', color: '#C92929' }}
           >
             Revoke
           </button>

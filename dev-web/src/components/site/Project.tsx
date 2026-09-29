@@ -6,8 +6,6 @@ import craftThumb from '@/assets/craft-thumb.jpg'
 import handloomImg from '@/assets/handloom.png'
 import tourismImg from '@/assets/tourism.png'
 import heroLandscape from '@/assets/hero-landscape.jpg'
-import grantImg from '@/assets/grant.png'
-import bankImg from '@/assets/bank.png'
 
 interface SectorCard {
   id: string
@@ -116,7 +114,6 @@ export function Project() {
       const cardLeftOuter = section.querySelector('[data-entry="left-outer"]')
       const cardRightInner = section.querySelector('[data-entry="right-inner"]')
       const cardRightOuter = section.querySelector('[data-entry="right-outer"]')
-      const contentElements = section.querySelectorAll('.project-details-fade')
 
       if (cardCenter) {
         gsap.set(cardCenter, {
@@ -169,8 +166,6 @@ export function Project() {
           transformOrigin: '50% 100%',
         })
       }
-
-      gsap.set(contentElements, { opacity: 0, y: 25 })
 
       const tl = gsap.timeline({
         scrollTrigger: {
@@ -261,12 +256,6 @@ export function Project() {
           0.48,
         )
       }
-
-      tl.to(
-        contentElements,
-        { opacity: 1, y: 0, stagger: 0.08, duration: 0.55, ease: 'power2.out' },
-        0.8,
-      )
 
       tl.to({}, { duration: 1.1 })
     })
@@ -373,53 +362,7 @@ export function Project() {
           </div>
 
           <div className="mt-1 flex items-center justify-center gap-1.5 text-[11px] text-[#181715]/50">
-            <span>Swipe for all 5 sectors &rarr;</span>
-          </div>
-        </div>
-
-        {/* Grant Architecture: Component A & B */}
-        <div className="project-details-fade mt-3 pb-2 grid gap-4 sm:gap-6 md:grid-cols-2 max-w-5xl mx-auto w-full">
-          <div className="flex items-center gap-3.5 sm:gap-5 rounded-2xl bg-[#faf9f6] p-4 border border-[#181715]/8">
-            <img
-              src={grantImg}
-              alt="Direct financial grant illustration"
-              loading="lazy"
-              className="size-16 sm:size-20 shrink-0 object-contain select-none"
-            />
-            <div>
-              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-[#181715]/60">
-                Component A
-              </span>
-              <h4 className="text-sm sm:text-base font-bold text-[#181715]">
-                TTAADC Direct Seed Grant
-              </h4>
-              <p className="mt-0.5 sm:mt-1 text-xs sm:text-[13px] leading-relaxed text-[#181715]/80">
-                One-time direct financial grant up to{' '}
-                <strong>₹5,00,000 (₹5 Lakhs)</strong> per eligible enterprise for
-                machinery and working capital.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3.5 sm:gap-5 rounded-2xl bg-[#faf9f6] p-4 border border-[#181715]/8">
-            <img
-              src={bankImg}
-              alt="Partner bank credit linkage illustration"
-              loading="lazy"
-              className="size-16 sm:size-20 shrink-0 object-contain select-none"
-            />
-            <div>
-              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-[#181715]/60">
-                Component B
-              </span>
-              <h4 className="text-sm sm:text-base font-bold text-[#181715]">
-                Partner Bank Credit Linkage
-              </h4>
-              <p className="mt-0.5 sm:mt-1 text-xs sm:text-[13px] leading-relaxed text-[#181715]/80">
-                Commercial credit tie-ups through structured MoUs with PSBs and Regional
-                Rural Banks with interest subvention.
-              </p>
-            </div>
+            <span>Swipe to explore sectors &rarr;</span>
           </div>
         </div>
       </div>
