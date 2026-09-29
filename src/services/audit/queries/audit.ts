@@ -7,7 +7,7 @@
  */
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import type { Database } from '../../../db'
-import { coreAuditEvent, coreUser, coreUserRoleGrant, type UserRole } from '../../../db/schema'
+import { coreAuditEvent, coreRole, coreUser, coreUserRoleGrant } from '../../../db/schema'
 import { COUNT_MISSING, requireInvariant } from '../../application/support'
 /*
  * The same cursor contract every other list uses, including its refusal of a
@@ -55,8 +55,12 @@ const auditFilters = (input: AuditFilters) => {
       ? sql`EXISTS (
           SELECT 1 FROM ${coreUserRoleGrant}
           WHERE ${coreUserRoleGrant.userId} = ${coreAuditEvent.actorUserId}
-            AND ${coreUserRoleGrant.role} = ${input.actorRole}
             AND ${coreUserRoleGrant.revokedAt} IS NULL
+            AND COALESCE(
+              ${coreUserRoleGrant.role},
+              (SELECT r.key FROM ${coreRole} r
+                WHERE r.id = ${coreUserRoleGrant.roleId} AND r.deleted_at IS NULL)
+            ) = ${input.actorRole}
         )`
       : undefined,
     // Uses core_audit_event_entity_idx.
@@ -126,10 +130,22 @@ export const listAuditEvents = async (
        * role name cannot contain one. `array_agg` removes the question, and the
        * order makes the list stable for an assertion to read.
        */
-      roles: sql<string[]>`array_agg(${coreUserRoleGrant.role} ORDER BY ${coreUserRoleGrant.role})`
+      roles: sql<string[]>`array_agg(
+        COALESCE(${coreUserRoleGrant.role}, ${coreRole.key})
+        ORDER BY COALESCE(${coreUserRoleGrant.role}, ${coreRole.key})
+      ) FILTER (WHERE COALESCE(${coreUserRoleGrant.role}, ${coreRole.key}) IS NOT NULL)`
         .as('roles'),
     })
     .from(coreUserRoleGrant)
+    /*
+     * A retired role names nobody. Left joined and filtered rather than inner
+     * joined, so a grant of one of the two authorities decided in code — which
+     * has no role row at all — is not dropped along with it.
+     */
+    .leftJoin(
+      coreRole,
+      and(eq(coreRole.id, coreUserRoleGrant.roleId), isNull(coreRole.deletedAt)),
+    )
     .where(isNull(coreUserRoleGrant.revokedAt))
     .groupBy(coreUserRoleGrant.userId)
     .as('actor_roles')
@@ -181,7 +197,7 @@ export const listAuditEvents = async (
             email: requireInvariant(row.actorEmail, 'Audit actor has no address.'),
             // Nobody holding no active role can act, but the row survives them
             // being deactivated, so an empty list is a real state here.
-            roles: (row.actorRoles ?? []) as UserRole[],
+            roles: row.actorRoles ?? [],
           }
         : null,
       requestId: row.requestId,

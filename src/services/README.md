@@ -17,7 +17,7 @@ asked.
 | --- | --- |
 | [`application/`](application/README.md) | Everything an applicant owns — enterprises, drafts, the form engine, evidence, submission |
 | [`admin/`](admin/README.md) | Programme cycles, form authoring, and the whole post-submission staff workflow |
-| [`auth/`](auth/README.md) | Identity, sessions, signup, account self-service, capabilities, and role administration |
+| [`auth/`](auth/README.md) | Identity, sessions, signup, account self-service, the permission catalogue, and role administration |
 | [`audit/`](audit/README.md) | Reading the history of who changed what |
 | [`storage/`](storage/README.md) | Where documents live: a bucket, a provider, or this Worker |
 | [`external-notification/`](external-notification/README.md) | Getting a message to a person |
@@ -42,10 +42,11 @@ queries/       all Drizzle SQL, all statement boundaries — and every
                authorization, lifecycle and version term repeated
                inside the write predicate
       │
-support.ts     each service's own refusal messages, its audit-row builder,
-               and its error-classification helpers
+support.ts     each service's own refusal messages, its permission
+               preamble, and its error-classification helpers
       │
 envelope.ts    the one response envelope, shared by every service
+audit-event.ts the one audit row, shared by every service
 ```
 
 ### Why the checks are repeated
@@ -135,11 +136,19 @@ control that offers "search" and silently means something narrower is a lie
 whether the narrowing was forced or chosen.
 
 **`support.ts` holds what is genuinely one service's**: its refusal messages,
-its capability preamble, its audit-row builder. Not the envelope — `success` and
-`failure` were once defined identically in four support modules, which is one
-decision copied rather than four decisions taken. They live in `envelope.ts`,
-and each service keeps only its own type alias so a call site still says which
-service is answering.
+its permission preamble, its error classification. Not the envelope — `success`
+and `failure` were once defined identically in four support modules, which is
+one decision copied rather than four decisions taken. They live in
+`envelope.ts`, and each service keeps only its own type alias so a call site
+still says which service is answering.
+
+Nor the audit row, for the same reason and with more at stake: which request
+headers become the trail's record of *where a request came from* is one choice
+about evidence, and four copies of it meant a change to that choice landing in
+three. It lives in `audit-event.ts`. Each service still keeps a thin wrapper —
+`adminAudit`, `auditEvent`, `announcementAudit`, `auditRecord` — because each
+narrows `action` and `entityType` to the vocabulary that service may write, so
+a controller naming another service's action does not compile.
 
 **`ownership.ts`** in the application service is a documented exception to the
 layering: it needs the query layer, and `support.ts` is what the query layer
@@ -159,17 +168,22 @@ Three, all defined in `auth/controllers/auth.ts`:
 | Guard | Accepts | Used by |
 | --- | --- | --- |
 | `authenticatedApplicant` | `APPLICANT` only | every `seb.*` operation |
-| `authenticatedWithCapability` | whichever roles `capabilities.ts` says hold the named capability | every `admin.*` operation, via `currentStaff` |
-| `authenticatedSuperAdministrator` | `SUPER_ADMIN` only | the `access.*` operations |
+| `authenticatedWithPermission` | whoever holds the resource/act pair the operation names | every `admin.*` operation, via `currentStaff` |
+| `authenticatedSuperAdministrator` | `SUPER_ADMIN` only | composing a role, and granting or revoking one |
 
-Sign-in accepts anyone holding at least one active role, so the narrower
-applicant check is what keeps applicant operations closed to an administrator
-who holds no applicant grant. `SUPER_ADMIN` implies `ADMIN` everywhere except
-role administration — the one capability a plain administrator must not
-inherit (`auth/controllers/auth.ts:218-220`).
+Sign-in accepts anyone holding at least one active grant, so the narrower
+applicant check is what keeps applicant operations closed to a member of staff
+who holds no applicant grant.
 
-Roles are joined live on every request rather than copied into the session, so a
-revocation takes effect on the very next one.
+A super administrator holds the **wildcard**: every pair in the catalogue, and
+anything added to it later, expanded once where the session's authority is
+built rather than as a branch each guard has to remember. Composing a role and
+handing one out are deliberately absent from the catalogue, so no role can hold
+them — an authority that cannot be written down cannot be granted by mistake.
+
+Authority is resolved live on every request rather than copied into the session,
+so a revocation, a permission change or a retired role takes effect on the very
+next one.
 
 ## Elsewhere
 

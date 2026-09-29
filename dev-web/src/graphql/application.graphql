@@ -255,6 +255,36 @@ query ApplicationTimeline($applicationId: ID!, $first: Int) {
   }
 }
 
+# Removing a draft the applicant started and does not want, and putting it back.
+#
+# The same soft-delete-and-restore the applicant already has for an enterprise
+# and for a document: nothing is destroyed, so a mistake costs nothing. Both
+# quote the form version and the workflow version, because a draft can be
+# edited and moved through the workflow independently.
+mutation RemoveApplicationDraft($input: ApplicationDeletionInput!) {
+  seb {
+    application {
+      softDeleteDraft(input: $input) {
+        success
+        message
+        response { id currentVersion statusVersion deletedAt }
+      }
+    }
+  }
+}
+
+mutation RestoreApplicationDraft($input: ApplicationVersionInput!) {
+  seb {
+    application {
+      restoreDraft(input: $input) {
+        success
+        message
+        response { id currentVersion statusVersion deletedAt }
+      }
+    }
+  }
+}
+
 mutation SaveApplicationDraft($input: SaveApplicationDraftInput!) {
   seb {
     application {

@@ -15,8 +15,17 @@ import { defineConfig, devices } from '@playwright/test'
  * development, so the six-digit code is only observable there. Testing the real
  * signup path is worth that small amount of plumbing.
  */
-const WORKER_PORT = 9899
-const WEB_PORT = 9880
+/*
+ * Fixed by default, overridable by environment.
+ *
+ * One machine often has more than one of these suites on it, and a run that
+ * cannot choose its ports either collides outright or, worse, contends for the
+ * machine and fails sixty tests on navigation timeouts that look like sixty
+ * regressions. `SEB_E2E_WORKER_PORT` and `SEB_E2E_WEB_PORT` let a run step out
+ * of the way; both must reach `test:worker` too, which reads the same names.
+ */
+const WORKER_PORT = Number(process.env.SEB_E2E_WORKER_PORT ?? 9899)
+const WEB_PORT = Number(process.env.SEB_E2E_WEB_PORT ?? 9880)
 
 export default defineConfig({
   testDir: './e2e',

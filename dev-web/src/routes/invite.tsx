@@ -30,14 +30,31 @@ import { messageFor, unwrap } from '#/lib/result'
 import { forgetSession } from '#/lib/session'
 import styles from './sign-in.module.css'
 
-/** How a role reads to the person being offered it. */
-const ROLE_NAMES: Record<string, string> = {
-  REVIEWER: 'a reviewer',
-  APPROVER: 'an approver',
-  ADMIN: 'a programme officer',
-  ANNOUNCER: 'an announcer',
-  SUPER_ADMIN: 'a super administrator',
-}
+/**
+ * How a role reads to the person who just accepted it.
+ *
+ * Derived from the key rather than looked up. This was a table of the five
+ * fixed roles, which the office no longer holds — and a table cannot be written
+ * for roles somebody composes, so the fallback would have been the raw key for
+ * every real one.
+ */
+const roleWords = (key: string): string =>
+  key.replace(/_/gu, ' ').toLowerCase()
+
+/**
+ * "a" or "an", by what the word actually starts with.
+ *
+ * The table this replaced carried the article inside each name — "an approver"
+ * — and deriving the name from the key dropped it while the template kept a
+ * hardcoded "a". Every role beginning with a vowel then read "a auditor" on the
+ * one screen a new colleague sees first.
+ *
+ * Sound, not spelling, is the real rule, and no short function gets that right
+ * for every word. This gets it right for the vowels, which is every role key
+ * the catalogue's own vocabulary can produce.
+ */
+const article = (word: string): string =>
+  /^[aeiou]/iu.test(word) ? 'an' : 'a'
 
 export const Route = createFileRoute('/invite')({
   component: AcceptInvitePage,
@@ -70,7 +87,7 @@ function AcceptInvitePage() {
       /*
        * Their roles just changed, so anything cached about who they are is
        * wrong rather than merely stale — including the navigation, which is
-       * drawn from the capabilities the session carries.
+       * drawn from the permissions the session carries.
        */
       await forgetSession(queryClient)
       await router.invalidate()
@@ -82,7 +99,9 @@ function AcceptInvitePage() {
     return (
       <main className={styles.page}>
         <div className={styles.card}>
-          <h1>You are now {ROLE_NAMES[accepted] ?? accepted}</h1>
+          <h1>
+            You are now {article(roleWords(accepted))} {roleWords(accepted)}
+          </h1>
           <p>
             Your applicant access has been exchanged for it, so the programme office is
             where you work from now.

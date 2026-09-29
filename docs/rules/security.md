@@ -85,7 +85,7 @@ header comment, exactly what is standing between it and the world:
 
 Anything sealed and handed to a person must be **tamper-evident**, not merely
 unreadable. An unauthenticated ciphertext is malleable: somebody holding an
-invitation to `REVIEWER` could flip bits and see what came out. AES-GCM
+invitation to a weak role could flip bits and see what came out. AES-GCM
 authenticates as it decrypts, so a modified byte fails instead of producing a
 different invitation.
 
@@ -127,15 +127,35 @@ protection is currently working.
 
 ## Authority has a ceiling
 
-An `ADMIN` may invite a `REVIEWER` or an `APPROVER`, and no more. Without that,
-"an administrator may invite" is a privilege escalation — a plain administrator
-could invite a second account to `ADMIN` and obtain through it exactly what they
-are directly forbidden. Nobody is ever invited to `SUPER_ADMIN`.
+**You may offer only a role whose permissions you already hold.** Without that,
+"may invite" is a privilege escalation — somebody could invite a second account
+to more than they hold and obtain through it exactly what they are directly
+forbidden. Nobody is ever invited to `SUPER_ADMIN`.
+
+This was a written table of role names — `ADMIN` may invite `REVIEWER` or
+`APPROVER`, and no more. That table cannot be maintained at all now the office
+composes its own roles, so the rule is computed from the actual permission sets.
+The scar is worth keeping because the table was *right* and still could not
+survive: a policy written as a list of names outlives the names.
+
+Two further consequences, both of which had to be found rather than deduced:
+
+- **An invitation names its role by id and by version.** The ceiling is checked
+  when the invitation is issued, and a role can be edited in the forty-eight
+  hours before it is accepted — so without the version somebody could offer a
+  weak role they may legitimately offer, then add authority to it. Editing a
+  role therefore voids its outstanding invitations, which is the safe direction.
+- **Composing a role, and granting or revoking one, are absent from the
+  permission catalogue entirely.** Not fenced off inside it — absent. A role
+  able to hand out roles could hand its own holder everything, and a role able
+  to *edit* roles could write that authority onto itself in two moves. An
+  authority that cannot be written down cannot be granted by mistake, and there
+  is no `CHECK` to get right and no reviewer to rely on.
 
 The related rule the code already carried: granting and revoking authority
-directly is the one capability a plain administrator must not inherit, because
-an administrator who can create administrators is a super administrator by
-another name.
+directly is the one thing a member of staff must not inherit, because an
+administrator who can create administrators is a super administrator by another
+name.
 
 ## Uploads are checked three times, and the third is about the name
 
@@ -155,4 +175,5 @@ evidence is the last thing that should be able to run there.
 
 - [Code](code.md) — the layering rule and why guards are repeated in SQL
 - [Documentation](documentation.md) — who owns which subject
-- [Fixed-role RBAC](../admin-rbac.md) — the roles themselves, and who holds what
+- [Roles and permissions](../admin-rbac.md) — the catalogue, how a role is
+  composed, and who holds what

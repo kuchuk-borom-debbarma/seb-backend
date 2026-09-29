@@ -59,7 +59,7 @@ input AuditQueryInput {
   Only events by people currently holding this role. The role held **now**,
   not the role held at the time of the event.
   """
-  actorRole: UserRole
+  actorRole: String
 
   """
   Only events recorded against this application itself.
@@ -113,7 +113,7 @@ type AuditActor {
   The roles held **now**, not the roles held at the time of the event. Somebody
   whose access was revoked afterwards shows with what they hold today.
   """
-  roles: [UserRole!]!
+  roles: [String!]!
 }
 
 """One recorded action."""

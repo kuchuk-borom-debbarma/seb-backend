@@ -65,9 +65,9 @@ that carried `assigned_to_user_id = actor` also carried `status_version`, and
 *that* is what serialises concurrent writers.
 
 It also cost something concrete. Reading a document was gated on holding the
-file, and claiming required `STAFF_WRITE`, so a reviewer could never open a
-single piece of the evidence they existed to review. Gating a read on ownership
-was the wrong shape.
+file, and claiming required a write permission, so somebody who could only read
+casework could never open a single piece of the evidence they existed to
+review. Gating a read on ownership was the wrong shape.
 
 Two officers on one file is now possible rather than prevented. One finishes
 and the other is refused on the version guard, which is wasted effort and not
@@ -79,7 +79,7 @@ whether to go and ask them; it disables nothing.
 | | |
 | --- | --- |
 | **Entry** | `admin.intake.completeDeskReview` |
-| **Guard** | `STAFF_WRITE` |
+| **Guard** | `application` / `review` |
 | **Refuses** | a missing or duplicated check; an expansion check that disagrees with the application type; a value for an identifier this cycle does not collect; a passed check with no transcribed number where the cycle demands one; an identifier already recorded on another funding case and not explained; reviewing your own application without `conflictAcknowledged`; for `ADVANCE_TO_BANK`, any submitted document whose latest scan is not `ACCEPTED` |
 | **Writes** | status, the immutable review including whether the reviewer declared it was their own application, its nine checks, the transcribed identifiers, any revision requests, the applicant-visible event, the audit row, and a `SEB.SELF_REVIEW_DISCLOSED` row where there was something to declare — one batch |
 | **Guarded by** | `status_version` and the current status |
@@ -196,9 +196,9 @@ data yet".
 ## Documents
 
 Staff download **fails closed**: the latest scan for that exact submitted file
-must be `ACCEPTED`. It needs `STAFF_READ` and nothing more — a draft is refused
-identically to an application that does not exist, so the path cannot be used
-to discover which drafts exist. There is no
+must be `ACCEPTED`. It needs `application`/`read` and nothing more — a draft
+is refused identically to an application that does not exist, so the path
+cannot be used to discover which drafts exist. There is no
 GraphQL mutation to accept a scan and there must never be one —
 `recordDocumentScanResult` is called only by the queue consumer, which builds
 whatever scanner `SCANNER_TRANSPORT` names. Cloudmersive genuinely examines the

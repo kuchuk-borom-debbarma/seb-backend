@@ -125,9 +125,13 @@ p {
   margin: 0;
 }
 
-a {
-  color: var(--green);
-  text-underline-offset: 2px;
+/* Layered so Tailwind utilities (@layer utilities) can override element
+   defaults; unlayered, this beats every utility and text-white goes dark. */
+@layer base {
+  a {
+    color: var(--green);
+    text-underline-offset: 2px;
+  }
 }
 
 /* Every interactive element shows the same visible ring. Never remove it. */

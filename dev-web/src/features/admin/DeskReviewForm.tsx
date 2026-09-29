@@ -20,6 +20,7 @@ import type {
   DeskReviewCheckType,
   DeskReviewOutcome,
 } from '#/graphql/generated/schema'
+import { Dialog } from '#/components/Dialog'
 import { humanize } from '#/lib/format'
 import { useMarker } from '../guide/GuideContext'
 import { Explain } from '#/features/guide/Explain'
@@ -991,9 +992,8 @@ export function DeskReviewModal({
   /** The submitted application, readable beside the checks it is judged by. */
   submitted?: React.ReactNode
 } & Parameters<typeof DeskReviewForm>[0]) {
-  if (!open) return null
-
   return (
+    <Dialog open={open} onClose={onClose}>
     <div
       className={styles.modalOverlay}
       onClick={(event) => {
@@ -1053,6 +1053,7 @@ export function DeskReviewModal({
         </div>
       </div>
     </div>
+    </Dialog>
   )
 }
 

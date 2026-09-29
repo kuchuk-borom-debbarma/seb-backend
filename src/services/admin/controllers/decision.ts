@@ -61,7 +61,7 @@ export const referApplicationToBank = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'application', 'refer')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const bankName = normalizeRequiredText(input.bankName, 200)
   const branch = normalizeOptionalText(input.bankBranch, 200)
@@ -101,7 +101,7 @@ export const recordBankOutcome = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'application', 'refer')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const reference = normalizeRequiredText(input.decisionReference, 100)
   const summary = normalizeRequiredText(input.applicantSummary, 1_000)
@@ -156,7 +156,7 @@ export const cancelBankReferral = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'application', 'refer')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const submission = await latestSubmission(context.db, input.applicationId)
   const reason = normalizeRequiredText(input.reason, 1_000)
@@ -183,7 +183,7 @@ export const correctBankOutcome = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'STAFF_WRITE')
+  const administrator = await currentStaff(context, 'application', 'refer')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const submission = await latestSubmission(context.db, input.applicationId)
   const reference = normalizeRequiredText(input.decisionReference, 100)
@@ -341,7 +341,7 @@ export const recordDecision = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'DECIDE')
+  const administrator = await currentStaff(context, 'decision', 'record')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const application = await loadApplicationHead(context.db, input.applicationId)
   const submission = await latestSubmission(context.db, input.applicationId)
@@ -445,7 +445,7 @@ export const correctDecision = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'DECIDE')
+  const administrator = await currentStaff(context, 'decision', 'correct')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   /*
    * The head is read only for the owner. It cannot come from the submission

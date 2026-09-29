@@ -11,7 +11,7 @@ Bootstrap is deliberately narrow:
 - it requires a separate temporary bearer-safe secret containing 32 through 512
   ASCII characters;
 - it works only before any `SUPER_ADMIN` grant has ever existed; and
-- it creates `SUPER_ADMIN`, not a redundant `ADMIN` grant.
+- it grants exactly one role, `SUPER_ADMIN`, and nothing else.
 
 The promoted person's `APPLICANT` grant is revoked in the same transition, so
 their only active role afterwards is `SUPER_ADMIN`. Both role events are
@@ -159,15 +159,23 @@ psql "$DATABASE_URL" -c "
   INSERT INTO core_user_role_grant (id, user_id, role, grant_reason, granted_at)
   SELECT gen_random_uuid()::text, id, 'SUPER_ADMIN', 'MANUAL_RECOVERY', now()
   FROM core_user WHERE email = 'administrator@example.com'
-  ON CONFLICT (user_id, role) WHERE revoked_at IS NULL DO NOTHING
+  ON CONFLICT (user_id, role) WHERE revoked_at IS NULL AND role IS NOT NULL
+    DO NOTHING
 "
 ```
 
 The `ON CONFLICT … DO NOTHING` targets the partial unique index on active
-grants, so this is a no-op if an active `SUPER_ADMIN` grant already exists and
-it is safe to run when unsure. Record
-the recovery outside the portal: unlike every other role change, it leaves no
-audit event.
+grants of an authority decided in code, so this is a no-op if an active
+`SUPER_ADMIN` grant already exists and it is safe to run when unsure.
+
+**The predicate must match the index exactly**, including `role IS NOT NULL`.
+Postgres infers the index from it and refuses outright — *"there is no unique or
+exclusion constraint matching the ON CONFLICT specification"* — if the two do
+not line up. That trailing term arrived when a grant became able to name a
+composed role instead, and this command was broken by it until somebody ran it.
+
+Record the recovery outside the portal: unlike every other role change, it
+leaves no audit event.
 
 ## 5. Remove the temporary configuration
 
@@ -217,9 +225,13 @@ Revoking the first administrator therefore does not reopen this route.
 Sign-in accepts any person holding at least one active role, so the promoted
 administrator can sign in normally with the same email and password.
 
-This operation does not provide account recovery or later administrator
-invitations. Those capabilities must be added before administrative business
-operations are publicly launched.
+This operation does not provide account recovery. That must be added before
+administrative business operations are publicly launched.
+
+It also leaves the office with **no roles at all** — authority is composed, and
+a fresh database contains none. The first super administrator's next act is to
+compose the roles the office needs, at `/admin/roles`, before anybody else can
+be granted or invited to anything.
 
 ## Troubleshooting
 

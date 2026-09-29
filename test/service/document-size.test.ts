@@ -54,9 +54,9 @@ const upload = async (cookie: string, applicationId: string, fieldKey: string, s
 
 describe('a document slot that asks for less than the programme allows', () => {
   const started = async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await openCycle(officer.cookie, { formTemplate: smallDprTemplate() })
-    const applicant = await signIn(['APPLICANT'])
+    const applicant = await signIn({ roles: ['APPLICANT'] })
     const enterpriseId = await createEnterprise(applicant.cookie)
     return {
       cookie: applicant.cookie,

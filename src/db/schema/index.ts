@@ -4,8 +4,8 @@ import {
   coreSession,
   coreSignupChallenge,
   coreUser,
-  coreUserRoleGrant,
 } from './core/auth'
+import { coreRole, coreRolePermission, coreUserRoleGrant } from './core/access'
 import {
   sebApplication,
   sebApplicationSubmission,
@@ -69,6 +69,7 @@ import { sebApplicationEvent, sebRevisionRequest } from './seb/workflow'
 
 export * from './shared'
 export * from './core/audit'
+export * from './core/access'
 export * from './core/auth'
 export * from './seb/application'
 export * from './seb/case'
@@ -88,6 +89,8 @@ export * from './seb/workflow'
 /** Complete schema passed to the request-scoped Drizzle client. */
 export const schema = {
   coreUser,
+  coreRole,
+  coreRolePermission,
   coreUserRoleGrant,
   coreSession,
   coreSignupChallenge,

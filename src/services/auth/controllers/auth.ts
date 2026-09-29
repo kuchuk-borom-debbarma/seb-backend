@@ -3,9 +3,15 @@
  * cryptographic primitives and SQL details remain in their focused modules.
  */
 import { z } from 'zod'
-import { auditActions, type UserRole } from '../../../db/schema'
+import { auditActions } from '../../../db/schema'
 import { notificationDelivery, sendNotification } from '../../external-notification'
-import { capabilitiesOf, rolesHaveCapability, type Capability } from '../capabilities'
+import {
+  holdsPermission,
+  permissionsOf,
+  type ActionOf,
+  type Permission,
+  type Resource,
+} from '../permissions'
 import { clearSessionCookie, readSessionToken, setSessionCookie } from '../cookies'
 import {
   createChallengeToken,
@@ -32,6 +38,7 @@ import {
   deleteUserSessionByDigest,
   findActiveUserByEmail,
   findActiveUserRoles,
+  findUserAuthority,
   findFirstSuperAdminCandidateByEmail,
   findSignupChallenge,
   findUserByEmail,
@@ -122,20 +129,28 @@ const firstSuperAdminConfiguration = (
 }
 
 /**
- * Roles are supplied by the caller rather than read here so each response uses
- * the grants it already resolved. Reporting a fixed role would misdescribe an
- * administrator who holds no APPLICANT grant.
+ * Authority is supplied by the caller rather than read here so each response
+ * uses the grants it already resolved. Reporting a fixed role would misdescribe
+ * an administrator who holds no APPLICANT grant.
  */
-const toAuthUser = (value: PublicUserRecord, roles: UserRole[]): AuthUser => ({
+const toAuthUser = (
+  value: PublicUserRecord,
+  authority: { roles: string[]; permissions: Permission[] },
+): AuthUser => ({
   id: value.id,
   email: value.email,
   emailVerified: value.emailVerifiedAt !== null,
   displayName: value.displayName,
-  roles,
-  // Derived here so a client never has to reimplement the policy to decide
-  // which navigation to draw. It still cannot grant anything: every operation
-  // re-checks server-side.
-  capabilities: capabilitiesOf(roles),
+  roles: authority.roles,
+  /*
+   * Published so a client never has to reimplement the policy to decide which
+   * navigation to draw. It still authorizes nothing: every operation re-checks
+   * server-side, which is what actually refuses.
+   *
+   * Already expanded by whoever resolved the authority, so a super
+   * administrator's list is the whole catalogue rather than an empty one.
+   */
+  permissions: authority.permissions,
   createdAt: value.createdAt,
 })
 
@@ -167,10 +182,19 @@ export const getCurrentSession = async (
     clearSessionCookie(context)
     return null
   }
-  // Holding no active role is the same condition that refuses sign-in, so an
-  // existing cookie must not outlive it either. Roles are joined live, making
-  // this authoritative on the request after the final revocation.
-  if (current.roles.length === 0) {
+  /*
+   * Holding no *effective* grant is the same condition that refuses sign-in, so
+   * an existing cookie must not outlive it either. Authority is joined live,
+   * making this authoritative on the request after the final revocation.
+   *
+   * **Deliberately not "resolved no permissions".** A role with nothing on it
+   * is a legitimate thing for an operator to create, and a half-finished one is
+   * the ordinary state of a role being composed — so keying this on an empty
+   * permission set would turn an editing slip into a mass sign-out of everybody
+   * holding it. The question here is whether any grant still authorizes
+   * anything at all, which is what `hasActiveRoleGrant` answers.
+   */
+  if (!current.hasEffectiveGrant) {
     // Refusing the request is not enough: the rows would survive until expiry
     // and start authenticating again the moment any role is granted back. The
     // scheduled cleanup sweeps accounts that never present a cookie at all.
@@ -190,7 +214,12 @@ export const getCurrentSession = async (
     clearSessionCookie(context)
     return null
   }
-  return current
+  /*
+   * The wildcard is expanded once, here, where the set is built — rather than
+   * as a branch inside the guard, which every future guard would have to
+   * remember and the direction that mistake fails in is "too permissive".
+   */
+  return { ...current, permissions: permissionsOf(current) }
 }
 
 /**
@@ -204,39 +233,49 @@ export const authenticatedApplicant = async (
   context: AuthOperationContext,
 ): Promise<AuthenticatedApplicantRequest | null> => {
   const current = await getCurrentSession(context)
-  return current?.roles.includes(APPLICANT_ROLE) ? current : null
+  return current?.applicant ? current : null
 }
 
 /**
- * The guard every administrative operation goes through.
+ * The guard every staff operation goes through.
  *
- * It asks what the caller needs to *do* rather than who they are, because the
- * office holds four staff roles and only `capabilities.ts` knows which of them
- * carries which authority. An operation that named roles directly would be a
- * second copy of that policy, and the two would drift.
+ * It asks what the caller needs to *do* rather than who they are. Authority is
+ * data now — a super administrator composes roles out of the catalogue — so an
+ * operation naming a role would be asserting something no file decides any
+ * more, and would go on compiling after that role was retired.
  *
- * A caller holding several roles gets the union of their capabilities.
+ * **The two arguments check against each other.** `ActionOf<'audit'>` is
+ * `'read'`, so asking to award something on the audit history does not compile.
+ * A guard that took one free-form string would let a typo through to run time,
+ * where it reads as a permission nobody holds — a refusal with no cause anybody
+ * can find.
+ *
+ * Somebody holding several roles gets the union of their permissions.
  */
-export const authenticatedWithCapability = async (
+export const authenticatedWithPermission = async <R extends Resource>(
   context: AuthOperationContext,
-  capability: Capability,
+  resource: R,
+  action: ActionOf<R>,
 ): Promise<AuthenticatedAdministratorRequest | null> => {
   const current = await getCurrentSession(context)
-  return current && rolesHaveCapability(current.roles, capability) ? current : null
+  return current && holdsPermission(current, resource, action) ? current : null
 }
 
 /**
- * The narrowest guard in the service: role management only.
+ * The narrowest guard in the service: composing roles, and handing them out.
  *
- * `SUPER_ADMIN` implies `ADMIN` everywhere else, so this deliberately does not
- * accept `ADMIN`. Granting and revoking authority is the one capability a plain
- * administrator must not inherit.
+ * Deliberately not a catalogue permission. A role able to grant roles could
+ * grant `SUPER_ADMIN` to its own holder, and a role able to edit roles could
+ * write that authority onto itself — either way an administrator who can create
+ * administrators is a super administrator by another name. Leaving these out of
+ * the catalogue entirely means the authority cannot be written down, so it
+ * cannot be handed out by mistake.
  */
 export const authenticatedSuperAdministrator = async (
   context: AuthOperationContext,
 ): Promise<AuthenticatedUserRequest | null> => {
   const current = await getCurrentSession(context)
-  return current?.roles.includes('SUPER_ADMIN') ? current : null
+  return current?.superAdministrator ? current : null
 }
 
 /** Creates one independent challenge without revealing existing accounts. */
@@ -410,6 +449,7 @@ export const verifyApplicantSignup = async (
     id: crypto.randomUUID(),
     userId: newUser.id,
     role: APPLICANT_ROLE,
+    roleId: null,
     grantedByUserId: null,
     grantReason: 'VERIFIED_APPLICANT_SIGNUP',
     grantedAt: createdAt,
@@ -445,9 +485,12 @@ export const verifyApplicantSignup = async (
     return failure(INVALID_CHALLENGE_MESSAGE)
   }
 
-  // APPLICANT is the only grant this transition creates, so the roles are known
-  // without querying them back.
-  return success(toAuthUser(newUser, [APPLICANT_ROLE]))
+  /*
+   * APPLICANT is the only grant this transition creates, so the authority is
+   * known without querying it back — and it carries no catalogue permission,
+   * because applying for funding is not a staff act.
+   */
+  return success(toAuthUser(newUser, { roles: [APPLICANT_ROLE], permissions: [] }))
 }
 
 /** Records a credential or guarded-write failure without copying its cause. */
@@ -481,6 +524,7 @@ const attemptFirstSuperAdminGrant = (
     id: crypto.randomUUID(),
     userId: candidate.id,
     role: FIRST_SUPER_ADMIN_ROLE,
+    roleId: null,
     // Authority comes from trusted bootstrap configuration rather than another
     // portal user; the audit event still identifies the authenticated candidate.
     grantedByUserId: null,
@@ -684,11 +728,11 @@ export const signIn = async (
   }
   setSessionCookie(context, token)
 
-  // One roles read serves both the identity payload and the caller's view of
-  // what this session may now do.
-  const roles = await findActiveUserRoles(context.db, user.id)
+  // One authority read serves both the identity payload and the caller's view
+  // of what this session may now do.
+  const authority = await findUserAuthority(context.db, user.id)
   return success({
-    user: toAuthUser(user, roles),
+    user: toAuthUser(user, { ...authority, permissions: permissionsOf(authority) }),
     session: toAuthSession(session, session.id),
   })
 }
@@ -700,10 +744,10 @@ export const currentSession = async (
   const current = await getCurrentSession(context)
   if (!current) return { success: true, message: null, response: null }
 
-  // Roles already arrived live from the session lookup's grant join; re-reading
-  // them here would cost a second round trip for the same answer.
+  // Authority already arrived live from the session lookup; re-reading it here
+  // would cost a second round trip for the same answer.
   return success({
-    user: toAuthUser(current.user, current.roles),
+    user: toAuthUser(current.user, current),
     session: toAuthSession(current.session, current.session.id),
   })
 }

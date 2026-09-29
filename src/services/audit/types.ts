@@ -21,7 +21,6 @@ import type { Loaders } from '../../loaders'
 // Re-exported because the operation contexts below name it.
 export type { Loaders } from '../../loaders'
 import type { Database } from '../../db'
-import type { UserRole } from '../../db/schema'
 
 export type AuditOperationContext = {
   db: Database
@@ -50,7 +49,7 @@ export type AuditFilters = {
   first: number
   after: { timestamp: Date; id: string } | null
   actorUserIds?: readonly string[] | null
-  actorRole?: UserRole | null
+  actorRole?: string | null
   applicationId?: string | null
   entityType?: string | null
   action?: readonly string[] | null
@@ -75,7 +74,7 @@ export type AuditFilters = {
 export type AuditActor = {
   id: string
   email: string
-  roles: UserRole[]
+  roles: string[]
 }
 
 export type AuditEvent = {

@@ -110,18 +110,26 @@ test.describe('what the documents say', () => {
     await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
     await page.getByRole('button', { name: 'Complete the review' }).click()
 
-    // Refused, and it says which number and which file — a reviewer cannot
-    // judge a match without being able to go and look.
-    await expect(page.getByText(/already recorded against/u)).toBeVisible()
+    /*
+     * Refused, and it says which number and which file — a reviewer cannot
+     * judge a match without being able to go and look.
+     *
+     * Scoped to the dialog, which is where the reviewer is. The screen keeps
+     * its inline copy of the form behind the open one, so the refusal is in
+     * the document twice and a page-wide match is ambiguous rather than
+     * absent.
+     */
+    const review = page.getByRole('dialog')
+    await expect(review.getByText(/already recorded against/u)).toBeVisible()
     await expect(
-      page.getByText(/Scheduled Tribe certificate number is already recorded/u),
+      review.getByText(/Scheduled Tribe certificate number is already recorded/u),
     ).toBeVisible()
 
     /*
      * And the way through appears: a match is a question. Answering it is
      * allowed, and the answer is kept beside the number that raised it.
      */
-    const reason = page.getByLabel('Why this is not the same claim')
+    const reason = review.getByLabel('Why this is not the same claim')
     await expect(reason).toBeVisible()
     await reason.fill('Second-phase expansion by the same promoter.')
     await page.getByRole('button', { name: 'Next: Outcome' }).click()

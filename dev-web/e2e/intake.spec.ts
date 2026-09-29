@@ -160,12 +160,12 @@ test.describe('access', () => {
     await page.goto(`/admin/access?email=${encodeURIComponent(colleague)}`)
     await expect(page.getByRole('heading', { name: colleague })).toBeVisible()
 
-    await page.getByLabel('Role').selectOption('ADMIN')
+    await page.getByLabel('Role').selectOption('PROGRAMME_OFFICER')
     await page.getByLabel('Why they should have it').fill('Joining the desk review team.')
     await page.getByLabel('Your password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Grant it' }).click()
 
-    await expect(page.getByText('Admin granted.')).toBeVisible()
+    await expect(page.getByText('Programme officer granted.')).toBeVisible()
     await expect(
       page.getByRole('row').filter({ hasText: 'Joining the desk review team.' }),
     ).toBeVisible()
@@ -178,7 +178,7 @@ test.describe('access', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
 
     await page.goto(`/admin/access?email=${encodeURIComponent(colleague)}`)
-    await page.getByLabel('Role').selectOption('ADMIN')
+    await page.getByLabel('Role').selectOption('PROGRAMME_OFFICER')
     await page.getByLabel('Why they should have it').fill('Should not go through.')
     await page.getByLabel('Your password').fill('not the right password')
     await page.getByRole('button', { name: 'Grant it' }).click()
@@ -196,11 +196,11 @@ test.describe('access', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
 
     await page.goto(`/admin/access?email=${encodeURIComponent(colleague)}`)
-    await page.getByLabel('Role').selectOption('ADMIN')
+    await page.getByLabel('Role').selectOption('PROGRAMME_OFFICER')
     await page.getByLabel('Why they should have it').fill('Temporary cover.')
     await page.getByLabel('Your password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Grant it' }).click()
-    await expect(page.getByText('Admin granted.')).toBeVisible()
+    await expect(page.getByText('Programme officer granted.')).toBeVisible()
 
     await page.getByRole('button', { name: 'Revoke' }).click()
     await page.getByLabel(/Why revoke/u).fill('Cover has ended.')

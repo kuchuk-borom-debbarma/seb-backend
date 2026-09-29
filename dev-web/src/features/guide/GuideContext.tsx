@@ -9,6 +9,7 @@
  * phone call — and coming back to step one every time would make the guide
  * something to endure rather than use.
  */
+import type { Permission } from '#/lib/session'
 import { useLocation, useNavigate } from '@tanstack/react-router'
 import {
   createContext,
@@ -19,7 +20,6 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { Capability, UserRole } from '#/graphql/generated/schema'
 import { NOTHING_HELD, heldFrom, resolve, type Held } from './heldFile'
 import { canWalk, tourById, type Tour, type TourStep } from './tours'
 
@@ -98,12 +98,12 @@ const readSaved = (walker: Walker): Position | null => {
 }
 
 /*
- * Roles and capabilities both: a tour is offered on the capability the office
- * itself is gated on, so a reviewer and an approver are offered the office
- * tours rather than only an administrator.
+ * Roles and permissions both: a tour is offered on the permission its screen is
+ * gated on, so whoever can reach a screen is offered the tour of it — whatever
+ * the role that carries them there is called.
  */
 type Walker =
-  { roles: readonly UserRole[]; capabilities: readonly Capability[] } | undefined
+  { roles: readonly string[]; permissions: readonly Permission[] } | undefined
 
 export function GuideProvider({ children, user }: { children: ReactNode; user: Walker }) {
   const navigate = useNavigate()

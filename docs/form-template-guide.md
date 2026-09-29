@@ -29,8 +29,8 @@ question it answers, a document slot names the `FILE` question it satisfies,
 a revision request names a stage, and a document cannot be a foreign-key
 target.
 
-Editing the form is `CYCLE_ADMIN` work, which only a super administrator
-holds, and it is possible **only while the cycle is a draft**. Once a cycle
+Editing the form needs `form_template`/`update`, and it is possible **only
+while the cycle is a draft**. Once a cycle
 opens, its questions are frozen with everything else; asking differently means
 a new cycle version. Every application pins the cycle version it started
 under, so:
@@ -332,9 +332,9 @@ Nine mutations under `mutation.admin.formTemplate`
 | `addQuestion`, `updateQuestion`, `removeQuestion` | one field, its options and its conditions |
 | `putGroupDefinition`, `removeGroupDefinition` | one reusable structure |
 
-All nine funnel through one editing path: `CYCLE_ADMIN`, a required change
-reason, **draft cycles only** (*"A cycle's questions can only be changed while
-it is a draft."*), then structures expand, and then the **entire** form —
+All nine funnel through one editing path: `form_template`/`update`, a required
+change reason, **draft cycles only** (*"A cycle's questions can only be changed
+while it is a draft."*), then structures expand, and then the **entire** form —
 never just the changed part — is re-checked by `formTemplateProblem`
 (`src/services/admin/form-template-input.ts`). A template goes in; either a
 template comes out or one refusal sentence does, naming the question to fix.

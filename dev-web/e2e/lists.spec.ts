@@ -158,7 +158,18 @@ test.describe('the cycle list', () => {
     await page.getByLabel('Code starts with').fill(code.slice(0, 5))
     await expect(page.getByRole('cell', { name: code })).toBeVisible()
 
-    await page.getByLabel('Programme year').fill('2000')
+    /*
+     * The year is a fixed list of five, not a free field — `YEAR_OPTIONS` on
+     * the screen offers next year through three years back, because a cycle
+     * outside that range is not a thing the office has. This typed `2000` into
+     * it, which a `<select>` refuses outright.
+     *
+     * Three years back rather than an arbitrary year: it is on the list, and
+     * every helper here opens its cycle in the current one, so nothing matches
+     * it — which is the property being asserted.
+     */
+    const emptyYear = String(new Date().getFullYear() - 3)
+    await page.getByLabel('Programme year').selectOption(emptyYear)
     await expect(page.getByText('Nothing matches')).toBeVisible()
   })
 })

@@ -45,7 +45,8 @@ export const uploadPolicyDocument = async (page: Page): Promise<void> => {
   await page.reload()
 }
 
-export const WORKER_URL = 'http://localhost:9899'
+export const WORKER_URL =
+  `http://localhost:${process.env.SEB_E2E_WORKER_PORT ?? 9899}`
 const WORKER_LOG = new URL('../.playwright/worker.log', import.meta.url).pathname
 
 /** The password every seeded account uses. Long enough for the signup policy. */
@@ -297,6 +298,36 @@ export const registerEnterprise = async (
  * Every step goes through the product's own screens, so a test that uses this
  * is still exercising signup, enterprise registration and application start.
  */
+/**
+ * Picks the cycle an application is being started in, by code.
+ *
+ * **By code, never by position.** The suite shares one database, so by the time
+ * any of this runs there are other open cycles — some requiring documents —
+ * and the options are ordered by `opensAt` while every helper opens its cycle
+ * at "an hour ago". Taking the second option quietly applied another cycle's
+ * policy, and only worked while the files happened to run in one order.
+ *
+ * **And it copes with there being only one.** With a single open cycle the
+ * screen picks it and disables the control: there is no choice to make, and
+ * offering one would be theatre. A disabled `<select>` cannot be acted on, so
+ * this asserts the right cycle is already chosen instead. That state is the
+ * ordinary one for a fresh deployment, and while this was two copies of the
+ * same code with the fix in one of them, every spec that started an
+ * application depended on some other spec having opened a second cycle first.
+ */
+export const chooseProgrammeCycle = async (
+  page: Page,
+  cycleCode: string,
+): Promise<void> => {
+  const cycle = page.getByLabel('Programme cycle')
+  const label = await cycle.locator('option').filter({ hasText: cycleCode }).innerText()
+  if (await cycle.isDisabled()) {
+    expect(await cycle.locator('option:checked').innerText()).toBe(label)
+    return
+  }
+  await cycle.selectOption({ label })
+}
+
 export const startApplication = async (
   page: Page,
   {
@@ -318,20 +349,9 @@ export const startApplication = async (
   if (await enterpriseSelect.isEnabled()) {
     await enterpriseSelect.selectOption({ label: businessName })
   }
-  /*
-   * By code, never by position, and `cycleCode` is required so there is no way
-   * back to position.
-   *
-   * The options are ordered by `opensAt`, and every helper opens its cycle at
-   * "an hour ago" — so index 1 is the oldest still-open cycle in the whole
-   * database, never the one the caller just made. Selecting it worked only
-   * because the files needing a document-requiring cycle happened to run before
-   * the ones that open cycles without documents, and under parallel files not
-   * even that. `submitApplication` selects by code for the same reason.
-   */
-  const cycle = page.getByLabel('Programme cycle')
-  const label = await cycle.locator('option').filter({ hasText: cycleCode }).innerText()
-  await cycle.selectOption({ label })
+  // `cycleCode` is required, so there is no way back to picking by position.
+  // Why that matters is on `chooseProgrammeCycle`.
+  await chooseProgrammeCycle(page, cycleCode)
   await page.getByRole('button', { name: 'Next' }).click()
   await page.getByRole('radio', { name: 'Initial application' }).check()
   await page.getByRole('button', { name: 'Start an initial application' }).click()
@@ -389,18 +409,7 @@ export const submitApplication = async (
   if (await enterpriseSelect.isEnabled()) {
     await enterpriseSelect.selectOption({ label: businessName })
   }
-  /*
-   * By code, not by position. The suite shares one database, so by the time
-   * this runs there are other open cycles — ones that do require documents —
-   * and picking the second option in the list would quietly apply the wrong
-   * policy.
-   */
-  const cycleOption = await page
-    .getByLabel('Programme cycle')
-    .locator('option')
-    .filter({ hasText: cycleCode })
-    .innerText()
-  await page.getByLabel('Programme cycle').selectOption({ label: cycleOption })
+  await chooseProgrammeCycle(page, cycleCode)
   await page.getByRole('button', { name: 'Next' }).click()
   await page.getByRole('radio', { name: 'Initial application' }).check()
   await page.getByRole('button', { name: 'Start an initial application' }).click()
@@ -716,10 +725,124 @@ export const latestInviteLink = async (recipient: string): Promise<string> => {
  * The whole flow, because it is the only way to become staff: there is no
  * seeded reviewer to borrow, which is the point of the invitation existing.
  */
-export const inviteSomebodyTo = async (
+/**
+ * The roles the office composes for itself before any spec runs.
+ *
+ * Authority is data, so a deployment starts with none of these — the six fixed
+ * roles they replace no longer exist. Composed by `seed.setup.ts` through the
+ * product's own screens, then granted or offered by the specs.
+ */
+export const OFFICE_ROLES = [
+  {
+    key: 'CASEWORK_READER',
+    name: 'Casework reader',
+    description: 'Reads every casework screen and changes nothing.',
+    /*
+     * Reads only. Reading a file and working it are different jobs, and
+     * somebody preparing a case needs the first without the second — so this
+     * role holds no `note` and no `review`, and the screens draw no control it
+     * cannot use.
+     *
+     * Deliberately nothing that draws the Administration section of the
+     * navigation either: the cycle rules they judge against arrive inside the
+     * workspace, so they need no separate way in, and a heading leading only to
+     * screens somebody has no business on is noise.
+     */
+    permissions: [
+      ['application', 'read'], ['policy_document', 'read'],
+      ['funding', 'read'], ['recovery', 'read'],
+    ],
+  },
+  {
+    key: 'PROGRAMME_OFFICER',
+    name: 'Programme officer',
+    description: 'The whole operational workflow, short of shaping the programme.',
+    permissions: [
+      ['application', 'read'], ['application', 'note'], ['application', 'review'],
+      ['application', 'refer'], ['decision', 'record'], ['decision', 'correct'],
+      ['funding', 'read'], ['funding', 'award'], ['funding', 'release'],
+      ['funding', 'reverse'], ['funding', 'assess'],
+      ['recovery', 'read'], ['recovery', 'open'], ['recovery', 'record'],
+      ['recovery', 'cancel'], ['recovery', 'close'],
+      ['programme_cycle', 'read'], ['policy_document', 'read'],
+      ['analytics', 'read'], ['user', 'read'], ['role', 'read'], ['role', 'invite'],
+    ],
+  },
+  {
+    key: 'DECISION_APPROVER',
+    name: 'Decision approver',
+    description: 'Reads casework and records the programme decision.',
+    /*
+     * Casework and the verdict, and nothing that governs the office itself —
+     * the point of the role is that deciding and administering are separable.
+     */
+    permissions: [
+      ['application', 'read'], ['policy_document', 'read'],
+      ['decision', 'record'], ['decision', 'correct'],
+    ],
+  },
+  {
+    key: 'BANNER_EDITOR',
+    name: 'Announcer',
+    description: 'Writes the public announcement banner, and nothing else.',
+    permissions: [
+      ['announcement', 'read'], ['announcement', 'create'], ['announcement', 'update'],
+      ['announcement', 'publish'], ['announcement', 'remove'], ['announcement', 'reorder'],
+    ],
+  },
+] as const
+
+/**
+ * Composes one role through the screens that compose one.
+ *
+ * Two acts, as the product has them: naming it, then choosing what it may do.
+ * The second takes the operator's password, because it moves what every holder
+ * may do the moment it lands.
+ */
+export type ComposableRole = {
+  key: string
+  name: string
+  description: string
+  permissions: readonly (readonly [resource: string, action: string])[]
+}
+
+export const composeRole = async (
   page: Page,
-  role: 'Reviewer' | 'Approver' | 'Announcer',
-) => {
+  role: ComposableRole,
+): Promise<void> => {
+  await page.goto('/admin/roles/new')
+  await page.getByLabel('What the office calls it').fill(role.name)
+  await page.getByLabel('Key').fill(role.key)
+  await page.getByLabel('What it is for').fill(role.description)
+  await page.getByRole('button', { name: 'Compose the role' }).click()
+  await expect(page).toHaveURL(new RegExp(`/admin/roles/${role.key}$`, 'u'))
+
+  for (const [resource, action] of role.permissions) {
+    await page
+      .getByRole('group', { name: humanReadable(resource) })
+      .getByRole('checkbox', { name: new RegExp(`^${humanReadable(action)}`, 'u') })
+      .check()
+  }
+  await page.getByLabel('Your password').fill(PASSWORD)
+  await page.getByRole('button', { name: 'Save what it may do' }).click()
+  await expect(page.getByRole('button', { name: 'Save what it may do' })).toBeDisabled()
+}
+
+/** `programme_cycle` → "Programme cycle", as the editor renders it. */
+const humanReadable = (key: string): string =>
+  key.replace(/_/gu, ' ').replace(/^./u, (first) => first.toUpperCase())
+
+/**
+ * Invites somebody to a role and has them accept it.
+ *
+ * Accepting *exchanges* their applicant access for the role, so this is the way
+ * to produce a staff-only account — one that signs in to the office rather than
+ * to the applicant portal. A direct grant adds instead, leaving them both.
+ *
+ * Takes any composed role's key, not only the seeded ones, so a test can
+ * compose the narrowest role it wants to exercise.
+ */
+export const inviteSomebodyTo = async (page: Page, role: string) => {
   const email = uniqueEmail('invited')
   // Signup deliberately creates no session, so there is nobody to sign out.
   await signUpApplicant(page, email)
@@ -731,7 +854,7 @@ export const inviteSomebodyTo = async (
   await expect(page.getByRole('heading', { name: email })).toBeVisible()
   // Selected by value rather than label, because the labels carry a
   // description after the role name.
-  await page.getByLabel('Invite them to be').selectOption(role.toUpperCase())
+  await page.getByLabel('Invite them to be').selectOption(role)
   await page.getByLabel('Why').fill('Joining the intake team')
   await page.getByRole('button', { name: 'Send the invitation' }).click()
   await expect(page.getByText(`Invitation sent to ${email}`)).toBeVisible()

@@ -15,16 +15,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDatabase, freshDatabase, resetDatabase } from '../support/harness'
 import { env, SELF } from '../support/worker'
-import {
-  attachEvidence,
-  graphql,
-  openCycle,
-  saveAnswers,
-  signIn,
-  startApplication,
-  createEnterprise,
-  submitApplication,
-} from '../support/api'
+import { attachEvidence, createEnterprise, everyPermission, graphql, openCycle, saveAnswers, signIn, startApplication, submitApplication } from '../support/api'
 import { completeAnswers } from '../support/form'
 
 beforeAll(async () => { await freshDatabase() })
@@ -34,8 +25,8 @@ afterAll(async () => { await closeDatabase() })
 type Saved = { applicationId: string; cookie: string; userId: string; cycleId: string }
 
 const draft = async (): Promise<Saved> => {
-  const administrator = await signIn(['SUPER_ADMIN'])
-  const applicant = await signIn(['APPLICANT'])
+  const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
+  const applicant = await signIn({ roles: ['APPLICANT'] })
   const cycle = await openCycle(administrator.cookie)
   const enterpriseId = await createEnterprise(applicant.cookie)
   const applicationId = await startApplication(applicant.cookie, enterpriseId, cycle.id)
@@ -226,7 +217,7 @@ describe('an answer to a question the form is not asking', () => {
     ).bind(saved.applicationId).first<{ version: number; statusVersion: number }>())!
     await submitApplication(saved.cookie, saved.applicationId, head)
 
-    const officer = await signIn(['ADMIN'])
+    const officer = await signIn({ permissions: everyPermission() })
     const workspace = await graphql<any>(`query($id: ID!) { admin { intake { workspace(applicationId: $id) {
       success response { snapshots { version answers } }
     } } } }`, { id: saved.applicationId }, officer.cookie)
@@ -257,7 +248,7 @@ describe('an answer to a question the form is not asking', () => {
     ).bind(saved.applicationId).first<{ version: number; statusVersion: number }>())!
     await submitApplication(saved.cookie, saved.applicationId, head)
 
-    const officer = await signIn(['ADMIN'])
+    const officer = await signIn({ permissions: everyPermission() })
     const workspace = await graphql<any>(`query($id: ID!) { admin { intake { workspace(applicationId: $id) {
       response { snapshots { answers } }
     } } } }`, { id: saved.applicationId }, officer.cookie)

@@ -32,17 +32,7 @@ import { adminResolvers } from '../../src/graphql/resolvers/admin/admin'
 
 import { batch } from '../../src/db'
 import { completeAnswers, defaultTemplate } from '../support/form'
-import {
-  attachEvidence,
-  emptyFormTemplate,
-  recordScan,
-  graphql,
-  openCycle,
-  seedPolicyDocument,
-  signIn,
-  submittedApplication,
-  testPolicy,
-} from '../support/api'
+import { attachEvidence, emptyFormTemplate, everyPermission, everyReadPermission, graphql, openCycle, permissionsOn, recordScan, seedPolicyDocument, signIn, submittedApplication, testPolicy } from '../support/api'
 import {
   activeDatabase,
   closeDatabase,
@@ -275,7 +265,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('loads live administrative roles and rejects applicants safely', async () => {
-    const applicant = await signIn(['APPLICANT'])
+    const applicant = await signIn({ roles: ['APPLICANT'] })
     const denied = await graphql<{
       admin: { programmeCycle: { list: { success: boolean; message: string } } }
     }>('query { admin { programmeCycle { list { success message } } } }', {}, applicant.cookie)
@@ -284,15 +274,17 @@ describe('Mission SEP administration', () => {
       message: 'You do not have permission to do that.',
     })
 
-    const administrator = await signIn(['ADMIN'])
+    const administrator = await signIn({ permissions: everyPermission() })
     const allowed = await graphql<{
       admin: { programmeCycle: { list: { success: boolean } } }
     }>('query { admin { programmeCycle { list { success } } } }', {}, administrator.cookie)
     expect(allowed.data?.admin.programmeCycle.list.success).toBe(true)
 
+    // Revoking their one composed role: authority is read live, so the very
+    // next request is refused.
     await env.DB.prepare(
       `UPDATE core_user_role_grant SET revoked_at = ?, revocation_reason = 'TEST'
-       WHERE user_id = ? AND role = 'ADMIN' AND revoked_at IS NULL`,
+       WHERE user_id = ? AND role_id IS NOT NULL AND revoked_at IS NULL`,
     ).bind(Date.now(), administrator.userId).run()
     const revoked = await graphql<{
       admin: { programmeCycle: { list: { success: boolean; message: string } } }
@@ -323,7 +315,7 @@ describe('Mission SEP administration', () => {
      * administrator could open any document at all, and the review workflow
      * could not be demonstrated. This walks the gate from shut to open.
      */
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     // Exactly what finalization leaves behind: a request to scan, no verdict.
     const { applicationId, pins } = await submittedApplication(
@@ -381,7 +373,7 @@ describe('Mission SEP administration', () => {
      * Distinct from `GONE` on purpose: the row is there, so this is deferred
      * rather than settled, and the consumer retries it.
      */
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const { documents } = await submittedApplication(
       administrator.cookie, administrator.userId, cycle.id, { scan: 'NONE' },
@@ -403,7 +395,7 @@ describe('Mission SEP administration', () => {
      * its assignee holds, which is the bug the audit query already had to
      * avoid.
      */
-    const administrator = await signIn(['APPLICANT', 'REVIEWER', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'], permissions: everyReadPermission() })
     const cycle = await openCycle(administrator.cookie)
     const { applicationId } = await submittedApplication(
       administrator.cookie, administrator.userId, cycle.id,
@@ -442,8 +434,14 @@ describe('Mission SEP administration', () => {
       id: administrator.userId,
       email: `${administrator.userId}@example.test`,
     })
-    // Three roles, still one row: folded rather than joined.
-    expect(after[0]?.assignedTo?.roles.sort()).toEqual(['APPLICANT', 'REVIEWER', 'SUPER_ADMIN'])
+    /*
+     * Three authorities, still one row: folded rather than joined. The fixture
+     * grants two decided in code and one composed role, which is the shape a
+     * join would have duplicated.
+     */
+    const held = after[0]?.assignedTo?.roles ?? []
+    expect(held).toHaveLength(3)
+    expect(held).toEqual(expect.arrayContaining(['APPLICANT', 'SUPER_ADMIN']))
     expect(after).toHaveLength(1)
 
   })
@@ -465,7 +463,7 @@ describe('Mission SEP administration', () => {
        * same desk review at the same moment must produce one completion and
        * one stale refusal, exactly as two takeover attempts used to.
        */
-      const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+      const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
       const cycle = await openCycle(administrator.cookie)
       const submitted = await submittedApplication(
         administrator.cookie, administrator.userId, cycle.id,
@@ -513,7 +511,7 @@ describe('Mission SEP administration', () => {
        * disclosure**, so the permission and the disclosure have to travel
        * together.
        */
-      const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+      const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
       const cycle = await openCycle(administrator.cookie)
       const submitted = await submittedApplication(
         administrator.cookie, administrator.userId, cycle.id,
@@ -601,8 +599,8 @@ describe('Mission SEP administration', () => {
        * that are not self-reviews — a column set on every row would say
        * nothing, and neither would an audit action written every time.
        */
-      const officer = await signIn(['SUPER_ADMIN'])
-      const applicant = await signIn(['APPLICANT'])
+      const officer = await signIn({ roles: ['SUPER_ADMIN'] })
+      const applicant = await signIn({ roles: ['APPLICANT'] })
       const cycle = await openCycle(officer.cookie)
       const submitted = await submittedApplication(
         applicant.cookie, applicant.userId, cycle.id,
@@ -653,7 +651,7 @@ describe('Mission SEP administration', () => {
        * ownership, and a reviewer cannot claim — so the role that exists to
        * read casework could never open a single piece of evidence.
        */
-      const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+      const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
       const cycle = await openCycle(administrator.cookie)
       const submitted = await submittedApplication(
         administrator.cookie, administrator.userId, cycle.id,
@@ -661,7 +659,7 @@ describe('Mission SEP administration', () => {
       const { submissionDocumentId } = submitted.pins.DPR!
 
       // A reviewer, who cannot write anything and never reserved this.
-      const reviewer = await signIn(['REVIEWER'])
+      const reviewer = await signIn({ permissions: everyReadPermission() })
       const download = await graphql<{
         admin: { intake: { documentDownloadUrl: {
           success: boolean; message: string | null
@@ -697,7 +695,7 @@ describe('Mission SEP administration', () => {
     }) { success message } } } }`
 
     it('lets a reviewer read, and refuses every write', async () => {
-      const reviewer = await signIn(['REVIEWER'])
+      const reviewer = await signIn({ permissions: everyReadPermission() })
       const read = await graphql<{
         admin: { programmeCycle: { list: { success: boolean } } }
       }>(READ, {}, reviewer.cookie)
@@ -710,7 +708,7 @@ describe('Mission SEP administration', () => {
     })
 
     it('lets an approver decide, and nothing else that writes', async () => {
-      const approver = await signIn(['APPROVER'])
+      const approver = await signIn({ permissions: [...everyReadPermission(), ...permissionsOn('decision')] })
       const read = await graphql<{
         admin: { programmeCycle: { list: { success: boolean } } }
       }>(READ, {}, approver.cookie)
@@ -725,16 +723,21 @@ describe('Mission SEP administration', () => {
       expect(await messageOf(DECIDE, approver.cookie)).not.toBe(DENIED)
     })
 
-    it('gives an administrator every staff capability', async () => {
-      const administrator = await signIn(['ADMIN'])
+    it('gives somebody holding every casework permission all of casework', async () => {
+      const administrator = await signIn({
+        // Everything a caseworker does, and nothing that shapes the programme.
+        permissions: everyPermission()
+          .filter(([resource, action]) =>
+            resource !== 'programme_cycle' || action === 'read'),
+      })
       for (const query of [WRITE, DECIDE]) {
         expect(await messageOf(query, administrator.cookie)).not.toBe(DENIED)
       }
 
       /*
-       * Every *casework* capability, that is. Creating a cycle rewrites the
-       * programme's own rulebook, which is `CYCLE_ADMIN` and reserved for the
-       * super-administrator — the one staff thing an administrator cannot do.
+       * Every *casework* permission, that is. Creating a cycle rewrites the
+       * programme's own rulebook, which is its own pair and has to be granted
+       * deliberately rather than arriving with the casework set.
        */
       const CREATE_CYCLE = `mutation { admin { programmeCycle { create(input: {
         cycleCode: "SEP-GATE", displayName: "Gate probe", cycleYear: 2026,
@@ -766,32 +769,39 @@ describe('Mission SEP administration', () => {
 
       // Not staff at all: refused by the capability, never told whether the
       // application is real.
-      const applicant = await signIn(['APPLICANT'])
+      const applicant = await signIn({ roles: ['APPLICANT'] })
       expect(await messageOf(READ_DOCUMENT, applicant.cookie)).toBe(DENIED)
 
       /*
-       * Every staff role reaches past the gate and lands on the business
-       * refusal instead. A reviewer getting the same answer as an
-       * administrator is the whole point: reading casework is the job.
+       * Anybody holding `application`/`read` reaches past the gate and lands on
+       * the business refusal instead, whatever else they hold. Somebody who may
+       * only read getting the same answer as somebody who may do everything is
+       * the whole point: reading casework is the job.
        */
-      for (const roles of [['REVIEWER'], ['APPROVER'], ['ADMIN']]) {
-        const caller = await signIn(roles as Array<'REVIEWER' | 'APPROVER' | 'ADMIN'>)
-        expect(await messageOf(READ_DOCUMENT, caller.cookie), roles.join())
+      const readers = [
+        { what: 'reads only', permissions: everyReadPermission() },
+        { what: 'reads and decides', permissions: [...everyReadPermission(), ...permissionsOn('decision')] },
+        { what: 'everything', permissions: everyPermission() },
+      ]
+      for (const { what, permissions } of readers) {
+        const caller = await signIn({ permissions })
+        expect(await messageOf(READ_DOCUMENT, caller.cookie), what)
           .toBe('The application was not found.')
       }
+      expect(readers.length, 'reader cases').toBe(3)
     })
 
-    it('unions the capabilities of somebody holding two roles', async () => {
-      // Holding a role must never subtract one. A reviewer who is also an
-      // approver can do both, and neither role narrows the other.
-      const both = await signIn(['REVIEWER', 'APPROVER'])
+    it('unions the permissions of somebody holding two roles', async () => {
+      // Holding a role must never subtract one. Somebody who may read and
+      // somebody who may decide can do both, and neither narrows the other.
+      const both = await signIn({ permissions: [...everyReadPermission(), ...permissionsOn('decision')] })
       expect(await messageOf(DECIDE, both.cookie)).not.toBe(DENIED)
       expect(await messageOf(WRITE, both.cookie)).toBe(DENIED)
     })
   })
 
   it('creates and opens a complete versioned cycle through GraphQL', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = {
       cycleCode: `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
       displayName: 'Mission SEP 2026 Test',
@@ -849,7 +859,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('versions, publishes, revises, closes, and archives a programme cycle without rewriting policy', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const code = `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`
     const draft = {
       cycleCode: code,
@@ -1006,7 +1016,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('rejects ambiguous, duplicate, and internally inconsistent programme policy', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const base = {
       cycleCode: `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
       displayName: 'Policy validation', cycleYear: 2028,
@@ -1226,7 +1236,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('rejects multiple administrative actions before either executes', async () => {
-    const administrator = await signIn(['ADMIN'])
+    const administrator = await signIn({ permissions: everyPermission() })
     const result = await graphql<unknown>(`mutation {
       admin {
         programmeCycle {
@@ -1239,7 +1249,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('closes only the bounded expired open cycles without inventing an actor', async () => {
-    const administrator = await signIn(['ADMIN'])
+    const administrator = await signIn({ permissions: everyPermission() })
     const now = Date.now()
     const cycleId = crypto.randomUUID()
     const code = `EXP-${cycleId}`
@@ -1368,7 +1378,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('appends trusted scanner results and rejects malformed or unknown callbacks', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const { applicationId, pins } = await submittedApplication(
       administrator.cookie, administrator.userId, cycle.id, { scan: 'PENDING' },
@@ -1437,7 +1447,7 @@ describe('Mission SEP administration', () => {
      * "The record changed. Reload and try again." — advice that cannot work,
      * about a record that had not changed.
      */
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const submitted = await submittedApplication(
       administrator.cookie, administrator.userId, cycle.id,
@@ -1488,7 +1498,7 @@ describe('Mission SEP administration', () => {
    * guidance edit made every picker offer ids the API refused.
    */
   it('serves pinned-version reasons that survive a cycle revision', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const application = await submittedApplication(
       administrator.cookie, administrator.userId, cycle.id,
@@ -1552,7 +1562,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('retains cancelled revisions and replaced bank referrals', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const first = await submittedApplication(administrator.cookie, administrator.userId, cycle.id)
     await graphql<any>(`mutation($input: StartDeskReviewInput!) {
@@ -1670,7 +1680,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('fails intake validation, ownership conflicts, stale writes, and unsafe desk-review transitions safely', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const submitted = await submittedApplication(administrator.cookie, administrator.userId, cycle.id)
     const reference = await env.DB.prepare('SELECT reference_number AS reference FROM seb_application WHERE id = ?')
@@ -1904,7 +1914,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('returns safe envelopes for malformed or stale bank, TTM, award, release, and recovery actions', async () => {
-    const administrator = await signIn(['ADMIN'])
+    const administrator = await signIn({ permissions: everyPermission() })
     const calls = [
       'query { admin { funding { byApplication(applicationId: "missing") { success message } } } }',
       'query { admin { funding { recoveryById(recoveryCaseId: "missing") { success message } } } }',
@@ -1939,7 +1949,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('runs an application through desk review, bank, TTM, award, release, assessment, and recovery', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const submitted = await submittedApplication(
       administrator.cookie, administrator.userId, cycle.id,
@@ -2966,7 +2976,7 @@ describe('Mission SEP administration', () => {
 
     // Another applicant cannot read it, and the refusal is the same one an
     // application that never existed would produce.
-    const otherApplicant = await signIn(['APPLICANT'])
+    const otherApplicant = await signIn({ roles: ['APPLICANT'] })
     const foreignRead = await graphql<any>(`query($id: ID!) {
       seb { application { funding(applicationId: $id) { success message response { award { sanctionOrderNumber } } } } }
     }`, { id: applicationId }, otherApplicant.cookie)
@@ -2976,7 +2986,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('gives administrators a named queue per stage with matching counts', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const first = await submittedApplication(
       administrator.cookie, administrator.userId, cycle.id,
@@ -3094,7 +3104,7 @@ describe('Mission SEP administration', () => {
     expect(countFor(withDraft, 'NEW_SUBMISSIONS')).toBe(0)
     expect(countFor(withDraft, 'DESK_REVIEW')).toBe(1)
 
-    const applicantOnly = await signIn(['APPLICANT'])
+    const applicantOnly = await signIn({ roles: ['APPLICANT'] })
     const refused = await graphql<any>(summaryQuery, { cycleId: null }, applicantOnly.cookie)
     expect(refused.data.admin.intake.queues).toMatchObject({
       success: false, message: 'You do not have permission to do that.',
@@ -3102,7 +3112,7 @@ describe('Mission SEP administration', () => {
   })
 
   it('reports a sanctioned application that has no award yet', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const submitted = await submittedApplication(
       administrator.cookie, administrator.userId, cycle.id,
@@ -3138,7 +3148,7 @@ describe('searching the intake queue and the cycle list', () => {
      * of its way to keep invisible, and soft-deleted applications, in a list
      * whose count claims to describe the filters.
      */
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const submitted = await submittedApplication(
       administrator.cookie, administrator.userId, cycle.id,
@@ -3174,7 +3184,7 @@ describe('searching the intake queue and the cycle list', () => {
 
 
   it('finds an application by the start of its reference or enterprise name', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const submitted = await submittedApplication(
       administrator.cookie, administrator.userId, cycle.id,
@@ -3234,7 +3244,7 @@ describe('searching the intake queue and the cycle list', () => {
   })
 
   it('narrows the cycle list by status, year and code, and refuses a nonsense year', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const [row] = await env.DB.prepare(
       'SELECT cycle_code AS code, cycle_year AS year FROM seb_programme_cycle WHERE id = ?',
@@ -3288,7 +3298,7 @@ describe('what reaches the activity history', () => {
      * against the wrong award and quietly cancelled would otherwise be
      * indistinguishable from one that never existed.
      */
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const caseId = await recoverableCase(administrator, cycle)
 
@@ -3312,7 +3322,7 @@ describe('what reaches the activity history', () => {
      * was writing them, so the trail said a recovery case had simply never
      * existed.
      */
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const submitted = await submittedApplication(
       administrator.cookie, administrator.userId, cycle.id,
@@ -3370,7 +3380,7 @@ describe('what a reviewer read off the documents', () => {
       identifierRules?: unknown[]
     } = {},
   ) => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = options.cycle ?? await openCycle(
       administrator.cookie,
       options.identifierRules ? { identifierRules: options.identifierRules } : undefined,
@@ -3448,7 +3458,7 @@ describe('what a reviewer read off the documents', () => {
      * Silence means the cycle predates these rules, and refusing there would
      * have broken every open cycle on the day this shipped.
      */
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie, {
       identifierRules: [
         // Wanted, but never demanded and never compared.
@@ -3684,7 +3694,7 @@ describe('what a reviewer read off the documents', () => {
      * constraint violation surfaces as "the record changed", which tells
      * somebody editing a cycle nothing about which row is wrong.
      */
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
 
     const repeated = await cycleRefusedFor(administrator.cookie, {
       identifierRules: [
@@ -3746,8 +3756,8 @@ describe('the applicant notification emails', () => {
    * what the mutation sends afterwards.
    */
   const awaitingDecision = async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
-    const applicant = await signIn(['APPLICANT'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
+    const applicant = await signIn({ roles: ['APPLICANT'] })
     const cycle = await openCycle(officer.cookie)
     const submitted = await submittedApplication(
       applicant.cookie, applicant.userId, cycle.id,
@@ -3892,8 +3902,8 @@ describe('the applicant notification emails', () => {
 
   /** A desk review sent back for revision, ready for the mail to be watched. */
   const revisionReviewed = async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
-    const applicant = await signIn(['APPLICANT'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
+    const applicant = await signIn({ roles: ['APPLICANT'] })
     const cycle = await openCycle(officer.cookie)
     const submitted = await submittedApplication(
       applicant.cookie, applicant.userId, cycle.id,
@@ -4028,7 +4038,7 @@ describe('the analytic queue filters', () => {
   }
 
   it('narrows by every multi-value dimension, superseding the single filters', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycleOne = await openCycle(administrator.cookie)
     const cycleTwo = await openCycle(administrator.cookie)
     const established = await submittedProfile({
@@ -4081,7 +4091,7 @@ describe('the analytic queue filters', () => {
   })
 
   it('bounds the requested amount inclusively and the decision date by its range', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const smaller = await submittedProfile({
       cycleId: cycle.id, requestedPaise: 5_000_000,

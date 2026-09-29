@@ -64,7 +64,7 @@ export const issueCyclePolicyUpload = async (
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<UploadAuthorization>> => {
-  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
+  const administrator = await currentStaff(context, 'policy_document', 'upload')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   if (!Number.isInteger(input.expectedDocumentVersion) || input.expectedDocumentVersion < 0) {
     return failure('Expected document version must be a non-negative integer.')
@@ -145,7 +145,7 @@ export const finalizeCyclePolicyUpload = async (
   uploadId: string,
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
+  const administrator = await currentStaff(context, 'policy_document', 'upload')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const intent = await findPolicyUploadIntent(context.db, uploadId)
   if (!intent || intent.status !== 'ISSUED') {
@@ -225,7 +225,7 @@ export const cyclePolicyDownloadUrl = async (
   input: { cycleId: string; version?: number | null },
   context: AdminOperationContext,
 ): Promise<AdminResult<DownloadAuthorization>> => {
-  const administrator = await currentStaff(context, 'STAFF_READ')
+  const administrator = await currentStaff(context, 'policy_document', 'read')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const record = input.version == null
     ? await findCyclePolicyDocument(context.db, input.cycleId)

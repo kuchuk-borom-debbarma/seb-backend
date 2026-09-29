@@ -10,7 +10,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { count, sql } from 'drizzle-orm'
 import { env } from '../support/worker'
-import { graphql, openCycle, signIn } from '../support/api'
+import { everyReadPermission, graphql, openCycle, signIn } from '../support/api'
 import {
   activeDatabase,
   closeDatabase,
@@ -79,7 +79,7 @@ const seedSpread = async (administrator: { cookie: string; userId: string }) => 
 
 describe('the intake analytics summary', () => {
   it('counts one seeded set along every dimension, and sums what was asked for', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const { cycleOne, cycleTwo, established } = await seedSpread(administrator)
 
     const whole = await summary(administrator.cookie)
@@ -140,7 +140,7 @@ describe('the intake analytics summary', () => {
   })
 
   it('answers with no input argument at all, defaulting to no filters', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     // The argument itself is optional, not only its fields.
     const body = await graphql<any>(
       'query { admin { analytics { summary { success response { statuses { status count } } } } } }',
@@ -151,7 +151,7 @@ describe('the intake analytics summary', () => {
   })
 
   it('answers an empty programme with empty dimensions rather than an error', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const empty = await summary(administrator.cookie)
     expect(empty.success).toBe(true)
     expect(empty.response).toEqual({
@@ -162,7 +162,7 @@ describe('the intake analytics summary', () => {
   })
 
   it('refuses the ranges that cannot match anything, naming which one', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     for (const [input, message] of [
       [{ requestedMinPaise: 200, requestedMaxPaise: 100 },
         'The requested amount range is invalid.'],
@@ -183,14 +183,14 @@ describe('the intake analytics summary', () => {
 
   it('opens to anybody holding STAFF_READ and to nobody else', async () => {
     // A reviewer changes nothing and reads everything; the summary is a read.
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     await seedSpread(administrator)
-    const reviewer = await signIn(['REVIEWER'])
+    const reviewer = await signIn({ permissions: everyReadPermission() })
     const allowed = await summary(reviewer.cookie)
     expect(allowed.success).toBe(true)
     expect(allowed.response.statuses).toEqual([{ status: 'SUBMITTED', count: 3 }])
 
-    const applicant = await signIn(['APPLICANT'])
+    const applicant = await signIn({ roles: ['APPLICANT'] })
     const refused = await summary(applicant.cookie)
     expect(refused.success).toBe(false)
     expect(refused.response).toBeNull()
@@ -207,7 +207,7 @@ describe('the analytic predicates against a populated plan', () => {
      * planner accepts a WHERE clause; no business rule is asserted against
      * them.
      */
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const seeded = await submittedProfile({ cycleId: cycle.id, requestedPaise: 7_500_000 })
     const db = activeDatabase()

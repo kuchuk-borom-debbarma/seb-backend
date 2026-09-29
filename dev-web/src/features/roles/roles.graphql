@@ -1,0 +1,94 @@
+fragment RoleFields on Role {
+  id
+  key
+  name
+  description
+  version
+  memberCount
+  permissions {
+    resource
+    action
+  }
+}
+
+query Roles {
+  access {
+    roles {
+      success
+      message
+      response { ...RoleFields }
+    }
+  }
+}
+
+query InvitableRoles {
+  access {
+    invitableRoles {
+      success
+      message
+      response { ...RoleFields }
+    }
+  }
+}
+
+query RoleByKey($key: String!) {
+  access {
+    role(key: $key) {
+      success
+      message
+      response { ...RoleFields }
+    }
+  }
+}
+
+query PermissionCatalogue {
+  access {
+    permissionCatalogue {
+      success
+      message
+      response {
+        resources {
+          resource
+          description
+          actions {
+            action
+            description
+          }
+        }
+      }
+    }
+  }
+}
+
+mutation CreateRole($input: CreateRoleInput!) {
+  access {
+    createRole(input: $input) {
+      success
+      message
+      response { ...RoleFields }
+    }
+  }
+}
+
+mutation UpdateRole($input: UpdateRoleInput!) {
+  access {
+    updateRole(input: $input) {
+      success
+      message
+      response { ...RoleFields }
+    }
+  }
+}
+
+mutation DeleteRole($input: DeleteRoleInput!) {
+  access {
+    deleteRole(input: $input) {
+      success
+      message
+      response {
+        key
+        grantsClosed
+      }
+    }
+  }
+}

@@ -3,10 +3,12 @@
  *
  * The response envelope is shared rather than mirrored — see
  * `services/envelope.ts`. What stays here is what is genuinely this service's:
- * its refusal messages, its audit-record shape, and the rules about what may
- * enter one.
+ * its refusal messages, the audit vocabulary it may write, and the rules about
+ * what may enter a record. The row itself is `services/audit-event.ts`, shared
+ * by every service.
  */
 import type { auditActions } from '../../db/schema'
+import { auditEventRow } from '../audit-event'
 import type { AuditEventRecord } from './queries/auth'
 import type { AuthOperationContext, AuthResult } from './types'
 
@@ -20,14 +22,22 @@ export type AuthAuditAction = (typeof auditActions)[keyof typeof auditActions]
 export type AuthAuditEntityType =
   | 'CORE_USER'
   | 'CORE_USER_ROLE_GRANT'
+  | 'CORE_ROLE'
   | 'CORE_SESSION'
   | 'CORE_SIGNUP_CHALLENGE'
   | 'CORE_ACCOUNT_CHALLENGE'
 
 /**
  * Builds one allow-listed audit record. Callers provide only public IDs and
- * small, explicitly safe metadata objects. Credential-bearing maintenance
- * operations may opt out of caller-controlled request labels entirely.
+ * small, explicitly safe metadata objects.
+ *
+ * The row is `services/audit-event.ts`, shared with every other service. This
+ * service asks the most of it and hides the least: authentication is where a
+ * *refusal* is worth recording — a wrong password, a spent challenge — so
+ * `outcome` stays a caller's choice here, and so does opting out of the
+ * caller-controlled request labels on the credential-bearing maintenance
+ * paths. What this adds is the vocabulary: the actions and entity types this
+ * service may write, and nothing else.
  */
 export const auditEvent = (
   context: AuthOperationContext,
@@ -41,27 +51,7 @@ export const auditEvent = (
     createdAt?: Date
     includeRequestMetadata?: boolean
   },
-): AuditEventRecord => {
-  const includeRequestMetadata = input.includeRequestMetadata ?? true
-  return {
-    id: crypto.randomUUID(),
-    actorUserId: input.actorUserId ?? null,
-    action: input.action,
-    entityType: input.entityType,
-    entityId: input.entityId ?? null,
-    outcome: input.outcome ?? 'SUCCESS',
-    requestId: includeRequestMetadata
-      ? context.requestHeaders.get('CF-Ray') ?? context.requestHeaders.get('X-Request-ID')
-      : null,
-    ipAddress: includeRequestMetadata
-      ? context.requestHeaders.get('CF-Connecting-IP')
-      : null,
-    userAgent: includeRequestMetadata ? context.requestHeaders.get('User-Agent') : null,
-    changesJson: null,
-    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
-    createdAt: input.createdAt ?? new Date(),
-  }
-}
+): AuditEventRecord => auditEventRow(context, input)
 
 /**
  * Normalizes a mandatory administrative reason.

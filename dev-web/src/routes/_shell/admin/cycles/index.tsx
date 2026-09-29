@@ -16,6 +16,7 @@ import type { ProgrammeCycleStatus } from '#/graphql/generated/schema'
 import { formatDate, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import { can } from '#/lib/session'
 import styles from '#/features/admin/Cycles.module.css'
 
 const PAGE_SIZE = 20
@@ -223,6 +224,10 @@ function AdminCyclesPage() {
   const queryClient = useQueryClient()
   const { data } = useQuery(cyclesQuery(search))
   const mark = useMarker()
+  const { user } = Route.useRouteContext()
+  // Restoring a removed draft is `delete` reversed, and the API guards it with
+  // that same pair.
+  const mayRestore = can(user, 'programme_cycle', 'delete')
 
   /**
    * Puts a removed draft back. Only reachable rows are removed ones, which the
@@ -265,14 +270,21 @@ function AdminCyclesPage() {
             returns later for its expansion phase.
           </p>
         </div>
-        <Link
-          to="/admin/cycles/new"
-          className={styles.createCycleButton}
-          {...mark('cycle-list')}
-        >
-          <Plus size={16} aria-hidden="true" />
-          Create a cycle
-        </Link>
+        {/*
+          Creating and restoring are separate permissions from reading the
+          list, so each control asks for its own. A role composed to read
+          cycles was offered both and refused by both.
+        */}
+        {can(user, 'programme_cycle', 'create') ? (
+          <Link
+            to="/admin/cycles/new"
+            className={styles.createCycleButton}
+            {...mark('cycle-list')}
+          >
+            <Plus size={16} aria-hidden="true" />
+            Create a cycle
+          </Link>
+        ) : null}
       </div>
 
       {/* Illustration Banner */}
@@ -467,20 +479,22 @@ function AdminCyclesPage() {
                           // state worth showing is the removal, not "Draft".
                           <span className="row" style={{ gap: '0.5rem' }}>
                             <span className={styles.statusBadge}>Removed</span>
-                            <button
-                              type="button"
-                              className="button"
-                              data-variant="ghost"
-                              disabled={restore.isPending}
-                              onClick={() =>
-                                restore.mutate({
-                                  id: cycle.id,
-                                  currentVersion: cycle.currentVersion,
-                                })
-                              }
-                            >
-                              Restore
-                            </button>
+                            {mayRestore ? (
+                              <button
+                                type="button"
+                                className="button"
+                                data-variant="ghost"
+                                disabled={restore.isPending}
+                                onClick={() =>
+                                  restore.mutate({
+                                    id: cycle.id,
+                                    currentVersion: cycle.currentVersion,
+                                  })
+                                }
+                              >
+                                Restore
+                              </button>
+                            ) : null}
                           </span>
                         ) : (
                           <span

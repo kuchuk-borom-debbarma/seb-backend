@@ -78,7 +78,7 @@ describe('an administrator authoring a cycle’s questions', () => {
    * screen that says only "This page could not be loaded".
    */
   it('serializes every part of the form the client asks for', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const body = await graphql<any>(`query($id: ID!) { admin { programmeCycle { byId(id: $id) {
       response { formTemplate {
@@ -106,9 +106,9 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('serializes the same parts on the applicant’s own query', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const open = await openCycle(officer.cookie)
-    const applicant = await signIn(['APPLICANT'])
+    const applicant = await signIn({ roles: ['APPLICANT'] })
     const enterpriseId = await createEnterprise(applicant.cookie)
     const applicationId = await startApplication(applicant.cookie, enterpriseId, open.id)
     const body = await graphql<any>(`query($id: ID!) { seb { application {
@@ -121,7 +121,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('can read the form back before changing it', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     /*
      * The read is the precondition for all of this: until it existed the only
@@ -132,7 +132,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('adds a question, and it is there afterwards', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const added = await call(officer.cookie, 'addQuestion', {
       scope: {
@@ -151,7 +151,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('refuses a question key the cycle already asks, and says which', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const again = await call(officer.cookie, 'addQuestion', {
       scope: {
@@ -171,7 +171,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('removes a question', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const removed = await call(officer.cookie, 'removeQuestion', {
       scope: {
@@ -194,7 +194,7 @@ describe('an administrator authoring a cycle’s questions', () => {
    * so the refusal names the question that would have been stranded.
    */
   it('refuses to remove a question another question’s rule reads, and names it', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const removed = await call(officer.cookie, 'removeQuestion', {
       scope: {
@@ -211,7 +211,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('adds a stage, and removes one with its questions', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const added = await call(officer.cookie, 'addStage', {
       scope: {
@@ -235,7 +235,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('replaces the whole form at once', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const replaced = await call(officer.cookie, 'replace', {
       scope: {
@@ -262,7 +262,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('refuses a form the engine could not resolve, and says why', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const refused = await call(officer.cookie, 'addQuestion', {
       scope: {
@@ -282,7 +282,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('refuses a stale version rather than overwriting somebody else’s edit', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const scope = {
       programmeCycleId: cycle.id,
@@ -303,7 +303,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('refuses to change the questions of a cycle that is open', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const open = await openCycle(officer.cookie)
     const refused = await call(officer.cookie, 'removeQuestion', {
       scope: {
@@ -325,7 +325,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('renames a stage without disturbing the questions in it', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const renamed = await call(officer.cookie, 'updateStage', {
       scope: {
@@ -348,7 +348,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('refuses to update a stage the cycle does not have, and names it', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     expect(await call(officer.cookie, 'updateStage', {
       scope: {
@@ -364,7 +364,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('refuses to remove a stage the cycle does not have, and names it', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     expect(await call(officer.cookie, 'removeStage', {
       scope: {
@@ -380,7 +380,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('refuses a stage key the cycle already has, and says which', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     expect(await call(officer.cookie, 'addStage', {
       scope: {
@@ -404,7 +404,7 @@ describe('an administrator authoring a cycle’s questions', () => {
    * hand first, in an order they have to work out.
    */
   it('removes a stage that still has questions in it, and takes them along', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const removed = await call(officer.cookie, 'removeStage', {
       scope: {
@@ -426,7 +426,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('changes a question’s wording and its choices together', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const updated = await call(officer.cookie, 'updateQuestion', {
       scope: {
@@ -457,7 +457,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('refuses to update a question the cycle does not ask, and names it', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     expect(await call(officer.cookie, 'updateQuestion', {
       scope: {
@@ -476,7 +476,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('refuses to remove a question the cycle does not ask, and names it', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     expect(await call(officer.cookie, 'removeQuestion', {
       scope: {
@@ -500,7 +500,7 @@ describe('an administrator authoring a cycle’s questions', () => {
    * a change to the form nobody asked for, and one nothing would report.
    */
   it('replaces the rules on a question and leaves the rules that read it', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     const updated = await call(officer.cookie, 'updateQuestion', {
       scope: {
@@ -530,7 +530,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('refuses an edit with no reason', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     /*
      * A cycle's questions are what applicants are judged against, so every
@@ -547,7 +547,7 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('refuses a cycle that is not there', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     expect(await call(officer.cookie, 'removeQuestion', {
       scope: {
         programmeCycleId: crypto.randomUUID(),
@@ -581,7 +581,7 @@ describe('an administrator authoring a cycle’s questions', () => {
    * against what was written.
    */
   it('leaves every other rule of the cycle exactly as it was', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
 
     const storedRules = async () => {
@@ -659,7 +659,7 @@ describe('an administrator authoring a cycle’s questions', () => {
    * anybody choosing to.
    */
   it('reads a cycle’s own rules back, not a client’s defaults', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
 
     const body = await graphql<any>(`query($id: ID!) { admin { programmeCycle { byId(id: $id) {
@@ -695,7 +695,7 @@ describe('an administrator authoring a cycle’s questions', () => {
    * count, a different engine, or a vacuum.
    */
   it('keeps the stages in the order the cycle set them', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
 
     const stageKeys = async () => {
@@ -730,9 +730,9 @@ describe('an administrator authoring a cycle’s questions', () => {
   })
 
   it('is not something an applicant can do', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
-    const applicant = await signIn(['APPLICANT'])
+    const applicant = await signIn({ roles: ['APPLICANT'] })
     const refused = await call(applicant.cookie, 'removeQuestion', {
       scope: {
         programmeCycleId: cycle.id,
@@ -795,7 +795,7 @@ describe('reusable structures, through the API', () => {
   }
 
   it('stores the definition, materialises the members, and round-trips both', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const { cycle } = await withPartners(officer.cookie)
 
     const body = await graphql<any>(`query($id: ID!) { admin { programmeCycle { byId(id: $id) {
@@ -837,7 +837,7 @@ describe('reusable structures, through the API', () => {
   })
 
   it('survives a version bump with its definition intact', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const { cycle, version } = await withPartners(officer.cookie)
     // Any ordinary edit bumps the version and copies every rule table forward.
     const renamed = await call(officer.cookie, 'updateStage', {
@@ -860,7 +860,7 @@ describe('reusable structures, through the API', () => {
   })
 
   it('refuses to remove a structure in use, naming the group', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const { cycle, version } = await withPartners(officer.cookie)
     const refused = await call(officer.cookie, 'removeGroupDefinition', {
       scope: {
@@ -895,7 +895,7 @@ describe('reusable structures, through the API', () => {
   })
 
   it('refuses to remove a structure the cycle never defined, by name', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(officer.cookie)
     expect(await call(officer.cookie, 'removeGroupDefinition', {
       scope: {
@@ -910,7 +910,7 @@ describe('reusable structures, through the API', () => {
   })
 
   it('refuses an edit addressed to a derived member', async () => {
-    const officer = await signIn(['SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['SUPER_ADMIN'] })
     const { cycle, version } = await withPartners(officer.cookie)
     // The derived rows are stripped on the authoring read, so a derived key is
     // simply not a question the editor can name.

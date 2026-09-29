@@ -68,7 +68,10 @@ export function PolicyDocumentCard({
 }: {
   cycleId: string
   document: PolicyDocument | null
-  /** Whether upload/replace is offered: CYCLE_ADMIN, on a draft or open cycle. */
+  /**
+   * Whether upload/replace is offered: `policy_document`/`upload`, on a draft
+   * or open cycle. The same pair the API guards both halves of the upload with.
+   */
   canManage: boolean
   onChanged: () => Promise<void>
 }) {

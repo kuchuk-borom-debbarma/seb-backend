@@ -89,7 +89,7 @@ test.describe('working the same file', () => {
     await page.getByLabel('Their email address').fill(invited)
     await page.getByRole('button', { name: 'Look them up' }).click()
     await expect(page.getByRole('heading', { name: invited })).toBeVisible()
-    await page.getByLabel('Invite them to be').selectOption('ADMIN')
+    await page.getByLabel('Invite them to be').selectOption('PROGRAMME_OFFICER')
     await page.getByLabel('Why').fill('Second officer on intake')
     await page.getByRole('button', { name: 'Send the invitation' }).click()
     const link = await latestInviteLink(invited)
@@ -167,7 +167,15 @@ test.describe('working the same file', () => {
      * claim was mistakenly credited with providing.
      */
     await otherPage.getByRole('button', { name: 'Complete the review' }).click()
-    await expect(otherPage.getByText(/The record changed/u)).toBeVisible()
+    /*
+     * Scoped to the dialog the reviewer is standing in. The screen keeps its
+     * inline copy of the form behind the open one, so the refusal is in the
+     * document twice — a page-wide match resolves to two elements and reads as
+     * "the refusal never came", which is the opposite of what happened.
+     */
+    await expect(
+      otherPage.getByRole('dialog').getByText(/The record changed/u),
+    ).toBeVisible()
 
     // And the screen recovers rather than stranding: reloading shows the state
     // the winner left behind.
@@ -192,7 +200,7 @@ test.describe('a reviewer reading casework', () => {
     await page.goto('/admin/invite')
     await page.getByLabel('Their email address').fill(reviewer)
     await page.getByRole('button', { name: 'Look them up' }).click()
-    await page.getByLabel('Invite them to be').selectOption('REVIEWER')
+    await page.getByLabel('Invite them to be').selectOption('CASEWORK_READER')
     await page.getByLabel('Why').fill('Reading casework')
     await page.getByRole('button', { name: 'Send the invitation' }).click()
     const link = await latestInviteLink(reviewer)

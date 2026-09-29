@@ -40,19 +40,35 @@ afterAll(async () => {
 })
 
 
-const person = async (roles: string[] = ['REVIEWER']) => {
+/**
+ * Somebody holding the composed roles named.
+ *
+ * Roles are rows, so the fixture makes real ones — sharing a row when two
+ * people hold the same key, exactly as the product does.
+ */
+const person = async (roles: string[] = ['DESK_REVIEWER']) => {
   const id = crypto.randomUUID()
   const now = Date.now()
-  await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO core_user (id, email, password_hash, email_verified_at,
-        row_version, created_at, updated_at) VALUES (?, ?, 'x', ?, 1, ?, ?)`,
-    ).bind(id, `${id}@example.test`, now, now, now),
-    ...roles.map((role) => env.DB.prepare(
-      `INSERT INTO core_user_role_grant (id, user_id, role, grant_reason, granted_at)
+  await env.DB.prepare(
+    `INSERT INTO core_user (id, email, password_hash, email_verified_at,
+      row_version, created_at, updated_at) VALUES (?, ?, 'x', ?, 1, ?, ?)`,
+  ).bind(id, `${id}@example.test`, now, now, now).run()
+
+  for (const key of roles) {
+    await env.DB.prepare(
+      `INSERT INTO core_role (id, key, name, description, current_version,
+        created_at, updated_at, created_by_user_id)
+       VALUES (?, ?, ?, 'Composed by the loader suite.', 1, ?, ?, ?)
+       ON CONFLICT (key) DO NOTHING`,
+    ).bind(crypto.randomUUID(), key, key, now, now, id).run()
+    const role = await env.DB.prepare(
+      `SELECT id FROM core_role WHERE key = ?`,
+    ).bind(key).first<{ id: string }>()
+    await env.DB.prepare(
+      `INSERT INTO core_user_role_grant (id, user_id, role_id, grant_reason, granted_at)
        VALUES (?, ?, ?, 'LOADER_TEST', ?)`,
-    ).bind(crypto.randomUUID(), id, role, now)),
-  ])
+    ).bind(crypto.randomUUID(), id, role!.id, now).run()
+  }
   return id
 }
 
@@ -96,16 +112,17 @@ describe('resolving people by id', () => {
   })
 
   it('reports the roles held now, not the ones since revoked', async () => {
-    const id = await person(['REVIEWER', 'APPROVER'])
+    const id = await person(['DESK_REVIEWER', 'DECISION_APPROVER'])
     await env.DB.prepare(
       `UPDATE core_user_role_grant SET revoked_at = ?, revocation_reason = 'TEST'
-       WHERE user_id = ? AND role = 'APPROVER'`,
+       WHERE user_id = ? AND role_id = (
+         SELECT id FROM core_role WHERE key = 'DECISION_APPROVER')`,
     ).bind(Date.now(), id).run()
 
     const loaders = createLoaders(activeDatabase())
     // Revocation closes a grant rather than deleting it, so an unfiltered read
     // would report authority this person no longer has.
-    expect((await loaders.userById.load(id))?.roles).toEqual(['REVIEWER'])
+    expect((await loaders.userById.load(id))?.roles).toEqual(['DESK_REVIEWER'])
   })
 
   it('does not carry one request\'s answers into another', async () => {
@@ -121,14 +138,20 @@ describe('resolving people by id', () => {
     const firstRequest = createLoaders(db)
     expect((await firstRequest.userById.load(id))?.roles).toEqual([])
 
+    const roleId = crypto.randomUUID()
     await env.DB.prepare(
-      `INSERT INTO core_user_role_grant (id, user_id, role, grant_reason, granted_at)
-       VALUES (?, ?, 'ADMIN', 'LOADER_TEST', ?)`,
-    ).bind(crypto.randomUUID(), id, Date.now()).run()
+      `INSERT INTO core_role (id, key, name, description, current_version,
+        created_at, updated_at, created_by_user_id)
+       VALUES (?, 'CASEWORKER', 'Caseworker', 'Works applications.', 1, ?, ?, ?)`,
+    ).bind(roleId, Date.now(), Date.now(), id).run()
+    await env.DB.prepare(
+      `INSERT INTO core_user_role_grant (id, user_id, role_id, grant_reason, granted_at)
+       VALUES (?, ?, ?, 'LOADER_TEST', ?)`,
+    ).bind(crypto.randomUUID(), id, roleId, Date.now()).run()
 
     // Same isolate, same database, a new request: it must see the grant.
     const secondRequest = createLoaders(db)
-    expect((await secondRequest.userById.load(id))?.roles).toEqual(['ADMIN'])
+    expect((await secondRequest.userById.load(id))?.roles).toEqual(['CASEWORKER'])
 
     // And the first request's loader still holds what it read, which is
     // correct — one request is one instant.

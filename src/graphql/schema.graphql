@@ -32,37 +32,6 @@ interface BaseResponse {
   message: String
 }
 
-"""
-A role an account can hold.
-
-Roles are **not ranked**: an approver may record a decision a reviewer may not,
-and neither may open a programme cycle. Ask what somebody *may do* through
-`Capability` rather than matching on role names, which would be a second copy
-of a policy that lives in one place on the server.
-"""
-enum UserRole {
-  """Applies for funding. Created only by verified signup."""
-  APPLICANT
-
-  """Reads every casework screen and changes nothing."""
-  REVIEWER
-
-  """Reads casework, and records and corrects the programme decision."""
-  APPROVER
-
-  """The whole operational workflow. Cannot grant or revoke a role."""
-  ADMIN
-
-  """
-  Writes the public landing page's announcement banner, and nothing else —
-  deliberately no casework access.
-  """
-  ANNOUNCER
-
-  """Everything, including changing what other accounts may do."""
-  SUPER_ADMIN
-}
-
 """How a one-time code reaches the person who asked for it."""
 enum CodeDelivery {
   """Sent to the address by the configured provider. Say "check your inbox"."""
@@ -93,36 +62,25 @@ type StartApplicantSignupResponse {
 }
 
 """
-What the roles held add up to.
+One thing an account may do: an act, on a kind of record.
 
-A screen uses this to decide what to **offer**. It is never what authorizes
-anything — every operation is re-checked by the server, which is what actually
-refuses.
+Held by a role and never by an account directly, so what somebody may do is
+always the union of the roles they hold. Read `access { permissionCatalogue }`
+for every pair this server can enforce, with prose for each.
 """
-enum Capability {
-  """Read casework: queues, workspaces, documents, funding."""
-  STAFF_READ
+type Permission {
+  """
+  Which kind of record — `application`, `announcement`, `programme_cycle` and
+  so on. Lower snake case.
+  """
+  resource: String!
 
-  """Act on casework: desk review, referral, awards, notes."""
-  STAFF_WRITE
-
-  """Create a programme cycle and edit its rules and its application form."""
-  CYCLE_ADMIN
-
-  """Record and correct the programme's decision on an application."""
-  DECIDE
-
-  """Grant and revoke roles directly."""
-  ROLE_ADMIN
-
-  """Invite somebody to a role they accept themselves."""
-  ROLE_INVITE
-
-  """Read the portal's activity history."""
-  AUDIT_READ
-
-  """Publish, edit and order the public announcement banner."""
-  ANNOUNCE
+  """
+  What may be done to it — `read`, `publish`, `award`. The same word means the
+  same thing on every resource that offers it, so `read` is one term to look
+  for when auditing what somebody can see.
+  """
+  action: String!
 }
 
 """
@@ -150,13 +108,24 @@ type User {
   """
   displayName: String
 
-  """Every role held now."""
-  roles: [UserRole!]!
+  """
+  Every authority held now, by name.
+
+  `APPLICANT` and `SUPER_ADMIN` are decided by the server itself; anything else
+  is the key of a role the office composed. A name is for showing somebody who
+  they are — decide what to *offer* from `permissions` instead, because a role's
+  contents can change without its name changing.
+  """
+  roles: [String!]!
 
   """
-  What those roles add up to. Read this rather than matching role names.
+  Everything those roles add up to.
+
+  A screen uses this to decide what to **offer**. It never authorizes anything:
+  every operation is re-checked by the server, which is what actually refuses.
+  A super administrator's list is the whole catalogue.
   """
-  capabilities: [Capability!]!
+  permissions: [Permission!]!
 
   """When the account was created."""
   createdAt: DateTime!

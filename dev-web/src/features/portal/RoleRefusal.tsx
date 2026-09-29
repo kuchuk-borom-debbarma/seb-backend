@@ -14,17 +14,37 @@
  */
 import { Link } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
-import { can, isApplicant, type SignedInUser } from '#/lib/session'
+import { belongsInTheOffice, isApplicant, type SignedInUser } from '#/lib/session'
 import styles from './RoleRefusal.module.css'
 
-/** How a role reads in a sentence, matching the overview screen's vocabulary. */
-const ROLE_NAMES: Record<string, string> = {
-  APPLICANT: 'Applicant',
-  REVIEWER: 'Reviewer',
-  APPROVER: 'Approver',
-  ADMIN: 'Programme officer',
-  ANNOUNCER: 'Announcer',
+/**
+ * The two authorities that are not rows, and so have no name to read.
+ *
+ * This is not the table that was deleted. That one listed the four roles the
+ * office now composes for itself, and went stale the moment somebody composed
+ * another. These two are hardcoded in the API for the same reason they are
+ * written out here: `SUPER_ADMIN` is the wildcard and `APPLICANT` is created
+ * only by verified signup, so neither will ever be a `core_role` anybody can
+ * rename.
+ */
+const BUILT_IN_ROLE_NAMES: Record<string, string> = {
   SUPER_ADMIN: 'Super administrator',
+  APPLICANT: 'Applicant',
+}
+
+/**
+ * How a role reads in a sentence.
+ *
+ * Derived from the key for everything else, because a composed role's name
+ * lives behind `role`/`read` and nobody seeing this screen holds it. Derivation
+ * beats the alternative that was here: every real role fell through to the raw
+ * key, and somebody was told they hold `CASEWORK_READER`.
+ */
+const roleWords = (key: string): string => {
+  const known = BUILT_IN_ROLE_NAMES[key]
+  if (known) return known
+  const words = key.replace(/_/gu, ' ').toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 export function RoleRefusal({
@@ -34,11 +54,15 @@ export function RoleRefusal({
   portal: 'applicant' | 'office'
   user: SignedInUser
 }) {
-  const held = user.roles.map((role) => ROLE_NAMES[role] ?? role)
-  // "Can they use the other portal?" is a capability question on the office
-  // side, because four different roles open it.
+  const held = user.roles.map(roleWords)
+  /*
+   * Asked the way each door asks it. The office side is `belongsInTheOffice`,
+   * not a named permission: somebody holding an announcement-only or audit-only
+   * role beside their applicant grant may cross over, and telling them they
+   * cannot is the door and the navigation disagreeing again.
+   */
   const canCrossOver =
-    portal === 'applicant' ? can(user, 'STAFF_READ') : isApplicant(user)
+    portal === 'applicant' ? belongsInTheOffice(user) : isApplicant(user)
 
   return (
     <main className="page">

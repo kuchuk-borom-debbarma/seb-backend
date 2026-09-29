@@ -13,15 +13,16 @@ import {
   resetDatabase,
 } from '../support/harness'
 import { createLoaders } from '../../src/loaders'
+import { signIn as fixtureSignIn } from '../support/api'
 import { auditActions } from '../../src/db/schema'
 import worker from '../../src/index'
-import { userRoles } from '../../src/db/schema'
-import { capabilities } from '../../src/services/auth/capabilities'
+import { builtinRoles } from '../../src/db/schema'
+import { catalogue } from '../../src/services/auth/permissions'
 import { createDigest, hashPassword, sessionTokenDigest } from '../../src/services/auth/crypto'
 import { sealInvite } from '../../src/services/auth/invite'
 import {
   authenticatedApplicant,
-  authenticatedWithCapability,
+  authenticatedWithPermission,
   bootstrapFirstSuperAdmin,
 } from '../../src/services/auth'
 import {
@@ -369,7 +370,7 @@ const grantRole = async (
     access {
       grantRole(input: {
         userId: "${input.userId}"
-        role: ${input.role}
+        roleKey: "${input.role}"
         reason: "${input.reason ?? 'Joining the programme office'}"
         currentPassword: "${input.password ?? DEFAULT_PASSWORD}"
       }) { ${MANAGED_USER_SELECTION} }
@@ -467,20 +468,65 @@ describe('inviting somebody to a staff role', () => {
   }
 
   /** A session holding exactly the roles given, without going through signup. */
-  const sessionHolding = async (roles: string[]) => {
+  const BUILTIN = new Set(['APPLICANT', 'SUPER_ADMIN'])
+
+  /**
+   * Composes a role, or reuses the row if the key is already taken.
+   *
+   * A key is unique, so two people holding the same role share one row exactly
+   * as they do in the product.
+   */
+  const composeRole = async (
+    key: string,
+    permissions: [string, string][],
+    createdBy: string,
+  ): Promise<string> => {
+    const now = Date.now()
+    await env.DB.prepare(
+      `INSERT INTO core_role (id, key, name, description, current_version,
+        created_at, updated_at, created_by_user_id)
+       VALUES (?, ?, ?, 'Composed by the invitation suite.', 1, ?, ?, ?)
+       ON CONFLICT (key) DO NOTHING`,
+    ).bind(crypto.randomUUID(), key, key, now, now, createdBy).run()
+    const role = await env.DB.prepare(
+      `SELECT id FROM core_role WHERE key = ?`,
+    ).bind(key).first<{ id: string }>()
+    for (const [resource, action] of permissions) {
+      await env.DB.prepare(
+        `INSERT INTO core_role_permission (id, role_id, resource, action, created_at)
+         VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+      ).bind(crypto.randomUUID(), role!.id, resource, action, now).run()
+    }
+    return role!.id
+  }
+
+  const sessionHolding = async (
+    roles: string[],
+    permissions: [string, string][] = [],
+  ) => {
     const userId = crypto.randomUUID()
     const token = crypto.randomUUID()
     const now = Date.now()
     const digest = await sessionTokenDigest(env.AUTH_SECRET!, token)
+    await env.DB.prepare(
+      `INSERT INTO core_user (id, email, password_hash, email_verified_at,
+        row_version, created_at, updated_at) VALUES (?, ?, 'unused', ?, 1, ?, ?)`,
+    ).bind(userId, `${userId}@example.test`, now, now, now).run()
+
+    const composed: string[] = []
+    for (const key of roles.filter((name) => !BUILTIN.has(name))) {
+      composed.push(await composeRole(key, permissions, userId))
+    }
+
     await env.DB.batch([
-      env.DB.prepare(
-        `INSERT INTO core_user (id, email, password_hash, email_verified_at,
-          row_version, created_at, updated_at) VALUES (?, ?, 'unused', ?, 1, ?, ?)`,
-      ).bind(userId, `${userId}@example.test`, now, now, now),
-      ...roles.map((role) => env.DB.prepare(
+      ...roles.filter((role) => BUILTIN.has(role)).map((role) => env.DB.prepare(
         `INSERT INTO core_user_role_grant (id, user_id, role, grant_reason, granted_at)
          VALUES (?, ?, ?, 'INVITE_TEST', ?)`,
       ).bind(crypto.randomUUID(), userId, role, now)),
+      ...composed.map((roleId) => env.DB.prepare(
+        `INSERT INTO core_user_role_grant (id, user_id, role_id, grant_reason, granted_at)
+         VALUES (?, ?, ?, 'INVITE_TEST', ?)`,
+      ).bind(crypto.randomUUID(), userId, roleId, now)),
       env.DB.prepare(
         `INSERT INTO core_session (id, user_id, token_digest, expires_at,
           created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -495,7 +541,7 @@ describe('inviting somebody to a staff role', () => {
       access: { inviteRole: { success: boolean; message: string | null } }
     }>(
       `mutation { access { inviteRole(input: {
-        userId: "${userId}", role: ${role}, reason: "Joining the office"
+        userId: "${userId}", roleKey: "${role}", reason: "Joining the office"
       }) { success message } } }`,
       cookie,
     )
@@ -510,6 +556,28 @@ describe('inviting somebody to a staff role', () => {
     return { result: body.data!.access.inviteRole, token }
   }
 
+  /**
+   * The office's roles, composed before anybody is invited to one.
+   *
+   * Named for what they do rather than reusing the removed fixed-role names —
+   * those keys are reserved by the schema precisely so retained history cannot
+   * confuse a role somebody composed with the one it replaced.
+   */
+  const officeRoles = async (): Promise<void> => {
+    const founder = await sessionHolding(['SUPER_ADMIN'])
+    await composeRole('DESK_REVIEWER', [['application', 'read']], founder.userId)
+    await composeRole(
+      'DECISION_APPROVER',
+      [['application', 'read'], ['decision', 'record']],
+      founder.userId,
+    )
+    await composeRole(
+      'CASEWORKER',
+      [['application', 'read'], ['application', 'review'], ['role', 'invite']],
+      founder.userId,
+    )
+  }
+
   const accept = async (token: string) => {
     const { body } = await graphql<{
       access: { acceptRoleInvite: { success: boolean; message: string | null } }
@@ -519,17 +587,74 @@ describe('inviting somebody to a staff role', () => {
 
   const activeRoles = async (userId: string): Promise<string[]> => {
     const { results } = await env.DB.prepare(
-      `SELECT role FROM core_user_role_grant
-       WHERE user_id = ? AND revoked_at IS NULL ORDER BY role`,
-    ).bind(userId).all<{ role: string }>()
-    return results.map((row) => row.role)
+      `SELECT COALESCE(g.role, r.key) AS name FROM core_user_role_grant g
+       LEFT JOIN core_role r ON r.id = g.role_id AND r.deleted_at IS NULL
+       WHERE g.user_id = ? AND g.revoked_at IS NULL
+         AND COALESCE(g.role, r.key) IS NOT NULL
+       ORDER BY name`,
+    ).bind(userId).all<{ name: string }>()
+    return results.map((row) => row.name)
   }
+
+  beforeEach(officeRoles)
+
+  it('will not offer a role that does nothing, because accepting one strands you', async () => {
+    /*
+     * A role starts empty — naming one and deciding what it may do are two
+     * acts — and the empty set is a subset of every authority, so the ceiling
+     * admits it. Accepting spends the invitee's `APPLICANT` grant, which
+     * nothing can give back, so the pairing hands somebody an account that
+     * signs in and belongs to neither portal, with no state to recover from.
+     */
+    const founder = await sessionHolding(['SUPER_ADMIN'])
+    await composeRole('EMPTY_ROLE', [], founder.userId)
+    const invitee = await sessionHolding(['APPLICANT'])
+
+    const attempt = await invite(founder.cookie, invitee.userId, 'EMPTY_ROLE')
+    expect(attempt.result.success, 'an empty role cannot be offered').toBe(false)
+    expect(attempt.result.message).toMatch(/does not do anything yet/u)
+
+    // And it is absent from what a picker is offered, so the refusal is never
+    // the first anybody hears of it.
+    const { body } = await graphql<{
+      access: { invitableRoles: { response: { key: string }[] | null } }
+    }>('query { access { invitableRoles { response { key } } } }', founder.cookie)
+    expect(body.data!.access.invitableRoles.response!.map((role) => role.key))
+      .not.toContain('EMPTY_ROLE')
+  })
+
+  it('refuses an invitation once the issuer has lost the authority behind it', async () => {
+    /*
+     * The ceiling is checked when an invitation is issued and the role's
+     * version is pinned, so it cannot be strengthened afterwards — but the
+     * issuer can be demoted afterwards, and the token lives forty-eight hours.
+     * Without this, revoking somebody's authority leaves a way to recreate it
+     * on another account they control.
+     */
+    // `CASEWORKER` holds `role`/`invite` and is composed by `officeRoles`.
+    const issuer = await sessionHolding(['CASEWORKER'])
+    const invitee = await sessionHolding(['APPLICANT'])
+
+    const sent = await invite(issuer.cookie, invitee.userId, 'DESK_REVIEWER')
+    expect(sent.result.success, sent.result.message ?? '').toBe(true)
+
+    // The office takes the issuer's authority away before the link is opened.
+    await env.DB.prepare(
+      `UPDATE core_user_role_grant SET revoked_at = ?, revocation_reason = 'DEMOTED'
+        WHERE user_id = ? AND role_id IS NOT NULL AND revoked_at IS NULL`,
+    ).bind(Date.now(), issuer.userId).run()
+
+    expect(await accept(sent.token!)).toMatchObject({ success: false })
+    expect(await activeRoles(invitee.userId), 'still an applicant, nothing more')
+      .toEqual(['APPLICANT'])
+  })
+
 
   it('swaps the applicant grant for the role, and never returns the link', async () => {
     const admin = await sessionHolding(['SUPER_ADMIN'])
     const subject = await applicantAccount()
 
-    const { result, token } = await invite(admin.cookie, subject.id, 'REVIEWER')
+    const { result, token } = await invite(admin.cookie, subject.id, 'DESK_REVIEWER')
     expect(result.success).toBe(true)
     expect(JSON.stringify(result)).not.toContain('invite#')
     expect(token).toBeTruthy()
@@ -537,25 +662,25 @@ describe('inviting somebody to a staff role', () => {
     expect(await activeRoles(subject.id)).toEqual(['APPLICANT'])
     expect((await accept(token!)).success).toBe(true)
     // A swap, not an addition: they stop being an applicant.
-    expect(await activeRoles(subject.id)).toEqual(['REVIEWER'])
+    expect(await activeRoles(subject.id)).toEqual(['DESK_REVIEWER'])
   })
 
   it('refuses a replay, because the precondition is what expires it', async () => {
     const admin = await sessionHolding(['SUPER_ADMIN'])
     const subject = await applicantAccount()
-    const { token } = await invite(admin.cookie, subject.id, 'APPROVER')
+    const { token } = await invite(admin.cookie, subject.id, 'DECISION_APPROVER')
 
     expect((await accept(token!)).success).toBe(true)
     // Nothing recorded the token as spent. It fails because they are no longer
     // an applicant, which is the same check that authorized the first one.
     expect(await accept(token!)).toMatchObject({ success: false, message: UNUSABLE })
-    expect(await activeRoles(subject.id)).toEqual(['APPROVER'])
+    expect(await activeRoles(subject.id)).toEqual(['DECISION_APPROVER'])
   })
 
   it('refuses a token whose bytes were edited', async () => {
     const admin = await sessionHolding(['SUPER_ADMIN'])
     const subject = await applicantAccount()
-    const { token } = await invite(admin.cookie, subject.id, 'REVIEWER')
+    const { token } = await invite(admin.cookie, subject.id, 'DESK_REVIEWER')
 
     // Flip one character of the ciphertext. Without authenticated encryption
     // this is where somebody would go looking for a different role.
@@ -582,10 +707,11 @@ describe('inviting somebody to a staff role', () => {
   it('refuses a token sealed with a different secret', async () => {
     const subject = await applicantAccount()
     const forged = await sealInvite('an-entirely-different-secret-32-bytes-long', {
-      version: 1,
+      version: 2,
       userId: subject.id,
       email: subject.email,
-      role: 'ADMIN',
+      roleId: crypto.randomUUID(),
+      roleVersion: 1,
       issuerId: crypto.randomUUID(),
       issuedAt: Date.now(),
       expiresAt: Date.now() + 60_000,
@@ -598,10 +724,11 @@ describe('inviting somebody to a staff role', () => {
   it('refuses one that has expired', async () => {
     const subject = await applicantAccount()
     const stale = await sealInvite('test-invite-secret-that-is-at-least-32-bytes', {
-      version: 1,
+      version: 2,
       userId: subject.id,
       email: subject.email,
-      role: 'REVIEWER',
+      roleId: crypto.randomUUID(),
+      roleVersion: 1,
       issuerId: crypto.randomUUID(),
       issuedAt: Date.now() - 100_000,
       expiresAt: Date.now() - 1_000,
@@ -614,7 +741,7 @@ describe('inviting somebody to a staff role', () => {
   it('refuses one whose address is no longer the account\'s', async () => {
     const admin = await sessionHolding(['SUPER_ADMIN'])
     const subject = await applicantAccount()
-    const { token } = await invite(admin.cookie, subject.id, 'REVIEWER')
+    const { token } = await invite(admin.cookie, subject.id, 'DESK_REVIEWER')
 
     // The mailbox that received the link is no longer this account's, so
     // whoever holds it is no longer necessarily the account holder.
@@ -624,47 +751,60 @@ describe('inviting somebody to a staff role', () => {
     expect(await activeRoles(subject.id)).toEqual(['APPLICANT'])
   })
 
-  it('stops an administrator inviting their way to more authority', async () => {
-    const admin = await sessionHolding(['ADMIN'])
+  it('stops an issuer inviting their way to more authority', async () => {
+    /*
+     * The escalation the ceiling exists to prevent. This issuer may invite, and
+     * may read applications — so they may offer a role that reads applications
+     * and no more. A role that decides, or one that reviews, is beyond them,
+     * and offering it would obtain through a second account exactly what they
+     * are directly refused.
+     */
+    const issuer = await sessionHolding(
+      ['LIMITED_INVITER'],
+      [['role', 'invite'], ['application', 'read']],
+    )
     const subject = await applicantAccount()
 
-    // The escalation this ceiling exists to prevent: an ADMIN cannot create
-    // another ADMIN, nor a SUPER_ADMIN, through a second account.
-    for (const role of ['ADMIN', 'SUPER_ADMIN']) {
-      const { result, token } = await invite(admin.cookie, subject.id, role)
+    for (const role of ['DECISION_APPROVER', 'CASEWORKER', 'SUPER_ADMIN']) {
+      const { result, token } = await invite(issuer.cookie, subject.id, role)
       expect(result, role).toMatchObject({
         success: false, message: 'You cannot invite somebody to that role.',
       })
       expect(token, role).toBeNull()
     }
-    // The two it may invite still work.
-    expect((await invite(admin.cookie, subject.id, 'APPROVER')).result.success).toBe(true)
+    // The one within their own authority still works.
+    expect((await invite(issuer.cookie, subject.id, 'DESK_REVIEWER')).result.success).toBe(true)
   })
 
-  it('refuses anyone without the capability to invite at all', async () => {
+  it('refuses anyone without the permission to invite at all', async () => {
     const subject = await applicantAccount()
-    for (const roles of [['REVIEWER'], ['APPROVER'], ['APPLICANT']]) {
-      const caller = await sessionHolding(roles)
-      const { result } = await invite(caller.cookie, subject.id, 'REVIEWER')
-      expect(result.success, roles.join()).toBe(false)
+    const callers = [
+      { what: 'reads only', session: await sessionHolding(['READER'], [['application', 'read']]) },
+      { what: 'decides only', session: await sessionHolding(['DECIDER'], [['decision', 'record']]) },
+      { what: 'an applicant', session: await sessionHolding(['APPLICANT']) },
+    ]
+    for (const { what, session } of callers) {
+      const { result } = await invite(session.cookie, subject.id, 'DESK_REVIEWER')
+      expect(result.success, what).toBe(false)
     }
+    expect(callers.length, 'caller cases').toBe(3)
   })
 
   it('does not invite somebody who has no applicant grant to swap', async () => {
     const admin = await sessionHolding(['SUPER_ADMIN'])
-    const staff = await sessionHolding(['REVIEWER'])
-    const { result } = await invite(admin.cookie, staff.userId, 'APPROVER')
+    const staff = await sessionHolding(['STAFF_ALREADY'], [['application', 'read']])
+    const { result } = await invite(admin.cookie, staff.userId, 'DECISION_APPROVER')
     expect(result).toMatchObject({ success: false })
   })
 
   it('settles two simultaneous acceptances as exactly one grant', async () => {
     const admin = await sessionHolding(['SUPER_ADMIN'])
     const subject = await applicantAccount()
-    const { token } = await invite(admin.cookie, subject.id, 'REVIEWER')
+    const { token } = await invite(admin.cookie, subject.id, 'DESK_REVIEWER')
 
     const both = await Promise.all([accept(token!), accept(token!)])
     expect(both.filter((one) => one.success)).toHaveLength(1)
-    expect(await activeRoles(subject.id)).toEqual(['REVIEWER'])
+    expect(await activeRoles(subject.id)).toEqual(['DESK_REVIEWER'])
   })
 })
 
@@ -676,12 +816,48 @@ describe('the vocabulary the schema publishes', () => {
     return result.body.data!.__type.enumValues.map((value) => value.name).sort()
   }
 
-  it('offers exactly the roles the database accepts', async () => {
-    expect(await enumValues('UserRole')).toEqual([...userRoles].sort())
+  it('publishes exactly the catalogue a role can be composed from', async () => {
+    /*
+     * The catalogue used to be a GraphQL enum, which introspection compared for
+     * free. It is data now, so the equivalent guarantee is that the query a role
+     * editor reads offers every pair the server enforces and nothing else —
+     * a picker offering more would offer a permission nothing checks, and one
+     * offering less would hide authority somebody may legitimately grant.
+     */
+    const operator = await fixtureSignIn({ roles: ['SUPER_ADMIN'] })
+    const result = await graphql<{
+      access: {
+        permissionCatalogue: {
+          response: {
+            resources: { resource: string; actions: { action: string }[] }[]
+          }
+        }
+      }
+    }>(`query { access { permissionCatalogue { success response {
+      resources { resource actions { action } }
+    } } } }`, operator.cookie)
+    const published = result.body.data!.access.permissionCatalogue.response.resources
+      .flatMap((r) => r.actions.map((a) => `${r.resource}:${a.action}`))
+      .sort()
+    expect(published).toEqual(
+      catalogue.map((pair) => `${pair.resource}:${pair.action}`).sort(),
+    )
+    expect(published.length, 'catalogue size').toBe(37)
   })
 
-  it('offers exactly the capabilities the policy defines', async () => {
-    expect(await enumValues('Capability')).toEqual([...capabilities].sort())
+  it('names the two authorities the server decides for itself', async () => {
+    // Both are absent from the catalogue on purpose: the wildcard cannot be
+    // composed, and applicant access is not a staff permission at all.
+    expect([...builtinRoles].sort()).toEqual(['APPLICANT', 'SUPER_ADMIN'])
+    /*
+     * Granting a role is not a pair anybody can hold. Compared as strings
+     * because as typed pairs TypeScript already proves it — which is the point,
+     * but proves nothing about the catalogue that actually ships.
+     */
+    const keys: string[] = catalogue.map((pair) => `${pair.resource}:${pair.action}`)
+    for (const forbidden of ['role:grant', 'role:revoke', 'role:create', 'role:update', 'role:delete']) {
+      expect(keys, forbidden).not.toContain(forbidden)
+    }
   })
 })
 
@@ -975,13 +1151,25 @@ describe('authentication', () => {
     ).first<{ id: string }>()
     if (!user) throw new Error('Expected applicant user.')
 
-    await env.DB.prepare(
-      `INSERT INTO core_user_role_grant (
-        id, user_id, role, grant_reason, granted_at
-      ) VALUES (?, ?, 'ADMIN', 'TEST_ADMIN_ROLE', ?)`,
-    )
-      .bind(crypto.randomUUID(), user.id, Date.now())
-      .run()
+    // A composed role, granted the way the product grants one.
+    const roleId = crypto.randomUUID()
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO core_role (
+          id, key, name, description, current_version, created_at, updated_at,
+          created_by_user_id
+        ) VALUES (?, 'CASEWORKER', 'Caseworker', 'Works applications.', 1, ?, ?, ?)`,
+      ).bind(roleId, Date.now(), Date.now(), user.id),
+      env.DB.prepare(
+        `INSERT INTO core_role_permission (id, role_id, resource, action, created_at)
+         VALUES (?, ?, 'application', 'review', ?)`,
+      ).bind(crypto.randomUUID(), roleId, Date.now()),
+      env.DB.prepare(
+        `INSERT INTO core_user_role_grant (
+          id, user_id, role_id, grant_reason, granted_at
+        ) VALUES (?, ?, ?, 'TEST_STAFF_ROLE', ?)`,
+      ).bind(crypto.randomUUID(), user.id, roleId, Date.now()),
+    ])
 
     const currentQuery = /* GraphQL */ `
       query {
@@ -996,7 +1184,7 @@ describe('authentication', () => {
     const multiRole = await graphql<CurrentSessionBody>(currentQuery, cookie)
     expect(multiRole.body.data?.auth.currentSession).toMatchObject({
       success: true,
-      response: { user: { roles: ['APPLICANT', 'ADMIN'] } },
+      response: { user: { roles: ['APPLICANT', 'CASEWORKER'] } },
     })
 
     await env.DB.prepare(
@@ -1012,18 +1200,18 @@ describe('authentication', () => {
     const revoked = await graphql<CurrentSessionBody>(currentQuery, cookie)
     expect(revoked.body.data?.auth.currentSession).toMatchObject({
       success: true,
-      response: { user: { roles: ['ADMIN'] } },
+      response: { user: { roles: ['CASEWORKER'] } },
     })
     expect(revoked.response.headers.get('set-cookie')).toBeNull()
 
-    // Sign-in accepts the surviving ADMIN grant, but the applicant capability
-    // is gone from the same session.
+    // Sign-in accepts the surviving staff grant, but applicant access is gone
+    // from the same session.
     expect((await signInDefault()).body.data?.auth.signIn).toMatchObject({
       success: true,
     })
     const roleContext = cookieAuthContext(cookie)
     expect(await authenticatedApplicant(roleContext)).toBeNull()
-    expect(await authenticatedWithCapability(roleContext, 'STAFF_WRITE')).not.toBeNull()
+    expect(await authenticatedWithPermission(roleContext, 'application', 'review')).not.toBeNull()
   })
 
   it('signs in an administrator holding no applicant grant and refuses applicant operations', async () => {
@@ -1679,6 +1867,7 @@ describe('authentication', () => {
         id: grantId,
         userId: candidate.id,
         role: 'SUPER_ADMIN',
+        roleId: null,
         grantedByUserId: null,
         grantReason: 'FIRST_SUPER_ADMIN_BOOTSTRAP',
         grantedAt: now,
@@ -1885,6 +2074,7 @@ describe('authentication', () => {
         id: crypto.randomUUID(),
         userId,
         role: 'APPLICANT',
+        roleId: null,
         grantedByUserId: null,
         grantReason: 'VERIFIED_APPLICANT_SIGNUP',
         grantedAt: createdAt,
@@ -2292,7 +2482,13 @@ describe('authentication', () => {
      */
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const superAdmin = await establishSuperAdmin(notificationLog)
-    for (const role of ['REVIEWER', 'APPROVER', 'ADMIN'] as const) {
+    const now = Date.now()
+    for (const role of ['DESK_REVIEWER', 'DECISION_APPROVER', 'CASEWORKER'] as const) {
+      await env.DB.prepare(
+        `INSERT INTO core_role (id, key, name, description, current_version,
+          created_at, updated_at, created_by_user_id)
+         VALUES (?, ?, ?, 'Composed by the revocation test.', 1, ?, ?, ?)`,
+      ).bind(crypto.randomUUID(), role, role, now, now, superAdmin.userId).run()
       const subject = await registerManagedApplicant(
         `revoked-${role.toLowerCase()}@example.com`, notificationLog, superAdmin.cookie,
       )
@@ -2310,10 +2506,11 @@ describe('authentication', () => {
       expect(revoked.body.data?.access.revokeRole, `revoking ${role}`)
         .toMatchObject({ success: true })
       const after = await env.DB.prepare(
-        `SELECT role FROM core_user_role_grant
-         WHERE user_id = ? AND revoked_at IS NULL ORDER BY role`,
-      ).bind(subject.id).all<{ role: string }>()
-      expect(after.results.map(({ role }) => role)).toEqual(['APPLICANT'])
+        `SELECT COALESCE(g.role, r.key) AS name FROM core_user_role_grant g
+         LEFT JOIN core_role r ON r.id = g.role_id
+         WHERE g.user_id = ? AND g.revoked_at IS NULL ORDER BY name`,
+      ).bind(subject.id).all<{ name: string }>()
+      expect(after.results.map(({ name }) => name)).toEqual(['APPLICANT'])
     }
     notificationLog.mockRestore()
   })
@@ -2359,9 +2556,38 @@ describe('authentication', () => {
 describe('administrative role management', () => {
   afterEach(() => vi.restoreAllMocks())
 
+  /*
+   * The office role this suite hands out. Composed rather than named in code:
+   * `ADMIN` is a reserved key precisely because retained history must not
+   * confuse a role somebody composed with the fixed one it replaced.
+   */
+  const OFFICE_ROLE = 'CASEWORKER'
+
+  const composeOfficeRole = async (createdBy: string): Promise<void> => {
+    const now = Date.now()
+    await env.DB.prepare(
+      `INSERT INTO core_role (id, key, name, description, current_version,
+        created_at, updated_at, created_by_user_id)
+       VALUES (?, ?, 'Caseworker', 'Works applications through the desk.', 1, ?, ?, ?)
+       ON CONFLICT (key) DO NOTHING`,
+    ).bind(crypto.randomUUID(), OFFICE_ROLE, now, now, createdBy).run()
+    const role = await env.DB.prepare(
+      `SELECT id FROM core_role WHERE key = ?`,
+    ).bind(OFFICE_ROLE).first<{ id: string }>()
+    for (const [resource, action] of [
+      ['application', 'read'], ['application', 'review'],
+    ] as const) {
+      await env.DB.prepare(
+        `INSERT INTO core_role_permission (id, role_id, resource, action, created_at)
+         VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+      ).bind(crypto.randomUUID(), role!.id, resource, action, now).run()
+    }
+  }
+
   it('grants ADMIN and lets the new administrator sign in and work', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const superAdmin = await establishSuperAdmin(notificationLog)
+    await composeOfficeRole(superAdmin.userId)
     const subject = await registerManagedApplicant(
       'reviewer@example.com',
       notificationLog,
@@ -2375,15 +2601,15 @@ describe('administrative role management', () => {
     })
 
     const granted = await grantRole(
-      { userId: subject.id, role: 'ADMIN', reason: 'Joining desk review' },
+      { userId: subject.id, role: OFFICE_ROLE, reason: 'Joining desk review' },
       superAdmin.cookie,
     )
     const managed = granted.body.data?.access.grantRole
     expect(managed?.success).toBe(true)
     // Dual roles remain permitted: only the bootstrap path produces an
     // administrator who holds no applicant grant.
-    expect(managed?.response?.roles).toEqual(['APPLICANT', 'ADMIN'])
-    const adminGrant = managed?.response?.grants.find((grant) => grant.role === 'ADMIN')
+    expect(managed?.response?.roles).toEqual(['APPLICANT', OFFICE_ROLE])
+    const adminGrant = managed?.response?.grants.find((grant) => grant.role === OFFICE_ROLE)
     expect(adminGrant).toMatchObject({
       grantReason: 'Joining desk review',
       grantedByUserId: superAdmin.userId,
@@ -2431,7 +2657,7 @@ describe('administrative role management', () => {
     // public identifiers and the role name.
     expect(JSON.parse(audit?.metadata_json ?? '{}')).toEqual({
       subjectUserId: subject.id,
-      role: 'ADMIN',
+      role: OFFICE_ROLE,
     })
     expect(audit?.metadata_json).not.toContain('reviewer@example.com')
   })
@@ -2439,20 +2665,21 @@ describe('administrative role management', () => {
   it('refuses a duplicate active grant and re-grants a revoked role as new history', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const superAdmin = await establishSuperAdmin(notificationLog)
+    await composeOfficeRole(superAdmin.userId)
     const subject = await registerManagedApplicant(
       'reviewer@example.com',
       notificationLog,
       superAdmin.cookie,
     )
 
-    const first = await grantRole({ userId: subject.id, role: 'ADMIN' }, superAdmin.cookie)
+    const first = await grantRole({ userId: subject.id, role: OFFICE_ROLE }, superAdmin.cookie)
     const firstGrantId = activeGrantId(
       first.body.data?.access.grantRole?.response ?? null,
-      'ADMIN',
+      OFFICE_ROLE,
     )
 
     const duplicate = await grantRole(
-      { userId: subject.id, role: 'ADMIN' },
+      { userId: subject.id, role: OFFICE_ROLE },
       superAdmin.cookie,
     )
     expect(duplicate.body.data?.access.grantRole).toMatchObject({
@@ -2469,11 +2696,11 @@ describe('administrative role management', () => {
     expect(revoked.body.data?.access.revokeRole?.response?.roles).toEqual(['APPLICANT'])
 
     const regranted = await grantRole(
-      { userId: subject.id, role: 'ADMIN', reason: 'Returned to desk review' },
+      { userId: subject.id, role: OFFICE_ROLE, reason: 'Returned to desk review' },
       superAdmin.cookie,
     )
     const grants = regranted.body.data?.access.grantRole?.response?.grants ?? []
-    const adminGrants = grants.filter((grant) => grant.role === 'ADMIN')
+    const adminGrants = grants.filter((grant) => grant.role === OFFICE_ROLE)
     // Re-granting adds a row rather than reopening the old one, so the history
     // of who held what and when stays complete.
     expect(adminGrants).toHaveLength(2)
@@ -2492,6 +2719,7 @@ describe('administrative role management', () => {
   it('requires a correct password and a reason, and writes nothing otherwise', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const superAdmin = await establishSuperAdmin(notificationLog)
+    await composeOfficeRole(superAdmin.userId)
     const subject = await registerManagedApplicant(
       'reviewer@example.com',
       notificationLog,
@@ -2499,7 +2727,7 @@ describe('administrative role management', () => {
     )
 
     const wrongPassword = await grantRole(
-      { userId: subject.id, role: 'ADMIN', password: 'not the right password' },
+      { userId: subject.id, role: OFFICE_ROLE, password: 'not the right password' },
       superAdmin.cookie,
     )
     expect(wrongPassword.body.data?.access.grantRole).toMatchObject({
@@ -2508,13 +2736,13 @@ describe('administrative role management', () => {
     })
 
     const blankReason = await grantRole(
-      { userId: subject.id, role: 'ADMIN', reason: '   ' },
+      { userId: subject.id, role: OFFICE_ROLE, reason: '   ' },
       superAdmin.cookie,
     )
     expect(blankReason.body.data?.access.grantRole?.message).toContain('reason')
 
     const longReason = await grantRole(
-      { userId: subject.id, role: 'ADMIN', reason: 'r'.repeat(501) },
+      { userId: subject.id, role: OFFICE_ROLE, reason: 'r'.repeat(501) },
       superAdmin.cookie,
     )
     expect(longReason.body.data?.access.grantRole?.success).toBe(false)
@@ -2530,7 +2758,7 @@ describe('administrative role management', () => {
     )
       .bind(
         auditActions.roleGranted,
-        JSON.stringify({ subjectUserId: subject.id, role: 'ADMIN' }),
+        JSON.stringify({ subjectUserId: subject.id, role: OFFICE_ROLE }),
       )
       .first<{ count: number }>()
     expect(audits?.count).toBe(0)
@@ -2539,6 +2767,7 @@ describe('administrative role management', () => {
   it('keeps at least one usable super administrator', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const superAdmin = await establishSuperAdmin(notificationLog)
+    await composeOfficeRole(superAdmin.userId)
     const successor = await registerManagedApplicant(
       'successor@example.com',
       notificationLog,
@@ -2689,13 +2918,14 @@ describe('administrative role management', () => {
   it('lets only one of two simultaneous grants of the same role land', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const superAdmin = await establishSuperAdmin(notificationLog)
+    await composeOfficeRole(superAdmin.userId)
     const subject = await registerManagedApplicant(
       'subject@example.com', notificationLog, superAdmin.cookie,
     )
 
     const raced = await Promise.all([
-      grantRole({ userId: subject.id, role: 'ADMIN', reason: 'Programme office' }, superAdmin.cookie),
-      grantRole({ userId: subject.id, role: 'ADMIN', reason: 'Programme office' }, superAdmin.cookie),
+      grantRole({ userId: subject.id, role: OFFICE_ROLE, reason: 'Programme office' }, superAdmin.cookie),
+      grantRole({ userId: subject.id, role: OFFICE_ROLE, reason: 'Programme office' }, superAdmin.cookie),
     ])
     // Whatever the interleaving, nobody sees an error and one of them refused.
     for (const each of raced) {
@@ -2705,7 +2935,8 @@ describe('administrative role management', () => {
 
     const held = await env.DB.prepare(
       `SELECT count(*)::int AS count FROM core_user_role_grant
-        WHERE user_id = ? AND role = 'ADMIN' AND revoked_at IS NULL`,
+        WHERE user_id = ? AND revoked_at IS NULL
+        AND role_id = (SELECT id FROM core_role WHERE key = 'CASEWORKER')`,
     ).bind(subject.id).first<{ count: number }>()
     expect(held?.count).toBe(1)
   })
@@ -2713,6 +2944,7 @@ describe('administrative role management', () => {
   it('refuses self-revocation of super administrator but allows it for admin', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const superAdmin = await establishSuperAdmin(notificationLog)
+    await composeOfficeRole(superAdmin.userId)
     // A second holder exists, so the remaining-holder rule is satisfied and the
     // self-revocation rule is the one under test.
     const successor = await registerManagedApplicant(
@@ -2741,12 +2973,12 @@ describe('administrative role management', () => {
     // A redundant ADMIN grant on the same person may be closed by them: it
     // cannot remove administrative access while SUPER_ADMIN is still held.
     const withAdmin = await grantRole(
-      { userId: superAdmin.userId, role: 'ADMIN', reason: 'Redundant operational role' },
+      { userId: superAdmin.userId, role: OFFICE_ROLE, reason: 'Redundant operational role' },
       superAdmin.cookie,
     )
     const ownAdminGrantId = activeGrantId(
       withAdmin.body.data?.access.grantRole?.response ?? null,
-      'ADMIN',
+      OFFICE_ROLE,
     )
     const selfAdminRevoke = await revokeRole(
       { grantId: ownAdminGrantId, reason: 'No longer needed' },
@@ -2760,19 +2992,28 @@ describe('administrative role management', () => {
   it('keeps APPLICANT outside role administration entirely', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const superAdmin = await establishSuperAdmin(notificationLog)
+    await composeOfficeRole(superAdmin.userId)
     const subject = await registerManagedApplicant(
       'reviewer@example.com',
       notificationLog,
       superAdmin.cookie,
     )
 
-    // The enum stops a grant at the schema boundary, before any resolver runs.
+    /*
+     * A role key used to be an enum, so the schema refused this before any
+     * resolver ran. Keys are open now — a role is a row — so the service is
+     * what refuses, and it answers as it would for any key it cannot resolve.
+     * Saying "applicant access cannot be granted" instead would confirm the key
+     * is real to somebody probing which ones are.
+     */
     const grantAttempt = await grantRole(
       { userId: subject.id, role: 'APPLICANT' },
       superAdmin.cookie,
     )
-    expect(grantAttempt.body.data).toBeUndefined()
-    expect(grantAttempt.body.errors?.[0]?.message).toContain('APPLICANT')
+    expect(grantAttempt.body.data?.access.grantRole).toMatchObject({
+      success: false,
+      message: 'No such role.',
+    })
 
     // A revocation names a grant ID, so the role of the row it resolves to is
     // checked in the service instead.
@@ -2780,7 +3021,7 @@ describe('administrative role management', () => {
     const revokeAttempt = await revokeRole({ grantId: applicantGrantId }, superAdmin.cookie)
     expect(revokeAttempt.body.data?.access.revokeRole).toMatchObject({
       success: false,
-      message: 'Only administrative roles can be revoked here.',
+      message: 'Applicant access cannot be revoked here.',
     })
 
     const after = await managedUserById(subject.id, superAdmin.cookie)
@@ -2790,6 +3031,7 @@ describe('administrative role management', () => {
   it('refuses unknown users, stale grants, and unverified subjects', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const superAdmin = await establishSuperAdmin(notificationLog)
+    await composeOfficeRole(superAdmin.userId)
 
     expect(
       (await managedUserByEmail('nobody@example.com', superAdmin.cookie))
@@ -2809,11 +3051,11 @@ describe('administrative role management', () => {
     ).toBe(false)
 
     expect(
-      (await grantRole({ userId: 'not-a-uuid', role: 'ADMIN' }, superAdmin.cookie))
+      (await grantRole({ userId: 'not-a-uuid', role: OFFICE_ROLE }, superAdmin.cookie))
         .body.data?.access.grantRole?.message,
     ).toBe('No user was found.')
     expect(
-      (await grantRole({ userId: crypto.randomUUID(), role: 'ADMIN' }, superAdmin.cookie))
+      (await grantRole({ userId: crypto.randomUUID(), role: OFFICE_ROLE }, superAdmin.cookie))
         .body.data?.access.grantRole?.success,
     ).toBe(false)
     expect(
@@ -2836,7 +3078,7 @@ describe('administrative role management', () => {
       .bind(Date.now(), subject.id)
       .run()
     expect(
-      (await grantRole({ userId: subject.id, role: 'ADMIN' }, superAdmin.cookie))
+      (await grantRole({ userId: subject.id, role: OFFICE_ROLE }, superAdmin.cookie))
         .body.data?.access.grantRole?.message,
     ).toBe('No user was found.')
 
@@ -2846,7 +3088,7 @@ describe('administrative role management', () => {
       .bind(subject.id)
       .run()
     expect(
-      (await grantRole({ userId: subject.id, role: 'ADMIN' }, superAdmin.cookie))
+      (await grantRole({ userId: subject.id, role: OFFICE_ROLE }, superAdmin.cookie))
         .body.data?.access.grantRole?.message,
     ).toBe('That user has not verified their email address yet.')
 
@@ -2863,18 +3105,19 @@ describe('administrative role management', () => {
   it('leaves sessions to the existing deactivation paths after a revocation', async () => {
     const notificationLog = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const superAdmin = await establishSuperAdmin(notificationLog)
+    await composeOfficeRole(superAdmin.userId)
     const subject = await registerManagedApplicant(
       'reviewer@example.com',
       notificationLog,
       superAdmin.cookie,
     )
     const granted = await grantRole(
-      { userId: subject.id, role: 'ADMIN' },
+      { userId: subject.id, role: OFFICE_ROLE },
       superAdmin.cookie,
     )
     const adminGrantId = activeGrantId(
       granted.body.data?.access.grantRole?.response ?? null,
-      'ADMIN',
+      OFFICE_ROLE,
     )
     const signedIn = await signInAs('reviewer@example.com', DEFAULT_PASSWORD)
     const reviewerCookie = cookieHeaderFrom(signedIn.response)
@@ -2925,7 +3168,7 @@ describe('administrative role management', () => {
         access {
           grantRole(input: {
             userId: "00000000-0000-4000-8000-000000000000"
-            role: ADMIN
+            roleKey: "CASEWORKER"
             reason: "first"
             currentPassword: "x"
           }) { success }
@@ -2985,7 +3228,7 @@ describe('administrative role management', () => {
           access {
             grantRole(input: {
               userId: "${probe.userId}"
-              role: ADMIN
+              roleKey: "CASEWORKER"
               reason: "Probing for existing accounts"
               currentPassword: "${DEFAULT_PASSWORD}"
             }) { success message response { id } }

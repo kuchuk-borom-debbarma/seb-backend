@@ -22,16 +22,32 @@ test.describe('the signed-in shell', () => {
     await expect(sidebar.getByRole('link', { name: 'Applicant portal' })).toHaveCount(0)
   })
 
-  test('an applicant sees the applicant capability and not the administrative one', async ({
+  test('an applicant is shown their own portal and none of the office', async ({
     page,
   }) => {
     const email = uniqueEmail('applicant')
     await signUpApplicant(page, email)
     await signIn(page, email)
 
-    await expect(page.getByText('Applicant', { exact: true })).toBeVisible()
-    await expect(page.getByText('Programme officer')).toBeHidden()
-    await expect(page.getByText('Super administrator')).toBeHidden()
+    /*
+     * Scoped to the sidebar, as the test above it is. The shell names the
+     * portal twice — once in the masthead and once in the mobile header — so a
+     * page-wide `exact` match resolves to two elements and Playwright refuses
+     * it under strict mode. Nothing to do with what an applicant can see.
+     */
+    const sidebar = page.getByRole('navigation', { name: 'Portal sections' })
+    await expect(sidebar.getByText('Applicant', { exact: true })).toBeVisible()
+
+    /*
+     * And what makes it the applicant portal is which sections it offers. This
+     * used to assert two role *names* were absent, which passes for an account
+     * holding neither and for one holding a role nobody named that — roles are
+     * composed now, so a name proves nothing either way.
+     */
+    await expect(sidebar.getByRole('link', { name: 'Enterprises' })).toBeVisible()
+    await expect(sidebar.getByText('Programme office', { exact: true })).toHaveCount(0)
+    await expect(sidebar.getByRole('link', { name: 'Announcement banner' })).toHaveCount(0)
+    await expect(sidebar.getByRole('link', { name: 'Roles' })).toHaveCount(0)
   })
 
   /**

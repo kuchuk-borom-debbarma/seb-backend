@@ -51,7 +51,6 @@ import {
   supersedeAccountChallenges,
 } from '../queries/account'
 import { findActiveUserByEmail } from '../queries/auth'
-import { capabilitiesOf } from '../capabilities'
 import { getCurrentSession } from './auth'
 import { findActorPasswordHash } from '../queries/access'
 import { AUTH_REQUIRED_MESSAGE, auditEvent, normalizeEmail } from '../support'
@@ -101,7 +100,8 @@ const toAuthUser = (
   displayName:
     overrides.displayName === undefined ? current.user.displayName : overrides.displayName,
   roles: current.roles,
-  capabilities: capabilitiesOf(current.roles),
+  // Already resolved live by the session lookup, with the wildcard expanded.
+  permissions: current.permissions,
   createdAt: current.user.createdAt,
 })
 

@@ -1354,7 +1354,7 @@ type StaffMember {
   The roles held **now**, which is what decides what they can do — not the
   roles they held when they acted.
   """
-  roles: [UserRole!]!
+  roles: [String!]!
 }
 
 """One page of the work queue."""

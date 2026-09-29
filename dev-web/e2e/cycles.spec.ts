@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
+  chooseProgrammeCycle,
   signIn,
   signUpApplicant,
   uniqueEmail,
@@ -56,6 +57,37 @@ test.describe('cycle administration', () => {
       .fill('The application window has ended.')
     await page.getByRole('button', { name: 'Confirm' }).click()
     await expect(page.getByRole('button', { name: 'Archive' })).toBeVisible()
+  })
+
+  /**
+   * The deadline is the one rule that still moves after a cycle opens.
+   *
+   * Extending one is among the commonest things the office does, and the API
+   * has always accepted it — but no screen sent it, so the only way was a raw
+   * call. This suite's own `setClosingTime` helper still makes one, to arrange
+   * a closed window; what it could not do is prove an operator can.
+   */
+  test('moves an open cycle\'s deadline, and lifts it entirely', async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    const code = `SEP-${Date.now().toString(36).toUpperCase()}`
+    await createOpenCycle(page, code)
+
+    const later = new Date(Date.now() + 30 * 24 * 3_600_000)
+    await page.getByRole('button', { name: 'Change' }).click()
+    await page.getByLabel('Closing time').fill(later.toISOString().slice(0, 16))
+    await page.getByLabel('Reason for this change').fill('Extending for the holidays.')
+    await page.getByRole('button', { name: 'Save the closing time' }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(page.getByText('Open until closed by the office')).toHaveCount(0)
+
+    // Emptying the field takes the deadline off rather than leaving it alone —
+    // the two are different instructions and the screen says so.
+    await page.getByRole('button', { name: 'Change' }).click()
+    await page.getByLabel('Closing time').fill('')
+    await page.getByLabel('Reason for this change').fill('No fixed deadline this year.')
+    await page.getByRole('button', { name: 'Save the closing time' }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(page.getByText('Open until closed by the office')).toBeVisible()
   })
 
   /**
@@ -143,7 +175,7 @@ test.describe('cycle administration', () => {
     if (await journeySelect.isEnabled()) {
       await journeySelect.selectOption({ label: 'Journey Works' })
     }
-    await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
+    await chooseProgrammeCycle(applicantPage, code)
     await applicantPage.getByRole('button', { name: 'Next' }).click()
     await applicantPage.getByRole('radio', { name: 'Initial application' }).check()
     await applicantPage
@@ -185,7 +217,7 @@ test.describe('cycle administration', () => {
     if (await unfundedSelect.isEnabled()) {
       await unfundedSelect.selectOption({ label: 'Unfunded Works' })
     }
-    await applicantPage.getByLabel('Programme cycle').selectOption({ index: 1 })
+    await chooseProgrammeCycle(applicantPage, code)
     await applicantPage.getByRole('button', { name: 'Next' }).click()
 
     // The API's own wording, not a message invented by the client.

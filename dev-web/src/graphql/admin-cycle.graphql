@@ -146,6 +146,21 @@ mutation ArchiveCycle($input: CycleTransitionInput!) {
   }
 }
 
+# Moving or lifting an open cycle's deadline. The rules are frozen once a cycle
+# opens; the closing time and the guidance are the two things that still move,
+# because neither changes what an application is judged by.
+mutation ChangeCycleClosingTime($input: CycleClosingInput!) {
+  admin {
+    programmeCycle {
+      changeClosingTime(input: $input) {
+        success
+        message
+        response { head { ...AdminCycleHead } }
+      }
+    }
+  }
+}
+
 mutation UpdateCycleGuidance($input: CycleGuidanceInput!) {
   admin {
     programmeCycle {
