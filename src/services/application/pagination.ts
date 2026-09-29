@@ -18,6 +18,14 @@ export type SortKey =
   | 'statusChangedAt'
   | 'submittedAt'
   | 'scheduledAt'
+  /*
+   * The history is ordered by `createdAt` in either direction, and a cursor
+   * from one direction seeks the wrong side of the position in the other. The
+   * direction is therefore part of the key, so swapping the order refuses the
+   * old cursor instead of returning a wrong page with no error.
+   */
+  | 'auditNewest'
+  | 'auditOldest'
 
 export const pageSize = (first: number | null | undefined): number | null => {
   if (first === null || first === undefined) return 20

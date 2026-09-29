@@ -23,7 +23,7 @@ export type Resource = (typeof resources)[number]
  * and `grants` carries which resource offers what, so a third way to ask would
  * be a third thing to keep in step.
  */
-const actions = ['read', 'note', 'review', 'refer', 'record', 'correct', 'award', 'release', 'reverse', 'assess', 'open', 'cancel', 'close', 'create', 'update', 'archive', 'delete', 'upload', 'publish', 'remove', 'reorder', 'invite'] as const
+const actions = ['read', 'note', 'review', 'refer', 'record', 'correct', 'award', 'release', 'reverse', 'assess', 'open', 'cancel', 'close', 'create', 'update', 'archive', 'delete', 'upload', 'publish', 'remove', 'reorder', 'invite', 'export'] as const
 
 export type Action = (typeof actions)[number]
 
@@ -43,7 +43,7 @@ export const grants = {
   form_template: ['update'],
   policy_document: ['read', 'upload'],
   announcement: ['read', 'create', 'update', 'publish', 'remove', 'reorder'],
-  audit: ['read'],
+  audit: ['read', 'export'],
   user: ['read'],
   role: ['read', 'invite'],
   analytics: ['read'],
@@ -93,6 +93,7 @@ export const permissions = [
   { resource: 'announcement', action: 'remove' },
   { resource: 'announcement', action: 'reorder' },
   { resource: 'audit', action: 'read' },
+  { resource: 'audit', action: 'export' },
   { resource: 'user', action: 'read' },
   { resource: 'role', action: 'read' },
   { resource: 'role', action: 'invite' },
@@ -141,4 +142,5 @@ export const actionDescriptions: Record<Action, string> = {
   remove: 'Take a published item down for good.',
   reorder: 'Change the order things are shown in.',
   invite: 'Offer somebody a role they accept themselves. Bounded by what the issuer already holds.',
+  export: 'Take a copy out of the portal as a file. Separate from reading, because a copy outlives every permission that allowed it.',
 }
