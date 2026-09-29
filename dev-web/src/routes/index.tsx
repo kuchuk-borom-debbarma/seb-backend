@@ -4,7 +4,6 @@ import { publicAnnouncementsQuery } from '#/features/announcements/queries'
 import { SmoothScroll } from '@/components/site/SmoothScroll'
 import { Header } from '@/components/site/Header'
 import { Hero } from '@/components/site/Hero'
-import { About } from '@/components/site/About'
 import { Project } from '@/components/site/Project'
 import { Process } from '@/components/site/Process'
 import { Eligibility } from '@/components/site/Eligibility'
@@ -45,7 +44,6 @@ function Index() {
       <main>
         <Hero announcements={announcements} />
         <Eligibility />
-        <About />
         <Project />
         <Process />
         {/* <Impact /> - Hidden until verified data is ready */}

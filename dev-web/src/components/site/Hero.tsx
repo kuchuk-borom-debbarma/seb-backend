@@ -13,8 +13,8 @@ import {
   AnnouncementCard,
   type AnnouncementCardData,
 } from '#/features/announcements/AnnouncementCard'
-import heroImage from '@/assets/hero-landscape.jpg'
-import imgTwo from '@/assets/two.png'
+import heroVideo from '@/assets/mission-sep-hero.mp4'
+import heroPoster from '@/assets/mission-sep-hero-poster.jpg'
 
 // Custom Sprout In Hand Icon
 function SproutHandIcon({ className }: { className?: string }) {
@@ -70,6 +70,74 @@ const goalCards: GoalCard[] = [
     Icon: Users,
   },
 ]
+
+function HeroVideo({ desktop }: { desktop: boolean }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const screen = window.matchMedia(
+      desktop ? '(min-width: 1024px)' : '(max-width: 1023px)',
+    )
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const syncPlayback = () => {
+      // Both responsive hero variants exist in the DOM. Only the visible one
+      // should decode frames, and reduced-motion visitors see the poster.
+      if (!screen.matches || reducedMotion.matches) {
+        video.pause()
+      } else {
+        void video.play().catch(() => {
+          // The poster remains visible if a browser blocks autoplay.
+        })
+      }
+    }
+
+    screen.addEventListener('change', syncPlayback)
+    reducedMotion.addEventListener('change', syncPlayback)
+    syncPlayback()
+    return () => {
+      screen.removeEventListener('change', syncPlayback)
+      reducedMotion.removeEventListener('change', syncPlayback)
+      video.pause()
+    }
+  }, [desktop])
+
+  return (
+    <div className="absolute inset-0 overflow-hidden bg-[#0c1829] pointer-events-none">
+      <video
+        ref={videoRef}
+        data-testid="mission-sep-hero-video"
+        aria-label="Animated Mission SEP logo"
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        poster={heroPoster}
+        className="hero-background-media absolute inset-0 block motion-reduce:hidden"
+      >
+        <source src={heroVideo} type="video/mp4" />
+      </video>
+      <img
+        src={heroPoster}
+        alt="Mission SEP logo"
+        width={1600}
+        height={504}
+        className="hero-background-media absolute inset-0 hidden motion-reduce:block"
+      />
+      <div
+        className={
+          desktop
+            ? 'absolute inset-0 bg-gradient-to-r from-[#0c1829]/95 via-[#0c1829]/70 to-[#0c1829]/30'
+            : 'absolute inset-0 bg-[#0c1829]/20'
+        }
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-[#0c1829]/65 via-transparent to-[#0c1829]/75" />
+    </div>
+  )
+}
 
 export type HeroAnnouncement = AnnouncementCardData & { id: string }
 
@@ -219,62 +287,40 @@ export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
       <section
         id="top"
         ref={rootRef}
-        className="relative hidden lg:block min-h-[720px] h-[100svh] w-full overflow-hidden bg-slate-900"
+        className="relative hidden lg:block min-h-[720px] h-[100svh] w-full overflow-hidden bg-[#0c1829]"
       >
         <div id="goals" className="absolute top-[45%] pointer-events-none" />
 
-        {/* Static Background Image */}
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          <img
-            src={heroImage}
-            alt="TTAADC Main Administrative Building at Tangnok Kotor, Khumulwng"
-            width={4032}
-            height={2268}
-            className="size-full object-cover object-[center_35%] brightness-[0.98] contrast-[1.04]"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/75 via-slate-900/35 to-transparent pointer-events-none" />
-          <div className="absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-slate-950/60 via-slate-950/20 to-transparent pointer-events-none" />
-          <div className="absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-slate-950/50 to-transparent pointer-events-none" />
-        </div>
-
         {/* Desktop Hero View */}
-        <div className="desktop-hero-view hero-main-content absolute inset-0 z-20 mx-auto flex h-full max-w-[1500px] flex-col justify-start px-10 pt-32 lg:pt-36 pointer-events-auto">
-          <h1 className="font-display tracking-tight text-white uppercase leading-[0.88] select-none min-h-[11rem] lg:min-h-[13.5rem]">
-            <span className="block overflow-hidden">
-              <span className="hero-line-desktop hero-line-anim block text-[clamp(4rem,9.2vw,9rem)]">
-                {HEADLINES[headlineIndex]!.line1}
-              </span>
-            </span>
-            <span className="block overflow-hidden">
-              <span className="hero-line-desktop hero-line-anim block text-[clamp(4rem,9.2vw,9rem)]">
-                {HEADLINES[headlineIndex]!.line2}
-              </span>
-            </span>
-          </h1>
+        <div className="desktop-hero-view hero-main-content absolute inset-0 z-20 w-full pointer-events-auto">
+          <HeroVideo desktop />
+          <div className="relative z-10 mx-auto flex h-full max-w-[1500px] items-center px-10 pb-32 pt-28">
+            <div className="w-[62%] max-w-[840px]">
+              <h1 className="font-display tracking-tight text-white uppercase leading-[0.9] select-none">
+                <span className="block overflow-hidden">
+                  <span className="hero-line-desktop hero-line-anim block text-[clamp(4rem,6.8vw,7.5rem)]">
+                    {HEADLINES[headlineIndex]!.line1}
+                  </span>
+                </span>
+                <span className="block overflow-hidden">
+                  <span className="hero-line-desktop hero-line-anim block text-[clamp(4rem,6.8vw,7.5rem)]">
+                    {HEADLINES[headlineIndex]!.line2}
+                  </span>
+                </span>
+              </h1>
 
-          <p className="hero-sub-desktop mt-6 max-w-md text-[17px] font-normal leading-relaxed text-white/95 drop-shadow-sm">
-            Sustainable Entrepreneurship and
-            <br />
-            Business Programme (TTAADC 2026)
-          </p>
-
-          {/* Desktop Right Aside */}
-          <div className="hero-aside-desktop absolute bottom-8 right-10 flex flex-col items-end gap-3.5 z-10">
-            <p className="max-w-xs text-right text-[15px] font-normal leading-snug text-white/95 drop-shadow-sm">
-              Single-window digital platform for enterprise
-              <br />
-              assistance and application tracking.
-            </p>
-            <div className="flex gap-3 pt-1">
-              <div className="size-18 overflow-hidden rounded-full border-2 border-white bg-white/95 shadow-xl transition-transform hover:scale-105">
-                <img
-                  src={imgTwo}
-                  alt="Tripuri innovators and master artisans"
-                  loading="lazy"
-                  className="size-full object-contain object-top pt-1 scale-110"
-                />
-              </div>
+              <p className="hero-sub-desktop mt-6 max-w-md text-[17px] font-normal leading-relaxed text-white/95">
+                Sustainable Entrepreneurship and
+                <br />
+                Business Programme (TTAADC 2026)
+              </p>
             </div>
+          </div>
+
+          <div className="hero-aside-desktop absolute bottom-8 right-10 z-10 max-w-xs text-right text-[15px] font-normal leading-snug text-white/95">
+            Single-window digital platform for enterprise
+            <br />
+            assistance and application tracking.
           </div>
 
           {/* Bottom Left Notifications Card — hidden until something is published */}
@@ -288,7 +334,10 @@ export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
                   <AnnouncementCard
                     announcement={activeNotif}
                     size="desktop"
-                    position={{ index: notifIndex % announcements.length, total: announcements.length }}
+                    position={{
+                      index: notifIndex % announcements.length,
+                      total: announcements.length,
+                    }}
                     onAnchorClick={handleLinkClick}
                   />
                 </div>
@@ -405,21 +454,9 @@ export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
         {/* Mobile Full-Screen Hero Block (100svh) */}
         <section
           id="top"
-          className="relative h-[100svh] min-h-[580px] w-full overflow-hidden bg-slate-900 flex flex-col justify-between select-none"
+          className="relative h-[100svh] min-h-[580px] w-full overflow-hidden bg-[#0c1829] flex flex-col justify-between select-none"
         >
-          {/* Background Image expanding full height */}
-          <div className="absolute inset-0 z-0 pointer-events-none">
-            <img
-              src={heroImage}
-              alt="TTAADC Main Administrative Building at Tangnok Kotor, Khumulwng"
-              width={4032}
-              height={2268}
-              className="size-full object-cover object-[center_35%] brightness-[0.92] contrast-[1.05]"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-900/40 to-slate-950/70 pointer-events-none" />
-            <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-slate-950/80 via-slate-950/30 to-transparent pointer-events-none" />
-          </div>
-
+          <HeroVideo desktop={false} />
           {/* Top Content: Headline & Subtitle */}
           <div className="relative z-10 px-5 pt-20 sm:pt-24 md:px-8">
             <h1 className="font-display tracking-tight text-white uppercase leading-[0.9] select-none text-[clamp(2.6rem,11.5vw,4.8rem)] min-h-[5.5rem] sm:min-h-[7.5rem]">
@@ -451,7 +488,10 @@ export function Hero({ announcements }: { announcements: HeroAnnouncement[] }) {
               <AnnouncementCard
                 announcement={activeNotif}
                 size="mobile"
-                position={{ index: notifIndex % announcements.length, total: announcements.length }}
+                position={{
+                  index: notifIndex % announcements.length,
+                  total: announcements.length,
+                }}
                 onAnchorClick={handleLinkClick}
               />
 

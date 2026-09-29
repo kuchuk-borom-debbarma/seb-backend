@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, redirect, useRouter } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   ArrowLeft,
   CheckCircle2,
@@ -20,11 +20,6 @@ import { formatRelative } from '@/lib/format'
 import { gql } from '@/lib/graphql'
 import { messageFor, unwrap } from '@/lib/result'
 import { ensureSession, forgetSession, hasRole, isApplicant } from '@/lib/session'
-
-import oneImg from '@/assets/one.png'
-import twoImg from '@/assets/two.png'
-import threeImg from '@/assets/three.png'
-import fourImg from '@/assets/four.png'
 
 type UserRole = 'applicant' | 'admin'
 
@@ -59,51 +54,13 @@ export const Route = createFileRoute('/login')({
   component: LoginPage,
 })
 
-interface StorySlide {
-  image: string
-  alt: string
-  title: string
-  desc: string
-}
-
 type Challenge = { challengeToken: string; expiresAt: string; delivery: string }
-
-const applicantSlides: StorySlide[] = [
-  {
-    image: twoImg,
-    alt: 'Founders Aged 18 to 60',
-    title: 'Ages 18 to 60 Years',
-    desc: 'Empowering dynamic young innovators and experienced community enterprise leaders.',
-  },
-  {
-    image: threeImg,
-    alt: 'Category A and B Tracks',
-    title: 'Category A & Category B',
-    desc: 'Dedicated incubation tracks for fresh startups (0–24 mo) and modernization of existing units.',
-  },
-]
-
-const adminSlides: StorySlide[] = [
-  {
-    image: oneImg,
-    alt: 'DPR Scrutiny & Sanction Tracking',
-    title: 'DPR Scrutiny & Evaluation',
-    desc: 'Multi-tier scrutiny workflow and structured scorecards for entrepreneur seed fund applications.',
-  },
-  {
-    image: fourImg,
-    alt: 'Institutional Governance & Verification',
-    title: 'Institutional Verification',
-    desc: 'Direct verification of Tripura ST credentials and milestone-linked grant disbursement tracking.',
-  },
-]
 
 function LoginPage() {
   const router = useRouter()
   const { next } = Route.useSearch()
   const queryClient = useQueryClient()
   const [role, setRole] = useState<UserRole>('applicant')
-  const [activeSlide, setActiveSlide] = useState(0)
   const [isSignUp, setIsSignUp] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
@@ -115,16 +72,6 @@ function LoginPage() {
 
   const [adminEmail, setAdminEmail] = useState('')
   const [adminPassword, setAdminPassword] = useState('')
-
-  const activeSlides = role === 'admin' ? adminSlides : applicantSlides
-
-  // Auto-advance left panel carousel (Desktop only)
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setActiveSlide((prev) => (prev + 1) % activeSlides.length)
-    }, 4500)
-    return () => clearInterval(timer)
-  }, [activeSlides.length])
 
   const signIn = useMutation({
     mutationFn: async () => {
@@ -205,7 +152,6 @@ function LoginPage() {
 
   const handleRoleChange = (newRole: UserRole) => {
     setRole(newRole)
-    setActiveSlide(0)
     setChallenge(null)
     setOtp('')
     setShowPassword(false)
@@ -265,80 +211,11 @@ function LoginPage() {
       {/* 2. MAIN PAGE BODY                                                         */}
       {/* ========================================================================= */}
       <main className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-10 lg:p-12">
-        <div className="w-full max-w-md md:max-w-5xl lg:max-w-6xl overflow-hidden rounded-2xl bg-white shadow-xl border border-[#181715]/10 flex flex-col md:flex-row md:min-h-[600px]">
-          {/* ======================================================================= */}
-          {/* DESKTOP LEFT PANEL: Mission SEP Information & Storyboard (Hidden Mobile) */}
-          {/* ======================================================================= */}
-          <div
-            className={`hidden md:flex relative flex-1 md:max-w-[42%] lg:max-w-[40%] p-8 sm:p-10 flex-col justify-between items-center text-center overflow-hidden transition-colors duration-500 ${
-              role === 'admin' ? 'bg-[#516b75]' : 'bg-[#7d9b8e]'
-            }`}
-          >
-            {/* Top header badge */}
-            <div className="relative z-10 border-b border-white/25 pb-1.5 px-3">
-              <span className="text-[11px] font-semibold tracking-wider text-white/95 uppercase">
-                {role === 'admin' ? 'TTAADC Administration' : 'TTAADC Mission SEP 2026'}
-              </span>
-            </div>
-
-            {/* Center Story illustration */}
-            <div className="relative z-10 my-auto flex flex-col items-center justify-center w-full max-w-xs">
-              <div className="relative size-48 sm:size-56 md:size-60 flex items-center justify-center transition-all duration-500">
-                <img
-                  key={`${role}-${activeSlide}`}
-                  src={activeSlides[activeSlide]?.image}
-                  alt={activeSlides[activeSlide]?.alt}
-                  className="max-h-full max-w-full object-contain drop-shadow-md animate-in fade-in zoom-in-95 duration-500"
-                />
-              </div>
-
-              {/* Slide Title & Description */}
-              <div className="mt-4 space-y-1.5 min-h-[75px]">
-                <h2
-                  key={`title-${role}-${activeSlide}`}
-                  className="font-serif text-lg sm:text-xl font-bold tracking-tight text-white drop-shadow-xs animate-in fade-in slide-in-from-bottom-2 duration-300"
-                >
-                  {activeSlides[activeSlide]?.title}
-                </h2>
-                <p
-                  key={`desc-${role}-${activeSlide}`}
-                  className="text-xs text-white/90 leading-relaxed max-w-xs mx-auto animate-in fade-in duration-500"
-                >
-                  {activeSlides[activeSlide]?.desc}
-                </p>
-              </div>
-            </div>
-
-            {/* Bottom Indicators */}
-            <div className="relative z-10 flex items-center justify-center gap-2 pt-2">
-              {activeSlides.map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => setActiveSlide(i)}
-                  aria-label={`Go to slide ${i + 1}`}
-                  className={`transition-all duration-300 h-1 rounded-xs cursor-pointer ${
-                    activeSlide === i
-                      ? 'w-6 bg-white shadow-xs'
-                      : 'w-2.5 bg-white/45 hover:bg-white/70'
-                  }`}
-                />
-              ))}
-            </div>
-
-            {/* Ambient background blur */}
-            <div className="absolute -bottom-16 -left-16 size-64 rounded-full bg-white/10 blur-2xl pointer-events-none" />
-            <div className="absolute -top-16 -right-16 size-64 rounded-full bg-white/10 blur-2xl pointer-events-none" />
-          </div>
-
-          {/* ======================================================================= */}
-          {/* FORM PANEL: Pure Form Layout for Mobile & Desktop                       */}
-          {/* ======================================================================= */}
-          <div className="relative flex-1 bg-white p-5 sm:p-8 md:p-10 lg:p-12 flex flex-col justify-between overflow-y-auto">
+        <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl border border-[#181715]/10">
+          <div className="bg-white p-5 sm:p-8 md:p-10 flex flex-col justify-between">
             {/* Form Header Area */}
             <div className="w-full max-w-md mx-auto my-auto py-2">
               <div className="text-center">
-
                 <h1 className="mt-4 font-serif text-xl sm:text-2xl font-bold tracking-tight text-[#1e293b]">
                   {isSignUp
                     ? challenge
@@ -511,9 +388,9 @@ function LoginPage() {
                         <p className="text-[10.5px] leading-relaxed text-[#1e40af]">
                           {challenge.delivery === 'CONSOLE' ? (
                             <>
-                              <strong>Read the code from the server console.</strong>{' '}
-                              This development server prints the six-digit code to its
-                              log instead of emailing it.
+                              <strong>Read the code from the server console.</strong> This
+                              development server prints the six-digit code to its log
+                              instead of emailing it.
                             </>
                           ) : (
                             <>

@@ -214,6 +214,11 @@ The client is a public site and two portals sharing one institution.
 - **Shared** — `/guide` and the account screens under `/settings` and
   `/account`, reachable from either portal.
 
+The public hero plays a silent Mission SEP logo animation behind its text. The
+whole mark fits within the screen, and a still poster appears when reduced
+motion is requested. Sign-in keeps the institutional logo above a single form;
+it has no illustrated story panel.
+
 Signing in lands each account in the portal its roles fit, so an officer with no
 applicant grant never has to read a refusal after every sign-in. Opening a
 portal you cannot use **refuses in place** rather than redirecting: the screen

@@ -4,9 +4,9 @@ const columns = [
   {
     title: 'Mission SEP',
     links: [
-      { label: 'Preamble & Mission', href: '/#about' },
+      { label: 'Core Objectives', href: '/#goals' },
       { label: 'Supported Sectors', href: '/#project' },
-      { label: 'Ecosystem Pillars', href: '/#about' },
+      { label: 'How It Works', href: '/#how-it-works' },
       { label: 'Bank Linkages', href: '/#project' },
     ],
   },
