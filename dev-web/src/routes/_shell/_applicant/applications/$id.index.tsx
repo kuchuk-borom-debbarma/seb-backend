@@ -1,6 +1,6 @@
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
-import { useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -31,8 +31,14 @@ import { cyclesQuery, statusGuideQuery } from '#/features/application/queries'
 import {
   applicationQuery,
   formTemplateQuery,
-  timelineQuery,
+  validationQuery,
 } from '#/features/application/applicationQueries'
+import { resolveTemplate } from '#/features/application/formTemplate'
+import {
+  journeySteps,
+  issuesForStep,
+  REVIEW,
+} from '#/features/application/ApplicationJourney'
 import type {
   ApplicationCategory,
   ApplicationStatus,
@@ -134,7 +140,6 @@ export const Route = createFileRoute('/_shell/_applicant/applications/$id/')({
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(applicationQuery(params.id)),
-      context.queryClient.ensureQueryData(timelineQuery(params.id)),
       context.queryClient.ensureQueryData(statusGuideQuery),
       context.queryClient.ensureQueryData(cyclesQuery),
     ])
@@ -280,10 +285,30 @@ function ApplicationPage() {
   const queryClient = useQueryClient()
   const [removalError, setRemovalError] = useState<string | null>(null)
   const { data: application } = useQuery(applicationQuery(id))
-  const { data: timeline } = useQuery(timelineQuery(id))
   const { data: guide } = useQuery(statusGuideQuery)
   const { data: cycles } = useQuery(cyclesQuery)
-  const { data: template } = useQuery(formTemplateQuery(id))
+  const { data: rawTemplate } = useQuery(formTemplateQuery(id))
+  const { data: validation } = useQuery(validationQuery(id))
+
+  const template = useMemo(
+    () => (rawTemplate ? resolveTemplate(rawTemplate) : null),
+    [rawTemplate],
+  )
+
+  const draftProgress = useMemo(() => {
+    if (!template || !validation) return null
+    const order = journeySteps(template)
+    const totalSteps = order.length
+    const completedCount = order.filter((step) => {
+      if (step === REVIEW) {
+        return order.every(
+          (s) => s === REVIEW || issuesForStep(template, validation.issues, s).length === 0,
+        )
+      }
+      return issuesForStep(template, validation.issues, step).length === 0
+    }).length
+    return { completedCount, totalSteps }
+  }, [template, validation])
 
   if (!application || !guide) return null
 
@@ -556,6 +581,19 @@ function ApplicationPage() {
               <span className={styles.statusBadge}>
                 {guideEntry?.label ?? humanize(application.status)}
               </span>
+              {application.status === 'DRAFT' && draftProgress ? (
+                <span
+                  className={styles.actorBadge}
+                  style={{
+                    background: 'transparent',
+                    color: '#a88d15',
+                    borderColor: '#E2C43A',
+                  }}
+                >
+                  <FilePenLine size={13} aria-hidden="true" />
+                  {draftProgress.completedCount} of {draftProgress.totalSteps} steps complete
+                </span>
+              ) : null}
               <span className={styles.actorBadge}>
                 <Landmark size={13} aria-hidden="true" />
                 {guideEntry?.nextActor === 'APPLICANT'
@@ -722,58 +760,6 @@ function ApplicationPage() {
                   </Link>
                 </div>
               </div>
-            </div>
-
-            <div className={styles.card}>
-              <div className={styles.cardHeader}>
-                <div className={styles.cardTitleGroup}>
-                  <Clock className={styles.cardIcon} aria-hidden="true" />
-                  <h3 className={styles.cardTitle}>History</h3>
-                </div>
-              </div>
-              {timeline && timeline.length > 0 ? (
-                <div className={styles.tableWrap}>
-                  <table className={styles.table}>
-                    <caption className="visually-hidden">Application history</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col" className={styles.th}>
-                          When
-                        </th>
-                        <th scope="col" className={styles.th}>
-                          What happened
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {timeline.map((event) => (
-                        <tr key={event.id} className={styles.tr}>
-                          <td className={styles.td} style={{ whiteSpace: 'nowrap' }}>
-                            {formatDateTime(event.createdAt)}
-                          </td>
-                          <td className={styles.td}>
-                            <span style={{ fontWeight: 500 }}>
-                              {humanize(event.eventType)}
-                            </span>
-                            {event.message ? (
-                              <p className="muted" style={{ marginTop: '0.25rem' }}>
-                                {event.message}
-                              </p>
-                            ) : null}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="empty">
-                  <p>
-                    Nothing has happened yet. Events appear here as your application
-                    moves.
-                  </p>
-                </div>
-              )}
             </div>
 
             <div className={styles.statusNotice}>

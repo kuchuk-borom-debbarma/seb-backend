@@ -24,7 +24,7 @@
 
 .body {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: 290px minmax(0, 1fr);
   gap: 24px;
   align-items: flex-start;
   min-width: 0;
@@ -37,19 +37,20 @@
 
 .railCard {
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px 10px;
   position: sticky;
   top: 24px;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
 }
 
 .stepList {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   padding: 0;
   margin: 0;
   list-style: none;
@@ -60,21 +61,21 @@
   padding: 0;
 }
 
-/* Uniform CSS Grid: Circle (26px) | Text (1fr) | Right Slot (16px) */
+/* Uniform CSS Grid: Circle (22px) | Icon (20px) | Text (1fr) | Right Slot (16px) */
 .stepButton {
   width: 100%;
   display: grid;
-  grid-template-columns: 26px 1fr 16px;
-  gap: 12px;
+  grid-template-columns: 22px 20px 1fr 16px;
+  gap: 10px;
   align-items: flex-start;
-  padding: 9px 10px;
-  border-radius: 8px;
+  padding: 10px 10px;
+  border-radius: 10px;
   border: 1px solid transparent;
-  background: #ffffff;
+  background: transparent;
   text-align: left;
   font: inherit;
   transition: all 0.15s ease;
-  color: #475569;
+  color: var(--ink-muted);
   box-sizing: border-box;
 }
 
@@ -83,8 +84,8 @@
 }
 
 .stepButton:not(:disabled):hover {
-  border-color: #cbd5e1;
-  color: #0f172a;
+  background: #fafbfc;
+  color: var(--ink);
 }
 
 .stepButton:disabled {
@@ -92,57 +93,74 @@
 }
 
 .stepButton[data-current='true'] {
-  background: #ffffff;
-  border-color: #0f172a;
+  background: #f0f5fc;
+  border-color: #d8e6f8;
 }
 
 .stepCircle {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
   margin-top: 1px;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  color: #64748b;
+  background: #cbd5e1;
+  color: #475569;
   box-sizing: border-box;
   transition: all 0.15s ease;
 }
 
-.stepButton[data-current='true'] .stepCircle {
-  background: #ffffff;
-  border-color: #0f172a;
-  color: #0f172a;
+.stepCircle[data-current='true'] {
+  background: var(--brand);
+  color: #ffffff;
 }
 
 .stepCircle[data-status='complete'] {
-  background: #ffffff;
-  border-color: #94a3b8;
-  color: #475569;
+  background: #23814C;
+  color: #ffffff;
 }
 
 .stepCircle[data-status='error'] {
-  background: #ffffff;
-  border-color: #b91c1c;
-  color: #b91c1c;
+  background: #C92929;
+  color: #ffffff;
 }
 
 .stepCircle[data-status='blocked'],
 .stepCircle[data-status='locked'] {
-  background: #ffffff;
-  border-color: #e2e8f0;
-  color: #94a3b8;
+  background: #cbd5e1;
+  color: #475569;
 }
 
 .stepCircle svg {
-  width: 13px;
-  height: 13px;
-  stroke-width: 2.2;
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.8;
+}
+
+.stepIconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--ink-muted);
+  transition: color 0.15s ease;
+}
+
+.stepIconWrap[data-current='true'] {
+  color: var(--brand);
+}
+
+.stepIconWrap[data-status='complete'] {
+  color: #23814C;
+}
+
+.stepIconWrap[data-status='error'] {
+  color: #C92929;
 }
 
 .stepCopy {
@@ -155,18 +173,34 @@
 .stepLabel {
   font-size: 13.5px;
   font-weight: 500;
-  color: #475569;
+  color: var(--ink);
   line-height: 1.35;
   transition: color 0.15s ease;
 }
 
 .stepButton[data-current='true'] .stepLabel {
-  color: #0f172a;
+  color: var(--ink);
   font-weight: 600;
 }
 
+.stepSubCurrent {
+  color: var(--brand);
+  font-size: 11.5px;
+  font-weight: 500;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+.stepSubComplete {
+  color: #23814C;
+  font-size: 11.5px;
+  font-weight: 500;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
 .stepIssues {
-  color: #b91c1c;
+  color: #C92929;
   font-size: 11.5px;
   font-weight: 500;
   margin-top: 2px;
@@ -174,16 +208,8 @@
 }
 
 .stepSub {
-  color: #94a3b8;
+  color: var(--ink-muted);
   font-size: 11.5px;
-  margin-top: 2px;
-  line-height: 1.3;
-}
-
-.stepSubComplete {
-  color: #64748b;
-  font-size: 11.5px;
-  font-weight: 500;
   margin-top: 2px;
   line-height: 1.3;
 }
@@ -204,12 +230,12 @@
 
 .railFooter {
   text-align: center;
-  color: #94a3b8;
+  color: var(--ink-muted);
   font-size: 12px;
   font-weight: 500;
-  padding: 10px 0 2px;
-  border-top: 1px solid #f1f5f9;
-  margin-top: 8px;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 10px;
   letter-spacing: 0.01em;
 }
 
@@ -219,37 +245,53 @@
 
 .formCard {
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
   padding: 32px 36px;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
 }
 
 .formHeader {
-  margin-bottom: 26px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+
+.formHeaderIconWrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #ebf3fc;
+  color: var(--brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.formHeaderText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
 }
 
 .formTitle {
   font-size: 22px;
   font-weight: 700;
-  color: #0f172a;
-  margin: 0 0 6px;
+  color: var(--ink);
+  margin: 0;
   letter-spacing: -0.015em;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.formTitleIcon {
-  color: #475569;
-  flex-shrink: 0;
 }
 
 .formDesc {
   font-size: 14px;
-  color: #64748b;
+  color: var(--ink-muted);
   margin: 0;
   line-height: 1.5;
 }

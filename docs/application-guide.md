@@ -21,6 +21,13 @@ review. A reviewer may later request revisions to named stages of the form.
 Resubmission may change only those stages and is allowed even if the original
 cycle has closed.
 
+The application itself has seven stages: Enterprise details, Owners, Project
+cost and funding, Previous support and credit, Evidence requirements, Attach
+evidence, and Review. Every editable answer stage and Attach evidence uses
+`Save & Next`: pending answers or uploads finish first, fresh server validation
+must pass for that stage, and only then does the journey advance. Review shows
+all answers and attached files before the applicant submits.
+
 If a phase receives an active award and retains a positive released amount for
 12 calendar months, the next expansion phase may become available. Expansion
 is derived from the authoritative award and ledger; the applicant never selects

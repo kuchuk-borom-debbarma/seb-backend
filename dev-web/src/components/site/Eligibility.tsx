@@ -93,7 +93,7 @@ const criteria: Criterion[] = [
 ]
 
 export function Eligibility() {
-  const [openId, setOpenId] = useState<string | null>('01')
+  const [openId, setOpenId] = useState<string | null>(null)
 
   return (
     <section
@@ -104,7 +104,7 @@ export function Eligibility() {
         {/* Section Header */}
         <div className="max-w-2xl">
           <p className="text-xs font-semibold tracking-widest text-[#1d4ed8] uppercase">
-            2. ELIGIBILITY MATRIX
+            ELIGIBILITY MATRIX
           </p>
           <h2 className="mt-2 text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-[#0c1a30] leading-[1.08]">
             Eligibility Criteria
@@ -129,21 +129,13 @@ export function Eligibility() {
                   aria-expanded={isOpen}
                   className="w-full text-left py-5 sm:py-6 md:py-7 flex items-start sm:items-center justify-between gap-4 cursor-pointer"
                 >
-                  <div className="flex items-start sm:items-baseline gap-4 sm:gap-6 min-w-0 flex-1">
-                    {/* Minimal Monospace Index */}
-                    <span className="font-mono text-sm sm:text-base font-semibold text-[#94a3b8] group-hover:text-[#0c1a30] transition-colors shrink-0 pt-0.5 sm:pt-0">
-                      {item.number}
-                    </span>
-
-                    {/* Title and One-Liner */}
-                    <div className="min-w-0 flex-1 flex flex-col md:flex-row md:items-baseline md:gap-4">
-                      <h3 className="text-base sm:text-lg md:text-[19px] font-bold text-[#0c1a30] tracking-tight group-hover:text-[#1d4ed8] transition-colors shrink-0">
-                        {item.parameter}
-                      </h3>
-                      <p className="text-xs sm:text-sm text-[#64748b] leading-normal mt-0.5 md:mt-0 font-normal">
-                        {item.oneLiner}
-                      </p>
-                    </div>
+                  <div className="min-w-0 flex-1 flex flex-col md:flex-row md:items-baseline md:gap-4 pr-2">
+                    <h3 className="text-base sm:text-lg md:text-[19px] font-bold text-[#0c1a30] tracking-tight group-hover:text-[#1d4ed8] transition-colors shrink-0">
+                      {item.parameter}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-[#64748b] leading-normal mt-0.5 md:mt-0 font-normal">
+                      {item.oneLiner}
+                    </p>
                   </div>
 
                   {/* Minimal Icon Indicator */}

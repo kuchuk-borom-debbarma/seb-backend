@@ -88,6 +88,11 @@ parsed on demand *"so tests and local Wrangler overrides can supply different
 bindings without global mutable configuration"*. The suite also runs
 `singleWorker: true`, so a cached instance is shared by every test in the run.
 
+**A request waits for a database connection before it starts database work.** A
+rejected connection becomes the one safe unavailable-service response instead
+of exposing the driver failure. A query is not given this treatment: it can legitimately wait on a row lock, and
+treating that as an outage would turn correct concurrency into failure.
+
 ## Loaders are per request. This one is not about performance
 
 A loader is a cache. One built at module scope is shared by every request the

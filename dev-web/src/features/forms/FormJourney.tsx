@@ -8,14 +8,15 @@
 import {
   Building2,
   Check,
-  CheckCircle2,
+  CheckSquare,
   FileSignature,
   FileText,
-  History,
   IndianRupee,
   LockKeyhole,
   Paperclip,
-  User,
+  ReceiptIndianRupee,
+  ShieldCheck,
+  Users,
 } from 'lucide-react'
 import styles from './FormJourney.module.css'
 
@@ -29,27 +30,78 @@ export type JourneyStep<TId extends string = string> = {
   issueCount?: number
 }
 
-function CategoryIcon({ id, size = 20 }: { id: string; size?: number }) {
-  switch (id) {
-    case 'ENTERPRISE':
-      return <Building2 size={size} className={styles.formTitleIcon} aria-hidden="true" />
-    case 'APPLICANT_PROFILE':
-      return <User size={size} className={styles.formTitleIcon} aria-hidden="true" />
-    case 'FINANCIAL':
-      return <IndianRupee size={size} className={styles.formTitleIcon} aria-hidden="true" />
-    case 'PRIOR_FUNDING':
-      return <History size={size} className={styles.formTitleIcon} aria-hidden="true" />
-    case 'DOCUMENTS':
-      return <FileText size={size} className={styles.formTitleIcon} aria-hidden="true" />
-    case 'DECLARATION':
-      return <FileSignature size={size} className={styles.formTitleIcon} aria-hidden="true" />
-    case 'ATTACH_EVIDENCE':
-      return <Paperclip size={size} className={styles.formTitleIcon} aria-hidden="true" />
-    case 'REVIEW':
-      return <CheckCircle2 size={size} className={styles.formTitleIcon} aria-hidden="true" />
-    default:
-      return null
+function CategoryIcon({
+  id,
+  label,
+  size = 17,
+  className,
+}: {
+  id: string
+  label?: string
+  size?: number
+  className?: string
+}) {
+  const upper = id.toUpperCase()
+  const lowerLabel = (label ?? '').toLowerCase()
+  if (
+    upper.includes('OWNER') ||
+    lowerLabel.includes('owner') ||
+    upper.includes('APPLICANT_PROFILE') ||
+    lowerLabel.includes('applicant')
+  ) {
+    return <Users size={size} className={className} aria-hidden="true" />
   }
+  if (
+    upper.includes('FINANCIAL') ||
+    upper.includes('COST') ||
+    lowerLabel.includes('cost') ||
+    lowerLabel.includes('funding') ||
+    upper.includes('PROJECT')
+  ) {
+    return <IndianRupee size={size} className={className} aria-hidden="true" />
+  }
+  if (
+    upper.includes('PRIOR') ||
+    upper.includes('SUPPORT') ||
+    upper.includes('CREDIT') ||
+    lowerLabel.includes('support') ||
+    lowerLabel.includes('credit')
+  ) {
+    return <ReceiptIndianRupee size={size} className={className} aria-hidden="true" />
+  }
+  if (
+    upper.includes('ATTACH') ||
+    upper.includes('EVIDENCE_FILES') ||
+    id === 'ATTACH_EVIDENCE' ||
+    lowerLabel.includes('attach')
+  ) {
+    return <Paperclip size={size} className={className} aria-hidden="true" />
+  }
+  if (
+    upper.includes('NOC') ||
+    lowerLabel.includes('noc') ||
+    upper.includes('DOCUMENT') ||
+    upper.includes('EVIDENCE') ||
+    lowerLabel.includes('evidence') ||
+    lowerLabel.includes('document')
+  ) {
+    return <ShieldCheck size={size} className={className} aria-hidden="true" />
+  }
+  if (
+    upper.includes('REVIEW') ||
+    id === 'REVIEW' ||
+    lowerLabel.includes('review') ||
+    lowerLabel.includes('submit')
+  ) {
+    return <CheckSquare size={size} className={className} aria-hidden="true" />
+  }
+  if (upper.includes('ENTERPRISE') || lowerLabel.includes('enterprise')) {
+    return <Building2 size={size} className={className} aria-hidden="true" />
+  }
+  if (upper.includes('DECLARATION') || lowerLabel.includes('declaration')) {
+    return <FileSignature size={size} className={className} aria-hidden="true" />
+  }
+  return <FileText size={size} className={className} aria-hidden="true" />
 }
 
 export function FormJourney<TId extends string>({
@@ -136,15 +188,27 @@ export function FormJourney<TId extends string>({
                     className={styles.stepButton}
                     disabled={!interactive}
                     data-current={current ? 'true' : undefined}
+                    data-status={step.status}
                     aria-current={current ? 'step' : undefined}
                     onClick={() => onStepSelect?.(step.id)}
                   >
-                    <span className={styles.stepCircle} data-status={step.status}>
+                    <span
+                      className={styles.stepCircle}
+                      data-status={step.status}
+                      data-current={current ? 'true' : undefined}
+                    >
                       {step.status === 'complete' ? (
-                        <Check size={14} strokeWidth={2.8} aria-hidden="true" />
+                        <Check size={13} strokeWidth={2.8} aria-hidden="true" />
                       ) : (
                         index + 1
                       )}
+                    </span>
+                    <span
+                      className={styles.stepIconWrap}
+                      data-current={current ? 'true' : undefined}
+                      data-status={step.status}
+                    >
+                      <CategoryIcon id={step.id} label={step.label} size={17} />
                     </span>
                     <div className={styles.stepCopy}>
                       <span className={styles.stepLabel}>{step.label}</span>
@@ -156,9 +220,13 @@ export function FormJourney<TId extends string>({
                       ) : (
                         <span
                           className={
-                            step.status === 'complete'
-                              ? styles.stepSubComplete
-                              : styles.stepSub
+                            current
+                              ? styles.stepSubCurrent
+                              : step.status === 'complete'
+                                ? styles.stepSubComplete
+                                : step.issueCount
+                                  ? styles.stepIssues
+                                  : styles.stepSub
                           }
                         >
                           {stateLabel(step, current)}
@@ -186,11 +254,15 @@ export function FormJourney<TId extends string>({
 
         <div className={styles.formCard}>
           <div className={styles.formHeader} aria-live="polite">
-            <h2 id="journey-section-title" className={styles.formTitle}>
-              <CategoryIcon id={active.id} />
-              <span>{active.label}</span>
-            </h2>
-            <p className={styles.formDesc}>{active.description}</p>
+            <div className={styles.formHeaderIconWrap}>
+              <CategoryIcon id={active.id} label={active.label} size={24} />
+            </div>
+            <div className={styles.formHeaderText}>
+              <h2 id="journey-section-title" className={styles.formTitle}>
+                {active.label}
+              </h2>
+              <p className={styles.formDesc}>{active.description}</p>
+            </div>
           </div>
 
           <div className={styles.formContent}>{children}</div>
@@ -213,12 +285,12 @@ function stateLabel<TId extends string>(
   step: JourneyStep<TId>,
   current: boolean,
 ): string {
+  if (current) return 'Current category'
   if (step.status === 'blocked') return 'Complete earlier categories first'
   if (step.status === 'locked') return 'Read only'
   if (step.issueCount) {
     return `${step.issueCount} ${step.issueCount === 1 ? 'item' : 'items'} to fix`
   }
-  if (current) return 'Current category'
   if (step.status === 'complete') return 'Complete'
   return 'Available'
 }

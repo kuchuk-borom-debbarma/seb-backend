@@ -10,6 +10,7 @@
  * or on clicking away.
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { Info } from 'lucide-react'
 
 export function Explain({
   children,
@@ -129,7 +130,7 @@ export function Explain({
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
       >
-        ?
+        <Info size={13} strokeWidth={2} aria-hidden="true" />
       </button>
       {open ? (
         <span

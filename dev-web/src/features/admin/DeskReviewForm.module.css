@@ -201,20 +201,21 @@
 .tabCounter {
   font-size: 11px;
   font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 9999px;
-  background: #e2e8f0;
-  color: #475569;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--ink-muted);
 }
 
 .tabButton[data-active='true'] .tabCounter {
-  background: #f1f5f9;
-  color: #0f172a;
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .tabCounter[data-complete='true'] {
-  background: #dcfce7;
-  color: #16a34a;
+  border-color: #23814C;
+  color: #23814C;
 }
 
 .tabSubtleText {

@@ -102,7 +102,6 @@ test.describe('the enterprises list', () => {
     await expect(page.getByText('Nothing matches')).toBeVisible()
   })
 })
-
 test.describe('the intake queue', () => {
   test('searches by reference or enterprise, and says when nothing matches', async ({
     page,
@@ -173,4 +172,3 @@ test.describe('the cycle list', () => {
     await expect(page.getByText('Nothing matches')).toBeVisible()
   })
 })
-

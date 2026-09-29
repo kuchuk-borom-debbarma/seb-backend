@@ -1083,7 +1083,7 @@ describe('Mission SEP administration', () => {
       [{ ...base, closesAt: base.opensAt }, 'The closing time must be later than the opening time.'],
       [{ ...base, policy: { ...testPolicy(), reasons: [...testPolicy().reasons as any[], (testPolicy().reasons as any[])[0]] } }, 'Cycle policy entries must be unique.'],
       [{ ...base, policy: { ...testPolicy(), requiredAssessmentTypes: ['UTILIZATION', 'UTILIZATION'] } }, 'Cycle policy entries must be unique.'],
-      
+
       [{ ...base, policy: { ...testPolicy(), reasons: Array.from({ length: 51 }, (_, index) => ({ context: 'REVISION', code: `R_${index}`, label: 'Reason' })) } }, 'A cycle may contain at most 50 reason categories.'],
       [{ ...base, policy: { ...testPolicy(), reasons: [{ context: 'REVISION', code: 'x', label: 'Reason' }] } }, 'One or more reason categories are invalid.'],
       [{ ...base, policy: { ...testPolicy(), reasons: [{ context: 'REVISION', code: 'VALID', label: ' ' }] } }, 'One or more reason categories are invalid.'],

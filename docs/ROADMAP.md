@@ -104,6 +104,8 @@ These rules are already agreed and must remain true throughout the roadmap.
 - [x] A signed-in applicant can see the current session and all their other
   signed-in sessions.
 - [x] An applicant can sign out the current device.
+- [x] Signing out returns the person to the public programme site, not to a
+  second legacy authentication screen.
 - [x] An applicant can revoke one selected session, every other session, or all
   sessions.
 - [x] Removing applicant access stops applicant operations on the next request,
@@ -149,6 +151,15 @@ without altering older submitted applications.
 
 - [x] The enterprise profile records its current name, establishment date,
   registration details, GSTIN, sector, business address, phone, and email.
+- [x] Enterprise registration and editing present one category at a time:
+  enterprise details, registration and tax, business location, then contact
+  details. Earlier categories remain available while later ones stay blocked.
+- [x] Enterprise location asks for `Office address (as per your business
+  documents)`, warns against a personal or residential address, and limits
+  district selection to Tripura's eight districts.
+- [x] Enterprise answers remain local while moving between categories and the
+  complete profile is created or updated only from the final category. Leaving
+  through Cancel after making a change asks before discarding the answers.
 - [x] Registration and GST fields may remain empty when they do not apply; their
   necessity is checked when an application is submitted.
 - [x] Every meaningful enterprise edit creates a new historical version.
@@ -188,7 +199,7 @@ submitted in an older cycle.
   closing times, policy reference, and lifecycle status.
 - [x] Show a countdown or explicit closing date in the applicant journey; do not
   rely on colour alone to communicate urgency. The cycles screen, the draft form
-  and the check-and-submit screen all state the closing date and the time
+  and the Review screen all state the closing date and the time
   remaining, and the wording changes as well as the tone when it is near.
 - [x] Cycles the applicant has work in are listed separately from cycles a new
   application may start in, so closed cycles render read-only and can never
@@ -204,6 +215,13 @@ submitted in an older cycle.
 
 - [x] The applicant chooses one owned, active enterprise and one open programme
   cycle.
+- [x] Starting an application first confirms the enterprise and cycle, then
+  presents initial and expansion as described choices in a separate gated
+  category. No draft is created until the applicant confirms its type.
+- [x] Registering another enterprise from application setup returns with that
+  enterprise selected, preserves the chosen cycle, and advances to application
+  type when both choices are present. A registration opened directly continues
+  to the new enterprise profile.
 - [x] Starting an initial application creates phase 1 and copies the
   enterprise's current profile into the first draft.
 - [x] The application remains attached to the selected enterprise and its
@@ -254,6 +272,28 @@ submitted in an older cycle.
 ### 5.1 Draft behaviour
 
 - [x] The applicant can save an incomplete form as a draft.
+- [x] The applicant completes seven ordered stages: Enterprise details, Owners,
+  Project cost and funding, Previous support and credit, Evidence requirements,
+  Attach evidence, and Review.
+- [x] The active answer category is held in a validated `section` address
+  parameter. An address without it opens the earliest incomplete category,
+  while existing field bookmarks still open and focus the exact question.
+- [x] `Save & Next` appears on every editable answer stage and Attach evidence.
+  It immediately saves pending answers or uploads and requests fresh server
+  validation. It advances only when the current category has no issues, reports
+  how many remain, and focuses the first question to fix. Completed categories
+  remain available and future categories stay blocked.
+- [x] Missing document files are enforced on the attach-evidence category,
+  separately from the NOC applicability question, so applicants can answer the
+  question before being asked for the resulting files. Required files block
+  review while optional files do not.
+- [x] Desktop forms use a sticky category rail and action footer. Narrow screens
+  use a Step X of Y selector without horizontal scrolling, preserve action
+  clearance at 360–390 pixels, and respect keyboard, screen-reader and reduced-
+  motion preferences.
+- [x] Revision-locked categories remain readable and explicitly marked read
+  only. Every category remains browsable after an application becomes fully
+  read only.
 - [x] Each meaningful save preserves a complete historical snapshot.
 - [x] Saving exactly the same information returns the existing draft version
   instead of creating another copy.
@@ -622,9 +662,10 @@ permanently with no recovery path.
 
 ### 9.4 Two portals
 
-- [x] Separate the applicant portal at `/` from the programme office at
-  `/admin`, so the two audiences do not share one navigation list filtered by
-  role.
+- [x] Keep public programme information at `/`, the applicant portal at
+  `/dashboard`, and the programme office at `/admin`, so visitors can learn
+  about the programme without a session and the two signed-in audiences do not
+  share one navigation list filtered by role.
 - [x] Send each account to the portal its roles fit at sign-in, so an officer
   holding no applicant grant never reads a refusal after signing in.
 - [x] Refuse a portal in place rather than redirecting: name the roles the
@@ -634,6 +675,19 @@ permanently with no recovery path.
   would each refuse in turn.
 - [x] Keep one design system at two densities — an applicant applies once in a
   lifetime and needs room; an officer works all day and needs density.
+- [x] Give applicants a live Dashboard with linked application, enterprise,
+  and open-cycle totals; show requested revisions before drafts; name the next
+  action from the status guide; surface the nearest closing time; and choose a
+  primary action from the account's actual state.
+- [x] Give programme staff a live Dashboard with actionable and total intake
+  counts, direct filtered-queue links, reference lookup, the five latest
+  committee meetings, and quick actions gated by published capabilities.
+- [x] Consolidate account details and signed-in devices under General and
+  Security settings, while keeping `/settings` and the former sessions address
+  as working redirects and offering no unsupported account controls.
+- [x] Keep role-aware operational, administrative, guide, and settings
+  navigation in a collapsible desktop sidebar and an accessible small-screen
+  drawer, with nested routes marking their owning section.
 - [x] Keep the gates advisory: every operation is still refused server-side, so
   the client is never the security boundary.
 
@@ -726,7 +780,7 @@ permanently with no recovery path.
 
 - [x] Starting desk review changes `SUBMITTED` to `DESK_REVIEW` and records the
   reviewer and time.
-- [x] A reviewer checks completeness, eligibility declarations, required
+- [x] A reviewer checks completeness, eligibility confirmations, required
   evidence, and consistency between answers and documents.
 - [x] The reviewer records one outcome: request revision, advance to
   partner-bank evaluation, or reject.

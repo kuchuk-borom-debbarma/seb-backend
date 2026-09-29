@@ -52,7 +52,7 @@ export const defaultFormTemplate = (): Template => ({
     },
     { stageKey: 'FINANCIAL', title: 'Project cost and funding' },
     { stageKey: 'PRIOR_FUNDING', title: 'Previous support and credit' },
-    { stageKey: 'DOCUMENTS', title: 'Evidence' },
+    { stageKey: 'DOCUMENTS', title: 'NOC' },
   ],
   /*
    * The owner, defined once and used by the OWNERS group below. Editing the
