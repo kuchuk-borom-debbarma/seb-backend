@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react'
 import { WhoIsOnThis } from '#/features/admin/WhoIsOnThis'
+import { AuditTimeline } from '#/features/audit/AuditTimeline'
 import { BankStage } from '#/features/admin/BankStage'
 import { DecisionStage } from '#/features/admin/DecisionStage'
 import {
@@ -474,6 +475,23 @@ function WorkspacePage() {
           </div>
         )}
       </section>
+
+      {/*
+        Everything that happened to this file — its documents, review, bank
+        referral, decision and money as well as the application itself — from
+        the history. Drawn only for a reader of the history, who is the only
+        person the API would answer.
+      */}
+      {can(viewer, 'audit', 'read') ? (
+        <section className={styles.card}>
+          <div className={styles.cardHeader}>
+            <h2 className={styles.cardTitle}>Activity</h2>
+          </div>
+          <div className="card-body">
+            <AuditTimeline filter={{ applicationId: id }} link={{ application: id }} />
+          </div>
+        </section>
+      ) : null}
     </main>
   )
 }

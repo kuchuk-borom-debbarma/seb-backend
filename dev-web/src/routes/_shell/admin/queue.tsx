@@ -26,7 +26,14 @@ import {
   Search as SearchIcon,
   XCircle,
 } from 'lucide-react'
-import { Pager, SearchBox } from '#/components/ListControls'
+import {
+  filterFieldClass,
+  filterLabelClass,
+  ListEmpty,
+  MultiSelectFilter,
+  Pager,
+  SearchBox,
+} from '#/components/ListControls'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
 import {
@@ -55,6 +62,7 @@ import type {
 import { formatDate, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
+import { dayEnd, dayOf, dayStart, manyOf, oneOf } from '#/lib/search'
 
 /** The sorts the API offers, named for what a person is trying to do. */
 const ORDERS: { value: AdminIntakeOrder; label: string }[] = [
@@ -157,31 +165,6 @@ type Search = {
   search?: string
 }
 
-const oneOf = <TValue extends string>(
-  allowed: readonly TValue[],
-  value: unknown,
-): TValue | undefined =>
-  allowed.includes(value as TValue) ? (value as TValue) : undefined
-
-/**
- * A multi-value key, kept only where it names real values.
- *
- * A single string is accepted too, so a bookmark from the single-select era
- * (`?sector=OTHER`) still applies the filter it always did.
- */
-const manyOf = <TValue extends string>(
-  allowed: readonly TValue[],
-  value: unknown,
-): TValue[] | undefined => {
-  const raw = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
-  const kept = raw.filter((entry): entry is TValue => allowed.includes(entry as TValue))
-  return kept.length > 0 ? kept : undefined
-}
-
-/** A calendar day, or nothing — never a partial date the API would refuse. */
-const dayOf = (value: unknown): string | undefined =>
-  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/u.test(value) ? value : undefined
-
 /** A rupee amount as typed, kept only while it still parses to paise. */
 const rupeesOf = (value: unknown): string | undefined =>
   typeof value === 'string' && typeof rupeesToPaise(value) === 'number'
@@ -241,15 +224,6 @@ const paiseOf = (rupees: string | undefined): string | null => {
   const paise = rupeesToPaise(rupees)
   return typeof paise === 'number' ? String(paise) : null
 }
-
-/*
- * A day from the picker widens to the whole day in UTC, both bounds
- * inclusive — asking for "to the 12th" must include the 12th's afternoon.
- */
-const dayStart = (day: string | undefined): string | null =>
-  day ? `${day}T00:00:00.000Z` : null
-const dayEnd = (day: string | undefined): string | null =>
-  day ? `${day}T23:59:59.999Z` : null
 
 const inputFor = (search: Search, assigneeUserId: string | null) => ({
   first: QUEUE_PAGE_SIZE,
@@ -476,7 +450,7 @@ function QueuePage() {
       <div className={styles.filtersCard} {...mark('queue-filters')}>
         <div className={styles.filtersGrid}>
           {/* SearchBox debounces and mirrors the URL; only its shell is styled. */}
-          <div className={styles.filterField}>
+          <div className={filterFieldClass}>
             <SearchBox
               id="queue-search"
               label="Reference or enterprise starts with"
@@ -487,8 +461,8 @@ function QueuePage() {
           </div>
 
           {/* Order Dropdown */}
-          <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="order">
+          <div className={filterFieldClass}>
+            <label className={filterLabelClass} htmlFor="order">
               Order
             </label>
             <div className={styles.selectWrap}>
@@ -511,8 +485,8 @@ function QueuePage() {
           </div>
 
           {/* Type Dropdown */}
-          <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="type">
+          <div className={filterFieldClass}>
+            <label className={filterLabelClass} htmlFor="type">
               Type
             </label>
             <div className={styles.selectWrap}>
@@ -537,8 +511,8 @@ function QueuePage() {
           </div>
 
           {/* Cycle Dropdown */}
-          <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="cycle">
+          <div className={filterFieldClass}>
+            <label className={filterLabelClass} htmlFor="cycle">
               Cycle
             </label>
             <div className={styles.selectWrap}>
@@ -600,8 +574,8 @@ function QueuePage() {
 
         {/* Amounts are typed in rupees and land on blur, once they mean a number. */}
         <div className={styles.sectorGrid}>
-          <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="requested-min">
+          <div className={filterFieldClass}>
+            <label className={filterLabelClass} htmlFor="requested-min">
               Requested at least (₹)
             </label>
             <input
@@ -616,8 +590,8 @@ function QueuePage() {
               }
             />
           </div>
-          <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="requested-max">
+          <div className={filterFieldClass}>
+            <label className={filterLabelClass} htmlFor="requested-max">
               Requested at most (₹)
             </label>
             <input
@@ -632,8 +606,8 @@ function QueuePage() {
               }
             />
           </div>
-          <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="submitted-from">
+          <div className={filterFieldClass}>
+            <label className={filterLabelClass} htmlFor="submitted-from">
               Submitted from
             </label>
             <input
@@ -646,8 +620,8 @@ function QueuePage() {
               }
             />
           </div>
-          <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="submitted-to">
+          <div className={filterFieldClass}>
+            <label className={filterLabelClass} htmlFor="submitted-to">
               Submitted to
             </label>
             <input
@@ -663,8 +637,8 @@ function QueuePage() {
         </div>
 
         <div className={styles.sectorGrid}>
-          <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="decided-from">
+          <div className={filterFieldClass}>
+            <label className={filterLabelClass} htmlFor="decided-from">
               Decided from
             </label>
             <input
@@ -677,8 +651,8 @@ function QueuePage() {
               }
             />
           </div>
-          <div className={styles.filterField}>
-            <label className={styles.filterLabel} htmlFor="decided-to">
+          <div className={filterFieldClass}>
+            <label className={filterLabelClass} htmlFor="decided-to">
               Decided to
             </label>
             <input
@@ -696,48 +670,43 @@ function QueuePage() {
 
       {/* Applications Table Card */}
       {rows.length === 0 ? (
-        <div className={styles.emptyCard}>
-          {/* Three different facts, and the heading has to say which one. */}
-          <h3 className={styles.emptyTitle}>
-            {filtered
+        <ListEmpty
+          // Three different facts, and the heading has to say which one.
+          title={
+            filtered
               ? 'Nothing matches'
               : search.queue
                 ? 'Nothing in this queue'
-                : 'No applications yet'}
-          </h3>
-          <p className={styles.emptyText}>
-            {filtered
+                : 'No applications yet'
+          }
+          text={
+            filtered
               ? 'No application matches these filters. Clearing one may bring some back.'
               : search.queue
                 ? 'Everything here has been dealt with.'
-                : 'Nothing has been submitted to the programme office yet.'}
-          </p>
-          {filtered ? (
-            <button
-              type="button"
-              className={styles.clearFilterBtn}
-              onClick={() =>
-                filter({
-                  search: undefined,
-                  applicationType: undefined,
-                  categories: undefined,
-                  sectors: undefined,
-                  districts: undefined,
-                  cycleId: undefined,
-                  requestedMin: undefined,
-                  requestedMax: undefined,
-                  submittedFrom: undefined,
-                  submittedTo: undefined,
-                  decidedFrom: undefined,
-                  decidedTo: undefined,
-                  mine: undefined,
-                })
-              }
-            >
-              Clear the filters
-            </button>
-          ) : null}
-        </div>
+                : 'Nothing has been submitted to the programme office yet.'
+          }
+          onClear={
+            filtered
+              ? () =>
+                  filter({
+                    search: undefined,
+                    applicationType: undefined,
+                    categories: undefined,
+                    sectors: undefined,
+                    districts: undefined,
+                    cycleId: undefined,
+                    requestedMin: undefined,
+                    requestedMax: undefined,
+                    submittedFrom: undefined,
+                    submittedTo: undefined,
+                    decidedFrom: undefined,
+                    decidedTo: undefined,
+                    mine: undefined,
+                  })
+              : undefined
+          }
+        />
       ) : (
         <div
           className={styles.tableCard}
@@ -848,56 +817,5 @@ function QueuePage() {
         </div>
       )}
     </main>
-  )
-}
-
-/**
- * One multi-value dimension as a native listbox.
- *
- * A native `<select multiple>` rather than a custom popover: it is keyboard
- * and screen-reader complete for free, and the URL — not the control — is the
- * record of what is selected. Clearing every option clears the key entirely,
- * so "nothing selected" reads as "no filter", never as "match nothing".
- */
-function MultiSelectFilter<TValue extends string>({
-  id,
-  label,
-  options,
-  selected,
-  onChange,
-}: {
-  id: string
-  label: string
-  options: readonly TValue[]
-  selected: TValue[] | undefined
-  onChange: (selected: TValue[] | undefined) => void
-}) {
-  return (
-    <div className={styles.filterField}>
-      <label className={styles.filterLabel} htmlFor={id}>
-        {label}
-        {selected?.length ? ` (${selected.length})` : ''}
-      </label>
-      <select
-        id={id}
-        multiple
-        size={4}
-        className={styles.multiSelect}
-        value={selected ?? []}
-        onChange={(event) => {
-          const chosen = Array.from(
-            event.target.selectedOptions,
-            (option) => option.value as TValue,
-          )
-          onChange(chosen.length > 0 ? chosen : undefined)
-        }}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {humanize(option)}
-          </option>
-        ))}
-      </select>
-    </div>
   )
 }

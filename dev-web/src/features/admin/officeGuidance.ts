@@ -117,9 +117,11 @@ export const OFFICE_LEDES = {
   audit:
     'Every recorded action, newest first. This is what answers who changed ' +
     'something and when — the question asked after something has gone wrong. ' +
-    'Filter by the person, by everybody holding a role, or by the kind of ' +
-    'action. Only a super administrator can open this, because it carries more ' +
-    'about people than any other screen here.',
+    'Narrow it to a person, to everybody holding a role, to a kind of ' +
+    'activity or one action, to an application, or to a range of days, and ' +
+    'open any entry to see everything it recorded. Only a role that may read ' +
+    'the history can open this, because it carries more about people than any ' +
+    'other screen here.',
 
   invite:
     'Somebody signs up as an applicant, you choose the role, and they accept it ' +

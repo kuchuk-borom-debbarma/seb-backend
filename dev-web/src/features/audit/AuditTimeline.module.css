@@ -1,0 +1,25 @@
+/*
+ * A compact list of history entries. Its own file so a screen embedding a slice
+ * of the history loads this and not the full view's dialog and filter styles.
+ */
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.timeline li:last-child {
+  border-bottom: 0;
+}
