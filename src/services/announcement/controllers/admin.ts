@@ -10,7 +10,7 @@
  * reorder quotes the board's, because two reorders touch no common card row and
  * need one row they both contend for.
  */
-import { auditActions } from '../../../db/schema'
+import { auditReason } from '../../audit-vocabulary/fields'
 import { failure, success } from '../../envelope'
 import { normalizeOptionalText, normalizeRequiredText } from '../../text'
 import {
@@ -111,9 +111,10 @@ export const createAnnouncementController = async (
     now,
     audit: announcementAudit(context, {
       actorUserId: announcer.id,
-      action: auditActions.announcementCreated,
+      action: 'SEB.ANNOUNCEMENT_CREATED',
       entityType: 'SEB_ANNOUNCEMENT',
       entityId: id,
+      payload: { title: normalized.fields.title, published: normalized.fields.published },
       now,
     }),
   })
@@ -140,9 +141,10 @@ export const updateAnnouncementController = async (
     now,
     audit: announcementAudit(context, {
       actorUserId: announcer.id,
-      action: auditActions.announcementUpdated,
+      action: 'SEB.ANNOUNCEMENT_UPDATED',
       entityType: 'SEB_ANNOUNCEMENT',
       entityId: input.id,
+      payload: { change: 'EDITED', version: input.expectedVersion + 1 },
       now,
     }),
   })
@@ -171,11 +173,16 @@ export const setAnnouncementPublishedController = async (
     now,
     audit: announcementAudit(context, {
       actorUserId: announcer.id,
-      action: auditActions.announcementUpdated,
+      action: 'SEB.ANNOUNCEMENT_UPDATED',
       entityType: 'SEB_ANNOUNCEMENT',
       entityId: input.id,
       now,
-      metadata: { published: input.published, reason },
+      payload: {
+        change: input.published ? 'PUBLISHED' : 'UNPUBLISHED',
+        version: input.expectedVersion + 1,
+        // Bounded for the history; the card keeps the whole reason.
+        reason: reason ? auditReason(reason) : undefined,
+      },
     }),
   })
   if (!changed) return failure(STALE_MESSAGE)
@@ -202,11 +209,11 @@ export const removeAnnouncementController = async (
     now,
     audit: announcementAudit(context, {
       actorUserId: announcer.id,
-      action: auditActions.announcementRemoved,
+      action: 'SEB.ANNOUNCEMENT_REMOVED',
       entityType: 'SEB_ANNOUNCEMENT',
       entityId: input.id,
       now,
-      metadata: { reason },
+      payload: { reason: auditReason(reason) },
     }),
   })
   if (!changed) return failure(STALE_MESSAGE)
@@ -248,11 +255,11 @@ export const reorderAnnouncementsController = async (
     now,
     audit: announcementAudit(context, {
       actorUserId: announcer.id,
-      action: auditActions.announcementReordered,
+      action: 'SEB.ANNOUNCEMENT_REORDERED',
       entityType: 'SEB_ANNOUNCEMENT_BOARD',
       entityId: 'BOARD',
       now,
-      metadata: { count: input.ids.length },
+      payload: { count: input.ids.length },
     }),
   })
   if (!changed) return failure(STALE_MESSAGE)

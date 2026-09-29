@@ -1358,19 +1358,32 @@ describe('Mission SEP administration', () => {
       db: activeDatabase(), loaders: createLoaders(activeDatabase()), env, requestHeaders,
       requestUrl: 'https://api.example.test/graphql', responseHeaders: new Headers(),
     }
+    const closedPayload = { version: 2, reason: 'SCHEDULED_CLOSING_TIME_REACHED', scheduled: true }
     expect(adminAudit(context, {
       actorUserId: null, action: 'SEB.CYCLE_CLOSED', entityType: 'SEB_PROGRAMME_CYCLE',
-      entityId: 'cycle', now: new Date(0), metadata: { status: 'CLOSED' },
+      entityId: 'cycle', now: new Date(0), payload: closedPayload,
     })).toMatchObject({
       requestId: 'ray-1', ipAddress: '192.0.2.1', userAgent: 'vitest',
-      metadataJson: '{"status":"CLOSED"}',
+      subjectUserId: null, applicationId: null, payload: JSON.stringify(closedPayload),
     })
     requestHeaders.delete('CF-Ray')
     requestHeaders.set('X-Request-ID', 'request-1')
     expect(adminAudit(context, {
       actorUserId: null, action: 'SEB.CYCLE_CLOSED', entityType: 'SEB_PROGRAMME_CYCLE',
+      entityId: 'cycle', now: new Date(0), payload: closedPayload,
+    })).toMatchObject({ requestId: 'request-1' })
+    /*
+     * Fail closed, and quietly: a payload the schema refuses stops the row
+     * being built, and the error names the key — never the value, which can be
+     * an operator's reason or an address.
+     */
+    const refused = () => adminAudit(context, {
+      actorUserId: null, action: 'SEB.CYCLE_CLOSED', entityType: 'SEB_PROGRAMME_CYCLE',
       entityId: 'cycle', now: new Date(0),
-    })).toMatchObject({ requestId: 'request-1', metadataJson: null })
+      payload: { ...closedPayload, version: 0, reason: 'secret-looking reason' },
+    })
+    expect(refused).toThrow(/SEB\.CYCLE_CLOSED.*version/u)
+    expect(refused).not.toThrow(/secret-looking/u)
     expect(adminResolvers.AdminWorkspace.notes({})).toEqual([])
     expect(adminResolvers.AdminWorkspace.notes({ internalNotes: [{ id: 'note' }] })).toEqual([
       { id: 'note' },
@@ -2575,6 +2588,17 @@ describe('Mission SEP administration', () => {
     } }, administrator.cookie)
     const funding = release.data.admin.funding.recordRelease.response
     const obligationId = funding.obligations[0].id as string
+    // The history states the size of the payment, and whose file it was on.
+    const [releaseAudit] = (await env.DB.prepare(
+      `SELECT payload::text AS payload, application_id AS "applicationId",
+         subject_user_id AS subject, request_id AS "requestId"
+       FROM core_audit_event WHERE action = 'SEB.RELEASE_RECORDED' AND application_id = ?`,
+    ).bind(applicationId).all()).results as Record<string, string | null>[]
+    expect(JSON.parse(releaseAudit!.payload!)).toMatchObject({
+      awardId: awardHead.id, amountPaise: 600000, externalReference: `PAY-${applicationId}`,
+      physicalVerificationRequired: true,
+    })
+    expect(releaseAudit).toMatchObject({ applicationId, subject: administrator.userId })
     const assessment = await graphql<any>(`mutation($input: RecordAssessmentInput!) {
       admin { funding { recordAssessment(input: $input) { response { assessments { assessmentType outcome } } } } }
     }`, { input: {
@@ -3357,6 +3381,24 @@ describe('what reaches the activity history', () => {
 
     const afterEntries = await auditActionsFor(caseId)
     expect(afterEntries.filter((a) => a === 'SEB.RECOVERY_ENTRY_RECORDED')).toHaveLength(2)
+    /*
+     * Recovery inputs name only the award or the case. The application — and
+     * through it the applicant — is derived inside the audit insert, so every
+     * recovery row still lands on the application's timeline.
+     */
+    const [caseApplication] = (await env.DB.prepare(
+      'SELECT application_id AS "applicationId" FROM seb_recovery_case WHERE id = ?',
+    ).bind(caseId).all()).results as { applicationId: string }[]
+    const linked = (await env.DB.prepare(
+      `SELECT DISTINCT application_id AS "applicationId", subject_user_id AS subject
+       FROM core_audit_event WHERE entity_id = ?`,
+    ).bind(caseId).all()).results
+    expect(linked).toEqual([{ applicationId: caseApplication!.applicationId, subject: administrator.userId }])
+    const waiverPayloads = (await env.DB.prepare(
+      `SELECT payload::text AS payload FROM core_audit_event
+       WHERE entity_id = ? AND action = 'SEB.RECOVERY_ENTRY_RECORDED' ORDER BY created_at, id`,
+    ).bind(caseId).all()).results as { payload: string }[]
+    expect(waiverPayloads.map((row) => JSON.parse(row.payload).entryType).sort()).toEqual(['DEMAND', 'WAIVER'])
 
     const closed = await graphql<any>(`mutation($input: CloseRecoveryInput!) {
       admin { funding { closeRecovery(input: $input) { success message } } }

@@ -8,7 +8,6 @@ import { batch, type Database, type Transaction } from '../../../db'
 import { constraintSafe } from '../../constraints'
 import {
   coreAccountChallenge,
-  coreAuditEvent,
   coreSession,
   coreSignupChallenge,
   coreRole,
@@ -19,13 +18,13 @@ import {
   builtinRoles,
   type BuiltinRole,
 } from '../../../db/schema'
+import { insertAuditEventWhere, type AuditEventRecord } from '../../audit-event'
 import { permissionKey } from '../permissions'
 
 export type UserRecord = typeof coreUser.$inferSelect
 export type UserRoleGrantRecord = typeof coreUserRoleGrant.$inferSelect
 export type SessionRecord = typeof coreSession.$inferSelect
 export type SignupChallengeRecord = typeof coreSignupChallenge.$inferSelect
-export type AuditEventRecord = typeof coreAuditEvent.$inferInsert
 export type PublicUserRecord = Pick<
   UserRecord,
   'id' | 'email' | 'emailVerifiedAt' | 'displayName' | 'createdAt' | 'updatedAt'
@@ -34,35 +33,6 @@ export type PublicSessionRecord = Omit<SessionRecord, 'tokenDigest'>
 
 const changes = (result: { rowCount: number | null }): number => result.rowCount ?? 0
 
-/** Builds a guarded audit INSERT used inside the same D1 transaction as a mutation. */
-export const insertAuditEventWhere = (
-  db: Database,
-  value: AuditEventRecord,
-  predicate: SQL,
-) =>
-  db.insert(coreAuditEvent).select(sql`
-    SELECT
-      ${value.id},
-      ${value.actorUserId ?? null},
-      ${value.action},
-      ${value.entityType},
-      ${value.entityId ?? null},
-      ${value.outcome},
-      ${value.requestId ?? null},
-      ${value.ipAddress ?? null},
-      ${value.userAgent ?? null},
-      ${value.changesJson ?? null},
-      ${value.metadataJson ?? null},
-      ${value.createdAt}
-    WHERE ${predicate}
-  `)
-
-export const createAuditEvent = async (
-  db: Database,
-  value: AuditEventRecord,
-): Promise<void> => {
-  await db.insert(coreAuditEvent).values(value)
-}
 
 /** Includes soft-deleted users so their email addresses can never be reclaimed. */
 export const findUserByEmail = async (
@@ -760,7 +730,7 @@ export const consumeWrongOtpAttempt = async (
       ),
     )
 
-  await batch(db, (tx) => [exhaust, decrement, tx.insert(coreAuditEvent).values(auditEvent)])
+  await batch(db, (tx) => [exhaust, decrement, insertAuditEventWhere(tx, auditEvent, sql`TRUE`)])
 }
 
 /**
@@ -1011,7 +981,7 @@ export const deleteUserSessionByDigest = async (
   auditEvent: AuditEventRecord,
 ): Promise<void> => {
   await batch(db, (tx) => [
-    tx.insert(coreAuditEvent).values(auditEvent),
+    insertAuditEventWhere(tx, auditEvent, sql`TRUE`),
     tx.delete(coreSession).where(eq(coreSession.tokenDigest, tokenDigest)),
   ])
 }
@@ -1023,7 +993,7 @@ export const deleteOtherUserSessions = async (
   auditEvent: AuditEventRecord,
 ): Promise<void> => {
   await batch(db, (tx) => [
-    tx.insert(coreAuditEvent).values(auditEvent),
+    insertAuditEventWhere(tx, auditEvent, sql`TRUE`),
     db
       .delete(coreSession)
       .where(and(eq(coreSession.userId, userId), ne(coreSession.id, currentSessionId))),
@@ -1036,7 +1006,7 @@ export const deleteAllUserSessions = async (
   auditEvent: AuditEventRecord,
 ): Promise<void> => {
   await batch(db, (tx) => [
-    tx.insert(coreAuditEvent).values(auditEvent),
+    insertAuditEventWhere(tx, auditEvent, sql`TRUE`),
     tx.delete(coreSession).where(eq(coreSession.userId, userId)),
   ])
 }

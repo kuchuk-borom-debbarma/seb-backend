@@ -480,6 +480,7 @@ describe("the actor's own authority, re-stated inside the write", () => {
       entityType: 'CORE_ROLE',
       entityId,
       actorUserId,
+      payload: { roleKey: 'FIXTURE_ROLE', permissionCount: 0, version: 2 },
       createdAt: new Date(),
     })
 

@@ -47,6 +47,7 @@ import {
   sebUtilizationObligation,
   sebRevisionRequest,
 } from '../../../db/schema'
+import { insertAuditEventWhere } from '../../audit-event'
 import { foldDisbursementLedger } from '../ledger'
 import { MAX_COLLECTION_ROWS } from '../pagination'
 import { changedStageKeys } from '../form/answers'
@@ -1679,13 +1680,7 @@ export const insertApplicationAggregate = async (
       SELECT 1 FROM ${sebApplication} WHERE ${sebApplication.id} = ${input.applicationId}
     )
   `)
-  const insertAudit = db.insert(coreAuditEvent).select(sql`
-    SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
-      ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
-      ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
-      ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now}
-    WHERE EXISTS (
+  const insertAudit = insertAuditEventWhere(db, input.audit, sql`EXISTS (
       SELECT 1 FROM ${sebApplication} WHERE ${sebApplication.id} = ${input.applicationId}
     )
   `)
@@ -1853,13 +1848,7 @@ export const saveApplicationSnapshot = async (
         AND ${sebApplication.updatedAt} = ${input.now}
     )
   `)
-  const audit = db.insert(coreAuditEvent).select(sql`
-    SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
-      ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
-      ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
-      ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now}
-    WHERE EXISTS (
+  const audit = insertAuditEventWhere(db, input.audit, sql`EXISTS (
       SELECT 1 FROM ${sebApplication}
       WHERE ${sebApplication.id} = ${input.head.id}
         AND ${sebApplication.currentVersion} = ${nextVersion}
@@ -2001,13 +1990,7 @@ export const setApplicationDeleted = async (
    * legitimately share to the millisecond — and the reason this transition,
    * unlike the others, is ordered audit-first rather than head-first.
    */
-  const audit = db.insert(coreAuditEvent).select(sql`
-    SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
-      ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
-      ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
-      ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now}
-    WHERE EXISTS (
+  const audit = insertAuditEventWhere(db, input.audit, sql`EXISTS (
       SELECT 1 FROM ${sebApplication}
       WHERE ${sebApplication.id} = ${input.head.id}
         AND ${sebApplication.applicantUserId} = ${input.userId}
@@ -2327,13 +2310,7 @@ export const submitApplicationSnapshot = async (
       WHERE ${sebApplicationSubmission.id} = ${submissionId}
     )
   `)
-  const audit = db.insert(coreAuditEvent).select(sql`
-    SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
-      ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
-      ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
-      ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now}
-    WHERE EXISTS (
+  const audit = insertAuditEventWhere(db, input.audit, sql`EXISTS (
       SELECT 1 FROM ${sebApplicationSubmission}
       WHERE ${sebApplicationSubmission.id} = ${submissionId}
     )

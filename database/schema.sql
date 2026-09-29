@@ -11,7 +11,14 @@ CREATE TABLE "core_audit_event" (
 	"changes_json" text,
 	"metadata_json" text,
 	"created_at" timestamp with time zone NOT NULL,
-	CONSTRAINT "core_audit_event_outcome_check" CHECK ("core_audit_event"."outcome" IN ('SUCCESS', 'FAILURE'))
+	"subject_user_id" text,
+	"application_id" text,
+	"payload" jsonb,
+	"payload_version" smallint DEFAULT 0 NOT NULL,
+	CONSTRAINT "core_audit_event_outcome_check" CHECK ("core_audit_event"."outcome" IN ('SUCCESS', 'FAILURE')),
+	CONSTRAINT "core_audit_event_payload_version_check" CHECK ("core_audit_event"."payload_version" IN (0, 1)),
+	CONSTRAINT "core_audit_event_payload_generation_check" CHECK (("core_audit_event"."payload_version" = 1 AND "core_audit_event"."payload" IS NOT NULL AND "core_audit_event"."metadata_json" IS NULL)
+        OR ("core_audit_event"."payload_version" = 0 AND "core_audit_event"."payload" IS NULL))
 );
 
 CREATE TABLE "core_role" (
@@ -1371,6 +1378,7 @@ CREATE TABLE "seb_revision_request" (
 );
 
 ALTER TABLE "core_audit_event" ADD CONSTRAINT "core_audit_event_actor_user_id_core_user_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
+ALTER TABLE "core_audit_event" ADD CONSTRAINT "core_audit_event_subject_user_id_core_user_id_fk" FOREIGN KEY ("subject_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "core_role" ADD CONSTRAINT "core_role_deleted_by_user_id_core_user_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "core_role" ADD CONSTRAINT "core_role_created_by_user_id_core_user_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "core_role_permission" ADD CONSTRAINT "core_role_permission_role_id_core_role_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."core_role"("id") ON DELETE restrict ON UPDATE no action;
@@ -1518,6 +1526,8 @@ CREATE INDEX "core_audit_event_actor_idx" ON "core_audit_event" USING btree ("ac
 CREATE INDEX "core_audit_event_action_idx" ON "core_audit_event" USING btree ("action","created_at");
 CREATE INDEX "core_audit_event_request_idx" ON "core_audit_event" USING btree ("request_id");
 CREATE INDEX "core_audit_event_created_idx" ON "core_audit_event" USING btree ("created_at","id");
+CREATE INDEX "core_audit_event_subject_idx" ON "core_audit_event" USING btree ("subject_user_id","created_at","id") WHERE "core_audit_event"."subject_user_id" IS NOT NULL;
+CREATE INDEX "core_audit_event_application_idx" ON "core_audit_event" USING btree ("application_id","created_at","id") WHERE "core_audit_event"."application_id" IS NOT NULL;
 CREATE INDEX "core_role_live_idx" ON "core_role" USING btree ("deleted_at","key");
 CREATE UNIQUE INDEX "core_role_permission_pair_uq" ON "core_role_permission" USING btree ("role_id","resource","action");
 CREATE INDEX "core_role_permission_role_idx" ON "core_role_permission" USING btree ("role_id");

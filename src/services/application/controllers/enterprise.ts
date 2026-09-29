@@ -1,5 +1,6 @@
 /** Applicant-owned canonical enterprise use cases. */
 import { auditActions } from '../../../db/schema'
+import { auditReason } from '../../audit-vocabulary/fields'
 import { decodeCursor, pageSize } from '../pagination'
 import {
   listEnterpriseDeletionBlockers,
@@ -127,6 +128,7 @@ export const createEnterprise = async (
         action: auditActions.enterpriseCreated,
         entityType: 'SEB_ENTERPRISE',
         entityId: enterpriseId,
+        payload: { status },
         now,
       }),
     }),
@@ -178,6 +180,7 @@ export const updateEnterprise = async (
         action: auditActions.enterpriseUpdated,
         entityType: 'SEB_ENTERPRISE',
         entityId: input.id,
+        payload: { version: input.expectedVersion + 1, status },
         now,
       }),
     }),
@@ -213,18 +216,20 @@ const changeEnterpriseDeletion = async (
     }
   }
   const now = new Date()
+  const reason = deleted ? (input.reason?.trim() || 'REMOVED_BY_APPLICANT') : null
   const changed = await setEnterpriseDeleted(context.db, {
     enterpriseId: input.id,
     userId: applicant.id,
     expectedVersion: input.expectedVersion,
     deleted,
-    reason: deleted ? (input.reason?.trim() || 'REMOVED_BY_APPLICANT') : null,
+    reason,
     now,
     audit: auditRecord(context, {
       actorUserId: applicant.id,
       action: deleted ? auditActions.enterpriseDeleted : auditActions.enterpriseRestored,
       entityType: 'SEB_ENTERPRISE',
       entityId: input.id,
+      payload: reason === null ? {} : { reason: auditReason(reason) },
       now,
     }),
   })

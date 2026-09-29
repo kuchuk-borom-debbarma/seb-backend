@@ -740,6 +740,8 @@ describe('applicant application business service', () => {
         action: auditActions.applicationDeleted,
         entityType: 'SEB_APPLICATION',
         entityId: application.id,
+        applicationId: application.id,
+        payload: {},
         now,
       }),
     })).toBe(false)
@@ -937,6 +939,8 @@ describe('applicant application business service', () => {
         action: auditActions.applicationStarted,
         entityType: 'SEB_APPLICATION',
         entityId: staleApplicationId,
+        applicationId: staleApplicationId,
+        payload: { type: 'INITIAL', phaseNumber: 1, enterpriseId: crypto.randomUUID(), programmeCycleId: crypto.randomUUID() },
         now: staleNow,
       }),
     })).toBe(false)
@@ -1000,6 +1004,8 @@ describe('applicant application business service', () => {
         action: auditActions.applicationSubmitted,
         entityType: 'SEB_APPLICATION',
         entityId: application.id,
+        applicationId: application.id,
+        payload: { referenceNumber: 'SEP-2026-STALE000', version: 2 },
         now: submitNow,
       }),
     })).toBe(false)
@@ -1082,6 +1088,8 @@ describe('applicant application business service', () => {
       action: auditActions.documentUploadIssued,
       entityType: 'SEB_DOCUMENT_UPLOAD_INTENT',
       entityId: staleUploadId,
+      applicationId: application.id,
+      payload: { fieldKey: 'NOC', contentType: 'application/pdf', sizeBytes: 10 },
       now: documentNow,
     }))).toBe(false)
     expect(await findOwnedUploadIntent(db, applicant.userId, staleUploadId)).toBeNull()
@@ -1098,6 +1106,8 @@ describe('applicant application business service', () => {
         action: auditActions.documentFinalized,
         entityType: 'SEB_APPLICATION_DOCUMENT',
         entityId: crypto.randomUUID(),
+        applicationId: application.id,
+        payload: { fieldKey: 'NOC', version: 1, contentType: 'application/pdf', sizeBytes: 10 },
         now: documentNow,
       }),
     })).toBe(false)
@@ -1114,6 +1124,8 @@ describe('applicant application business service', () => {
         action: auditActions.documentRestored,
         entityType: 'SEB_APPLICATION_DOCUMENT',
         entityId: identityDocument.id,
+        applicationId: application.id,
+        payload: { fieldKey: 'IDENTITY_AGE_PROOF' },
         now: documentNow,
       }),
     })).toBe(false)
@@ -1129,6 +1141,7 @@ describe('applicant application business service', () => {
         action: auditActions.enterpriseDeleted,
         entityType: 'SEB_ENTERPRISE',
         entityId: enterprise.id,
+        payload: {},
         now: documentNow,
       }),
     })).toBe(false)
@@ -1157,6 +1170,7 @@ describe('applicant application business service', () => {
         action: auditActions.enterpriseDeleted,
         entityType: 'SEB_ENTERPRISE',
         entityId: emptyEnterprise.id,
+        payload: {},
         now: sameNow,
       }),
     })
@@ -1190,6 +1204,8 @@ describe('applicant application business service', () => {
         action: auditActions.documentDeleted,
         entityType: 'SEB_APPLICATION_DOCUMENT',
         entityId: document.id,
+        applicationId: application.id,
+        payload: { fieldKey: 'ADDRESS_PROOF' },
         now: sameNow,
       }),
     })
@@ -1209,6 +1225,8 @@ describe('applicant application business service', () => {
         action: auditActions.applicationDeleted,
         entityType: 'SEB_APPLICATION',
         entityId: application.id,
+        applicationId: application.id,
+        payload: {},
         now: sameNow,
       }),
     })
@@ -1563,6 +1581,33 @@ describe('applicant application business service', () => {
       currentVersion: 3,
     })
 
+    // The history names the reference the submission issued — the same one
+    // the snapshot carries — and files the row under the application and the
+    // applicant it is about, so both timelines find it without a join.
+    const submittedAudit = await env.DB.prepare(
+      `SELECT payload->>'referenceNumber' AS "referenceNumber",
+        (payload->>'version')::int AS version, payload_version AS "payloadVersion",
+        application_id AS "applicationId", subject_user_id AS "subjectUserId"
+       FROM core_audit_event WHERE action = ? AND entity_id = ?`,
+    ).bind(auditActions.applicationSubmitted, application.id).all()
+    expect(submittedAudit.results).toEqual([{
+      referenceNumber: successful?.response?.referenceNumber,
+      version: 3,
+      payloadVersion: 1,
+      applicationId: application.id,
+      subjectUserId: applicant.userId,
+    }])
+    const linked = await env.DB.prepare(
+      `SELECT DISTINCT action FROM core_audit_event
+       WHERE application_id = ? AND subject_user_id = ?`,
+    ).bind(application.id, applicant.userId).all<{ action: string }>()
+    expect(linked.results.map((row) => row.action)).toEqual(expect.arrayContaining([
+      auditActions.applicationStarted,
+      auditActions.applicationSaved,
+      auditActions.documentUploadIssued,
+      auditActions.applicationSubmitted,
+    ]))
+
     const state = await env.DB.prepare(
       `SELECT a.status, v.change_type AS "changeType",
         v.declaration_accepted_at AS "acceptedAt",
@@ -1670,7 +1715,7 @@ describe('applicant application business service', () => {
 
     const recordedMetadata = JSON.stringify({
       audit: (await env.DB.prepare(
-        `SELECT action, entity_type, entity_id, changes_json, metadata_json
+        `SELECT action, entity_type, entity_id, changes_json, metadata_json, payload::text AS payload
          FROM core_audit_event WHERE entity_id IN (?, ?)`,
       ).bind(enterprise.id, application.id).all()).results,
       timeline: (await env.DB.prepare(
@@ -2230,6 +2275,8 @@ describe('applicant application business service', () => {
         action: auditActions.applicationSaved,
         entityType: 'SEB_APPLICATION',
         entityId: application.id,
+        applicationId: application.id,
+        payload: { version: 2 },
         now: unscopedSaveAt,
       }),
     })).toBe(false)
@@ -2463,6 +2510,8 @@ describe('applicant application business service', () => {
         action: auditActions.applicationStarted,
         entityType: 'SEB_APPLICATION',
         entityId: candidateId,
+        applicationId: candidateId,
+        payload: { type: 'INITIAL', phaseNumber: 1, enterpriseId: crypto.randomUUID(), programmeCycleId: crypto.randomUUID() },
         now,
       }),
     })).toBe(false)
@@ -2711,6 +2760,8 @@ describe('applicant application business service', () => {
         action: auditActions.applicationSubmitted,
         entityType: 'SEB_APPLICATION',
         entityId: expansion.id,
+        applicationId: expansion.id,
+        payload: { referenceNumber: 'SEP-2026-STALE001', version: 2 },
         now: staleSubmitAt,
       }),
     })).toBe(false)

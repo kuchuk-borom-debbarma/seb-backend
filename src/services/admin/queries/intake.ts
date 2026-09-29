@@ -33,7 +33,6 @@ import { COUNT_MISSING, requireInvariant } from '../../application/support'
 const REFERENCE_MISSING = 'A reviewed application has no reference number.'
 import { batch, type Database, type Transaction } from '../../../db'
 import {
-  coreAuditEvent,
   sebApplication,
   sebApplicationAssignmentEvent,
   sebApplicationDocumentScan,
@@ -73,6 +72,8 @@ import {
 import { MAX_COLLECTION_ROWS } from '../../application/pagination'
 import { encodeAdminCursor, type SortKey } from '../pagination'
 import { prefixMatchAny, prefixPattern } from '../../search'
+import { insertAuditEventWhere } from '../../audit-event'
+import { auditReason } from '../../audit-vocabulary/fields'
 import { adminAudit, disclosedSelfReview, headJustMovedTo } from '../support'
 import { intakeQueueKeys } from '../types'
 import type { IdentifierKind } from '../identifiers'
@@ -770,15 +771,19 @@ export const insertInternalNote = async (
           AND ${sebApplication.status} <> 'DRAFT'
       )
     `).returning({ id: sebApplicationInternalNote.id }),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.INTERNAL_NOTE_ADDED',
-        'SEB_APPLICATION_INTERNAL_NOTE', ${id}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${input.now}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebApplicationInternalNote}
-        WHERE ${sebApplicationInternalNote.id} = ${id}
-      )
-    `),
+    // The note's text is office-only and is not copied into the history.
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorUserId,
+      action: 'SEB.INTERNAL_NOTE_ADDED',
+      entityType: 'SEB_APPLICATION_INTERNAL_NOTE',
+      entityId: id,
+      applicationId: input.applicationId,
+      now: input.now,
+      payload: { correctionOfNoteId: input.correctionOfNoteId ?? undefined },
+    }), sql`EXISTS (
+      SELECT 1 FROM ${sebApplicationInternalNote}
+      WHERE ${sebApplicationInternalNote.id} = ${id}
+    )`),
   ])
   if (!Array.isArray(inserted) || inserted.length !== 1) return null
   const [row] = await context.db.select().from(sebApplicationInternalNote)
@@ -829,12 +834,15 @@ export const startDeskReviewWrite = async (
         NULL, 'Desk review started.', NULL, ${input.now}
       WHERE ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}
     `),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.DESK_REVIEW_STARTED',
-        'SEB_APPLICATION', ${input.applicationId}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${input.now}
-      WHERE ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorUserId,
+      action: 'SEB.DESK_REVIEW_STARTED',
+      entityType: 'SEB_APPLICATION',
+      entityId: input.applicationId,
+      applicationId: input.applicationId,
+      now: input.now,
+      payload: { statusVersion: nextStatusVersion },
+    }), headJustMovedTo(input.applicationId, nextStatusVersion, input.now)),
   ])
   return Array.isArray(changed) && changed.length === 1
 }
@@ -1017,12 +1025,23 @@ export const completeDeskReviewWrite = async (
         NULL, ${input.now}
       WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
     `),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.DESK_REVIEW_COMPLETED',
-        'SEB_DESK_REVIEW', ${reviewId}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        ${JSON.stringify({ outcome: input.outcome })}, ${input.now}
-      WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorUserId,
+      action: 'SEB.DESK_REVIEW_COMPLETED',
+      entityType: 'SEB_DESK_REVIEW',
+      entityId: reviewId,
+      applicationId: input.applicationId,
+      now: input.now,
+      payload: {
+        outcome: input.outcome,
+        submissionId: input.submissionId,
+        checkCount: input.checks.length,
+        failedCheckCount: input.checks.filter((check) => check.result === 'FAIL').length,
+        identifierCount: input.identifiers.length,
+        revisionCount: input.revisions.length,
+        reasonCategoryId: input.reasonCategoryId ?? undefined,
+      },
+    }), sql`EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})`),
     /*
      * Its own action, and only where there was something to disclose — the
      * `disclosed` term is what makes an ordinary review write nothing here.
@@ -1030,13 +1049,16 @@ export const completeDeskReviewWrite = async (
      * decided by its own applicant" a query on `action` rather than a join of
      * actor against applicant across every decided application.
      */
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.SELF_REVIEW_DISCLOSED',
-        'SEB_DESK_REVIEW', ${reviewId}, 'SUCCESS', NULL, NULL, NULL, NULL,
-        NULL, ${input.now}
-      WHERE ${disclosed}
-        AND EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorUserId,
+      action: 'SEB.SELF_REVIEW_DISCLOSED',
+      entityType: 'SEB_DESK_REVIEW',
+      entityId: reviewId,
+      applicationId: input.applicationId,
+      now: input.now,
+      payload: { stage: 'DESK_REVIEW' },
+    }), sql`${disclosed}
+      AND EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})`),
   ]
   const [changed] = await batch(context.db, statements)
   return Array.isArray(changed) && changed.length === 1
@@ -1125,16 +1147,19 @@ export const cancelRevisionRequestWrite = async (
      * administrative act here that leaves the application exactly as it was, so
      * without this it left no trace of the officer at all.
      */
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorUserId}, 'SEB.REVISION_CANCELLED',
-        'SEB_APPLICATION', ${input.applicationId}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${input.now}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebRevisionRequest}
-        WHERE ${sebRevisionRequest.id} = ${input.revisionRequestId}
-          AND ${sebRevisionRequest.cancelledAt} = ${input.now}
-      )
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorUserId,
+      action: 'SEB.REVISION_CANCELLED',
+      entityType: 'SEB_APPLICATION',
+      entityId: input.applicationId,
+      applicationId: input.applicationId,
+      now: input.now,
+      payload: { revisionRequestId: input.revisionRequestId, reason: auditReason(input.reason) },
+    }), sql`EXISTS (
+      SELECT 1 FROM ${sebRevisionRequest}
+      WHERE ${sebRevisionRequest.id} = ${input.revisionRequestId}
+        AND ${sebRevisionRequest.cancelledAt} = ${input.now}
+    )`),
   ])
   return Array.isArray(cancelled) && cancelled.length === 1
 }

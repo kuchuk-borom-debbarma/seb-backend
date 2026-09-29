@@ -37,11 +37,8 @@ import { batch, changedExactlyOne, type Database } from '../../../db'
 import { constraintSafe } from '../../constraints'
 import { coreRole, coreRolePermission, coreUserRoleGrant } from '../../../db/schema'
 import { isCataloguePermission, type Permission } from '../permissions'
-import {
-  hasActiveBuiltinRole,
-  insertAuditEventWhere,
-  type AuditEventRecord,
-} from './auth'
+import { insertAuditEventWhere, type AuditEventRecord } from '../../audit-event'
+import { hasActiveBuiltinRole } from './auth'
 
 /** One composed role, with what it may do and how many people hold it. */
 export type ManagedRole = {

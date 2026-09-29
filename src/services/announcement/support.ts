@@ -5,8 +5,12 @@
  * The audit row itself is `services/audit-event.ts`, shared by every service.
  * What stays here is which actions this one may write.
  */
-import type { auditActions } from '../../db/schema'
-import { auditEventRow, type AuditEventRow } from '../audit-event'
+import {
+  auditEventRow,
+  type ActionWrittenBy,
+  type AuditEventInput,
+  type AuditEventRecord,
+} from '../audit-event'
 import { authenticatedWithPermission, type ActionOf, type Resource } from '../auth'
 import type {
   AnnouncementLink,
@@ -61,26 +65,20 @@ export const currentStaff = async <R extends Resource>(
   action: ActionOf<R>,
 ) => (await authenticatedWithPermission(context, resource, action))?.user ?? null
 
-export type AnnouncementAuditAction = (typeof auditActions)[keyof typeof auditActions]
+/** The actions the announcement service may record. */
+export type AnnouncementAuditAction = ActionWrittenBy<'announcement'>
 
 /**
- * Audit metadata stays deliberately smaller than the business record.
+ * Builds one declared audit row for a banner change.
  *
  * The row is `services/audit-event.ts`, shared with every other service. What
  * this adds is that a banner change always has an actor and is always a
  * success — an announcer's refusal never reaches a write.
  */
-export const announcementAudit = (
+export const announcementAudit = <A extends AnnouncementAuditAction>(
   context: AnnouncementOperationContext,
-  input: {
-    actorUserId: string
-    action: AnnouncementAuditAction
-    entityType: string
-    entityId: string
-    now: Date
-    metadata?: Record<string, string | number | boolean | null>
-  },
-): AuditEventRow => auditEventRow(context, { ...input, createdAt: input.now })
+  input: AuditEventInput<A> & { actorUserId: string; now: Date },
+): AuditEventRecord => auditEventRow(context, { ...input, createdAt: input.now })
 
 /**
  * What a validated link is worth: the value to store, or the sentence to show.

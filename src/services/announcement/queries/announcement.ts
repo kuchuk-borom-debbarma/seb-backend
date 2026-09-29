@@ -15,10 +15,10 @@
 import { and, asc, eq, gt, isNull, or, sql } from 'drizzle-orm'
 import { batch, changedExactlyOne, type Database, type Transaction } from '../../../db'
 import {
-  coreAuditEvent,
   sebAnnouncement,
   sebAnnouncementBoard,
 } from '../../../db/schema'
+import { insertAuditEventWhere, type AuditEventRecord } from '../../audit-event'
 import { MAX_ANNOUNCEMENT_ROWS } from '../support'
 import type {
   AdminAnnouncement,
@@ -128,20 +128,6 @@ export const listLiveAnnouncementIds = async (db: Database): Promise<string[]> =
   return rows.map((row) => row.id)
 }
 
-/** The audit insert, re-stating the caller's guard. All 12 columns, in order. */
-const guardedAudit = (
-  tx: Transaction,
-  audit: typeof coreAuditEvent.$inferInsert,
-  guard: ReturnType<typeof sql>,
-) => tx.insert(coreAuditEvent).select(sql`
-  SELECT ${audit.id}, ${audit.actorUserId}, ${audit.action},
-    ${audit.entityType}, ${audit.entityId}, ${audit.outcome},
-    ${audit.requestId ?? null}, ${audit.ipAddress ?? null},
-    ${audit.userAgent ?? null}, NULL, ${audit.metadataJson ?? null},
-    ${audit.createdAt}
-  WHERE ${guard}
-`)
-
 /** The row the write just produced, identified by version *and* instant. */
 const announcementJustMovedTo = (
   id: string,
@@ -169,7 +155,7 @@ export const createAnnouncement = async (
       published: boolean
     }
     now: Date
-    audit: typeof coreAuditEvent.$inferInsert
+    audit: AuditEventRecord
   },
 ): Promise<boolean> => {
   const { id, fields, now, audit } = input
@@ -201,7 +187,7 @@ export const createAnnouncement = async (
   const [changed] = await batch(db, (tx) => [
     insertRow(tx),
     bumpBoard(tx),
-    guardedAudit(tx, audit, created),
+    insertAuditEventWhere(tx, audit, created),
   ])
   return changedExactlyOne(changed)
 }
@@ -213,7 +199,7 @@ const applyFieldUpdate = async (
     expectedVersion: number
     set: Partial<typeof sebAnnouncement.$inferInsert>
     now: Date
-    audit: typeof coreAuditEvent.$inferInsert
+    audit: AuditEventRecord
     /** Whether this change alters the live id set a reorder quotes. */
     bumpBoard: boolean
   },
@@ -239,7 +225,7 @@ const applyFieldUpdate = async (
   const [changed] = await batch(db, (tx) => [
     updateRow(tx),
     ...(input.bumpBoard ? [bumpBoard(tx)] : []),
-    guardedAudit(tx, audit, moved),
+    insertAuditEventWhere(tx, audit, moved),
   ])
   return changedExactlyOne(changed)
 }
@@ -260,7 +246,7 @@ export const updateAnnouncement = (
       published: boolean
     }
     now: Date
-    audit: typeof coreAuditEvent.$inferInsert
+    audit: AuditEventRecord
   },
 ): Promise<boolean> =>
   applyFieldUpdate(db, {
@@ -291,7 +277,7 @@ export const setAnnouncementPublished = (
     expectedVersion: number
     published: boolean
     now: Date
-    audit: typeof coreAuditEvent.$inferInsert
+    audit: AuditEventRecord
   },
 ): Promise<boolean> =>
   applyFieldUpdate(db, {
@@ -311,7 +297,7 @@ export const removeAnnouncement = (
     reason: string
     actorUserId: string
     now: Date
-    audit: typeof coreAuditEvent.$inferInsert
+    audit: AuditEventRecord
   },
 ): Promise<boolean> =>
   applyFieldUpdate(db, {
@@ -335,7 +321,7 @@ export const reorderAnnouncements = async (
     ids: string[]
     expectedBoardVersion: number
     now: Date
-    audit: typeof coreAuditEvent.$inferInsert
+    audit: AuditEventRecord
   },
 ): Promise<boolean> => {
   const { ids, expectedBoardVersion, now, audit } = input
@@ -373,7 +359,7 @@ export const reorderAnnouncements = async (
   const [claimed] = await batch(db, (tx) => [
     claimBoard(tx),
     renumber(tx),
-    guardedAudit(tx, audit, boardMoved),
+    insertAuditEventWhere(tx, audit, boardMoved),
   ])
   return changedExactlyOne(claimed)
 }

@@ -11,6 +11,7 @@ import {
   sebRevisionRequest,
   sebDocumentUploadIntent,
 } from '../../../db/schema'
+import { insertAuditEventWhere } from '../../audit-event'
 import {
   appendWhenChanged,
   sqlNullable,
@@ -92,13 +93,7 @@ export const insertUploadIntent = async (
         )
       )
   `).returning({ id: sebDocumentUploadIntent.id })
-  const insertAudit = db.insert(coreAuditEvent).select(sql`
-    SELECT ${audit.id}, ${sqlNullable(audit.actorUserId)}, ${audit.action},
-      ${audit.entityType}, ${audit.entityId}, ${audit.outcome},
-      ${sqlNullable(audit.requestId)}, ${sqlNullable(audit.ipAddress)},
-      ${sqlNullable(audit.userAgent)}, ${sqlNullable(audit.changesJson)},
-      ${sqlNullable(audit.metadataJson)}, ${audit.createdAt}
-    WHERE EXISTS (
+  const insertAudit = insertAuditEventWhere(db, audit, sql`EXISTS (
       SELECT 1 FROM ${sebDocumentUploadIntent}
       WHERE ${sebDocumentUploadIntent.id} = ${input.id}
     )
@@ -277,13 +272,7 @@ export const finalizeUploadIntent = async (
         AND ${sebDocumentUploadIntent.status} = 'FINALIZED'
     )
   `)
-  const audit = (tx: Transaction) => tx.insert(coreAuditEvent).select(sql`
-    SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
-      ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
-      ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
-      ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now}
-    WHERE EXISTS (
+  const audit = (tx: Transaction) => insertAuditEventWhere(tx, input.audit, sql`EXISTS (
       SELECT 1 FROM ${sebDocumentUploadIntent}
       WHERE ${sebDocumentUploadIntent.id} = ${input.intent.id}
         AND ${sebDocumentUploadIntent.status} = 'FINALIZED'
@@ -405,13 +394,7 @@ export const setDocumentDeleted = async (
   // The append-only audit ID doubles as an operation claim. Every later
   // statement in the batch checks this exact ID, so two transitions occurring
   // in the same millisecond cannot attribute events to the wrong request.
-  const audit = (tx: Transaction) => tx.insert(coreAuditEvent).select(sql`
-    SELECT ${input.audit.id}, ${input.audit.actorUserId}, ${input.audit.action},
-      ${input.audit.entityType}, ${input.audit.entityId}, ${input.audit.outcome},
-      ${sqlNullable(input.audit.requestId)}, ${sqlNullable(input.audit.ipAddress)},
-      ${sqlNullable(input.audit.userAgent)}, NULL, ${sqlNullable(input.audit.metadataJson)},
-      ${input.now}
-    WHERE EXISTS (
+  const audit = (tx: Transaction) => insertAuditEventWhere(tx, input.audit, sql`EXISTS (
       SELECT 1 FROM ${sebApplicationDocument}
       WHERE ${sebApplicationDocument.id} = ${input.documentId}
         AND ${sebApplicationDocument.applicationId} = ${input.applicationId}

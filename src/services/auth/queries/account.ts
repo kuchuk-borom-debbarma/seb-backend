@@ -18,16 +18,12 @@ import { batch, type Database, type Transaction } from '../../../db'
 import { constraintSafe } from '../../constraints'
 import {
   coreAccountChallenge,
-  coreAuditEvent,
   coreSession,
   coreUser,
   type AccountChallengePurpose,
 } from '../../../db/schema'
-import {
-  hasActiveRoleGrant,
-  insertAuditEventWhere,
-  type AuditEventRecord,
-} from './auth'
+import { insertAuditEventWhere, type AuditEventRecord } from '../../audit-event'
+import { hasActiveRoleGrant } from './auth'
 
 export type AccountChallengeRecord = typeof coreAccountChallenge.$inferSelect
 
@@ -216,7 +212,7 @@ export const consumeWrongAccountOtpAttempt = async (
       ),
     )
 
-  await batch(db, (tx) => [exhaust, decrement, tx.insert(coreAuditEvent).values(auditEvent)])
+  await batch(db, (tx) => [exhaust, decrement, insertAuditEventWhere(tx, auditEvent, sql`TRUE`)])
 }
 
 /** Marks an undeliverable challenge unusable without erasing its history. */
@@ -241,7 +237,7 @@ export const markAccountChallengeDeliveryFailed = async (
           eq(coreAccountChallenge.status, 'PENDING'),
         ),
       ),
-    tx.insert(coreAuditEvent).values(auditEvent),
+    insertAuditEventWhere(tx, auditEvent, sql`TRUE`),
   ])
 }
 

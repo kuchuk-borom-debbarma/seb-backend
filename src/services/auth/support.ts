@@ -7,9 +7,12 @@
  * what may enter a record. The row itself is `services/audit-event.ts`, shared
  * by every service.
  */
-import type { auditActions } from '../../db/schema'
-import { auditEventRow } from '../audit-event'
-import type { AuditEventRecord } from './queries/auth'
+import {
+  auditEventRow,
+  type ActionWrittenBy,
+  type AuditEventInput,
+  type AuditEventRecord,
+} from '../audit-event'
 import type { AuthOperationContext, AuthResult } from './types'
 
 export const AUTH_REQUIRED_MESSAGE = 'Authentication is required.'
@@ -17,40 +20,23 @@ export const AUTH_REQUIRED_MESSAGE = 'Authentication is required.'
 /** Email normalization is trim plus lowercase; passwords are never normalized. */
 export const normalizeEmail = (email: string): string => email.trim().toLowerCase()
 
-export type AuthAuditAction = (typeof auditActions)[keyof typeof auditActions]
-
-export type AuthAuditEntityType =
-  | 'CORE_USER'
-  | 'CORE_USER_ROLE_GRANT'
-  | 'CORE_ROLE'
-  | 'CORE_SESSION'
-  | 'CORE_SIGNUP_CHALLENGE'
-  | 'CORE_ACCOUNT_CHALLENGE'
+/** The actions authentication and access may record. */
+export type AuthAuditAction = ActionWrittenBy<'auth'>
 
 /**
- * Builds one allow-listed audit record. Callers provide only public IDs and
- * small, explicitly safe metadata objects.
+ * Builds one declared audit record for this service.
  *
  * The row is `services/audit-event.ts`, shared with every other service. This
  * service asks the most of it and hides the least: authentication is where a
  * *refusal* is worth recording — a wrong password, a spent challenge — so
  * `outcome` stays a caller's choice here, and so does opting out of the
  * caller-controlled request labels on the credential-bearing maintenance
- * paths. What this adds is the vocabulary: the actions and entity types this
- * service may write, and nothing else.
+ * paths. What this adds is the narrowing: the actions this service may write,
+ * and nothing else.
  */
-export const auditEvent = (
+export const auditEvent = <A extends AuthAuditAction>(
   context: AuthOperationContext,
-  input: {
-    action: AuthAuditAction
-    entityType: AuthAuditEntityType
-    entityId?: string | null
-    actorUserId?: string | null
-    outcome?: 'SUCCESS' | 'FAILURE'
-    metadata?: Record<string, string | number | boolean | null>
-    createdAt?: Date
-    includeRequestMetadata?: boolean
-  },
+  input: AuditEventInput<A>,
 ): AuditEventRecord => auditEventRow(context, input)
 
 /**

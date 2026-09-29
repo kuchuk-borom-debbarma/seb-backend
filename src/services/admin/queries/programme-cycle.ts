@@ -11,7 +11,6 @@
  */
 import { and, asc, count, desc, eq, gt, isNull, lt, or, sql } from 'drizzle-orm'
 import {
-  coreAuditEvent,
   sebApplication,
   sebProgrammeCycle,
   sebProgrammeCycleAssessmentRule,
@@ -29,13 +28,14 @@ import {
 } from '../../../db/schema'
 import { COUNT_MISSING, requireInvariant } from '../../application/support'
 import { batch, type Database, type Transaction } from '../../../db'
-import type { AdminAuditAction } from '../support'
 import type {
   AdminOperationContext,
   PageInfo,
   ProgrammeCycleInput,
 } from '../types'
 import { adminAudit } from '../support'
+import { insertAuditEventWhere } from '../../audit-event'
+import { auditReason } from '../../audit-vocabulary/fields'
 import { prefixMatch, prefixPattern } from '../../search'
 import { encodeAdminCursor } from '../pagination'
 
@@ -550,9 +550,10 @@ export const insertProgrammeCycle = async (
   const policy = policyRows(id, 1, input, now)
   const audit = adminAudit(context, {
     actorUserId,
-    action: 'SEB.CYCLE_CREATED' as AdminAuditAction,
+    action: 'SEB.CYCLE_CREATED',
     entityType: 'SEB_PROGRAMME_CYCLE',
     entityId: id,
+    payload: { cycleCode: input.cycleCode, displayName: input.displayName, cycleYear: input.cycleYear },
     now,
   })
   const statements = (tx: Transaction) => [
@@ -617,7 +618,9 @@ export const insertProgrammeCycle = async (
       policy.reasons.length
         ? tx.insert(sebProgrammeCycleReason).values(policy.reasons) : null,
     ].filter((statement) => statement !== null),
-    tx.insert(coreAuditEvent).values(audit),
+    // Unconditional: creation has no guard to lose — the cycle's own insert
+    // failing fails the whole batch, audit row included.
+    insertAuditEventWhere(tx, audit, sql`TRUE`),
   ]
   await batch(context.db, statements)
   return id
@@ -703,17 +706,19 @@ export const updateDraftProgrammeCycle = async (
       policy.reasons.length
         ? tx.insert(sebProgrammeCycleReason).values(policy.reasons) : null,
     ].filter((statement) => statement !== null),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${actorUserId}, 'SEB.CYCLE_UPDATED',
-        'SEB_PROGRAMME_CYCLE', ${input.id}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${now}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebProgrammeCycleVersion}
-        WHERE ${sebProgrammeCycleVersion.programmeCycleId} = ${input.id}
-          AND ${sebProgrammeCycleVersion.version} = ${nextVersion}
-          AND ${sebProgrammeCycleVersion.createdAt} = ${now}
-      )
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId,
+      action: 'SEB.CYCLE_UPDATED',
+      entityType: 'SEB_PROGRAMME_CYCLE',
+      entityId: input.id,
+      payload: { version: nextVersion, reason: auditReason(input.reason) },
+      now,
+    }), sql`EXISTS (
+      SELECT 1 FROM ${sebProgrammeCycleVersion}
+      WHERE ${sebProgrammeCycleVersion.programmeCycleId} = ${input.id}
+        AND ${sebProgrammeCycleVersion.version} = ${nextVersion}
+        AND ${sebProgrammeCycleVersion.createdAt} = ${now}
+    )`),
   ])
   return Array.isArray(changed) && changed.length === 1
 }
@@ -727,7 +732,7 @@ export const transitionProgrammeCycle = async (
     changeType: 'OPENED' | 'CLOSED' | 'ARCHIVED'
     reason: string
     message: string
-    action: AdminAuditAction
+    action: 'SEB.CYCLE_OPENED' | 'SEB.CYCLE_CLOSED' | 'SEB.CYCLE_ARCHIVED'
     actorUserId: string | null
     now: Date
   },
@@ -885,18 +890,24 @@ export const transitionProgrammeCycle = async (
           AND ${sebProgrammeCycleVersion.createdAt} = ${input.now}
       )
     `),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorUserId}, ${input.action},
-        'SEB_PROGRAMME_CYCLE', ${input.aggregate.head.id}, 'SUCCESS', NULL,
-        NULL, NULL, NULL, ${JSON.stringify({ status: input.toStatus })},
-        ${input.now}
-      WHERE EXISTS (
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorUserId,
+      action: input.action,
+      entityType: 'SEB_PROGRAMME_CYCLE',
+      entityId: input.aggregate.head.id,
+      payload: {
+        version: nextVersion,
+        reason: auditReason(input.reason),
+        // The hourly close is the only transition without an operator.
+        scheduled: input.actorUserId === null,
+      },
+      now: input.now,
+    }), sql`EXISTS (
         SELECT 1 FROM ${sebProgrammeCycleVersion}
         WHERE ${sebProgrammeCycleVersion.programmeCycleId} = ${input.aggregate.head.id}
           AND ${sebProgrammeCycleVersion.version} = ${nextVersion}
           AND ${sebProgrammeCycleVersion.createdAt} = ${input.now}
-      )
-    `),
+      )`),
   ])
   return Array.isArray(changed) && changed.length === 1
 }
@@ -913,7 +924,7 @@ export const reviseOpenProgrammeCycle = async (
     changeType: 'GUIDANCE_CHANGED' | 'CLOSING_CHANGED'
     reason: string
     message: string
-    action: AdminAuditAction
+    action: 'SEB.CYCLE_GUIDANCE_CHANGED' | 'SEB.CYCLE_CLOSING_CHANGED'
     actorUserId: string
     now: Date
   },
@@ -1074,17 +1085,25 @@ export const reviseOpenProgrammeCycle = async (
           AND ${sebProgrammeCycleVersion.createdAt} = ${input.now}
       )
     `),
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorUserId}, ${input.action},
-        'SEB_PROGRAMME_CYCLE', ${input.aggregate.head.id}, 'SUCCESS', NULL,
-        NULL, NULL, NULL, NULL, ${input.now}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebProgrammeCycleVersion}
-        WHERE ${sebProgrammeCycleVersion.programmeCycleId} = ${input.aggregate.head.id}
-          AND ${sebProgrammeCycleVersion.version} = ${nextVersion}
-          AND ${sebProgrammeCycleVersion.createdAt} = ${input.now}
-      )
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorUserId,
+      action: input.action,
+      entityType: 'SEB_PROGRAMME_CYCLE',
+      entityId: input.aggregate.head.id,
+      payload: {
+        version: nextVersion,
+        reason: auditReason(input.reason),
+        // Present only when the closing time is what changed; the guidance
+        // text itself is never copied — it lives on the version row.
+        closesAt: input.closesAt === undefined ? undefined : input.closesAt?.toISOString() ?? null,
+      },
+      now: input.now,
+    }), sql`EXISTS (
+      SELECT 1 FROM ${sebProgrammeCycleVersion}
+      WHERE ${sebProgrammeCycleVersion.programmeCycleId} = ${input.aggregate.head.id}
+        AND ${sebProgrammeCycleVersion.version} = ${nextVersion}
+        AND ${sebProgrammeCycleVersion.createdAt} = ${input.now}
+    )`),
   ])
   return Array.isArray(changed) && changed.length === 1
 }
@@ -1125,17 +1144,18 @@ export const setDraftCycleDeleted = async (
     .returning({ id: sebProgrammeCycle.id })
   const [changed] = await batch(context.db, (tx) => [
     updated,
-    tx.insert(coreAuditEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.actorUserId},
-        ${input.deleted ? 'SEB.CYCLE_DELETED' : 'SEB.CYCLE_RESTORED'},
-        'SEB_PROGRAMME_CYCLE', ${input.id}, 'SUCCESS', NULL, NULL, NULL,
-        NULL, NULL, ${input.now}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebProgrammeCycle}
-        WHERE ${sebProgrammeCycle.id} = ${input.id}
-          AND ${sebProgrammeCycle.updatedAt} = ${input.now}
-      )
-    `),
+    insertAuditEventWhere(tx, adminAudit(context, {
+      actorUserId: input.actorUserId,
+      action: input.deleted ? 'SEB.CYCLE_DELETED' : 'SEB.CYCLE_RESTORED',
+      entityType: 'SEB_PROGRAMME_CYCLE',
+      entityId: input.id,
+      payload: { reason: input.deleted && input.reason ? auditReason(input.reason) : undefined },
+      now: input.now,
+    }), sql`EXISTS (
+      SELECT 1 FROM ${sebProgrammeCycle}
+      WHERE ${sebProgrammeCycle.id} = ${input.id}
+        AND ${sebProgrammeCycle.updatedAt} = ${input.now}
+    )`),
   ])
   return Array.isArray(changed) && changed.length === 1
 }

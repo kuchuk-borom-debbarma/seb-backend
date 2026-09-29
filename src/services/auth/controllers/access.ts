@@ -20,10 +20,9 @@ import {
   requireInviteSecret,
   sealInvite,
 } from '../invite'
-import {
-  createAuditEvent,
-  findUserAuthority,
-} from '../queries/auth'
+import { insertAuditEvent } from '../../audit-event'
+import { auditReason } from '../../audit-vocabulary/fields'
+import { findUserAuthority } from '../queries/auth'
 import {
   acceptRoleInviteWrite,
   findActorPasswordHash,
@@ -213,15 +212,20 @@ export const grantRole = async (
       revokedAt: null,
       revocationReason: null,
     },
-    // Metadata names the subject and role only. The reason text is retained on
-    // the grant row itself and is not copied into audit history, and the
-    // subject's email never appears here.
+    // The subject, the role and the operator's reason, bounded: the grant row
+    // keeps the reason whole, and the history keeps enough to read the event
+    // without opening the grant.
     auditEvent: auditEvent(context, {
       action: auditActions.roleGranted,
       entityType: 'CORE_USER_ROLE_GRANT',
       entityId: grantId,
       actorUserId: authorized.actorUserId,
-      metadata: { subjectUserId: subject.id, role: input.roleKey },
+      payload: {
+        subjectUserId: subject.id,
+        role: input.roleKey,
+        via: 'DIRECT',
+        reason: auditReason(authorized.reason),
+      },
       createdAt: now,
     }),
   })
@@ -288,7 +292,15 @@ export const revokeRole = async (
       entityType: 'CORE_USER_ROLE_GRANT',
       entityId: input.grantId,
       actorUserId: authorized.actorUserId,
-      metadata: { subjectUserId: subject.id, role: grant.role },
+      payload: {
+        subjectUserId: subject.id,
+        // A composed role's grant names it by id; the subject's grant history,
+        // read with the grant and holding every grant they have ever had,
+        // carries the key it was granted under.
+        role: grant.role ?? subject.grants.find(({ id }) => id === grant.id)!.role,
+        via: 'DIRECT',
+        reason: auditReason(authorized.reason),
+      },
       createdAt: now,
     }),
   })
@@ -408,7 +420,7 @@ export const inviteRole = async (
     nonce: crypto.randomUUID(),
   })
 
-  await createAuditEvent(
+  await insertAuditEvent(
     context.db,
     auditEvent(context, {
       action: auditActions.roleInviteIssued,
@@ -418,7 +430,12 @@ export const inviteRole = async (
       // The token is never recorded. An audit row that carried it would be a
       // second copy of a live credential, readable by anybody who may read
       // audits.
-      metadata: { role: role.key, reason, expiresAt: expiresAt.toISOString() },
+      payload: {
+        role: role.key,
+        roleVersion: role.version,
+        reason: auditReason(reason),
+        expiresAt: expiresAt.toISOString(),
+      },
     }),
   )
 
@@ -448,6 +465,81 @@ export const inviteRole = async (
   return success({ email: subject.email, role: role.key, expiresAt })
 }
 
+/** Why an invitation could not be accepted — recorded, never told to the holder. */
+type InviteRefusal = 'UNREADABLE_OR_EXPIRED' | 'ACCOUNT_UNUSABLE' | 'ROLE_CHANGED' | 'BEYOND_ISSUER_AUTHORITY' | 'ADDRESS_CHANGED'
+
+/**
+ * Records a refused invitation.
+ *
+ * Recorded because a run of refusals is exactly what a super administrator
+ * would want to see: it is somebody trying tokens. The actor is null, as it is
+ * for every unauthenticated act — possession of the token is the credential
+ * here, and a refused token identifies nobody. The holder is told one sentence
+ * whatever the cause; the cause is kept only here.
+ */
+const recordInviteRefusal = (
+  context: AuthOperationContext,
+  refusal: InviteRefusal,
+  subjectId: string | null,
+): Promise<void> =>
+  insertAuditEvent(
+    context.db,
+    auditEvent(context, {
+      action: auditActions.roleInviteRefused,
+      entityType: 'CORE_USER',
+      entityId: subjectId,
+      outcome: 'FAILURE',
+      payload: { refusal },
+    }),
+  )
+
+/**
+ * Whether the issuer could still offer this role today.
+ *
+ * The ceiling is checked when an invitation is issued, and the version pin
+ * stops the role being strengthened afterwards — but nothing stopped the
+ * *issuer* being demoted afterwards. An invitation outliving the authority
+ * that made it is a way to keep authority the office has removed: issue one
+ * to a second account, be revoked, redeem it up to forty-eight hours later,
+ * and exactly what was taken away exists again somewhere else.
+ *
+ * Everywhere else in this service authority is read live, and a revocation
+ * takes effect on the next request. This is that rule applied to the one
+ * path that spans two requests days apart.
+ */
+const issuerMayStillOffer = (
+  issuer: Awaited<ReturnType<typeof findUserAuthority>>,
+  wanted: readonly { resource: string; action: string }[],
+): boolean => {
+  if (issuer.superAdministrator) return true
+  const permissions = permissionsOf(issuer)
+  return holdsPermission({ permissions }, 'role', 'invite') &&
+    withinAuthority({ superAdministrator: false, permissions }, wanted)
+}
+
+type ManagedSubject = NonNullable<Awaited<ReturnType<typeof findManagedUserById>>>
+type InvitedRole = NonNullable<Awaited<ReturnType<typeof findRoleById>>>
+
+/**
+ * The first check a sealed invitation fails today, in a fixed order — or the
+ * account and role it may be accepted for, once every check has passed.
+ */
+const checkedInvite = (input: {
+  subject: ManagedSubject | null
+  role: InvitedRole | null
+  invite: { roleVersion: number; email: string }
+  issuerStillMay: boolean
+}): InviteRefusal | { subject: ManagedSubject; role: InvitedRole } => {
+  const { subject, role, invite } = input
+  if (!subject || subject.deleted || !subject.emailVerified) return 'ACCOUNT_UNUSABLE'
+  if (!role || role.version !== invite.roleVersion) return 'ROLE_CHANGED'
+  if (!input.issuerStillMay) return 'BEYOND_ISSUER_AUTHORITY'
+  // The address the invitation was sent to is no longer the account's, so
+  // whoever holds the link is no longer necessarily the account holder.
+  if (subject.email !== invite.email) return 'ADDRESS_CHANGED'
+  return { subject, role }
+}
+
 /**
  * Accepts an invitation, exchanging the applicant grant for the staff role.
  *
@@ -471,21 +563,9 @@ export const acceptRoleInvite = async (
   /*
    * One refusal for every failure — wrong key, altered bytes, expired, absent.
    * Distinguishing them would let somebody probe which tokens are valid.
-   *
-   * Recorded, though, because a run of refusals is exactly what a super
-   * administrator would want to see: it is somebody trying tokens. The actor is
-   * null, as it is for every unauthenticated act — possession of the token is
-   * the credential here, and a refused token identifies nobody.
    */
   if (!invite) {
-    await createAuditEvent(
-      context.db,
-      auditEvent(context, {
-        action: auditActions.roleInviteRefused,
-        entityType: 'CORE_USER',
-        outcome: 'FAILURE',
-      }),
-    )
+    await recordInviteRefusal(context, 'UNREADABLE_OR_EXPIRED', null)
     return failure(INVITE_UNUSABLE_MESSAGE)
   }
 
@@ -497,62 +577,29 @@ export const acceptRoleInvite = async (
    * somebody offer a weak role and then strengthen it before it was accepted.
    */
   const role = await findRoleById(context.db, invite.roleId)
-  /*
-   * The issuer's authority is re-read too, not only the role's version.
-   *
-   * The ceiling is checked when an invitation is issued, and the version pin
-   * stops the role being strengthened afterwards — but nothing stopped the
-   * *issuer* being demoted afterwards. An invitation outliving the authority
-   * that made it is a way to keep authority the office has removed: issue one
-   * to a second account, be revoked, redeem it up to forty-eight hours later,
-   * and exactly what was taken away exists again somewhere else.
-   *
-   * Everywhere else in this service authority is read live, and a revocation
-   * takes effect on the next request. This is that rule applied to the one
-   * path that spans two requests days apart.
-   */
+  // The issuer's authority is re-read too — see `issuerMayStillOffer`.
   const issuer = await findUserAuthority(context.db, invite.issuerId)
-  const issuerStillMay = issuer.superAdministrator || (
-    holdsPermission(
-      { permissions: permissionsOf(issuer) },
-      'role',
-      'invite',
-    ) && withinAuthority(
-      { superAdministrator: false, permissions: permissionsOf(issuer) },
-      role?.permissions ?? [],
-    )
-  )
-  if (
-    !subject ||
-    subject.deleted ||
-    !subject.emailVerified ||
-    !role ||
-    !issuerStillMay ||
-    role.version !== invite.roleVersion ||
-    // The address the invitation was sent to is no longer the account's, so
-    // whoever holds the link is no longer necessarily the account holder.
-    subject.email !== invite.email
-  ) {
-    await createAuditEvent(
-      context.db,
-      auditEvent(context, {
-        action: auditActions.roleInviteRefused,
-        entityType: 'CORE_USER',
-        entityId: subject?.id ?? null,
-        outcome: 'FAILURE',
-      }),
-    )
+  const checked = checkedInvite({
+    subject,
+    role,
+    invite,
+    issuerStillMay: issuerMayStillOffer(issuer, role?.permissions ?? []),
+  })
+  if (typeof checked === 'string') {
+    await recordInviteRefusal(context, checked, subject?.id ?? null)
     return failure(INVITE_UNUSABLE_MESSAGE)
   }
 
+  const { subject: account, role: offered } = checked
   const grantedAt = new Date()
+  const grantId = crypto.randomUUID()
   const accepted = await acceptRoleInviteWrite(context.db, {
-    userId: subject.id,
+    userId: account.id,
     grant: {
-      id: crypto.randomUUID(),
-      userId: subject.id,
+      id: grantId,
+      userId: account.id,
       role: null,
-      roleId: role.id,
+      roleId: offered.id,
       grantedByUserId: invite.issuerId,
       grantReason: 'ROLE_INVITE_ACCEPTED',
       grantedAt,
@@ -563,16 +610,16 @@ export const acceptRoleInvite = async (
     auditEvent: auditEvent(context, {
       action: auditActions.roleInviteAccepted,
       entityType: 'CORE_USER',
-      entityId: subject.id,
+      entityId: account.id,
       // The subject acts on their own account here; the issuer is recorded as
       // the grant's authority rather than as this event's actor.
-      actorUserId: subject.id,
-      metadata: { role: role.key, issuerId: invite.issuerId },
+      actorUserId: account.id,
+      payload: { role: offered.key, issuerUserId: invite.issuerId, grantId },
     }),
   })
   // Already spent, or the account stopped being an applicant in between. Both
   // are the same answer to whoever is holding the link.
   if (!accepted) return failure(INVITE_UNUSABLE_MESSAGE)
 
-  return success({ role: role.key }, `You are now a ${role.name}.`)
+  return success({ role: offered.key }, `You are now a ${offered.name}.`)
 }

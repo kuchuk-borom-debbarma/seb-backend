@@ -32,9 +32,9 @@ import {
   findActiveUserByEmail,
   findSignupChallenge,
   grantFirstSuperAdmin,
-  type AuditEventRecord,
   type SessionRecord,
 } from '../../src/services/auth/queries/auth'
+import type { AuditEventRecord } from '../../src/services/audit-event'
 import { markAccountChallengeDeliveryFailed } from '../../src/services/auth/queries/account'
 import type { AuthOperationContext } from '../../src/services/auth/types'
 
@@ -90,9 +90,12 @@ const testAuditEvent = (
   requestId: null,
   ipAddress: null,
   userAgent: null,
-  changesJson: null,
-  metadataJson: null,
   createdAt: new Date(),
+  subjectUserId: null,
+  applicationId: null,
+  // These rows go straight to the query functions under test, past the
+  // builder, so an empty payload is enough: what is asserted is the write.
+  payload: '{}',
 })
 
 const graphql = async <T>(
@@ -697,11 +700,16 @@ describe('inviting somebody to a staff role', () => {
      * refused token identifies nobody — possession is the whole credential.
      */
     const [refusal] = (await env.DB.prepare(
-      `SELECT actor_user_id AS actor, outcome FROM core_audit_event
+      `SELECT actor_user_id AS actor, outcome, payload FROM core_audit_event
        WHERE action = 'RBAC.ROLE_INVITE_REFUSED' ORDER BY created_at DESC LIMIT 1`,
-    ).all()).results as { actor: string | null; outcome: string }[]
+    ).all()).results as { actor: string | null; outcome: string; payload: unknown }[]
     expect(refusal, 'a refused invitation left no trace').toBeDefined()
-    expect(refusal).toMatchObject({ actor: null, outcome: 'FAILURE' })
+    // The caller hears one sentence; the history says which refusal it was.
+    expect(refusal).toMatchObject({
+      actor: null,
+      outcome: 'FAILURE',
+      payload: { refusal: 'UNREADABLE_OR_EXPIRED' },
+    })
   })
 
   it('refuses a token sealed with a different secret', async () => {
@@ -749,6 +757,10 @@ describe('inviting somebody to a staff role', () => {
       .bind(`moved-${crypto.randomUUID()}@example.test`, subject.id).run()
     expect(await accept(token!)).toMatchObject({ success: false, message: UNUSABLE })
     expect(await activeRoles(subject.id)).toEqual(['APPLICANT'])
+    expect(await env.DB.prepare(
+      `SELECT subject_user_id, payload FROM core_audit_event
+       WHERE action = 'RBAC.ROLE_INVITE_REFUSED' ORDER BY created_at DESC LIMIT 1`,
+    ).first()).toEqual({ subject_user_id: subject.id, payload: { refusal: 'ADDRESS_CHANGED' } })
   })
 
   it('stops an issuer inviting their way to more authority', async () => {
@@ -842,7 +854,7 @@ describe('the vocabulary the schema publishes', () => {
     expect(published).toEqual(
       catalogue.map((pair) => `${pair.resource}:${pair.action}`).sort(),
     )
-    expect(published.length, 'catalogue size').toBe(37)
+    expect(published.length, 'catalogue size').toBe(38)
   })
 
   it('names the two authorities the server decides for itself', async () => {
@@ -1022,12 +1034,15 @@ describe('authentication', () => {
     })
 
     const auditRows = await env.DB.prepare(
-      'SELECT action, actor_user_id, entity_id, metadata_json FROM core_audit_event ORDER BY created_at',
+      `SELECT action, actor_user_id, entity_id, subject_user_id, payload, payload_version
+       FROM core_audit_event ORDER BY created_at`,
     ).all<{
       action: string
       actor_user_id: string | null
       entity_id: string | null
-      metadata_json: string | null
+      subject_user_id: string | null
+      payload: Record<string, unknown> | null
+      payload_version: number
     }>()
     expect(auditRows.results.map((row) => row.action)).toEqual(
       expect.arrayContaining([
@@ -1037,6 +1052,26 @@ describe('authentication', () => {
         auditActions.roleGranted,
       ]),
     )
+    // Each signup act records what it is about, in its own shape.
+    const byAction = (action: string) => auditRows.results.find((row) => row.action === action)
+    expect(auditRows.results.every((row) => row.payload_version === 1)).toBe(true)
+    expect(byAction(auditActions.signupChallengeCreated)?.payload).toEqual({
+      email: 'applicant@example.com',
+      expiresAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u),
+    })
+    expect(byAction(auditActions.otpFailed)?.payload).toEqual({ attemptsRemaining: 4 })
+    const created = byAction(auditActions.userCreated)
+    expect(created?.payload).toEqual({
+      via: 'VERIFIED_SIGNUP',
+      email: 'applicant@example.com',
+      signupChallengeId: expect.any(String),
+    })
+    // The new account is the subject of its own creation and of its first grant.
+    expect(created?.subject_user_id).toBe(created?.entity_id)
+    expect(byAction(auditActions.roleGranted)).toMatchObject({
+      subject_user_id: created?.entity_id,
+      payload: { subjectUserId: created?.entity_id, role: 'APPLICANT', via: 'SIGNUP' },
+    })
     expect(JSON.stringify(auditRows.results)).not.toContain(otp)
     expect(JSON.stringify(auditRows.results)).not.toContain('correct horse battery staple')
 
@@ -1326,7 +1361,7 @@ describe('authentication', () => {
       await env.DB.prepare(
         `SELECT count(*)::int AS count FROM core_audit_event
          WHERE action = ? AND actor_user_id IS NULL
-           AND metadata_json LIKE '%NO_ACTIVE_ROLE%'`,
+           AND payload->>'cause' = 'NO_ACTIVE_ROLE' AND payload->>'scope' = 'ALL'`,
       )
         .bind(auditActions.sessionsRevoked)
         .first(),
@@ -1563,7 +1598,7 @@ describe('authentication', () => {
 
     const audits = await env.DB.prepare(
       `SELECT action, outcome, entity_type, entity_id, request_id, ip_address,
-              user_agent, changes_json, metadata_json
+              user_agent, changes_json, payload
        FROM core_audit_event ORDER BY created_at`,
     ).all<{
       action: string
@@ -1574,7 +1609,7 @@ describe('authentication', () => {
       ip_address: string | null
       user_agent: string | null
       changes_json: string | null
-      metadata_json: string | null
+      payload: Record<string, unknown> | null
     }>()
     // The swap writes both role events; neither may carry caller-controlled
     // request labels, because this endpoint receives two credentials.
@@ -1600,10 +1635,35 @@ describe('authentication', () => {
     expect(
       audits.results.filter(({ action }) => action === auditActions.roleGranted),
     ).toHaveLength(2)
+    // The swap says what it did: the super-administrator grant, and the
+    // applicant grant it closed, both by the bootstrap route.
+    const userId = bootstrapped.body.response?.userId
+    expect(audits.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: auditActions.roleGranted,
+          payload: expect.objectContaining({ subjectUserId: userId, role: 'SUPER_ADMIN', via: 'BOOTSTRAP' }),
+        }),
+        expect.objectContaining({
+          action: auditActions.roleRevoked,
+          payload: expect.objectContaining({ subjectUserId: userId, role: 'APPLICANT', via: 'BOOTSTRAP' }),
+        }),
+      ]),
+    )
     const serializedAudit = JSON.stringify(audits.results)
     expect(serializedAudit).not.toContain(env.FIRST_SUPER_ADMIN_SECRET)
     expect(serializedAudit).not.toContain('correct horse battery staple')
-    expect(serializedAudit).not.toContain(env.FIRST_SUPER_ADMIN_EMAIL)
+    // Signup now records the address it created, by the office's decision;
+    // what must not carry it is anything the bootstrap path itself wrote.
+    const bootstrapActions: string[] = [
+      auditActions.firstSuperAdminBootstrap,
+      auditActions.roleGranted,
+      auditActions.roleRevoked,
+    ]
+    const bootstrapRows = JSON.stringify(
+      audits.results.filter(({ action }) => bootstrapActions.includes(action)),
+    )
+    expect(bootstrapRows).not.toContain(env.FIRST_SUPER_ADMIN_EMAIL)
 
     const graphqlExposure = await graphql<unknown>(/* GraphQL */ `
       mutation {
@@ -1774,7 +1834,7 @@ describe('authentication', () => {
       ).first(),
     ).toEqual({ count: 0 })
     const audits = await env.DB.prepare(
-      `SELECT request_id, ip_address, user_agent, changes_json, metadata_json
+      `SELECT request_id, ip_address, user_agent, changes_json, payload
        FROM core_audit_event
        WHERE action = ?`,
     )
@@ -1784,7 +1844,7 @@ describe('authentication', () => {
         ip_address: string | null
         user_agent: string | null
         changes_json: string | null
-        metadata_json: string | null
+        payload: Record<string, unknown> | null
       }>()
     const serializedAudit = JSON.stringify(audits.results)
     expect(serializedAudit).not.toContain(env.FIRST_SUPER_ADMIN_SECRET)
@@ -2310,8 +2370,8 @@ describe('authentication', () => {
     ).toEqual({ count: 0 })
 
     const audit = await env.DB.prepare(
-      'SELECT action, changes_json, metadata_json FROM core_audit_event ORDER BY created_at',
-    ).all<{ action: string; changes_json: string | null; metadata_json: string | null }>()
+      'SELECT action, changes_json, payload FROM core_audit_event ORDER BY created_at',
+    ).all<{ action: string; changes_json: string | null; payload: Record<string, unknown> | null }>()
     expect(audit.results.map(({ action }) => action)).toEqual(
       expect.arrayContaining([
         auditActions.signInFailed,
@@ -2639,7 +2699,7 @@ describe('administrative role management', () => {
     })
 
     const audit = await env.DB.prepare(
-      `SELECT actor_user_id, entity_type, entity_id, metadata_json
+      `SELECT actor_user_id, entity_type, entity_id, subject_user_id, payload
        FROM core_audit_event WHERE action = ? AND entity_id = ?`,
     )
       .bind(auditActions.roleGranted, adminGrant?.id)
@@ -2647,19 +2707,23 @@ describe('administrative role management', () => {
         actor_user_id: string
         entity_type: string
         entity_id: string
-        metadata_json: string
+        subject_user_id: string
+        payload: Record<string, unknown>
       }>()
     expect(audit).toMatchObject({
       actor_user_id: superAdmin.userId,
       entity_type: 'CORE_USER_ROLE_GRANT',
+      // The person the grant changed, so their history finds it.
+      subject_user_id: subject.id,
     })
-    // The reason is retained on the grant row; audit metadata stays limited to
-    // public identifiers and the role name.
-    expect(JSON.parse(audit?.metadata_json ?? '{}')).toEqual({
+    // The operator's reason travels with the event, bounded; the grant row
+    // keeps it whole.
+    expect(audit?.payload).toEqual({
       subjectUserId: subject.id,
       role: OFFICE_ROLE,
+      via: 'DIRECT',
+      reason: 'Joining desk review',
     })
-    expect(audit?.metadata_json).not.toContain('reviewer@example.com')
   })
 
   it('refuses a duplicate active grant and re-grants a revoked role as new history', async () => {
@@ -2754,12 +2818,9 @@ describe('administrative role management', () => {
     expect(after.body.data?.access.userById?.response?.grants).toHaveLength(1)
     const audits = await env.DB.prepare(
       `SELECT count(*)::int AS count FROM core_audit_event
-       WHERE action = ? AND metadata_json = ?`,
+       WHERE action = ? AND payload->>'subjectUserId' = ? AND payload->>'role' = ?`,
     )
-      .bind(
-        auditActions.roleGranted,
-        JSON.stringify({ subjectUserId: subject.id, role: OFFICE_ROLE }),
-      )
+      .bind(auditActions.roleGranted, subject.id, OFFICE_ROLE)
       .first<{ count: number }>()
     expect(audits?.count).toBe(0)
   })
@@ -3613,6 +3674,21 @@ describe('recovering and changing an account', () => {
     expect((await signInAs(moved, DEFAULT_PASSWORD)).body.data?.auth.signIn.success).toBe(true)
     expect((await signInAs(person.email, DEFAULT_PASSWORD)).body.data?.auth.signIn.success)
       .toBe(false)
+
+    // The move records both addresses; the refused sign-in records why, and
+    // which address was tried, though its caller heard only "invalid".
+    expect(await env.DB.prepare(
+      `SELECT payload FROM core_audit_event WHERE action = ?`,
+    ).bind(auditActions.emailChanged).first()).toEqual({
+      payload: { previousEmail: person.email, newEmail: moved },
+    })
+    expect(await env.DB.prepare(
+      `SELECT subject_user_id, payload FROM core_audit_event
+       WHERE action = ? ORDER BY created_at DESC LIMIT 1`,
+    ).bind(auditActions.signInFailed).first()).toEqual({
+      subject_user_id: null,
+      payload: { reason: 'NO_ACTIVE_ACCOUNT', email: person.email },
+    })
   })
 
   it('refuses an address already in use, and does not say that is why', async () => {

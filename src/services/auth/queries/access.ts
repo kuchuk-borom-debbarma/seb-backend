@@ -21,11 +21,10 @@ import type { ManagedUser } from '../types'
 import {
   hasActiveBuiltinRole,
   hasActiveComposedRole,
-  insertAuditEventWhere,
   orderedRoles,
-  type AuditEventRecord,
   type UserRoleGrantRecord,
 } from './auth'
+import { insertAuditEventWhere, type AuditEventRecord } from '../../audit-event'
 
 /**
  * Whether a grant is one role administration may close.
