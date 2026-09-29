@@ -190,16 +190,17 @@ by another name, which is why granting and revoking stay here.
 
 ### Bringing somebody into the office
 
-Anybody who can invite — an administrator or a super administrator — names a
-person and a role. That person gets a link and **accepts it themselves**, so the
-record always shows they agreed. Their applicant access is exchanged for the
-staff role rather than added to it.
+Anybody who can invite — a holder of `role`/`invite`, or a super administrator
+— names a person and a role. That person gets a link and **accepts it
+themselves**, so the record always shows they agreed. Their applicant access is
+exchanged for the staff role rather than added to it.
 
-An invitation cannot exceed its issuer's authority: an administrator may invite
-a reviewer or an approver, a super administrator may also invite an
-administrator, and nobody is ever invited to super administrator. Nothing about
-the invitation is stored — it travels sealed in the link, and what makes it
-single-use is that it only applies while the person is still an applicant.
+An invitation cannot exceed its issuer's authority: you may offer only a role
+whose permissions you already hold yourself. A super administrator holds the
+wildcard, so every role is theirs to offer — and nobody is ever invited to
+super administrator. Nothing about the invitation is stored — it travels sealed
+in the link, and what makes it single-use is that it only applies while the
+person is still an applicant.
 
 Three rules make this safe: `APPLICANT` can never be granted, because only
 verified signup creates it and one revocation would otherwise strip somebody
