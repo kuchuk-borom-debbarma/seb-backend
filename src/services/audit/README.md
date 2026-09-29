@@ -12,10 +12,11 @@ and its record inseparable.
 
 ## What it assumes
 
-- **`AUDIT_READ` is held only by `SUPER_ADMIN`.** This is the most personal read
-  in the portal — who did what, from which address, with which browser, across
-  every applicant and every member of staff — so the gate is deliberately narrow
-  and the service checks it before describing anybody's activity.
+- **`audit`/`read` is a permission the office grants deliberately.** This is the
+  most personal read in the portal — who did what, from which address, with
+  which browser, across every applicant and every member of staff — so it is a
+  pair on its own, belongs in very few roles, and the service checks it before
+  describing anybody's activity.
 - **The history is append-only.** Nothing is edited or removed, so a row
   outlives the account that made it.
 - **An actor is optional.** Verified signup and the first-administrator
@@ -32,7 +33,7 @@ and its record inseparable.
 | | |
 | --- | --- |
 | **Entry** | `audit { events(input:) }` |
-| **Guard** | `AUDIT_READ` |
+| **Guard** | `audit` / `read` |
 | **Refuses** | a cursor from a different ordering, an inverted date range, more than 50 actors or actions, an id that is not one |
 | **Writes** | nothing |
 | **Fails** | `You do not have permission to do that.` or `That request could not be understood.` |
@@ -94,5 +95,6 @@ not built, and this says so rather than letting somebody assume completeness.
 ## Elsewhere
 
 - [Schema](../../db/schema/README.md) — `core_audit_event` and its indexes
-- [Fixed-role RBAC](../../../docs/admin-rbac.md) — who holds `AUDIT_READ`
+- [Roles and permissions](../../../docs/admin-rbac.md) — how a role comes to
+  hold `audit`/`read`
 - [Security rules](../../../docs/rules/security.md) — what may never be recorded

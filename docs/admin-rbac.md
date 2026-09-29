@@ -1,63 +1,101 @@
-# Administrator identity and fixed-role RBAC
+# Administrator identity and composed roles
 
 This guide describes the authorization foundation shared by the applicant and
 administrative services. The first super administrator is promoted through a
 one-time curl operation; everybody after them is either granted a role directly
 by a super administrator or invited and accepts it themselves. Cycle, intake,
-decision, funding and recovery operations all read live roles.
+decision, funding and recovery operations all read live authority.
 
 ## One identity, several roles
 
-`core_user` is the login identity. A user may hold any combination of these
-six fixed roles:
+`core_user` is the login identity. What somebody may do is the union of the
+roles they hold, and a role is a set of **permissions** — a resource and an act
+on it, such as `application`/`read` or `announcement`/`publish`.
 
-| Role | Meaning |
+Two authorities are decided in code rather than read from a row:
+
+| Authority | What it is |
 | --- | --- |
-| `APPLICANT` | May use applicant-owned enterprise and application operations. |
-| `REVIEWER` | May read every casework screen and change nothing. |
-| `APPROVER` | May read casework, and record and correct the programme decision. |
-| `ADMIN` | May use the whole operational review, award, and finance workflow. |
-| `ANNOUNCER` | May write the public landing page's announcement banner, and nothing else. |
-| `SUPER_ADMIN` | Has all `ADMIN` authority, and may manage roles, read the audit history, and write the announcement banner. |
+| `APPLICANT` | May use applicant-owned enterprise and application operations. Created only by verified signup, and nothing can grant it back. |
+| `SUPER_ADMIN` | Holds every permission there is, and composes the roles everybody else holds. |
 
-There is no permission registry or role table. The role vocabulary is defined
-by TypeScript and enforced by a database `CHECK`, making every possible authority
-visible in code review.
+Everything else is a role the office composed for itself. A super
+administrator names one, chooses what it may do, and grants it; the programme
+decides its own job titles rather than living with six the code chose.
+
+### Why those two are not roles
+
+A super administrator's access is the **wildcard**. Anything added to the
+permission catalogue is theirs the moment it is added — no migration, nothing to
+backfill, and no chance of a new resource arriving that nobody can administer.
+Were it a row, an operator could edit it empty or retire it, and bootstrap
+closes permanently after the first grant, so the programme would be locked out
+of its own administration with no way back.
+
+An applicant's access is not a staff permission at all. It answers a different
+question — may this person use the applicant portal — and no operation can grant
+it back, so role administration deliberately cannot touch it.
+
+## The permission catalogue
+
+Every pair a role can be given lives in
+[`auth/catalog.json`](../src/services/auth/catalog.json): twelve resources,
+twenty-two acts, and the thirty-seven pairs that actually exist. A resource
+offers only the acts that mean something on it, so `audit`/`award` is not a
+permission nobody holds — it is not a permission at all.
+
+| Resource | Acts |
+| --- | --- |
+| `application` | `read` `note` `review` `refer` |
+| `decision` | `record` `correct` |
+| `funding` | `read` `award` `release` `reverse` `assess` |
+| `recovery` | `read` `open` `record` `cancel` `close` |
+| `programme_cycle` | `read` `create` `update` `open` `close` `archive` `delete` |
+| `form_template` | `update` |
+| `policy_document` | `read` `upload` |
+| `announcement` | `read` `create` `update` `publish` `remove` `reorder` |
+| `audit` | `read` |
+| `user` | `read` |
+| `role` | `read` `invite` |
+| `analytics` | `read` |
+
+The file is authored as JSON and consumed as TypeScript: `catalog.generated.ts`
+is derived from it so that a guard's two arguments check against each other, and
+`npm run check:catalog` fails the build if the two disagree. Adding a pair is a
+catalogue edit and a guard that names it — nothing else.
+
+**Composing a role, and granting or revoking one, are absent from the catalogue
+on purpose.** They are the super administrator's alone, guarded in code. A role
+able to hand out roles could hand its own holder every authority there is, and
+an authority that cannot be written down cannot be handed out by mistake.
 
 ### Roles are not ranked
 
-An `APPROVER` may record a decision a `REVIEWER` may not, but neither may open a
-programme cycle. An ordering that put approver "above" reviewer would imply it
-can do everything a reviewer can and more — which is true today and would
-quietly stop being checked the moment it was not.
+Two roles overlap or they do not, and somebody holding both simply holds the
+union. There is no role that contains another, because an ordering would be a
+rule nobody re-checks the moment it stopped being true.
 
-So each operation names the **capability** it needs, and one file decides which
-roles hold it:
+Each operation names the **permission** it needs, and the catalogue is the only
+statement of which pairs exist. A screen asks what somebody *may do* rather than
+matching a role name — a name is a label the office chose and can change, while
+a permission is what the server actually refuses on.
 
-| Capability | Held by |
-| --- | --- |
-| `STAFF_READ` — every administrative query | `REVIEWER`, `APPROVER`, `ADMIN`, `SUPER_ADMIN` |
-| `STAFF_WRITE` — intake, review, referral, awards, recovery | `ADMIN`, `SUPER_ADMIN` |
-| `CYCLE_ADMIN` — creating a cycle and editing its rules and form | `SUPER_ADMIN` |
-| `DECIDE` — recording and correcting the programme decision | `APPROVER`, `ADMIN`, `SUPER_ADMIN` |
-| `ROLE_INVITE` — inviting somebody to a role they accept themselves | `ADMIN`, `SUPER_ADMIN` |
-| `ROLE_ADMIN` — granting and revoking a role directly | `SUPER_ADMIN` |
-| `AUDIT_READ` — reading the audit history | `SUPER_ADMIN` |
-| `ANNOUNCE` — writing the public announcement banner | `ANNOUNCER`, `SUPER_ADMIN` |
+Somebody's permissions are published on the signed-in user so the interface can
+decide what to offer without holding a second copy of the policy — but every
+operation is still re-checked by the API, which is what actually refuses.
 
-Somebody holding several roles gets the union. The policy lives in
-[`auth/capabilities.ts`](../src/services/auth/capabilities.ts) and is published
-on the signed-in user, so the interface can decide what to offer without holding
-a second copy of it — but every operation is still re-checked by the API, which
-is what actually refuses.
+## What replaced the six fixed roles
 
-`ADMIN` deliberately lacks `ROLE_ADMIN`: granting and revoking authority is the
-one capability a plain administrator must not inherit, because an administrator
-who can create administrators is a super administrator by another name.
+`REVIEWER`, `APPROVER`, `ADMIN` and `ANNOUNCER` no longer exist. Their grants
+are retained and closed, not deleted, so an audit row naming what somebody did
+as an administrator is still readable — and the grant table refuses a *new* row
+in that vocabulary, accepting one only where it is already revoked. Their four
+keys are reserved, so no composed role can take a name that would make two
+different authorities read as one in retained history.
 
-A user may be both applicant and administrator. The selected policy permits an
-administrator to act on their own application; the append-only audit trail must
-therefore record the actor for every future administrative transition.
+A user may be both applicant and staff. The selected policy permits somebody to
+act on their own application; the append-only audit trail records the actor for
+every administrative transition.
 
 ## Retained role grants
 
@@ -67,15 +105,25 @@ deleting the row. Re-granting the same role creates another row.
 
 ```text
 user@example.in
-  APPLICANT    granted 2026-08-22              active
-  ADMIN        granted 2026-09-01              revoked 2027-01-15
-  ADMIN        granted 2027-03-10              active
+  APPLICANT          granted 2026-08-22        active
+  DESK_REVIEWER      granted 2026-09-01        revoked 2027-01-15
+  DESK_REVIEWER      granted 2027-03-10        active
 ```
 
-A partial unique index permits only one active copy of a user/role pair while
-retaining both historical `ADMIN` grants. A revocation cannot predate its grant.
-`RESTRICT` foreign keys preserve the subject and any recorded granting or
-revoking actor.
+A row names its authority in exactly one place: `role` for the two decided in
+code, `role_id` for a composed one. Two partial unique indexes permit only one
+active copy of each — two rather than one, because Postgres treats NULLs in a
+unique index as distinct, so a single index over the nullable pair would accept
+two identical active grants while looking exactly like the guarantee this table
+has always carried.
+
+A revocation cannot predate its grant. `RESTRICT` foreign keys preserve the
+subject, the role, and any recorded granting or revoking actor.
+
+**Retiring a role closes its grants rather than deleting them**, and the role
+row survives soft-deleted, so a closed grant still renders. A grant that could
+not be read once its role was retired would leave an audit trail nobody can
+follow back to what somebody held.
 
 `granted_by_user_id` is null only for trusted system transitions: verified
 applicant signup and the first-super-admin bootstrap. Every grant made through
@@ -99,9 +147,9 @@ Sign-in requires only that the person holds at least one active role of any
 kind. Applicant operations additionally require an active `APPLICANT` grant.
 Therefore:
 
-- an `ADMIN`/`SUPER_ADMIN` user who holds no `APPLICANT` grant signs in
-  normally and reaches administrative operations;
-- an `APPLICANT` plus `ADMIN`/`SUPER_ADMIN` user can use both namespaces;
+- somebody holding an office permission but no `APPLICANT` grant signs in
+  normally and reaches the operations that permission names;
+- somebody holding `APPLICANT` as well can use both namespaces;
 - revoking `APPLICANT` immediately stops applicant access while leaving the
   underlying session available for administrative authorization; and
 - a person whose every grant has been revoked cannot sign in, and the sessions
@@ -110,13 +158,19 @@ Therefore:
 
 ## Current authorization rules
 
-The shared guards load roles on every request and apply these checks:
+The shared guards resolve authority on every request and apply these checks:
 
 ```text
-applicant action: APPLICANT
-operational admin action: ADMIN or SUPER_ADMIN
-role/account administration: SUPER_ADMIN
+applicant action:          APPLICANT
+staff action:              the permission that operation names
+composing or granting a
+  role:                    SUPER_ADMIN
 ```
+
+A super administrator passes the second of these by holding the wildcard, not by
+being named in it. Retiring a role, editing its permissions, or revoking a grant
+takes effect on the holder's very next request — nothing is copied into the
+session, so nothing has to expire first.
 
 ## First super administrator
 
@@ -128,7 +182,8 @@ resulting identity intentionally holds `SUPER_ADMIN` alone. Both role events
 stay in retained history, and a request that loses the bootstrap race writes
 neither, so the account is never left with no active role.
 
-No `ADMIN` row is added because `SUPER_ADMIN` implies its capabilities. The
+No other grant is added: `SUPER_ADMIN` holds the wildcard, so there is nothing
+a second row could add. The
 grant records null as its granting user because authority comes from trusted
 deployment configuration; audit records identify the promoted credential-
 authenticated user and the fixed bootstrap reason.
@@ -162,9 +217,23 @@ session deactivation cannot drift apart.
 
 ```graphql
 query    { access { userByEmail(email: "...") userById(id: "...") } }
+query    { access { roles role(key: "...") permissionCatalogue invitableRoles } }
+mutation { access { createRole(...) updateRole(...) deleteRole(...) } }
 mutation { access { grantRole(...) revokeRole(...) inviteRole(...) } }
 mutation { access { acceptRoleInvite(token: "...") } }
 ```
+
+Composing a role is two acts: `createRole` names one, holding nothing, and
+`updateRole` decides what it may do. That separation is deliberate — a role is
+live from the moment it exists, so one that arrived already carrying
+permissions would be authorizing people during the window nobody is looking at
+it.
+
+`updateRole` replaces the whole permission set rather than adding to it, and
+takes the `version` read with the role. A role is live *while it is edited* too:
+a sequence of smaller writes would authorize its holders against each
+half-finished state in turn, and two operators editing at once would produce a
+set neither of them chose.
 
 Lookup is exact-match only. There is no listing or prefix search, so the
 namespace cannot be used to enumerate accounts.
@@ -176,35 +245,42 @@ caller which user IDs are real and which of them are administrators.
 
 ### What may be granted
 
-Grant, revoke and invite accept `REVIEWER`, `APPROVER`, `ADMIN`, `ANNOUNCER`
-and `SUPER_ADMIN`. `APPLICANT` is created solely by verified signup and no operation
-can grant it back, so allowing its revocation here would strip an applicant
-permanently with no recovery path. The GraphQL enum stops a grant at the schema
-boundary; a revocation names a grant ID, so the role of the row it resolves to
-is checked in the service.
+Grant and revoke accept `SUPER_ADMIN` and any composed role, named by its key.
+`APPLICANT` is created solely by verified signup and no operation can grant it
+back, so allowing its revocation here would strip an applicant permanently with
+no recovery path — it is the one thing this namespace refuses to touch.
+
+A grant names a role by key, so an unknown key and `APPLICANT` are refused
+identically: telling a caller which keys are real is an enumeration this
+namespace does not offer. A revocation names a grant ID, so the authority of
+the row it resolves to is checked in the service.
 
 ### Inviting, and the ceiling on it
 
-There are two ways to become staff. A `SUPER_ADMIN` may grant a role directly,
-with a step-up password. Anybody holding `ROLE_INVITE` may instead send an
-invitation, which lands only when the person accepts it themselves — so the
-record always shows they agreed.
+There are two ways to become staff. A super administrator may grant a role
+directly, with a step-up password. Anybody holding `role`/`invite` may instead
+send an invitation, which lands only when the person accepts it themselves — so
+the record always shows they agreed.
 
-An invitation cannot exceed its issuer's own authority:
+**An invitation cannot exceed its issuer's own authority.** You may offer only a
+role whose permissions you already hold yourself. This used to be a written
+table of role names, which cannot be maintained at all now that the office
+composes its own — so the rule is computed from the actual permission sets, and
+`access.invitableRoles` returns the list rather than leaving a screen to work it
+out and get it wrong.
 
-| Issuer | May invite to |
-| --- | --- |
-| `ADMIN` | `REVIEWER`, `APPROVER` |
-| `SUPER_ADMIN` | `REVIEWER`, `APPROVER`, `ADMIN`, `ANNOUNCER` |
+A super administrator holds the wildcard, so every role is a subset and they may
+offer any of them. Nobody is ever invited to `SUPER_ADMIN`; that stays bootstrap
+or a direct grant. Without the ceiling, "may invite" would be a privilege
+escalation — somebody could obtain through a second account exactly what they
+are directly forbidden.
 
-`ANNOUNCER` sits only in the super administrator's row on purpose: it controls
-what the public landing page says, so a plain administrator may neither hold
-nor hand out that authority.
-
-Nobody is ever invited to `SUPER_ADMIN`; that stays bootstrap or a direct grant.
-Without the ceiling, "an administrator may invite" would be a privilege
-escalation — a plain administrator could invite a second account to `ADMIN` and
-obtain through it exactly what they are directly forbidden.
+**An invitation names a role by id and by version.** By id because a rename must
+not silently redirect one somebody already approved; by version because the
+ceiling is checked when the invitation is issued, and a role edited in the
+forty-eight hours before it is accepted is no longer the thing that was offered.
+Editing a role therefore voids its outstanding invitations, and the invitee is
+told the same thing as for any unusable token: ask for a new one.
 
 **Nothing about an invitation is stored.** It travels sealed inside the link,
 and accepting it exchanges the applicant grant for the staff role in one batch.
@@ -235,28 +311,48 @@ role, so once accepted neither is true. The mechanics and the reasons are in
   also the last holder, the remaining-holder rule is reported first because it
   says what to do about it.
 
+- **Retiring a role.** Permitted whatever holds it, and its live grants close in
+  the same statement. A "nobody holds it" precondition would be a predicate over
+  rows the statement does not write, which loses: one operator retires while
+  another grants, neither blocks, and both succeed. So retirement takes effect
+  through the *read* instead — every authority query excludes a retired role —
+  and the holder count is shown beside the control so the cost is known before
+  the decision rather than after it.
+
 ### Sessions
 
-Revocation deliberately writes no session code. Roles are joined live, so a
-demoted administrator's next administrative call is refused immediately, while a
-person who merely lost one of several roles keeps their session. If the
-revocation removed their last role, the existing deactivation paths destroy
-their sessions.
+Revocation deliberately writes no session code. Authority is resolved live, so a
+demoted administrator's next call is refused immediately, while a person who
+merely lost one of several roles keeps their session. If it removed their last
+*effective* grant, the existing deactivation paths destroy their sessions.
+
+"Effective" is doing real work there. A role with no permissions on it is a
+legitimate thing for an operator to create — every role starts that way — so
+sessions are destroyed on holding no grant that authorizes anything, never on
+resolving zero permissions. Keying it on the second would turn an editing slip
+into a mass sign-out.
 
 ## Audit and sensitive data
 
 Role changes use the fixed actions `RBAC.ROLE_GRANTED` and `RBAC.ROLE_REVOKED`;
-invitations add `RBAC.ROLE_INVITE_ISSUED`, `RBAC.ROLE_INVITE_ACCEPTED` and
-`RBAC.ROLE_INVITE_REFUSED`. Safe audit metadata is limited to public user and
-grant IDs and one of the five role values. It must not contain passwords,
-hashes, OTPs, invitation tokens, cookie values, or document and form contents.
+composing one adds `RBAC.ROLE_CREATED`, `RBAC.ROLE_UPDATED` and
+`RBAC.ROLE_RETIRED`; invitations add `RBAC.ROLE_INVITE_ISSUED`,
+`RBAC.ROLE_INVITE_ACCEPTED` and `RBAC.ROLE_INVITE_REFUSED`. Safe audit metadata
+is limited to public user, grant and role IDs, a role key, and counts. It must
+not contain passwords, hashes, OTPs, invitation tokens, cookie values, or
+document and form contents.
+
+`RBAC.ROLE_UPDATED` records how many permissions the role now holds, not which.
+The pairs live on the role; a second, diverging copy of somebody's authority in
+retained history would be worse than no record of the size.
 
 **The invitation token is never recorded.** An audit row carrying it would be a
 second copy of a live credential, readable by anybody who may read audits.
 
 That history is now readable in the portal rather than only through a SQL
-client, by anybody holding `AUDIT_READ` — which is `SUPER_ADMIN` alone, because
-it carries more about people than any other read. See the
+client, by anybody holding `audit`/`read` — a permission the office composes
+into a role deliberately, and one it should think about, because that history
+carries more about people than any other read. See the
 [audit service](../src/services/audit/README.md).
 
 ## Deliberate exclusions
@@ -267,8 +363,14 @@ The current workflow still does not provide:
   one-time bootstrap, a direct grant, or an invitation accepted by the person
   named in it;
 - granting or revoking `APPLICANT` through any operation;
-- custom roles or permission sets. The six roles and eight capabilities are
-  fixed in TypeScript and in a database `CHECK`;
+- **permissions granted to an account directly.** Authority is held through a
+  role and only through one, so what somebody may do is always answerable by
+  naming the roles they hold;
+- **a resource or an act the office can invent.** The catalogue is fixed in code
+  and checked against the guards that enforce it, so a permission nothing checks
+  cannot be composed into a role and read as coverage;
+- **nesting or ranking roles.** Two roles overlap or they do not, and holding
+  both is the union;
 - staff profiles, departments, organizations, or partner-bank accounts;
 - separate privileged sessions; or
 - a mandatory recusal/second-approval rule. Self-review is allowed only after

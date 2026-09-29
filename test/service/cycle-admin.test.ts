@@ -2,19 +2,37 @@
  * Who may shape the programme itself, as opposed to working its casework.
  *
  * A cycle's policy and form decide who is eligible and for how much — the
- * programme's own rulebook. These tests pin the boundary: an `ADMIN` keeps
- * every casework capability but may not create a cycle or edit its questions;
- * only the super-administrator holds `CYCLE_ADMIN`.
+ * programme's own rulebook. These tests pin the boundary: somebody may hold
+ * every casework permission there is and still be refused creating a cycle or
+ * editing its questions, because those are separate pairs that have to be
+ * granted deliberately.
+ *
+ * The boundary used to be two fixed roles. It is composable now, so the tests
+ * state it as a permission set: everything the catalogue offers *except* the
+ * programme's rulebook. Derived rather than listed, so a resource added later
+ * is on the casework side of this line only if somebody puts it there.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDatabase, freshDatabase, resetDatabase } from '../support/harness'
-import { emptyFormTemplate, graphql, signIn, testPolicy } from '../support/api'
+import { emptyFormTemplate, everyPermission, graphql, signIn, testPolicy } from '../support/api'
 
 beforeAll(async () => { await freshDatabase() })
 beforeEach(async () => { await resetDatabase() })
 afterAll(async () => { await closeDatabase() })
 
 const DENIED = 'You do not have permission to do that.'
+
+/** The programme's rulebook: what shapes a cycle rather than works one. */
+const RULEBOOK = new Set(['programme_cycle', 'form_template', 'policy_document'])
+
+/**
+ * Everything except the rulebook, and the writes to it in particular.
+ *
+ * Reading a cycle stays: casework is done against a cycle's rules, so somebody
+ * working applications has to be able to see them.
+ */
+const caseworkOnly = () => everyPermission()
+  .filter(([resource, action]) => !RULEBOOK.has(resource) || action === 'read')
 
 /** The one envelope message, wherever the single operation put it. */
 const messageOf = async (query: string, cookie: string): Promise<string | null> => {
@@ -42,26 +60,26 @@ const cycleInput = () => ({
 
 /** A draft cycle only the founder can mint, for probing the form gate. */
 const draftCycle = async (): Promise<{ id: string; currentVersion: number }> => {
-  const founder = await signIn(['SUPER_ADMIN'])
+  const founder = await signIn({ roles: ['SUPER_ADMIN'] })
   const created = await graphql<any>(CREATE_CYCLE, { input: cycleInput() }, founder.cookie)
   const result = created.data.admin.programmeCycle.create
   expect(result.success, result.message ?? '').toBe(true)
   return result.response.head
 }
 
-describe('the CYCLE_ADMIN boundary', () => {
-  it('refuses an administrator creating a cycle', async () => {
+describe('the programme-rulebook boundary', () => {
+  it('refuses somebody without the cycle permission creating one', async () => {
     // The refusal must be the permission message, not a validation one: the
     // gate has to run before the input is even considered.
-    const administrator = await signIn(['ADMIN'])
+    const administrator = await signIn({ permissions: caseworkOnly() })
     const created = await graphql<any>(CREATE_CYCLE, { input: cycleInput() }, administrator.cookie)
     expect(created.errors).toBeUndefined()
     expect(created.data.admin.programmeCycle.create.message).toBe(DENIED)
   })
 
-  it('refuses an administrator editing the form of a cycle', async () => {
+  it('refuses somebody without the form permission editing one', async () => {
     const cycle = await draftCycle()
-    const administrator = await signIn(['ADMIN'])
+    const administrator = await signIn({ permissions: caseworkOnly() })
     const scope = `scope: {
       programmeCycleId: "${cycle.id}",
       expectedVersion: ${cycle.currentVersion},
@@ -82,10 +100,10 @@ describe('the CYCLE_ADMIN boundary', () => {
     }) { success message } } } }`, administrator.cookie)).toBe(DENIED)
   })
 
-  it('still lets an administrator past the casework gate', async () => {
+  it('still lets them past the casework gate', async () => {
     // The application id is invented, so this refuses — but for a business
-    // reason, proving ADMIN kept STAFF_WRITE when it lost the cycle powers.
-    const administrator = await signIn(['ADMIN'])
+    // reason, proving the casework permissions survived losing the rulebook.
+    const administrator = await signIn({ permissions: caseworkOnly() })
     const answer = await messageOf(`mutation { admin { intake { addInternalNote(input: {
       applicationId: "${crypto.randomUUID()}", note: "Probe."
     }) { success message } } } }`, administrator.cookie)
@@ -93,7 +111,7 @@ describe('the CYCLE_ADMIN boundary', () => {
   })
 
   it('lets the super-administrator create a cycle', async () => {
-    const founder = await signIn(['SUPER_ADMIN'])
+    const founder = await signIn({ roles: ['SUPER_ADMIN'] })
     const created = await graphql<any>(CREATE_CYCLE, { input: cycleInput() }, founder.cookie)
     expect(created.errors).toBeUndefined()
     const result = created.data.admin.programmeCycle.create

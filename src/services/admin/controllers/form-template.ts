@@ -261,7 +261,7 @@ const editTemplate = async (
 ): Promise<AdminResult<unknown>> => {
   // The form is a rule of the cycle, so it is gated like one — and this single
   // line is the gate for all seven form mutations, which funnel through here.
-  const administrator = await currentStaff(context, 'CYCLE_ADMIN')
+  const administrator = await currentStaff(context, 'form_template', 'update')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   if (!normalizeRequiredText(scope.reason, 500)) return failure('Enter a change reason.')
 

@@ -71,7 +71,12 @@
   flex-shrink: 0;
 }
 
+/* Worn by a button where the state can be flipped and by a span where it
+   cannot, so the border is stated rather than left to the user agent's default
+   for a button — otherwise the same pill has an outset grey edge for one
+   reader and none for the other. */
 .liveBadge {
+  border: 0;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;

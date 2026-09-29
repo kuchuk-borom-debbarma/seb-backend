@@ -366,6 +366,7 @@ const groupIsComplete = (
   })
   return issues
 }
+
 /** Tier B. Submission only: completeness, relevance, documents and policy. */
 export const validateAnswersForSubmission = (
   template: ResolvedFormTemplate,

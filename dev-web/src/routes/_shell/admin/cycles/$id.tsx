@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-query'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
+import { Dialog } from '#/components/Dialog'
 import {
   Archive,
   ArrowLeft,
@@ -29,6 +30,7 @@ import {
 import {
   AdminCycleByIdDocument,
   ArchiveCycleDocument,
+  ChangeCycleClosingTimeDocument,
   CloseCycleDocument,
   OpenCycleDocument,
   SoftDeleteCycleDraftDocument,
@@ -36,7 +38,13 @@ import {
   UpdateCycleGuidanceDocument,
 } from '#/graphql/generated/operations'
 import type { ProgrammeCycleInput } from '#/graphql/generated/schema'
-import { formatDate, formatDateTime, formatMoney, humanize } from '#/lib/format'
+import {
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  humanize,
+  toLocalDateTimeInput,
+} from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { can } from '#/lib/session'
@@ -133,6 +141,12 @@ function AdminCyclePage() {
   // Modal Dialog States. Removal shares the transition dialog because it takes
   // the same shape — a version guard and a retained reason.
   const [showGuidanceModal, setShowGuidanceModal] = useState(false)
+  /*
+   * `null` while the deadline editor is shut, a string while it is open — the
+   * empty string is a real value here, meaning "no deadline at all", so it
+   * cannot double as closed.
+   */
+  const [closesAt, setClosesAt] = useState<string | null>(null)
   const [draftReasonMissing, setDraftReasonMissing] = useState(false)
   const [transitionAction, setTransitionAction] = useState<
     'open' | 'close' | 'archive' | 'remove' | null
@@ -192,6 +206,36 @@ function AdminCyclePage() {
     onError: refresh,
   })
 
+  /**
+   * Moves the deadline of an open cycle, or lifts it entirely.
+   *
+   * Frozen rules are frozen; this and the guidance are the two things that
+   * still move once a cycle is open, because neither changes what an
+   * application already in the cycle is judged by. Extending a deadline is one
+   * of the commonest things the office does, and until this existed the only
+   * way to do it was to close the cycle and open another.
+   */
+  const changeClosingTime = useMutation({
+    mutationFn: async () => {
+      const result = await gql(ChangeCycleClosingTimeDocument, {
+        input: {
+          id,
+          expectedVersion: head?.currentVersion ?? 0,
+          // An empty field means no deadline, which the API takes as null —
+          // not as "unchanged". The two are different instructions.
+          closesAt: closesAt ? new Date(closesAt).toISOString() : null,
+          reason,
+        },
+      })
+      return unwrap(result.admin.programmeCycle.changeClosingTime)
+    },
+    onSuccess: async () => {
+      setClosesAt(null)
+      await settle()
+    },
+    onError: refresh,
+  })
+
   const changeGuidance = useMutation({
     mutationFn: async () => {
       const result = await gql(UpdateCycleGuidanceDocument, {
@@ -247,8 +291,16 @@ function AdminCyclePage() {
 
   if (!data || !head || !policy) return null
 
+  /*
+   * Every write on this screen, so a control cannot be pressed twice while one
+   * is in flight. A mutation left out of this list keeps its own button live:
+   * the second press quotes the version the first has already spent, and the
+   * API refuses it as stale — so a change that did land reports that the record
+   * changed.
+   */
   const busy =
     transition.isPending ||
+    changeClosingTime.isPending ||
     changeGuidance.isPending ||
     changeDraft.isPending ||
     removeDraft.isPending
@@ -268,6 +320,21 @@ function AdminCyclePage() {
   const isDraft = head.status === 'DRAFT'
 
   /*
+   * What this account may do to a cycle, asked one transition at a time.
+   *
+   * The API guards each with its own pair — opening, closing and archiving are
+   * separate authorities, which is the whole point of composing roles — so the
+   * state alone cannot decide what to offer. Drawn from the state alone, a role
+   * holding `programme_cycle`/`read` and nothing else was shown every
+   * transition button on every cycle, and each one refused.
+   */
+  const mayUpdate = can(user, 'programme_cycle', 'update')
+  const mayOpen = can(user, 'programme_cycle', 'open')
+  const mayClose = can(user, 'programme_cycle', 'close')
+  const mayArchive = can(user, 'programme_cycle', 'archive')
+  const mayRemove = can(user, 'programme_cycle', 'delete')
+
+  /*
    * The draft's rules, exactly as this cycle version holds them, in the shape
    * `updateDraft` takes back. Built from the aggregate rather than from any
    * client default — resending defaults is how a settled rule gets reset by
@@ -276,7 +343,7 @@ function AdminCyclePage() {
    * returns the expanded one.
    */
   const draftRules: ProgrammeCycleInput | null =
-    isDraft && template && can(user, 'CYCLE_ADMIN')
+    isDraft && template && can(user, 'programme_cycle', 'update')
       ? {
           cycleCode: head.cycleCode,
           displayName: head.displayName,
@@ -368,7 +435,7 @@ function AdminCyclePage() {
               {/* Guidance changes go through `updateOpenGuidance`, which the
                   API accepts only while the cycle is open — a draft's guidance
                   is edited with the rest of its rules below. */}
-              {isOpen ? (
+              {isOpen && mayUpdate ? (
                 <button
                   type="button"
                   className={styles.outlineActionButton}
@@ -579,7 +646,7 @@ function AdminCyclePage() {
             {/* Lifecycle Action Bars. Only the transitions the current state
                 actually permits are offered: a draft opens (or is removed); an
                 open cycle closes; a closed cycle is archived. */}
-            {isOpen ? (
+            {isOpen && mayClose ? (
               <div className={styles.actionBanner}>
                 <div className={styles.actionBannerLeft}>
                   <Lock size={16} aria-hidden="true" />
@@ -598,6 +665,7 @@ function AdminCyclePage() {
               </div>
             ) : isDraft ? (
               <>
+                {mayOpen ? (
                 <div className={styles.actionBanner}>
                   <div className={styles.actionBannerLeft}>
                     <span>Draft cycle ready to open</span>
@@ -613,12 +681,14 @@ function AdminCyclePage() {
                     Open for applications
                   </button>
                 </div>
+                ) : null}
                 {/*
                  * Reversible, and only ever possible here: a cycle that has
                  * been opened is part of the programme's record and the API
                  * refuses to remove it. Restoring happens from the list,
                  * under "Include removed drafts".
                  */}
+                {mayRemove ? (
                 <div className={styles.actionBanner}>
                   <div className={styles.actionBannerLeft}>
                     <span>Not needed after all?</span>
@@ -634,8 +704,9 @@ function AdminCyclePage() {
                     Remove this draft
                   </button>
                 </div>
+                ) : null}
               </>
-            ) : isClosed ? (
+            ) : isClosed && mayArchive ? (
               <div className={styles.actionBanner}>
                 <div className={styles.actionBannerLeft}>
                   <span>Closed cycle ready to archive</span>
@@ -694,6 +765,25 @@ function AdminCyclePage() {
                   </td>
                   <td className={styles.policyValueCell}>
                     {head.closesAt ? formatDate(head.closesAt) : 'Open until closed by the office'}
+                    {/*
+                      Offered only while the cycle is open, because that is the
+                      only state the API accepts it in — a draft's closing time
+                      is edited with the rest of its rules, and a closed cycle
+                      has no deadline left to move.
+                    */}
+                    {isOpen && mayUpdate ? (
+                      <button
+                        type="button"
+                        className="button-quiet"
+                        style={{ marginLeft: '0.5rem' }}
+                        onClick={() => {
+                          setReason('')
+                          setClosesAt(toLocalDateTimeInput(head.closesAt))
+                        }}
+                      >
+                        Change
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
 
@@ -711,7 +801,7 @@ function AdminCyclePage() {
                       cycleId={head.id}
                       document={data.cycle.policyDocument ?? null}
                       canManage={
-                        can(user, 'CYCLE_ADMIN') && (isDraft || isOpen)
+                        can(user, 'policy_document', 'upload') && (isDraft || isOpen)
                       }
                       onChanged={refresh}
                     />
@@ -900,7 +990,7 @@ function AdminCyclePage() {
       {/*
        * What this cycle asks, stage by stage — read-only here, with the
        * door to the editor beside it. The editor is offered only to the
-       * capability the API gates it on, and only while the cycle is a
+       * permission the API gates it on, and only while the cycle is a
        * draft, because that is the only time the API will accept a change.
        */}
       {template ? (
@@ -916,7 +1006,7 @@ function AdminCyclePage() {
             >
               View as an applicant
             </Link>
-            {can(user, 'CYCLE_ADMIN') ? (
+            {can(user, 'form_template', 'update') ? (
               isDraft ? (
                 <Link
                   to="/admin/cycles/$id/form"
@@ -1034,8 +1124,87 @@ function AdminCyclePage() {
         </div>
       ) : null}
 
+      {/* Modal: Move or lift the closing time */}
+      {closesAt !== null && (
+        <Dialog open onClose={() => setClosesAt(null)}>
+        <div className={styles.modalOverlay} role="dialog" aria-modal="true">
+          <div className={styles.modalDialog}>
+            <div className={styles.modalHeader}>
+              <h3 className={styles.modalTitle}>When applications close</h3>
+              <button
+                type="button"
+                className={styles.modalCloseButton}
+                onClick={() => setClosesAt(null)}
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              <div>
+                <label className="field-label" htmlFor="modalClosesAt">
+                  Closing time
+                </label>
+                <input
+                  id="modalClosesAt"
+                  className="input"
+                  type="datetime-local"
+                  value={closesAt}
+                  onChange={(event) => setClosesAt(event.target.value)}
+                />
+                <span className="field-hint">
+                  Leave it empty to take the deadline off entirely, so the cycle stays
+                  open until somebody closes it. Closing stops new applications; it
+                  strands neither a submission already in nor a correction the office
+                  has asked for.
+                </span>
+              </div>
+
+              <div>
+                <label className="field-label" htmlFor="closingReason">
+                  Reason for this change
+                </label>
+                <input
+                  id="closingReason"
+                  className="input"
+                  placeholder="Retained in the cycle's history"
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                />
+              </div>
+
+              {changeClosingTime.error ? (
+                <p className="notice" data-tone="error" role="alert">
+                  {messageFor(changeClosingTime.error)}
+                </p>
+              ) : null}
+            </div>
+            <div className={styles.modalFooter}>
+              <button
+                type="button"
+                className="button"
+                onClick={() => setClosesAt(null)}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button"
+                data-variant="primary"
+                disabled={!canAct}
+                onClick={() => changeClosingTime.mutate()}
+              >
+                {changeClosingTime.isPending ? 'Saving…' : 'Save the closing time'}
+              </button>
+            </div>
+          </div>
+        </div>
+        </Dialog>
+      )}
+
       {/* Modal: Update Guidance */}
       {showGuidanceModal && (
+        <Dialog open onClose={() => setShowGuidanceModal(false)}>
         <div className={styles.modalOverlay} role="dialog" aria-modal="true">
           <div className={styles.modalDialog}>
             <div className={styles.modalHeader}>
@@ -1096,10 +1265,12 @@ function AdminCyclePage() {
             </div>
           </div>
         </div>
+        </Dialog>
       )}
 
       {/* Modal: Transition Confirmation (Open / Close / Archive / Remove) */}
       {transitionAction && (
+        <Dialog open onClose={() => setTransitionAction(null)}>
         <div className={styles.modalOverlay} role="dialog" aria-modal="true">
           <div className={styles.modalDialog}>
             <div className={styles.modalHeader}>
@@ -1175,6 +1346,7 @@ function AdminCyclePage() {
             </div>
           </div>
         </div>
+        </Dialog>
       )}
     </main>
   )

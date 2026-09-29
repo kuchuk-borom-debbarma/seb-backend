@@ -19,7 +19,12 @@ import {
 import { formatRelative } from '@/lib/format'
 import { gql } from '@/lib/graphql'
 import { messageFor, unwrap } from '@/lib/result'
-import { ensureSession, forgetSession, hasRole, isApplicant } from '@/lib/session'
+import {
+  belongsInTheOffice,
+  ensureSession,
+  forgetSession,
+  isApplicant,
+} from '@/lib/session'
 
 type UserRole = 'applicant' | 'admin'
 
@@ -83,16 +88,14 @@ function LoginPage() {
     onSuccess: async ({ signedIn, intendedRole }) => {
       await forgetSession(queryClient)
 
-      const canUseOffice = hasRole(
-        signedIn.user,
-        'REVIEWER',
-        'APPROVER',
-        'ADMIN',
-        'ANNOUNCER',
-        'SUPER_ADMIN',
-      )
+      /*
+       * Asked the same way the office door asks it. This was a written list of
+       * the six fixed roles, and the office composes its own now — so the list
+       * matched only `SUPER_ADMIN`, and everybody else picking the office tab
+       * was quietly sent to the applicant portal instead.
+       */
       const home =
-        intendedRole === 'admin' && canUseOffice
+        intendedRole === 'admin' && belongsInTheOffice(signedIn.user)
           ? '/admin'
           : isApplicant(signedIn.user)
             ? '/dashboard'

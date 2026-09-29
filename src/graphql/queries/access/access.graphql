@@ -35,6 +35,168 @@ type AccessQuery {
     """Which account."""
     id: ID!
   ): ManagedUserResult!
+
+  """
+  Every role the office has composed, with what each one may do.
+
+  **Use case:** the list on `/admin/roles`, and the pickers on `/admin/access`
+  and `/admin/invite`. Roles are data, so a screen must read them rather than
+  carry a list of its own.
+  """
+  roles: RoleListResult!
+
+  """
+  One role, by its key.
+
+  **Use case:** the editor on `/admin/roles`, which needs the current `version`
+  before it may change anything.
+  """
+  role(
+    """The role's stable key, such as `DESK_REVIEWER`."""
+    key: String!
+  ): RoleResult!
+
+  """
+  Everything this server can enforce, grouped by what it acts on.
+
+  **Use case:** drawing the permission picker. Read this rather than hard-coding
+  a list — a picker offering anything absent from it would offer a permission
+  nothing checks. Fixed for a given deployment, so it may be cached for the
+  session.
+  """
+  permissionCatalogue: PermissionCatalogueResult!
+
+  """
+  The roles the caller may offer somebody else.
+
+  **Use case:** the picker on `/admin/invite`. Computed by the server so no
+  screen reimplements the ceiling: an invitation may not exceed the issuer's own
+  authority, and a client deciding that for itself would be a second copy of the
+  rule that decides it.
+  """
+  invitableRoles: RoleListResult!
+}
+
+"""
+A named set of permissions the office composed, and the job it describes.
+
+Roles are **not ranked** and do not contain one another: two roles overlap or
+they do not, and somebody holding both simply holds the union. An ordering
+would be a rule nobody re-checks the moment it stopped being true.
+"""
+type Role {
+  """Stable identifier. Names this role when granting or inviting."""
+  id: ID!
+
+  """
+  The stable machine name, such as `DESK_REVIEWER`. Unique, and never reused
+  once retired, so retained history cannot confuse two different authorities.
+  """
+  key: String!
+
+  """What the office calls it on screen. Changeable without disturbing who holds it."""
+  name: String!
+
+  """
+  Why this set exists, in the words of whoever composed it. Shown beside the
+  name wherever somebody is choosing which role to hand out.
+  """
+  description: String!
+
+  """Exactly what its holders may do. Nothing is implied by the name."""
+  permissions: [Permission!]!
+
+  """
+  How many live accounts hold it.
+
+  Shown before the retire control, so retiring one is a decision somebody makes
+  knowing what it costs rather than discovers afterwards.
+  """
+  memberCount: Int!
+
+  """
+  Optimistic-concurrency token. Send it back in `expectedVersion`, and an edit
+  against a stale number refuses instead of overwriting whatever landed in
+  between.
+  """
+  version: Int!
+
+  """When it was composed."""
+  createdAt: DateTime!
+
+  """When its name, purpose or permissions last moved."""
+  updatedAt: DateTime!
+}
+
+"""Every live role, or the reason the caller may not read them."""
+type RoleListResult implements BaseResponse {
+  """Whether the roles could be read."""
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """The roles, by name. Null whenever `success` is false."""
+  response: [Role!]
+}
+
+"""One role, or the reason it could not be read."""
+type RoleResult implements BaseResponse {
+  """Whether the role could be read."""
+  success: Boolean!
+
+  """
+  What to show when `success` is false. A role that does not exist and one the
+  caller may not read are refused identically.
+  """
+  message: String
+
+  """The role. Null whenever `success` is false."""
+  response: Role
+}
+
+"""Everything a role may be given, grouped for display."""
+type PermissionCatalogue {
+  """Each kind of record, with the acts available on it."""
+  resources: [PermissionCatalogueResource!]!
+}
+
+"""One kind of record, and everything that may be done to it."""
+type PermissionCatalogueResource {
+  """Which kind of record, such as `application`."""
+  resource: String!
+
+  """
+  What this kind of record is, for whoever is deciding whether to hand it out.
+  """
+  description: String!
+
+  """The acts available on it, in the order they should be offered."""
+  actions: [PermissionCatalogueAction!]!
+}
+
+"""One act, described for somebody choosing whether to permit it."""
+type PermissionCatalogueAction {
+  """Which act, such as `publish`."""
+  action: String!
+
+  """
+  What somebody holding it can actually do. The sentence an operator reads
+  before ticking the box.
+  """
+  description: String!
+}
+
+"""The catalogue, or the reason the caller may not read it."""
+type PermissionCatalogueResult implements BaseResponse {
+  """Whether the catalogue could be read."""
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """The catalogue. Null whenever `success` is false."""
+  response: PermissionCatalogue
 }
 
 """
@@ -48,7 +210,7 @@ type RoleGrant {
   id: ID!
 
   """Which role was granted."""
-  role: UserRole!
+  role: String!
 
   """Why it was granted, in the operator's words."""
   grantReason: String!
@@ -100,7 +262,7 @@ type ManagedUser {
   """
   The roles held now, in the fixed catalogue order. Active grants only.
   """
-  roles: [UserRole!]!
+  roles: [String!]!
 
   """The complete retained history, oldest first."""
   grants: [RoleGrant!]!

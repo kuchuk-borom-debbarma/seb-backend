@@ -16,13 +16,7 @@ import {
   resetDatabase,
 } from '../support/harness'
 import { env, SELF } from '../support/worker'
-import {
-  graphql,
-  openCycle,
-  seedPolicyDocument,
-  signIn,
-  testPolicy,
-} from '../support/api'
+import { everyPermission, graphql, openCycle, seedPolicyDocument, signIn, testPolicy } from '../support/api'
 import { cleanupExpiredCyclePolicyUploads } from '../../src/services/admin'
 import { recordPolicyDocumentScanResult } from '../../src/services/admin/document-scanner'
 import { scanPolicyDocumentVersion } from '../../src/services/document-scanner/consume'
@@ -93,7 +87,7 @@ const overwriteScan = async (
 
 describe('cycle policy document', () => {
   it('authorizes only a plausible PDF from a cycle administrator', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(administrator.cookie)
 
     const refusals: Array<[Record<string, unknown>, string]> = [
@@ -133,14 +127,17 @@ describe('cycle policy document', () => {
       })
 
     // A caseworker administers files, not the programme's own rulebook.
-    const caseworker = await signIn(['ADMIN'])
+    const caseworker = await signIn({
+      // Everything except uploading the programme's own rulebook.
+      permissions: everyPermission().filter(([r]) => r !== 'policy_document'),
+    })
     const denied = await issue(caseworker.cookie, cycle.id)
     expect(denied.data.admin.programmeCycle.issuePolicyDocumentUpload)
       .toMatchObject({ success: false, message: 'You do not have permission to do that.' })
   })
 
   it('leaves a closed cycle’s document as part of its record', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
     const closed = await graphql<any>(`mutation($input: CycleTransitionInput!) {
       admin { programmeCycle { close(input: $input) { success message } } }
@@ -155,7 +152,7 @@ describe('cycle policy document', () => {
   })
 
   it('refuses reads that have nothing to serve, and readers with no standing', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(administrator.cookie)
 
     // No document at all, and a version that never existed.
@@ -186,7 +183,7 @@ describe('cycle policy document', () => {
 
     // A draft cycle's document is invisible to applicants even when clean:
     // an applicant must not learn a cycle exists from its policy file.
-    const applicant = await signIn(['APPLICANT'])
+    const applicant = await signIn({ roles: ['APPLICANT'] })
     expect((await graphql<any>(`query($cycleId: ID!) {
       seb { application { cyclePolicyDocumentDownloadUrl(cycleId: $cycleId) { success message } } }
     }`, { cycleId: cycle.id }, applicant.cookie))
@@ -196,7 +193,7 @@ describe('cycle policy document', () => {
   })
 
   it('refuses to finalize an authorization that was never issued', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const finalized = await graphql<any>(`mutation($input: FinalizePolicyDocumentUploadInput!) {
       admin { programmeCycle { finalizePolicyDocumentUpload(input: $input) { success message } } }
     }`, { input: { uploadId: crypto.randomUUID() } }, administrator.cookie)
@@ -208,7 +205,7 @@ describe('cycle policy document', () => {
   })
 
   it('gates opening on a document whose scan verdict is ACCEPTED', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
 
     const missing = await draftCycle(administrator.cookie)
     const refusedMissing = await open(administrator.cookie, missing.id)
@@ -245,7 +242,7 @@ describe('cycle policy document', () => {
   })
 
   it('shows and serves the document to applicants only once ACCEPTED', async () => {
-    const administrator = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(administrator.cookie)
 
     const listed = await graphql<any>(`query {
@@ -300,7 +297,7 @@ describe('cycle policy document', () => {
   })
 
   it('fails the administrative download closed until the scan accepts', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(administrator.cookie)
     await seedPolicyDocument(cycle.id)
     await overwriteScan(cycle.id, 'PENDING')
@@ -335,7 +332,7 @@ describe('cycle policy document', () => {
      * let the queue consumer record the verdict, download, then replace — and
      * the first version stays in the history.
      */
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(administrator.cookie)
     const bytes = new TextEncoder().encode('%PDF-the-2026-order')
     const hash = await crypto.subtle.digest('SHA-256', bytes.buffer as ArrayBuffer)
@@ -361,8 +358,12 @@ describe('cycle policy document', () => {
         } }
       } } }
     }`, { input: { uploadId } }, administrator.cookie)
-    // A caseworker cannot finalize what only CYCLE_ADMIN may publish.
-    const caseworker = await signIn(['ADMIN'])
+    // Finalizing an upload is the same authority as starting one, and this
+    // caseworker holds neither.
+    const caseworker = await signIn({
+      // Everything except uploading the programme's own rulebook.
+      permissions: everyPermission().filter(([r]) => r !== 'policy_document'),
+    })
     expect((await graphql<any>(`mutation($input: FinalizePolicyDocumentUploadInput!) {
       admin { programmeCycle { finalizePolicyDocumentUpload(input: $input) { success message } } }
     }`, { input: { uploadId: authorization.response.uploadId } }, caseworker.cookie))
@@ -440,7 +441,7 @@ describe('cycle policy document', () => {
   })
 
   it('settles a finalize whose object never arrived, and an expired one', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(administrator.cookie)
     const finalize = (uploadId: string) => graphql<any>(`mutation($input: FinalizePolicyDocumentUploadInput!) {
       admin { programmeCycle { finalizePolicyDocumentUpload(input: $input) { success message } } }
@@ -518,7 +519,7 @@ describe('cycle policy document', () => {
   })
 
   it('sweeps expired authorizations on the scheduled cleanup', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(administrator.cookie)
     const ids: string[] = []
     for (let index = 0; index < 2; index += 1) {
@@ -545,7 +546,7 @@ describe('cycle policy document', () => {
      * than being closed over an object that still exists, and the next run —
      * with storage back — is what actually settles it.
      */
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(administrator.cookie)
     const issued = await issue(administrator.cookie, cycle.id)
     const uploadId = issued.data.admin.programmeCycle
@@ -577,7 +578,7 @@ describe('cycle policy document', () => {
      * fallback the cleanup carries so one stuck object cannot hold its whole
      * batch, and every intent behind it, forever.
      */
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(administrator.cookie)
     const ids: string[] = []
     for (let index = 0; index < 2; index += 1) {
@@ -610,7 +611,7 @@ describe('cycle policy document', () => {
       .toBe('GONE')
 
     // A version with no PENDING row to append after: deferred, not invented.
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(administrator.cookie)
     await seedPolicyDocument(cycle.id)
     await env.DB.prepare('DELETE FROM seb_cycle_policy_document_scan').run()
@@ -644,7 +645,7 @@ describe('cycle policy document', () => {
   })
 
   it('reports the document and its history on the admin aggregate', async () => {
-    const administrator = await signIn(['SUPER_ADMIN'])
+    const administrator = await signIn({ roles: ['SUPER_ADMIN'] })
     const cycle = await draftCycle(administrator.cookie)
     const before = await graphql<any>(`query($id: ID!) {
       admin { programmeCycle { byId(id: $id) { response { policyDocument { id } } } } }

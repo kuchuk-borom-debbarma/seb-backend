@@ -6,28 +6,9 @@ import {
   pgTable,
   text,
   type AnyPgColumn,
-  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 import { instant, softDeleteColumns } from '../shared'
 
-/**
- * Fixed authorization vocabulary for the portal.
- *
- * Roles intentionally live in code rather than a configurable registry. This
- * keeps authorization reviewable: adding a role requires a schema and service
- * change instead of an arbitrary production data edit.
- */
-export const userRoles = [
-  'APPLICANT',
-  'REVIEWER',
-  'APPROVER',
-  'ADMIN',
-  // Manages the public announcement banner and nothing else — deliberately no
-  // casework authority, so a communications hire never reads an application.
-  'ANNOUNCER',
-  'SUPER_ADMIN',
-] as const
-export type UserRole = (typeof userRoles)[number]
 export const signupChallengeStatuses = [
   'PENDING',
   'CONSUMED',
@@ -68,57 +49,6 @@ export const coreUser = pgTable(
   },
   (table) => [
     check('core_user_row_version_check', sql`${table.rowVersion} >= 1`),
-  ],
-)
-
-/**
- * Retained history of roles granted to an identity.
- *
- * Revocation closes a grant instead of deleting it. A later re-grant creates a
- * new row, preserving who held which authority at the time of every audit
- * event. The partial unique index is the concurrency guard that prevents two
- * active copies of the same role while still permitting historical copies.
- */
-export const coreUserRoleGrant = pgTable(
-  'core_user_role_grant',
-  {
-    id: text('id').primaryKey(),
-    userId: text('user_id')
-      .notNull()
-      .references(() => coreUser.id, { onDelete: 'restrict' }),
-    role: text('role', { enum: userRoles }).notNull(),
-    // Null identifies a trusted system transition such as verified signup or
-    // the one-time first-super-admin bootstrap. Public input never controls it.
-    grantedByUserId: text('granted_by_user_id').references(() => coreUser.id, {
-      onDelete: 'restrict',
-    }),
-    grantReason: text('grant_reason').notNull(),
-    grantedAt: instant('granted_at').notNull(),
-    revokedByUserId: text('revoked_by_user_id').references(() => coreUser.id, {
-      onDelete: 'restrict',
-    }),
-    revokedAt: instant('revoked_at'),
-    revocationReason: text('revocation_reason'),
-  },
-  (table) => [
-    check(
-      'core_user_role_grant_role_check',
-      sql`${table.role} IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER', 'SUPER_ADMIN')`,
-    ),
-    // Active grants contain no revocation metadata. Automated revocation may
-    // have no user actor, but every closed grant must retain when and why.
-    check(
-      'core_user_role_grant_revocation_check',
-      sql`(${table.revokedAt} IS NULL AND ${table.revokedByUserId} IS NULL AND ${table.revocationReason} IS NULL)
-        OR (${table.revokedAt} IS NOT NULL
-          AND ${table.revocationReason} IS NOT NULL
-          AND ${table.revokedAt} >= ${table.grantedAt})`,
-    ),
-    uniqueIndex('core_user_role_grant_active_uq')
-      .on(table.userId, table.role)
-      .where(sql`${table.revokedAt} IS NULL`),
-    index('core_user_role_grant_user_idx').on(table.userId, table.revokedAt, table.role),
-    index('core_user_role_grant_role_idx').on(table.role, table.revokedAt, table.userId),
   ],
 )
 

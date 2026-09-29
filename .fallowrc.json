@@ -113,7 +113,6 @@
     ]
   },
   "rules": {
-    "_reason": "private-type-leaks is opt-in and off by default; --type-aware turns it on. It reports four places where an exported signature names a type nothing imports directly \u2014 the alphabet `AnswerMap` is written in, and the engine types two application controllers return. Both were looked at: declaring either locally would put a second copy of the form vocabulary in a second file, which is worse than the finding. Kept as a warning rather than turned off, so a genuinely leaked type is still reported.",
     "private-type-leaks": "warn"
   }
 }

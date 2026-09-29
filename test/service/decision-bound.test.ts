@@ -50,7 +50,7 @@ const readyToDecide = async (
   live: () => Promise<number>
   decisionCount: () => Promise<number>
 }> => {
-    const officer = await signIn(['APPLICANT', 'SUPER_ADMIN'])
+    const officer = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
     const cycle = await openCycle(officer.cookie)
     const submitted = await submittedApplication(officer.cookie, officer.userId, cycle.id, {
       answers: { ...completeAnswers(), SEED_FUND_REQUESTED_PAISE: requestedPaise },

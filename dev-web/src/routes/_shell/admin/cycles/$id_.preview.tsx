@@ -39,7 +39,7 @@ function PreviewPage() {
   const [answers, setAnswers] = useState<AnswerMap>({})
   const [stageKey, setStageKey] = useState<string | null>(null)
 
-  if (!can(user, 'STAFF_READ')) {
+  if (!can(user, 'application', 'read')) {
     return (
       <main className="stack">
         <p className="notice" data-tone="error">

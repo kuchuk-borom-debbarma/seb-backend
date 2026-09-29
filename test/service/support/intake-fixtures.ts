@@ -44,7 +44,7 @@ export const submittedProfile = async (input: {
   /** Reuse an account instead of signing a fresh applicant in. */
   applicant?: { cookie: string; userId: string }
 }): Promise<SubmittedProfile> => {
-  const applicant = input.applicant ?? await signIn(['APPLICANT'])
+  const applicant = input.applicant ?? await signIn({ roles: ['APPLICANT'] })
   const enterpriseId = await createEnterprise(applicant.cookie, input.enterprise ?? {})
   const applicationId = await startApplication(applicant.cookie, enterpriseId, input.cycleId)
   const saved = await saveAnswers(

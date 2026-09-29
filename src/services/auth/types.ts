@@ -11,8 +11,7 @@ import type { Loaders } from '../../loaders'
 // Re-exported because the operation contexts below name it.
 export type { Loaders } from '../../loaders'
 import type { Database } from '../../db'
-import type { UserRole } from '../../db/schema'
-import type { Capability } from './capabilities'
+import type { Authority, Permission } from './permissions'
 
 export type { AppBindings } from '../../bindings'
 
@@ -30,16 +29,17 @@ export type AuthOperationContext = {
   responseHeaders: Headers
 }
 
-/** Public identity payload. Roles are the live grants, never a fixed literal. */
+/** Public identity payload. Authority is the live grants, never a fixed literal. */
 export type AuthUser = {
   id: string
   email: string
   emailVerified: boolean
   /** What they call themselves. Null until they have said. */
   displayName: string | null
-  roles: UserRole[]
-  /** Derived from `roles`, never stored. What a screen may offer. */
-  capabilities: Capability[]
+  /** Every authority held now, by name — the two decided in code, then composed roles. */
+  roles: string[]
+  /** Derived from those, never stored. What a screen may offer. */
+  permissions: Permission[]
   createdAt: Date
 }
 
@@ -58,8 +58,14 @@ export type AuthResponse = {
   session: AuthSession
 }
 
-/** Internal session identity. Roles are loaded from active D1 grants per request. */
-export type AuthenticatedUserRequest = {
+/**
+ * Internal session identity, with the authority this request carries.
+ *
+ * Everything below `user` is read live on each request rather than copied into
+ * the session, so revoking a grant, retiring a role or editing what a role may
+ * do takes effect on the caller's very next action.
+ */
+export type AuthenticatedUserRequest = Authority & {
   user: {
     id: string
     email: string
@@ -68,7 +74,8 @@ export type AuthenticatedUserRequest = {
     createdAt: Date
     updatedAt: Date
   }
-  roles: UserRole[]
+  /** Every authority held, by name. For display and refusals, never for a guard. */
+  roles: string[]
   session: {
     id: string
     userId: string
@@ -83,7 +90,7 @@ export type AuthenticatedUserRequest = {
 /** Applicant guards return this only after confirming an active APPLICANT grant. */
 export type AuthenticatedApplicantRequest = AuthenticatedUserRequest
 
-/** Administrative guards accept ADMIN directly or SUPER_ADMIN by implication. */
+/** Staff guards return this only after confirming the permission asked for. */
 export type AuthenticatedAdministratorRequest = AuthenticatedUserRequest
 
 /**
@@ -95,7 +102,15 @@ export type AuthenticatedAdministratorRequest = AuthenticatedUserRequest
  */
 export type ManagedRoleGrant = {
   id: string
-  role: UserRole
+  /**
+   * What was granted, by name: one of the two decided in code, or a composed
+   * role's key.
+   *
+   * Read from the grant's own row rather than joined live, so a grant stays
+   * readable after the role it named has been retired — history that could not
+   * be rendered would not be history.
+   */
+  role: string
   grantReason: string
   grantedAt: Date
   // Null identifies a trusted system transition such as verified signup or the
@@ -113,7 +128,7 @@ export type ManagedUser = {
   emailVerified: boolean
   deleted: boolean
   createdAt: Date
-  roles: UserRole[]
+  roles: string[]
   grants: ManagedRoleGrant[]
 }
 
@@ -137,7 +152,7 @@ export type StartAccountChallengeResponse = {
 /** Public response for the curl-only, one-time bootstrap operation. */
 export type FirstSuperAdminBootstrapResponse = {
   userId: string
-  roles: UserRole[]
+  roles: string[]
 }
 
 export type AuthResult<T> = Envelope<T>

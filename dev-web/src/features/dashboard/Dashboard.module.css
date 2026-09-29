@@ -1166,7 +1166,7 @@
   }
 }
 
-/* ── Programme analytics (CYCLE_ADMIN only) ─────────────────────────────── */
+/* ── Programme analytics (analytics:read only) ─────────────────────────────── */
 
 .analyticsStats {
   display: grid;

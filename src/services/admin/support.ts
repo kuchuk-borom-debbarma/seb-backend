@@ -2,16 +2,19 @@
  * Shared policy-layer helpers for the administrative controllers.
  *
  * What belongs here is what is genuinely this service's: its refusal messages,
- * its capability preamble, its audit-row builder. The response envelope itself
- * is **not** — `success` and `failure` were once defined identically in four
+ * its permission preamble, its error classification. The response envelope is
+ * **not** — `success` and `failure` were once defined identically in four
  * support modules, which is one decision copied rather than four decisions, and
- * copies drift. They live in `services/envelope.ts` now.
+ * copies drift. They live in `services/envelope.ts` now, and the audit row
+ * lives in `services/audit-event.ts` for the same reason.
  *
- * Audit metadata stays deliberately smaller than the business record: a flat
- * map of primitives, never the form itself.
+ * What stays here is the vocabulary: an administrative action, written against
+ * an entity this service owns. Audit metadata stays deliberately smaller than
+ * the business record — a flat map of primitives, never the form itself.
  */
 import { sql, type SQL } from 'drizzle-orm'
-import { coreAuditEvent, sebApplication, type auditActions } from '../../db/schema'
+import { sebApplication, type auditActions } from '../../db/schema'
+import { auditEventRow, type AuditEventRow } from '../audit-event'
 import { failure } from '../envelope'
 /*
  * Re-exported rather than moved out of every caller's import: `constraintSafe`
@@ -20,7 +23,7 @@ import { failure } from '../envelope'
  * because `services/auth` needs it too.
  */
 export { constraintSafe } from '../constraints'
-import { authenticatedWithCapability, type Capability } from '../auth'
+import { authenticatedWithPermission, type ActionOf, type Resource } from '../auth'
 import type { AdminOperationContext, AdminResult } from './types'
 
 /**
@@ -35,29 +38,38 @@ export const ADMIN_REQUIRED_MESSAGE = 'You do not have permission to do that.'
 export const STALE_MESSAGE = 'The record changed. Reload and try again.'
 
 /**
- * The caller, if they hold the capability this operation needs.
+ * The caller, if they hold the permission this operation needs.
  *
- * Named for staff rather than administrators because the office now holds four
- * roles and two of them are not administrators: a reviewer may read a
- * workspace, and an approver may record a decision, without being able to do
- * anything else. Which role carries which capability is decided in one place,
- * `auth/capabilities.ts`, and never restated here.
+ * Named for staff rather than administrators because the office composes its
+ * own roles: somebody may read a workspace without being able to change one,
+ * and record a decision without being able to open a cycle. Which role carries
+ * which permission is a row now, and never restated here.
  *
- * The capability is a required argument on purpose. A default would mean an
- * operation that forgot to say what it needs silently inherits somebody else's
- * answer, and the direction that mistake fails in is "too permissive".
+ * The pair is required arguments on purpose. A default would mean an operation
+ * that forgot to say what it needs silently inherits somebody else's answer,
+ * and the direction that mistake fails in is "too permissive". Two arguments
+ * make the mistake harder still: a preamble defaulting one would have to
+ * default both, which reads as obviously wrong.
  */
-export const currentStaff = async (
+export const currentStaff = async <R extends Resource>(
   context: AdminOperationContext,
-  capability: Capability,
+  resource: R,
+  action: ActionOf<R>,
 ) => {
-  const authenticated = await authenticatedWithCapability(context, capability)
+  const authenticated = await authenticatedWithPermission(context, resource, action)
   return authenticated?.user ?? null
 }
 
 export type AdminAuditAction = (typeof auditActions)[keyof typeof auditActions]
 
-/** Audit metadata stays deliberately smaller than the business record. */
+/**
+ * Audit metadata stays deliberately smaller than the business record.
+ *
+ * The row itself is built by `services/audit-event.ts`, shared with every other
+ * service. What this adds is the vocabulary: an administrative action, written
+ * against an entity this service owns, always as a success — a refusal here
+ * never reaches a write.
+ */
 export const adminAudit = (
   context: AdminOperationContext,
   input: {
@@ -68,21 +80,8 @@ export const adminAudit = (
     now: Date
     metadata?: Record<string, string | number | boolean | null>
   },
-): typeof coreAuditEvent.$inferInsert => ({
-  id: crypto.randomUUID(),
-  actorUserId: input.actorUserId,
-  action: input.action,
-  entityType: input.entityType,
-  entityId: input.entityId,
-  outcome: 'SUCCESS',
-  requestId:
-    context.requestHeaders.get('CF-Ray') ?? context.requestHeaders.get('X-Request-ID'),
-  ipAddress: context.requestHeaders.get('CF-Connecting-IP'),
-  userAgent: context.requestHeaders.get('User-Agent'),
-  changesJson: null,
-  metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
-  createdAt: input.now,
-})
+): AuditEventRow =>
+  auditEventRow(context, { ...input, createdAt: input.now })
 
 /**
  * Whether the head update that opens this transaction actually landed.
@@ -193,13 +192,14 @@ export const disclosedSelfReview = (
  * Only the message describing a malformed request differs, so that is the one
  * thing a caller supplies.
  */
-export const authorizeReasonedTransition = async (
+export const authorizeReasonedTransition = async <R extends Resource>(
   context: AdminOperationContext,
-  capability: Capability,
+  resource: R,
+  action: ActionOf<R>,
   input: { reason: string; expectedVersion: number },
   invalidRequestMessage: string,
 ): Promise<{ actorId: string; reason: string } | { refusal: AdminResult<never> }> => {
-  const administrator = await currentStaff(context, capability)
+  const administrator = await currentStaff(context, resource, action)
   if (!administrator) return { refusal: failure(ADMIN_REQUIRED_MESSAGE) }
   const reason = normalizeRequiredText(input.reason, 1_000)
   if (!reason || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {

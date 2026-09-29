@@ -643,11 +643,11 @@ test.describe('the first visit', () => {
     await signUpApplicant(page, both)
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto(`/admin/access?email=${encodeURIComponent(both)}`)
-    await page.getByLabel('Role').selectOption('ADMIN')
+    await page.getByLabel('Role').selectOption('PROGRAMME_OFFICER')
     await page.getByLabel('Why they should have it').fill('Runs the demonstration.')
     await page.getByLabel('Your password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Grant it' }).click()
-    await expect(page.getByText('Admin granted.')).toBeVisible()
+    await expect(page.getByText('Programme officer granted.')).toBeVisible()
 
     await page.context().clearCookies()
     await signIn(page, both)

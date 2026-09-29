@@ -245,18 +245,9 @@ date cannot be sorted, and submission is refused with a message pointing at
 the enterprise screen. Category A/B describes enterprise maturity and is
 independent of `INITIAL`/`EXPANSION`, which describes funding phase.
 
-Application name, establishment date, registration, GSTIN, sector, and verified
-registered email are copied when the draft starts and cannot be changed through
-a draft save. The address question is labelled `Office address (as per your
-business documents)` and explicitly excludes a personal or residential address.
-District is one of Tripura's eight districts. Contact numbers normalize spaces,
-hyphens, and parentheses to exactly ten digits; country prefixes are refused.
-Government-support sanction year is from 1900 through 2026 inclusive. There is
-no bank-credit year question.
-
 Money is exact integer paise and never floating point. Dates are real ISO
 `YYYY-MM-DD` calendar dates. Email is trimmed/lowercased, GSTIN and registration
-identifiers are uppercased, and permitted phone formatting characters are removed.
+identifiers are uppercased, and phone formatting characters are removed.
 Financing components do not have to sum to project cost. No contradictory
 seed-fund ceiling from the source documents is hard-coded.
 

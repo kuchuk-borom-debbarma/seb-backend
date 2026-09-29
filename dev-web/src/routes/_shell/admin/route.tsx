@@ -1,31 +1,31 @@
 /**
  * The programme office gate.
  *
- * Being able to read is what opens the console, which is the API's own rule:
- * every administrative query asks for `STAFF_READ`. A reviewer holds only that
- * and belongs here; what they cannot do is decided screen by screen rather
- * than at the door.
+ * **Holding any office permission at all is what opens the console.** Not a
+ * named pair: roles are composed now, so the office can create one that only
+ * reads the activity history, or only the roles list, and a door listing two
+ * acceptable permissions would lock out exactly the narrow roles the model
+ * exists to allow. What somebody cannot do is decided screen by screen rather
+ * than here.
  *
- * An announcer holds `ANNOUNCE` and deliberately not `STAFF_READ`, so the
- * door admits that capability too — and then keeps its holder on the one
- * screen it unlocks: every other office page renders from casework queries
- * that would only answer with refusals, so anything else under `/admin`
- * forwards to the announcement board instead of drawing a broken page.
+ * The door is deliberately wider than any screen behind it. A refusal on the
+ * screen you asked for is a sentence you can act on; a refusal at the door is
+ * being told you are in the wrong building while standing in the right one.
  *
- * Asked as capabilities rather than by naming roles. A list of acceptable
- * roles here would be a second copy of the policy in `auth/capabilities.ts` —
- * which is exactly how the two drift.
+ * The one redirect that remains is for somebody who holds *only* the banner.
+ * Every other office page renders from queries that would answer them with
+ * refusals, so `/admin` forwards to the board rather than drawing a page made
+ * of them. Anybody holding anything else lands where they asked.
  */
 import { Outlet, createFileRoute, redirect } from '@tanstack/react-router'
 import { RoleRefusal } from '#/features/portal/RoleRefusal'
-import { can } from '#/lib/session'
+import { belongsInTheOffice, holdsOnlyTheBanner } from '#/lib/session'
 
 export const Route = createFileRoute('/_shell/admin')({
   beforeLoad: ({ context, location }) => {
     if (
       context.user &&
-      !can(context.user, 'STAFF_READ') &&
-      can(context.user, 'ANNOUNCE') &&
+      holdsOnlyTheBanner(context.user) &&
       !location.pathname.startsWith('/admin/announcements')
     ) {
       throw redirect({ to: '/admin/announcements' })
@@ -36,7 +36,7 @@ export const Route = createFileRoute('/_shell/admin')({
 
 function OfficeGate() {
   const { user } = Route.useRouteContext()
-  if (!can(user, 'STAFF_READ') && !can(user, 'ANNOUNCE')) {
+  if (!belongsInTheOffice(user)) {
     return <RoleRefusal portal="office" user={user} />
   }
   return <Outlet />

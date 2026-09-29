@@ -8,9 +8,11 @@
  */
 import { test as setup, expect } from '@playwright/test'
 import {
+  OFFICE_ROLES,
   PASSWORD,
   SUPER_ADMIN_EMAIL,
   bootstrapSuperAdmin,
+  composeRole,
   navigationSections,
   signIn,
   signUpApplicant,
@@ -39,5 +41,17 @@ setup(
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await expect(page).toHaveURL(/\/admin$/u)
     expect(await navigationSections(page)).toContain('workspace')
+
+    /*
+     * The office's own roles, composed through the screens that compose them.
+     *
+     * A real deployment starts with none: authority is data now, so the six
+     * fixed roles this replaced do not exist and nothing seeds a substitute.
+     * Every later spec grants one of these, so composing them here is part of
+     * bringing the database up to a state the product can actually reach.
+     */
+    for (const role of OFFICE_ROLES) {
+      await composeRole(page, role)
+    }
   },
 )

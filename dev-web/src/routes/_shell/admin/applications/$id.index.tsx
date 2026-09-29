@@ -42,8 +42,9 @@ import {
   CompleteDeskReviewDocument,
   StartDeskReviewDocument,
 } from '#/graphql/generated/operations'
+import { Dialog } from '#/components/Dialog'
 import { formatDateTime, humanize } from '#/lib/format'
-import { can } from '#/lib/session'
+import { can, canAny, useCurrentUser } from '#/lib/session'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { Explain } from '#/features/guide/Explain'
@@ -77,8 +78,18 @@ function WorkspacePage() {
    * `can` decides what to draw and never what is permitted; every operation is
    * re-checked by the API, which is what actually refuses.
    */
-  const mayWrite = can(viewer, 'STAFF_WRITE')
-  const mayDecide = can(viewer, 'DECIDE')
+  /*
+   * One flag per permission the API actually names, not one covering three.
+   *
+   * `STAFF_WRITE` used to gate all of this, and collapsing its replacements
+   * back into a single flag would draw the bank controls for somebody who may
+   * only review — and hide them from somebody composed to do nothing else.
+   */
+  const mayReview = can(viewer, 'application', 'review')
+  const mayRefer = can(viewer, 'application', 'refer')
+  // Either act on a decision opens the stage: correcting one is its own
+  // permission, and a role composed with only that still needs the screen.
+  const mayDecide = canAny(viewer, 'decision')
   const { data: workspace } = useQuery(workspaceQuery(id))
   // Pinned to the same cycle version the API validates against, so the picker
   // never offers an id a later cycle revision has re-minted.
@@ -178,7 +189,7 @@ function WorkspacePage() {
             viewerUserId={viewer?.id}
           />
 
-          {mayWrite ? (
+          {mayReview ? (
             <NextStep
               submitted={submittedView}
               applicationId={id}
@@ -193,7 +204,7 @@ function WorkspacePage() {
             />
           ) : null}
 
-          {mayWrite ? (
+          {mayRefer ? (
             <BankStage
               applicationId={id}
               status={application.status}
@@ -208,7 +219,7 @@ function WorkspacePage() {
             />
           ) : null}
 
-          {mayWrite || mayDecide ? (
+          {mayDecide ? (
             <DecisionStage
               applicationId={id}
               status={application.status}
@@ -222,7 +233,7 @@ function WorkspacePage() {
             />
           ) : null}
 
-          {mayWrite && openRevisions.length > 0 ? (
+          {mayReview && openRevisions.length > 0 ? (
             <OpenRevisions
               applicationId={id}
               statusVersion={application.statusVersion}
@@ -602,22 +613,27 @@ function NextStep({
             >
               {hasReview ? 'Open review form' : 'Open desk review'}
             </button>
-            {error ? (
-              <p
-                className="notice"
-                data-tone="error"
-                role="alert"
-                style={{ marginTop: '0.75rem' }}
-              >
-                {error}
-              </p>
-            ) : null}
+            {/*
+              No refusal here. Completing a review is only ever started from
+              the dialog, and the dialog stays open holding the message — so a
+              copy on the card behind it could never say anything the dialog
+              was not already saying, and said it as a second `role="alert"`
+              that a screen reader announced over the first.
+
+              `start` writes to the same state, but a failed start leaves the
+              application submitted, which is the branch above.
+            */}
           </div>
         </section>
 
         <DeskReviewModal
           open={modalOpen}
-          onClose={() => setModalOpen(false)}
+          // Closing drops any refusal with it: it belonged to the attempt the
+          // person has just walked away from.
+          onClose={() => {
+            setError(null)
+            setModalOpen(false)
+          }}
           hasReview={hasReview}
           submitted={submitted}
           reasons={reasons}
@@ -935,6 +951,13 @@ function InternalNotes({
   )
 
   const correctingNote = notes.find((note) => note.id === correctingNoteId)
+  /*
+   * Reading casework and writing on it are separate permissions. The notes are
+   * part of the workspace `application`/`read` opens, so a role composed to
+   * read one was offered "Add note" and a correction on every note, and the
+   * API refused both.
+   */
+  const mayNote = can(useCurrentUser(), 'application', 'note')
 
   const openAddModal = () => {
     setCorrectingNoteId(null)
@@ -973,14 +996,16 @@ function InternalNotes({
           ) : null}
         </div>
 
-        <button
-          type="button"
-          className={styles.addNoteTriggerButton}
-          onClick={openAddModal}
-        >
-          <Plus size={14} aria-hidden="true" />
-          Add note
-        </button>
+        {mayNote ? (
+          <button
+            type="button"
+            className={styles.addNoteTriggerButton}
+            onClick={openAddModal}
+          >
+            <Plus size={14} aria-hidden="true" />
+            Add note
+          </button>
+        ) : null}
       </div>
 
       {notes.length === 0 ? (
@@ -999,7 +1024,7 @@ function InternalNotes({
                   {note.correctionOfNoteId ? ' · corrects an earlier note' : ''}
                   {corrections.has(note.id) ? ' · corrected later' : ''}
                 </span>
-                {!note.correctionOfNoteId && !corrections.has(note.id) ? (
+                {mayNote && !note.correctionOfNoteId && !corrections.has(note.id) ? (
                   <button
                     type="button"
                     className={styles.correctNoteBtn}
@@ -1016,6 +1041,7 @@ function InternalNotes({
 
       {/* Add / Correct Internal Note Modal */}
       {modalOpen ? (
+        <Dialog open onClose={closeModal}>
         <div
           className={styles.noteModalOverlay}
           onClick={(event) => {
@@ -1125,6 +1151,7 @@ function InternalNotes({
             </form>
           </div>
         </div>
+        </Dialog>
       ) : null}
     </section>
   )

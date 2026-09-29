@@ -105,14 +105,16 @@ test.describe('what one cycle asks for', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await openReview(page, id)
 
-    await page.getByRole('button', { name: 'Next: Outcome' }).click()
-    await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
-
     /*
      * The button is disabled rather than the form refusing on submit. The API
      * refuses too — that is the guard — but a screen that lets somebody fill in
      * a whole review and press a button only to be told a field above is empty
      * has wasted their time to tell them something it already knew.
+     *
+     * The numbers are typed where they live, which is the pane `openReview`
+     * leaves open. This used to move on to the outcome first and then reach
+     * back for fields that are no longer on screen — the button itself sits
+     * outside the panes precisely so it can be watched from either.
      */
     const complete = page.getByRole('button', { name: 'Complete the review' })
     await expect(complete).toBeDisabled()
@@ -127,6 +129,11 @@ test.describe('what one cycle asks for', () => {
     // banks are two accounts, so one field alone identifies nothing.
     await expect(complete).toBeDisabled()
     await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
+
+    // Every demanded number is in; the outcome is the last thing outstanding.
+    await expect(complete).toBeDisabled()
+    await page.getByRole('button', { name: 'Next: Outcome' }).click()
+    await page.getByRole('radio', { name: /Refer to a partner bank/u }).check()
     await expect(complete).toBeEnabled()
   })
 

@@ -47,8 +47,6 @@ const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/u
 const MAX_SHORT_TEXT = 200
 const MAX_ADDRESS_TEXT = 500
 const MAX_EMAIL_LENGTH = 254
-const MIN_PRIOR_SUPPORT_YEAR = 1900
-const MAX_PRIOR_SUPPORT_YEAR = 2026
 
 /**
  * Accepts `undefined` as well as `null` because GraphQL omits absent nullable

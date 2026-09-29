@@ -119,8 +119,15 @@ test('an application is carried from submission to payment', async ({ page }) =>
   await page.getByLabel('Sanction order number').fill('TTAADC/SEP/SO/2026/019')
   await page.getByLabel('Issued on').fill(new Date().toISOString().slice(0, 10))
   await page.getByRole('button', { name: 'Issue the sanction order' }).click()
+  /*
+   * The number, where the screen actually puts it: the page's lede names the
+   * order and the award card repeats it. It is not a heading — the headings
+   * are "Funding" and "The award" — so asserting one passed only while the
+   * screen was laid out differently, and failed as a missing sanction order
+   * long after the sanction order was being issued correctly.
+   */
   await expect(
-    page.getByRole('heading', { name: 'TTAADC/SEP/SO/2026/019' }),
+    page.getByText('Sanction order TTAADC/SEP/SO/2026/019', { exact: false }),
   ).toBeVisible()
 
   const now = new Date().toISOString().slice(0, 16)

@@ -1,17 +1,18 @@
 /**
  * Reading the audit history.
  *
- * One capability guards everything here — `AUDIT_READ`, which only
- * `SUPER_ADMIN` holds. That is a deliberately narrow gate, because the history
- * carries more about people than any other read in the portal: who did what,
- * from which address, with which browser, across every applicant and every
- * member of staff.
+ * One permission guards everything here — `audit`/`read`. It is a catalogue
+ * pair like any other, so the office may compose a role that holds only this
+ * and nothing else, but it is worth composing deliberately: the history carries
+ * more about people than any other read in the portal — who did what, from
+ * which address, with which browser, across every applicant and every member of
+ * staff.
  *
  * The filters are validated here so a caller learns which one was wrong; the
  * query decides what is actually returned.
  */
 import { z } from 'zod'
-import { authenticatedWithCapability } from '../../auth'
+import { authenticatedWithPermission } from '../../auth'
 import { decodeCursor, pageSize } from '../../application/pagination'
 import { listAuditActions, listAuditEvents, MAX_ACTION_FILTER, MAX_ACTOR_FILTER } from '../queries/audit'
 import {
@@ -26,7 +27,6 @@ import type {
   AuditOrder,
   AuditResult,
 } from '../types'
-import type { UserRole } from '../../../db/schema'
 
 const isIdentifier = (value: string): boolean => z.uuid().safeParse(value).success
 
@@ -34,7 +34,7 @@ export type AuditQueryInput = {
   first?: number | null
   after?: string | null
   actorUserIds?: string[] | null
-  actorRole?: UserRole | null
+  actorRole?: string | null
   applicationId?: string | null
   entityType?: string | null
   action?: string[] | null
@@ -92,7 +92,7 @@ export const auditEvents = async (
 ): Promise<AuditResult<AuditConnection>> => {
   // Authority first. Nothing below may describe anybody's activity to a caller
   // who has not proved they may read it.
-  const reader = await authenticatedWithCapability(context, 'AUDIT_READ')
+  const reader = await authenticatedWithPermission(context, 'audit', 'read')
   if (!reader) return failure(AUDIT_REQUIRED_MESSAGE)
 
   const first = pageSize(input.first)
@@ -113,7 +113,7 @@ export const auditEvents = async (
 export const auditActionNames = async (
   context: AuditOperationContext,
 ): Promise<AuditResult<string[]>> => {
-  const reader = await authenticatedWithCapability(context, 'AUDIT_READ')
+  const reader = await authenticatedWithPermission(context, 'audit', 'read')
   if (!reader) return failure(AUDIT_REQUIRED_MESSAGE)
   return success(await listAuditActions(context.db))
 }

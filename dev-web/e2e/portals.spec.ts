@@ -111,11 +111,11 @@ test.describe('the programme office', () => {
     await signUpApplicant(page, colleague)
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto(`/admin/access?email=${encodeURIComponent(colleague)}`)
-    await page.getByLabel('Role').selectOption('ADMIN')
+    await page.getByLabel('Role').selectOption('PROGRAMME_OFFICER')
     await page.getByLabel('Why they should have it').fill('Joining the desk review team.')
     await page.getByLabel('Your password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Grant it' }).click()
-    await expect(page.getByText('Admin granted.')).toBeVisible()
+    await expect(page.getByText('Programme officer granted.')).toBeVisible()
 
     await page.context().clearCookies()
     await signIn(page, colleague)
@@ -125,12 +125,16 @@ test.describe('the programme office', () => {
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
 
     // Role management does not, and is not advertised.
-    await expect(sidebar(page).getByRole('link', { name: 'Access' })).toHaveCount(0)
+    await expect(sidebar(page).getByRole('link', { name: 'Users & access' })).toHaveCount(0)
     await page.goto('/admin/access')
+    /*
+     * The *screen* refusal, not the portal one. This account is the programme
+     * office and is standing in it; being told this part of the portal is for
+     * the programme office would be both untrue and unactionable. What it needs
+     * to know is which authority it lacks.
+     */
     await expect(
-      page.getByRole('heading', {
-        name: 'This part of Mission SEP is for the programme office',
-      }),
+      page.getByText('This screen is open to super administrators.'),
     ).toBeVisible()
   })
 })
@@ -143,11 +147,11 @@ test.describe('an account holding both', () => {
     await signUpApplicant(page, both)
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto(`/admin/access?email=${encodeURIComponent(both)}`)
-    await page.getByLabel('Role').selectOption('ADMIN')
+    await page.getByLabel('Role').selectOption('PROGRAMME_OFFICER')
     await page.getByLabel('Why they should have it').fill('Runs the demonstration.')
     await page.getByLabel('Your password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Grant it' }).click()
-    await expect(page.getByText('Admin granted.')).toBeVisible()
+    await expect(page.getByText('Programme officer granted.')).toBeVisible()
 
     await page.context().clearCookies()
     await signIn(page, both)
@@ -183,11 +187,11 @@ test.describe('the two densities', () => {
     await signUpApplicant(page, both)
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto(`/admin/access?email=${encodeURIComponent(both)}`)
-    await page.getByLabel('Role').selectOption('ADMIN')
+    await page.getByLabel('Role').selectOption('PROGRAMME_OFFICER')
     await page.getByLabel('Why they should have it').fill('Comparing the two portals.')
     await page.getByLabel('Your password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Grant it' }).click()
-    await expect(page.getByText('Admin granted.')).toBeVisible()
+    await expect(page.getByText('Programme officer granted.')).toBeVisible()
 
     await page.context().clearCookies()
     await signIn(page, both)

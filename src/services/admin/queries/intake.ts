@@ -804,7 +804,7 @@ export const startDeskReviewWrite = async (
     statusChangedAt: input.now,
     /*
      * Starting the review is what records who is working the file. It is not a
-     * lock — anybody with the capability may still act — but it is the first
+     * lock — anybody holding the permission may still act — but it is the first
      * moment there is anything true to say, and the workspace shows it so a
      * second officer can decide whether to duplicate the effort.
      *

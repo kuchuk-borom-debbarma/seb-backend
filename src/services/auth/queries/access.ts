@@ -16,10 +16,11 @@ import {
 import { alias } from 'drizzle-orm/pg-core'
 import { batch, type Database, type Transaction } from '../../../db'
 import { constraintSafe } from '../../constraints'
-import { coreUser, coreUserRoleGrant, type UserRole } from '../../../db/schema'
+import { coreRole, coreUser, coreUserRoleGrant } from '../../../db/schema'
 import type { ManagedUser } from '../types'
 import {
-  hasActiveRole,
+  hasActiveBuiltinRole,
+  hasActiveComposedRole,
   insertAuditEventWhere,
   orderedRoles,
   type AuditEventRecord,
@@ -27,17 +28,16 @@ import {
 } from './auth'
 
 /**
- * Roles a super administrator may grant or revoke.
+ * Whether a grant is one role administration may close.
  *
- * `APPLICANT` is intentionally absent. It is created only by verified signup
- * and no operation can grant it back, so exposing it here would let one
- * revocation strip an applicant permanently with no recovery path.
+ * `APPLICANT` is intentionally the only exclusion. It is created solely by
+ * verified signup and no operation can grant it back, so revoking one here
+ * would strip an applicant permanently with no recovery path. Everything
+ * else — `SUPER_ADMIN` and every composed role — is revocable, subject to the
+ * last-super-administrator guard the write itself applies.
  */
-const manageableRoles = ['REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER', 'SUPER_ADMIN'] as const
-export type ManageableRole = (typeof manageableRoles)[number]
-
-export const isManageableRole = (role: UserRole): role is ManageableRole =>
-  manageableRoles.some((manageable) => manageable === role)
+export const isRevocableGrant = (grant: { role: string | null }): boolean =>
+  grant.role !== 'APPLICANT'
 
 /**
  * Loads one identity with every grant it has ever held.
@@ -50,11 +50,32 @@ const withRoleHistory = async (
   db: Database,
   user: typeof coreUser.$inferSelect,
 ): Promise<ManagedUser> => {
+  /*
+   * The role's key is joined in rather than read live, and a *retired* role is
+   * still named here — unlike every authority read — because this is history.
+   * A closed grant that could not be rendered once its role was retired would
+   * leave an audit trail nobody can follow back to what somebody held.
+   */
   const grants = await db
-    .select()
+    .select({
+      id: coreUserRoleGrant.id,
+      role: coreUserRoleGrant.role,
+      key: coreRole.key,
+      roleId: coreUserRoleGrant.roleId,
+      grantReason: coreUserRoleGrant.grantReason,
+      grantedAt: coreUserRoleGrant.grantedAt,
+      grantedByUserId: coreUserRoleGrant.grantedByUserId,
+      revokedByUserId: coreUserRoleGrant.revokedByUserId,
+      revokedAt: coreUserRoleGrant.revokedAt,
+      revocationReason: coreUserRoleGrant.revocationReason,
+      roleRetiredAt: coreRole.deletedAt,
+    })
     .from(coreUserRoleGrant)
+    .leftJoin(coreRole, eq(coreRole.id, coreUserRoleGrant.roleId))
     .where(eq(coreUserRoleGrant.userId, user.id))
     .orderBy(coreUserRoleGrant.grantedAt, coreUserRoleGrant.id)
+  const nameOf = (grant: { role: string | null; key: string | null }): string | null =>
+    grant.role ?? grant.key
   return {
     id: user.id,
     email: user.email,
@@ -62,13 +83,19 @@ const withRoleHistory = async (
     deleted: user.deletedAt !== null,
     createdAt: user.createdAt,
     roles: orderedRoles(
-      grants.filter((grant) => grant.revokedAt === null).map((grant) => grant.role),
+      grants.flatMap((grant) => {
+        // Active authority only, so a retired role is excluded here even though
+        // the history below still names it.
+        if (grant.revokedAt !== null || grant.roleRetiredAt !== null) return []
+        const name = nameOf(grant)
+        return name === null ? [] : [name]
+      }),
     ),
     // Mapped field by field rather than passed through, so a column added to
     // the grant table cannot silently widen the administrative response.
     grants: grants.map((grant) => ({
       id: grant.id,
-      role: grant.role,
+      role: nameOf(grant) ?? 'UNKNOWN_ROLE',
       grantReason: grant.grantReason,
       grantedAt: grant.grantedAt,
       grantedByUserId: grant.grantedByUserId,
@@ -205,6 +232,19 @@ export type GrantRoleWriteInput = {
 }
 
 /**
+ * Whether the subject already holds the authority being granted.
+ *
+ * A grant names either an authority decided in code or a composed role, never
+ * both — the table's own CHECK says so — and the two are asked about
+ * differently. Branching here rather than at each call site keeps the two
+ * writes that need it stating the same rule.
+ */
+const alreadyHolds = (db: Database, grant: UserRoleGrantRecord): SQL =>
+  grant.roleId === null
+    ? hasActiveBuiltinRole(db, grant.userId, grant.role as 'APPLICANT' | 'SUPER_ADMIN')
+    : hasActiveComposedRole(db, grant.userId, grant.roleId)
+
+/**
  * Grants one administrative role, or writes nothing at all.
  *
  * The insert carries three predicates the controller already checked. Repeating
@@ -213,7 +253,7 @@ export type GrantRoleWriteInput = {
  * granted by a concurrent operator, or the actor's own SUPER_ADMIN grant can be
  * revoked.
  *
- * **The `NOT hasActiveRole` term is not sufficient on its own, and its old
+ * **The `NOT alreadyHolds` term is not sufficient on its own, and its old
  * justification is gone with the engine it named.** It said the partial unique
  * index never had to raise because D1 serialized writers; Postgres does not.
  * Two operators granting the same role concurrently each evaluate that term
@@ -243,10 +283,11 @@ export const grantRoleWrite = async (
         ${grant.grantedAt},
         NULL,
         NULL,
-        NULL
+        NULL,
+        ${grant.roleId}
       WHERE ${subjectIsGrantable(db, grant.userId)}
-        AND ${hasActiveRole(db, input.actorUserId, 'SUPER_ADMIN')}
-        AND NOT ${hasActiveRole(db, grant.userId, grant.role)}
+        AND ${hasActiveBuiltinRole(db, input.actorUserId, 'SUPER_ADMIN')}
+        AND NOT ${alreadyHolds(db, grant)}
     `)
     .returning({ id: coreUserRoleGrant.id })
 
@@ -357,24 +398,28 @@ export const revokeRoleWrite = async (
         eq(coreUserRoleGrant.id, input.grantId),
         isNull(coreUserRoleGrant.revokedAt),
         /*
-         * Revoking APPLICANT is not an administrative operation; see
-         * `manageableRoles`. The enum stops it at the GraphQL boundary for
-         * grants, but a revocation names a grant ID, so the role of the row it
-         * resolves to has to be checked here.
+         * Revoking APPLICANT is not an administrative operation at all: it is
+         * created only by verified signup and nothing can grant it back, so
+         * closing one here would strip somebody permanently. A grant names a
+         * role by key, so that request is refused before it reaches SQL — but a
+         * revocation names a grant ID, so the authority of the row it resolves
+         * to has to be checked here as well.
          *
-         * Built from `manageableRoles` rather than listed again. Written out,
-         * this said ADMIN and SUPER_ADMIN and stayed that way when the office
-         * grew two more roles — so revoking a reviewer matched no rows and
-         * reported that the record had changed, on every attempt, for ever.
-         * Invitations are how reviewers and approvers are created, which made
-         * staff access one-way.
+         * Stated as one exclusion rather than an allow-list of role names. The
+         * allow-list version said ADMIN and SUPER_ADMIN and stayed that way
+         * when the office grew two more roles, so revoking a reviewer matched
+         * no rows and reported that the record had changed, on every attempt,
+         * for ever. A list of names cannot be maintained at all now that a role
+         * is a row, and `APPLICANT` is the only thing that must never be closed
+         * here — nothing can grant it back.
          */
-        inArray(coreUserRoleGrant.role, [...manageableRoles]),
+        or(isNull(coreUserRoleGrant.role), ne(coreUserRoleGrant.role, 'APPLICANT')),
         or(
+          isNull(coreUserRoleGrant.role),
           ne(coreUserRoleGrant.role, 'SUPER_ADMIN'),
           anotherUsableSuperAdminExists(db, input.grantId),
         ),
-        hasActiveRole(db, input.actorUserId, 'SUPER_ADMIN'),
+        hasActiveBuiltinRole(db, input.actorUserId, 'SUPER_ADMIN'),
       ),
     )
 
@@ -450,10 +495,11 @@ export const acceptRoleInviteWrite = async (
         ${grant.grantedAt},
         NULL,
         NULL,
-        NULL
+        NULL,
+        ${grant.roleId}
       WHERE ${subjectIsGrantable(db, grant.userId)}
-        AND ${hasActiveRole(db, grant.userId, 'APPLICANT')}
-        AND NOT ${hasActiveRole(db, grant.userId, grant.role)}
+        AND ${hasActiveBuiltinRole(db, grant.userId, 'APPLICANT')}
+        AND NOT ${alreadyHolds(db, grant)}
     `)
     .returning({ id: coreUserRoleGrant.id })
 

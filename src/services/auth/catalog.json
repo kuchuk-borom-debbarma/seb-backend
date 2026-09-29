@@ -1,0 +1,177 @@
+{
+  "$comment": [
+    "The authorization vocabulary: what a custom role can be given.",
+    "",
+    "This file is the source of truth. `catalog.generated.ts` is derived from it",
+    "and is what the Worker imports, because a JSON import gives widened types",
+    "and every guard in this repository has to fail at build time. Regenerate",
+    "with `npm run catalog:generate`; `npm run check:catalog` fails on drift.",
+    "",
+    "Two authorities are deliberately absent, and neither can be expressed here.",
+    "A super administrator holds the wildcard, decided in `permissions.ts` — so",
+    "anything added below is theirs the moment it is added, with no migration and",
+    "no backfill. An applicant's access is not a permission at all: it is created",
+    "only by verified signup and gates the applicant portal.",
+    "",
+    "Creating, editing and deleting a role, and granting or revoking one, are",
+    "absent for a third reason: they are the super administrator's alone, guarded",
+    "in code. A pair that cannot be written cannot be granted by mistake."
+  ],
+
+  "resources": [
+    {
+      "key": "application",
+      "description": "An applicant's submitted file and the casework on it. Reading one includes what sits on its desk — its decisions, its funding and its bank referrals — because the workspace returns them together."
+    },
+    {
+      "key": "decision",
+      "description": "The programme's own verdict on an application, as distinct from what a partner bank reported back."
+    },
+    {
+      "key": "funding",
+      "description": "Money committed against an approved application, paid out, reversed, or judged after the fact."
+    },
+    {
+      "key": "recovery",
+      "description": "A demand for released money to come back, and the ledger of what was demanded, received or written off."
+    },
+    {
+      "key": "programme_cycle",
+      "description": "One round of the programme: the rules every applicant in it is judged against, and the window it is open for."
+    },
+    {
+      "key": "form_template",
+      "description": "The questions a cycle asks. Editing them is one authority rather than one per question, because they are authored as a whole."
+    },
+    {
+      "key": "policy_document",
+      "description": "The order or circular a cycle implements, stored as a PDF beside it."
+    },
+    {
+      "key": "announcement",
+      "description": "The banner on the public landing page, including cards not yet published."
+    },
+    {
+      "key": "audit",
+      "description": "The retained history of who did what. It carries more about people than any other read."
+    },
+    {
+      "key": "user",
+      "description": "An account, as somebody administering access sees it: its address, its state, and the roles it has held."
+    },
+    {
+      "key": "role",
+      "description": "A named set of permissions and who holds it. Only reading and inviting appear here — composing a role is the super administrator's alone."
+    },
+    {
+      "key": "analytics",
+      "description": "Counts and totals across the whole programme, naming no individual applicant."
+    }
+  ],
+
+  "actions": [
+    {
+      "key": "read",
+      "description": "Open and list it, changing nothing."
+    },
+    {
+      "key": "note",
+      "description": "Write a staff-only note against a file. The narrowest write there is — somebody may comment without being able to work the review."
+    },
+    {
+      "key": "review",
+      "description": "Work the desk review: start it, complete its checklist, and withdraw a revision it asked for."
+    },
+    {
+      "key": "refer",
+      "description": "Send a file to a partner bank and handle what comes back. What the bank reported is an input to the programme's verdict, not the verdict."
+    },
+    {
+      "key": "record",
+      "description": "State something for the first time, into a history that supersedes rather than overwrites."
+    },
+    {
+      "key": "correct",
+      "description": "Supersede something already stated, keeping both readable and the reason beside them."
+    },
+    {
+      "key": "award",
+      "description": "Commit money against an approved file, or change what was committed. Nothing has left the account yet."
+    },
+    {
+      "key": "release",
+      "description": "Pay out against a commitment already made. This is money leaving."
+    },
+    {
+      "key": "reverse",
+      "description": "Compensate a payment that should not have gone out."
+    },
+    {
+      "key": "assess",
+      "description": "Judge how well money already paid was used."
+    },
+    {
+      "key": "open",
+      "description": "Bring it into its live state — a cycle accepting applications, a demand being pursued."
+    },
+    {
+      "key": "cancel",
+      "description": "End it on the grounds that it should never have been started."
+    },
+    {
+      "key": "close",
+      "description": "End it on the grounds that it has run its course."
+    },
+    {
+      "key": "create",
+      "description": "Bring a new one into existence."
+    },
+    {
+      "key": "update",
+      "description": "Change one that already exists."
+    },
+    {
+      "key": "archive",
+      "description": "Retire a finished round from the working set, keeping it readable."
+    },
+    {
+      "key": "delete",
+      "description": "Withdraw a draft that was never used. The row survives; it stops being offered."
+    },
+    {
+      "key": "upload",
+      "description": "Attach a file, and settle the upload once the bytes have arrived."
+    },
+    {
+      "key": "publish",
+      "description": "Put it in front of the public, or take it back out of sight."
+    },
+    {
+      "key": "remove",
+      "description": "Take a published item down for good."
+    },
+    {
+      "key": "reorder",
+      "description": "Change the order things are shown in."
+    },
+    {
+      "key": "invite",
+      "description": "Offer somebody a role they accept themselves. Bounded by what the issuer already holds."
+    }
+  ],
+
+  "grants": {
+    "application": ["read", "note", "review", "refer"],
+    "decision": ["record", "correct"],
+    "funding": ["read", "award", "release", "reverse", "assess"],
+    "recovery": ["read", "open", "record", "cancel", "close"],
+    "programme_cycle": ["read", "create", "update", "open", "close", "archive", "delete"],
+    "form_template": ["update"],
+    "policy_document": ["read", "upload"],
+    "announcement": ["read", "create", "update", "publish", "remove", "reorder"],
+    "audit": ["read"],
+    "user": ["read"],
+    "role": ["read", "invite"],
+    "analytics": ["read"]
+  }
+}

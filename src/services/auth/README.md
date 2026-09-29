@@ -51,7 +51,7 @@ normalized email.
 email, verifies the scrypt password hash, and creates a random session token.
 The role is deliberately not narrowed: an administrator who holds no
 `APPLICANT` grant must be able to sign in, while a person whose every grant has
-been revoked must not. Applicant capability is enforced separately, at the
+been revoked must not. Applicant access is enforced separately, at the
 applicant guard. Only the token digest is stored in the database. The raw token is
 returned to the browser in an HttpOnly cookie and is never exposed in a GraphQL
 response.
@@ -112,12 +112,22 @@ psql "$DATABASE_URL" -c 'DELETE FROM core_session'
 
 ## Module layout
 
+- `catalog.json`: every resource, act and permission a role can be given. The
+  authored source of truth.
+- `catalog.generated.ts`: derived from it, and what the code imports — a JSON
+  import gives widened types, and every guard here fails at build time instead.
+  `npm run check:catalog` fails if the two disagree.
+- `permissions.ts`: the wildcard, what a person's grants add up to, and the
+  ceiling on what they may offer somebody else. The one place that decides any
+  of the three.
 - `controllers/auth.ts`: validation, authentication policy, response envelopes,
   cookies, and orchestration. Each use case is a directly exported function.
-- `controllers/access.ts`: administrative role-management policy.
+- `controllers/access.ts`: granting, revoking and inviting.
+- `controllers/roles.ts`: composing a role, and retiring one.
 - `queries/auth.ts`: Drizzle statements, guarded writes, ownership checks, and
   transaction boundaries.
-- `queries/access.ts`: role-management SQL and its guarded writes.
+- `queries/access.ts`: grant SQL and its guarded writes.
+- `queries/roles.ts`: role SQL, and why retirement carries no precondition.
 - `support.ts`: the response envelope, audit-record builder, and shared text
   normalization, mirroring the other two services' `support.ts`.
 - `crypto.ts`: challenge/OTP/session generation, HMAC digests, and scrypt
@@ -151,10 +161,10 @@ last-super-administrator guard, the bootstrap role swap, and session
 deactivation from drifting apart.
 
 A super administrator may look up one identity by exact email or ID — never a
-list, which would enumerate accounts — and grant or revoke `ADMIN` and
-`SUPER_ADMIN`. `APPLICANT` is deliberately outside this API: verified signup is
-its only source and nothing can grant it back, so allowing its revocation would
-strip an applicant permanently.
+list, which would enumerate accounts — and grant or revoke `SUPER_ADMIN` or any
+role the office composed, named by its key. `APPLICANT` is deliberately
+outside this API: verified signup is its only source and nothing can grant it
+back, so allowing its revocation would strip an applicant permanently.
 
 Every mutation requires a fresh password confirmation from the caller, checked
 after the cheap authorization and validation so an unauthorized request never
@@ -269,15 +279,20 @@ role hierarchy, retained grant lifecycle, and the role-administration rules.
 | Symbol | File | Does |
 | --- | --- | --- |
 | `authenticatedApplicant` | `controllers/auth.ts` | Requires an active `APPLICANT` grant |
-| `authenticatedAdministrator` | `controllers/auth.ts` | `ADMIN` or `SUPER_ADMIN` |
-| `authenticatedSuperAdministrator` | `controllers/auth.ts` | `SUPER_ADMIN` only; used solely by `controllers/access.ts` and not re-exported |
+| `authenticatedWithPermission` | `controllers/auth.ts` | Requires the resource/act pair the operation names; the two arguments check against each other |
+| `authenticatedSuperAdministrator` | `controllers/auth.ts` | The wildcard holder only; composing a role, and granting or revoking one |
+| `holdsPermission`, `permissionsOf`, `catalogue` | `permissions.ts` | The wildcard, and what grants add up to |
+| `withinAuthority` | `permissions.ts` | The invitation ceiling, shared by `inviteRole` and `invitableRoles` so the list offered and the rule enforced are one rule |
 | `startApplicantSignup`, `verifyApplicantSignup` | `controllers/auth.ts` | One challenge, then one verified applicant |
 | `signIn`, `signOut`, `currentSession`, `sessions` | `controllers/auth.ts` | Session lifecycle and the caller's own device list |
 | `revokeSession`, `revokeOtherSessions`, `revokeAllSessions` | `controllers/auth.ts` | Session revocation |
 | `bootstrapFirstSuperAdmin` | `controllers/auth.ts` | The one-time promotion, closed forever afterwards |
 | `cleanupExpiredAuthentication` | `controllers/auth.ts` | Hourly cron; never reachable from a request |
 | `managedUserByEmail`, `managedUserById` | `controllers/access.ts` | Exact-match lookup only |
-| `grantRole`, `revokeRole` | `controllers/access.ts` | Role administration with password step-up |
+| `grantRole`, `revokeRole` | `controllers/access.ts` | Handing a role out, with password step-up |
+| `inviteRole`, `acceptRoleInvite` | `controllers/access.ts` | The sealed invitation, and the subset ceiling on it |
+| `roles`, `roleByKey`, `permissionCatalogue`, `invitableRoles` | `controllers/roles.ts` | What the office composed, and what may be composed |
+| `createRole`, `updateRole`, `deleteRole` | `controllers/roles.ts` | Composing a role, rewriting what it may do, retiring it |
 | `hashPassword`, `verifyPassword`, `sessionTokenDigest`, `createOtp` | `crypto.ts` | The primitives; scrypt parameters are encoded into the hash |
 | `readSessionToken`, `setSessionCookie`, `clearSessionCookie` | `cookies.ts` | The cookie, which carries no `Max-Age` |
 | `usableSuperAdminExistsExcluding` | `queries/access.ts` | The last-super-administrator guard, in SQL |

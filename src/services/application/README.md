@@ -8,8 +8,7 @@ application before any funding fact leaves the server.
 
 The plain-language applicant journey is the
 [application guide](../../../docs/application-guide.md). This document is how
-the code implements it. The breaking form-contract and baseline changes are in
-[Application form backend changes](../../../docs/application-form-backend-changes.md).
+the code implements it.
 
 ## What it assumes
 
@@ -77,13 +76,6 @@ the applicant their work was discarded. **A hidden question's answer is cleared*
 rather than merely ignored, on both sides and run to a fixed point: hiding a
 question can hide the one that depended on it, and a single pass leaves the
 third answer behind.
-
-Normalization accepts common separators in a contact number but the resulting
-value must contain exactly ten digits and cannot carry a country prefix.
-District is limited to Dhalai, Gomati, Khowai, North Tripura, Sepahijala, South
-Tripura, Unakoti, or West Tripura. A government-support sanction year is an
-integer from 1900 through 2026 inclusive. Declaration data is not part of the
-draft, snapshot, validation, submission, or revision vocabulary.
 
 ### Submitting
 

@@ -14,6 +14,57 @@ CREATE TABLE "core_audit_event" (
 	CONSTRAINT "core_audit_event_outcome_check" CHECK ("core_audit_event"."outcome" IN ('SUCCESS', 'FAILURE'))
 );
 
+CREATE TABLE "core_role" (
+	"id" text PRIMARY KEY NOT NULL,
+	"key" text NOT NULL,
+	"name" text NOT NULL,
+	"description" text NOT NULL,
+	"current_version" integer NOT NULL,
+	"created_at" timestamp with time zone NOT NULL,
+	"updated_at" timestamp with time zone NOT NULL,
+	"deleted_at" timestamp with time zone,
+	"deleted_by_user_id" text,
+	"delete_reason" text,
+	"created_by_user_id" text NOT NULL,
+	CONSTRAINT "core_role_key_uq" UNIQUE("key"),
+	CONSTRAINT "core_role_key_check" CHECK ("core_role"."key" ~ '^[A-Z][A-Z0-9_]{1,62}$'),
+	CONSTRAINT "core_role_key_reserved_check" CHECK ("core_role"."key" NOT IN ('APPLICANT', 'SUPER_ADMIN', 'REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER')),
+	CONSTRAINT "core_role_current_version_check" CHECK ("core_role"."current_version" >= 1)
+);
+
+CREATE TABLE "core_role_permission" (
+	"id" text PRIMARY KEY NOT NULL,
+	"role_id" text NOT NULL,
+	"resource" text NOT NULL,
+	"action" text NOT NULL,
+	"created_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "core_role_permission_resource_check" CHECK ("core_role_permission"."resource" ~ '^[a-z][a-z0-9_]{0,62}$'),
+	CONSTRAINT "core_role_permission_action_check" CHECK ("core_role_permission"."action" ~ '^[a-z][a-z0-9_]{0,62}$')
+);
+
+CREATE TABLE "core_user_role_grant" (
+	"id" text PRIMARY KEY NOT NULL,
+	"user_id" text NOT NULL,
+	"role" text,
+	"granted_by_user_id" text,
+	"grant_reason" text NOT NULL,
+	"granted_at" timestamp with time zone NOT NULL,
+	"revoked_by_user_id" text,
+	"revoked_at" timestamp with time zone,
+	"revocation_reason" text,
+	"role_id" text,
+	CONSTRAINT "core_user_role_grant_target_check" CHECK (("core_user_role_grant"."role" IS NOT NULL AND "core_user_role_grant"."role_id" IS NULL)
+        OR ("core_user_role_grant"."role" IS NULL AND "core_user_role_grant"."role_id" IS NOT NULL)),
+	CONSTRAINT "core_user_role_grant_role_check" CHECK ("core_user_role_grant"."role" IS NULL
+        OR "core_user_role_grant"."role" IN ('APPLICANT', 'SUPER_ADMIN')
+        OR ("core_user_role_grant"."role" IN ('REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER')
+            AND "core_user_role_grant"."revoked_at" IS NOT NULL)),
+	CONSTRAINT "core_user_role_grant_revocation_check" CHECK (("core_user_role_grant"."revoked_at" IS NULL AND "core_user_role_grant"."revoked_by_user_id" IS NULL AND "core_user_role_grant"."revocation_reason" IS NULL)
+        OR ("core_user_role_grant"."revoked_at" IS NOT NULL
+          AND "core_user_role_grant"."revocation_reason" IS NOT NULL
+          AND "core_user_role_grant"."revoked_at" >= "core_user_role_grant"."granted_at"))
+);
+
 CREATE TABLE "core_account_challenge" (
 	"id" text PRIMARY KEY NOT NULL,
 	"purpose" text NOT NULL,
@@ -79,23 +130,6 @@ CREATE TABLE "core_user" (
 	"display_name" text,
 	CONSTRAINT "core_user_email_unique" UNIQUE("email"),
 	CONSTRAINT "core_user_row_version_check" CHECK ("core_user"."row_version" >= 1)
-);
-
-CREATE TABLE "core_user_role_grant" (
-	"id" text PRIMARY KEY NOT NULL,
-	"user_id" text NOT NULL,
-	"role" text NOT NULL,
-	"granted_by_user_id" text,
-	"grant_reason" text NOT NULL,
-	"granted_at" timestamp with time zone NOT NULL,
-	"revoked_by_user_id" text,
-	"revoked_at" timestamp with time zone,
-	"revocation_reason" text,
-	CONSTRAINT "core_user_role_grant_role_check" CHECK ("core_user_role_grant"."role" IN ('APPLICANT', 'REVIEWER', 'APPROVER', 'ADMIN', 'ANNOUNCER', 'SUPER_ADMIN')),
-	CONSTRAINT "core_user_role_grant_revocation_check" CHECK (("core_user_role_grant"."revoked_at" IS NULL AND "core_user_role_grant"."revoked_by_user_id" IS NULL AND "core_user_role_grant"."revocation_reason" IS NULL)
-        OR ("core_user_role_grant"."revoked_at" IS NOT NULL
-          AND "core_user_role_grant"."revocation_reason" IS NOT NULL
-          AND "core_user_role_grant"."revoked_at" >= "core_user_role_grant"."granted_at"))
 );
 
 CREATE TABLE "seb_application" (
@@ -1337,13 +1371,17 @@ CREATE TABLE "seb_revision_request" (
 );
 
 ALTER TABLE "core_audit_event" ADD CONSTRAINT "core_audit_event_actor_user_id_core_user_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
+ALTER TABLE "core_role" ADD CONSTRAINT "core_role_deleted_by_user_id_core_user_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
+ALTER TABLE "core_role" ADD CONSTRAINT "core_role_created_by_user_id_core_user_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
+ALTER TABLE "core_role_permission" ADD CONSTRAINT "core_role_permission_role_id_core_role_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."core_role"("id") ON DELETE restrict ON UPDATE no action;
+ALTER TABLE "core_user_role_grant" ADD CONSTRAINT "core_user_role_grant_user_id_core_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
+ALTER TABLE "core_user_role_grant" ADD CONSTRAINT "core_user_role_grant_granted_by_user_id_core_user_id_fk" FOREIGN KEY ("granted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
+ALTER TABLE "core_user_role_grant" ADD CONSTRAINT "core_user_role_grant_revoked_by_user_id_core_user_id_fk" FOREIGN KEY ("revoked_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
+ALTER TABLE "core_user_role_grant" ADD CONSTRAINT "core_user_role_grant_role_id_core_role_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."core_role"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "core_account_challenge" ADD CONSTRAINT "core_account_challenge_user_id_core_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "core_session" ADD CONSTRAINT "core_session_user_id_core_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "core_signup_challenge" ADD CONSTRAINT "core_signup_challenge_consumed_by_user_id_core_user_id_fk" FOREIGN KEY ("consumed_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "core_user" ADD CONSTRAINT "core_user_deleted_by_user_id_core_user_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "core_user_role_grant" ADD CONSTRAINT "core_user_role_grant_user_id_core_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "core_user_role_grant" ADD CONSTRAINT "core_user_role_grant_granted_by_user_id_core_user_id_fk" FOREIGN KEY ("granted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "core_user_role_grant" ADD CONSTRAINT "core_user_role_grant_revoked_by_user_id_core_user_id_fk" FOREIGN KEY ("revoked_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "seb_application" ADD CONSTRAINT "seb_application_programme_cycle_id_seb_programme_cycle_id_fk" FOREIGN KEY ("programme_cycle_id") REFERENCES "public"."seb_programme_cycle"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "seb_application" ADD CONSTRAINT "seb_application_deleted_by_user_id_core_user_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
 ALTER TABLE "seb_application" ADD CONSTRAINT "seb_application_assigned_to_user_id_core_user_id_fk" FOREIGN KEY ("assigned_to_user_id") REFERENCES "public"."core_user"("id") ON DELETE restrict ON UPDATE no action;
@@ -1480,15 +1518,20 @@ CREATE INDEX "core_audit_event_actor_idx" ON "core_audit_event" USING btree ("ac
 CREATE INDEX "core_audit_event_action_idx" ON "core_audit_event" USING btree ("action","created_at");
 CREATE INDEX "core_audit_event_request_idx" ON "core_audit_event" USING btree ("request_id");
 CREATE INDEX "core_audit_event_created_idx" ON "core_audit_event" USING btree ("created_at","id");
+CREATE INDEX "core_role_live_idx" ON "core_role" USING btree ("deleted_at","key");
+CREATE UNIQUE INDEX "core_role_permission_pair_uq" ON "core_role_permission" USING btree ("role_id","resource","action");
+CREATE INDEX "core_role_permission_role_idx" ON "core_role_permission" USING btree ("role_id");
+CREATE UNIQUE INDEX "core_user_role_grant_active_uq" ON "core_user_role_grant" USING btree ("user_id","role") WHERE "core_user_role_grant"."revoked_at" IS NULL AND "core_user_role_grant"."role" IS NOT NULL;
+CREATE UNIQUE INDEX "core_user_role_grant_active_role_uq" ON "core_user_role_grant" USING btree ("user_id","role_id") WHERE "core_user_role_grant"."revoked_at" IS NULL AND "core_user_role_grant"."role_id" IS NOT NULL;
+CREATE INDEX "core_user_role_grant_user_idx" ON "core_user_role_grant" USING btree ("user_id","revoked_at");
+CREATE INDEX "core_user_role_grant_role_idx" ON "core_user_role_grant" USING btree ("role","revoked_at","user_id");
+CREATE INDEX "core_user_role_grant_role_id_idx" ON "core_user_role_grant" USING btree ("role_id","revoked_at","user_id");
 CREATE INDEX "core_account_challenge_user_purpose_idx" ON "core_account_challenge" USING btree ("user_id","purpose","status","expires_at");
 CREATE INDEX "core_account_challenge_status_expiry_idx" ON "core_account_challenge" USING btree ("status","expires_at");
 CREATE INDEX "core_session_user_expiry_idx" ON "core_session" USING btree ("user_id","expires_at");
 CREATE INDEX "core_session_expiry_idx" ON "core_session" USING btree ("expires_at");
 CREATE INDEX "core_signup_challenge_email_status_expiry_idx" ON "core_signup_challenge" USING btree ("email","status","expires_at");
 CREATE INDEX "core_signup_challenge_status_expiry_idx" ON "core_signup_challenge" USING btree ("status","expires_at");
-CREATE UNIQUE INDEX "core_user_role_grant_active_uq" ON "core_user_role_grant" USING btree ("user_id","role") WHERE "core_user_role_grant"."revoked_at" IS NULL;
-CREATE INDEX "core_user_role_grant_user_idx" ON "core_user_role_grant" USING btree ("user_id","revoked_at","role");
-CREATE INDEX "core_user_role_grant_role_idx" ON "core_user_role_grant" USING btree ("role","revoked_at","user_id");
 CREATE UNIQUE INDEX "seb_application_case_cycle_phase_uq" ON "seb_application" USING btree ("funding_case_id","programme_cycle_id","phase_number");
 CREATE INDEX "seb_application_owner_idx" ON "seb_application" USING btree ("applicant_user_id","updated_at") WHERE "seb_application"."deleted_at" IS NULL;
 CREATE INDEX "seb_application_enterprise_idx" ON "seb_application" USING btree ("enterprise_id","updated_at") WHERE "seb_application"."deleted_at" IS NULL;

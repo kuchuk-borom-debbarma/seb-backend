@@ -13,20 +13,21 @@ from the database on every request, so revocation takes effect on the next actio
 Sign-in requires only one active role of any kind, so the bootstrapped first
 administrator holds `SUPER_ADMIN` alone and signs in normally.
 
-**Being able to read is what opens the office.** Four roles reach it, and what
-each may then do differs:
+**Being able to read a screen is what opens the office.** What each person may
+then do is whatever the roles they hold add up to, and the office composes those
+roles itself — so this guide describes the *work*, and
+[`docs/admin-rbac.md`](admin-rbac.md) describes how somebody comes to be allowed
+to do it.
 
-| Role | In the office |
-| --- | --- |
-| Reviewer | Reads every screen here and changes nothing |
-| Approver | Reads, and records or corrects the programme decision |
-| Administrator | The whole workflow this guide describes |
-| Super administrator | All of it, plus role administration and the history |
+A role holds **permissions**: a resource and an act on it, such as
+`application`/`read` or `decision`/`record`. A super administrator may do
+everything, and is the only authority that composes a role or hands one out.
 
-Each operation asks for the capability it needs rather than naming roles, so a
-narrower role is refused by the operation rather than at the door. Where a
-control is not available, the interface does not draw it — a button that cannot
-work is worse than an absent one.
+Each operation asks for the permission it needs rather than naming a role, so a
+narrower role is refused by the operation rather than at the door — and a role
+renamed or re-scoped changes what people can do without any operation changing.
+Where a control is not available, the interface does not draw it: a button that
+cannot work is worse than an absent one.
 
 New staff arrive one of two ways. A super administrator grants a role directly,
 or anybody who may invite sends an invitation the person accepts themselves, in
@@ -65,8 +66,9 @@ per run. Opened cycles cannot be deleted.
 The questions a cycle asks are part of the cycle, authored on the cycle
 editor's form screen and changed only while the cycle is a **draft** — once a
 cycle opens, its form is frozen with everything else, and a change of question
-means a new cycle version. Editing the form is `CYCLE_ADMIN` work, which only
-a super administrator holds.
+means a new cycle version. Editing the form needs `form_template`/`update`,
+which the office grants deliberately: the questions decide who is eligible and
+for how much.
 
 The form is a sequence of **stages**, each a titled step of the applicant's
 journey, and each stage holds **questions**: text of several shapes, dates,

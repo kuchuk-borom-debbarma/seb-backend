@@ -6,10 +6,10 @@
  * on the very next action. The client must never assume a role it saw earlier
  * is still held.
  */
-import { queryOptions, type QueryClient } from '@tanstack/react-query'
+import { queryOptions, type QueryClient, useQuery } from '@tanstack/react-query'
 import { CurrentSessionDocument } from '#/graphql/generated/operations'
 import type { CurrentSessionQuery } from '#/graphql/generated/operations'
-import type { Capability, UserRole } from '#/graphql/generated/schema'
+
 import { gql } from './graphql'
 
 export type SignedInUser = NonNullable<
@@ -56,43 +56,110 @@ export const forgetSession = (queryClient: QueryClient) =>
   queryClient.resetQueries({ queryKey: sessionQuery.queryKey })
 
 /**
- * These read nothing but the roles, so they ask for nothing but the roles.
+ * The signed-in identity, for a component that is not a route.
+ *
+ * A route reads `Route.useRouteContext()`; a feature component has no route to
+ * ask. Threading the user down as a prop was the alternative, and on the
+ * funding workspace that meant eight permission flags crossing three
+ * components — a shape nobody maintains, so the checks were simply absent.
+ *
+ * The same query key the shell's guard already resolved, so this is a cache
+ * read rather than a second request, and the two can never disagree about who
+ * is signed in.
+ */
+export const useCurrentUser = (): SignedInUser | undefined =>
+  useQuery(sessionQuery).data?.user
+
+/**
+ * These read nothing but the role names, so they ask for nothing but the names.
  *
  * The sign-in response carries a narrower user than the session query does;
  * demanding the full record here would have forced a cast at the one call site
  * that decides which portal to open.
+ *
+ * A name is a `string` rather than a closed union, because a role is a row the
+ * office composed. Only the two the server decides for itself can be matched by
+ * name at all, and the helpers below are the only places that do.
  */
-type RoleBearer = { roles: readonly UserRole[] }
+type RoleBearer = { roles: readonly string[] }
+
+/** One thing somebody may do, as the API publishes it. */
+export type Permission = { readonly resource: string; readonly action: string }
 
 /**
  * What the signed-in person is allowed to do.
  *
- * The API derives this from the roles held and publishes it, so the interface
- * asks "may they?" rather than matching role names. That matters because the
- * office now holds four roles: a screen that checked for ADMIN would hide
- * itself from an approver who is perfectly entitled to use it, and a screen
- * that listed every acceptable role would be a second copy of a policy that
- * lives in `auth/capabilities.ts`.
+ * The API resolves this from the roles held and publishes it, so the interface
+ * asks "may they?" rather than matching role names. That matters more than it
+ * used to: a role is data now, so a screen that named one would be asserting
+ * something no file decides, and would go on looking right after that role was
+ * retired or its permissions changed.
  *
  * **It decides what to draw, never what is permitted.** Every operation is
  * re-checked by the API, which is what actually refuses.
  */
-type CapabilityBearer = { capabilities: readonly Capability[] }
+type PermissionBearer = { permissions: readonly Permission[] }
 
 export const can = (
-  user: CapabilityBearer | undefined,
-  capability: Capability,
-): boolean => Boolean(user?.capabilities.includes(capability))
+  user: PermissionBearer | undefined,
+  resource: string,
+  action: string,
+): boolean =>
+  Boolean(user?.permissions.some(
+    (held) => held.resource === resource && held.action === action,
+  ))
 
-export const hasRole = (user: RoleBearer | undefined, ...roles: UserRole[]): boolean =>
+/** Whether they hold any act at all on a kind of record. */
+export const canAny = (
+  user: PermissionBearer | undefined,
+  resource: string,
+): boolean => Boolean(user?.permissions.some((held) => held.resource === resource))
+
+export const hasRole = (user: RoleBearer | undefined, ...roles: string[]): boolean =>
   Boolean(user && roles.some((role) => user.roles.includes(role)))
-
-/** `SUPER_ADMIN` carries every administrative capability; it needs no ADMIN grant. */
-export const isAdministrator = (user: RoleBearer | undefined): boolean =>
-  hasRole(user, 'ADMIN', 'SUPER_ADMIN')
 
 export const isSuperAdministrator = (user: RoleBearer | undefined): boolean =>
   hasRole(user, 'SUPER_ADMIN')
 
 export const isApplicant = (user: RoleBearer | undefined): boolean =>
   hasRole(user, 'APPLICANT')
+
+/**
+ * Whether somebody belongs in the office at all.
+ *
+ * **One definition, because the door and the navigation must agree.** They did
+ * not: the door was widened to admit any office permission while the sidebar
+ * still asked for two named ones, so a role composed to read only the activity
+ * history got an office shell with nothing in it — admitted to the building and
+ * shown no way to the one room it holds.
+ *
+ * *Any* permission at all, rather than a list of office resources. Applicant
+ * access is deliberately not a catalogue permission, so holding one already
+ * means office work — and a list here would be a second copy of
+ * `auth/catalog.json` with nothing checking the two agree, silently locking out
+ * the holders of whatever resource was added to the server and forgotten here.
+ *
+ * Deliberately wider than any screen behind it. A refusal on the screen you
+ * asked for is a sentence you can act on; a refusal at the door is being told
+ * you are in the wrong building while standing in the right one.
+ */
+export const belongsInTheOffice = (
+  user: (RoleBearer & PermissionBearer) | undefined,
+): boolean => isSuperAdministrator(user) || (user?.permissions.length ?? 0) > 0
+
+/**
+ * True only for somebody whose whole office authority is the banner.
+ *
+ * **Asks for `announcement`/`read`, not for the resource.** This forwards
+ * somebody off `/admin` and onto the board, and the board's own gate is `read`
+ * — so keying this on holding *any* announcement pair sent a role composed of
+ * `create` and `publish` to a screen that then refused it, whose way back
+ * points at `/admin`, which forwards it again. A door and the screen behind it
+ * have to ask the same question or the answer is a loop.
+ */
+export const holdsOnlyTheBanner = (
+  user: (RoleBearer & PermissionBearer) | undefined,
+): boolean =>
+  !isSuperAdministrator(user) &&
+  can(user, 'announcement', 'read') &&
+  (user?.permissions ?? []).every((held) => held.resource === 'announcement')

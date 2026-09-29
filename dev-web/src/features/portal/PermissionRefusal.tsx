@@ -3,7 +3,7 @@
  *
  * Deliberately not `RoleRefusal`. That one says "this part of Mission SEP is
  * for the programme office", which is the right thing to tell an applicant who
- * wandered in — and the wrong thing to tell a reviewer, who *is* the programme
+ * wandered in — and the wrong thing to tell somebody who *is* the programme
  * office and is standing in it. They are not in the wrong place; they are in a
  * room they do not have the key to.
  *
@@ -16,7 +16,7 @@ import { Link } from '@tanstack/react-router'
 import { PageHeader } from '#/components/PageHeader'
 import styles from './RoleRefusal.module.css'
 
-export function CapabilityRefusal({
+export function PermissionRefusal({
   title,
   needs,
 }: {
@@ -31,13 +31,13 @@ export function CapabilityRefusal({
 
       <section className={styles.panel}>
         <p className={styles.holding}>
-          Your role covers the casework screens rather than this one. If you need it, ask
-          a super administrator — changing what an account can do is theirs to do, and it
-          is recorded when they do it.
+          Your role covers other screens rather than this one — which is a fact about
+          the role, not about you. If you need it, ask a super administrator: changing
+          what an account may do is theirs to do, and it is recorded when they do it.
         </p>
 
         <Link to="/admin" className="button" data-variant="primary">
-          Back to intake
+          Back to the programme office
         </Link>
       </section>
     </main>

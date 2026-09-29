@@ -20,11 +20,11 @@ import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
 import { managedUserQuery } from '#/features/access/accessQueries'
-import { RoleRefusal } from '#/features/portal/RoleRefusal'
+import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
 import { GrantRoleDocument, RevokeRoleDocument } from '#/graphql/generated/operations'
-import type { ManageableRole } from '#/graphql/generated/schema'
 import { formatDateTime, humanize, readableReason } from '#/lib/format'
 import { isSuperAdministrator } from '#/lib/session'
+import { rolesQuery } from '#/features/roles/roleQueries'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 
@@ -59,11 +59,38 @@ function AccessPage() {
   const { data, isFetching } = useQuery(managedUserQuery(search.email))
   const user = data?.response
 
+  /*
+   * A role's name is written by whoever composed it, so it is read rather than
+   * derived. Derivation was all there was when the roles were four fixed
+   * values; now a key spelled `CASEWORK_READER` may be named "Intake desk", and
+   * showing the key back to the operator who typed the name is confusing in
+   * exactly the place authority is being handed out.
+   *
+   * The fallback still derives, and has to: `SUPER_ADMIN` has no row by design,
+   * and the history table shows roles that were retired years ago.
+   */
+  const composed = useQuery(rolesQuery)
+  const grantable = [SUPER_ADMINISTRATOR, ...(composed.data?.response ?? [])]
+  const nameOf = (key: string): string =>
+    grantable.find((candidate) => candidate.key === key)?.name ?? humanize(key)
+
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['managed-user', search.email] })
 
   if (!isSuperAdministrator(operator)) {
-    return <RoleRefusal portal="office" user={operator} />
+    /*
+     * The screen refusal, not the portal one. Somebody holding any office
+     * permission is standing in the programme office; telling them this part of
+     * the portal is *for* the programme office is both wrong and unactionable.
+     * Handing a role out is the super administrator's alone, so that is what
+     * this says.
+     */
+    return (
+      <PermissionRefusal
+        title="Users & access"
+        needs="super administrators"
+      />
+    )
   }
 
   return (
@@ -153,7 +180,7 @@ function AccessPage() {
                     <span>
                       {user.roles.length === 0
                         ? 'None'
-                        : user.roles.map((role) => humanize(role)).join(', ')}
+                        : user.roles.map((role) => nameOf(role)).join(', ')}
                     </span>
                   </div>
                   <div>
@@ -168,7 +195,13 @@ function AccessPage() {
               </div>
             </section>
 
-            <GrantRole userId={user.id} held={user.roles} onChanged={refresh} />
+            <GrantRole
+              userId={user.id}
+              held={user.roles}
+              grantable={grantable}
+              nameOf={nameOf}
+              onChanged={refresh}
+            />
 
             <section className="card">
               <div className="card-header">
@@ -195,7 +228,7 @@ function AccessPage() {
                         key={grant.id}
                         className={grant.revokedAt ? 'muted' : undefined}
                       >
-                        <td>{humanize(grant.role)}</td>
+                        <td>{nameOf(grant.role)}</td>
                         <td>
                           {formatDateTime(grant.grantedAt)}
                           {/* A null granter is a trusted system transition —
@@ -224,7 +257,7 @@ function AccessPage() {
                           {!grant.revokedAt && grant.role !== 'APPLICANT' ? (
                             <RevokeRole
                               grantId={grant.id}
-                              role={grant.role}
+                              role={nameOf(grant.role)}
                               onChanged={refresh}
                             />
                           ) : null}
@@ -242,18 +275,34 @@ function AccessPage() {
   )
 }
 
-const MANAGEABLE: ManageableRole[] = ['ADMIN', 'ANNOUNCER', 'SUPER_ADMIN']
+/**
+ * The one authority granted by name rather than by row.
+ *
+ * A super administrator holds the wildcard and has no `core_role` row to point
+ * at, so it is offered here explicitly. Everything else is a role the office
+ * composed, read live from the API — a list written here would go stale the
+ * first time somebody composed another.
+ */
+const SUPER_ADMINISTRATOR = {
+  key: 'SUPER_ADMIN',
+  name: 'Super administrator',
+  description: 'Everything, including composing roles and handing them out.',
+}
 
 function GrantRole({
   userId,
   held,
+  grantable,
+  nameOf,
   onChanged,
 }: {
   userId: string
   held: readonly string[]
+  grantable: readonly { key: string; name: string }[]
+  nameOf: (key: string) => string
   onChanged: () => Promise<unknown>
 }) {
-  const [role, setRole] = useState<ManageableRole | ''>('')
+  const [role, setRole] = useState('')
   const [reason, setReason] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -264,7 +313,7 @@ function GrantRole({
       const data = await gql(GrantRoleDocument, {
         input: {
           userId,
-          role: role as ManageableRole,
+          roleKey: role,
           reason: reason.trim(),
           currentPassword: password,
         },
@@ -276,7 +325,7 @@ function GrantRole({
       setDone(null)
     },
     onSuccess: async () => {
-      setDone(`${humanize(role as string)} granted.`)
+      setDone(`${nameOf(role)} granted.`)
       setRole('')
       setReason('')
       setPassword('')
@@ -286,7 +335,7 @@ function GrantRole({
   })
 
   // Offering a role somebody already holds would only produce a refusal.
-  const available = MANAGEABLE.filter((candidate) => !held.includes(candidate))
+  const available = grantable.filter((candidate) => !held.includes(candidate.key))
 
   return (
     <section className="card">
@@ -312,12 +361,12 @@ function GrantRole({
                   id="role"
                   className="select"
                   value={role}
-                  onChange={(event) => setRole(event.target.value as ManageableRole)}
+                  onChange={(event) => setRole(event.target.value)}
                 >
                   <option value="">Choose a role</option>
                   {available.map((candidate) => (
-                    <option key={candidate} value={candidate}>
-                      {humanize(candidate)}
+                    <option key={candidate.key} value={candidate.key}>
+                      {candidate.name}
                     </option>
                   ))}
                 </select>
@@ -385,7 +434,8 @@ function GrantRole({
  * Closing one grant.
  *
  * The grant is named exactly, so acting on a row that has already changed fails
- * loudly rather than closing a different grant.
+ * loudly rather than closing a different grant. `role` is the name an operator
+ * reads, not the key — it is only ever put in the question.
  */
 function RevokeRole({
   grantId,
@@ -439,7 +489,7 @@ function RevokeRole({
       }}
     >
       <label className="field-label" htmlFor={`revoke-reason-${grantId}`}>
-        Why revoke {humanize(role)}?
+        Why revoke {role}?
       </label>
       <input
         id={`revoke-reason-${grantId}`}

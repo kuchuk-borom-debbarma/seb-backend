@@ -164,6 +164,16 @@ read state the first had already changed.
 
 ## Deliberate omissions
 
+- **Nothing enumerates accounts.** The `access` namespace looks somebody up by
+  exact address or id and offers no listing or prefix search. Roles *are*
+  listed, because a picker needs them and a role name discloses nothing about
+  who holds it.
+- **A permission is a `String`, not an enum.** The vocabulary is generated from
+  `auth/catalog.json`, and an enum regenerated from it would put a second copy
+  of the catalogue in the schema. `access.permissionCatalogue` documents the
+  vocabulary at run time instead, with prose for each resource and act — which
+  is also what the role editor renders, so the description a caller reads is the
+  one an operator reads.
 - **Batching is off.** Yoga disables it by default and it stays off; it would
   reopen the amplification the cost rule closes.
 - **Yoga does not handle CORS** (`cors: false`). Hono owns the origin allowlist

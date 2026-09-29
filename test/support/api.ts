@@ -14,9 +14,9 @@
  * (they live in R2, which the service suite does not run).
  */
 import { env, SELF } from './worker'
-import { sessionTokenDigest } from '../../src/services/auth/crypto'
+import { hashPassword, sessionTokenDigest } from '../../src/services/auth/crypto'
+import { catalogue } from '../../src/services/auth/permissions'
 import { completeAnswers, defaultTemplate, requiredDocuments } from './form'
-import type { UserRole } from '../../src/db/schema'
 
 export type GraphQLBody<T> = { data?: T; errors?: Array<{ message: string }> }
 
@@ -49,22 +49,100 @@ const expectSuccess = <T>(body: GraphQLBody<T>, what: string): T => {
   return body.data
 }
 
-/** A signed-in user holding exactly the roles named. */
-export const signIn = async (roles: readonly UserRole[]) => {
+/*
+ * Catalogue-derived selectors, so a suite can say "a member of staff" without
+ * writing down a policy.
+ *
+ * Derived rather than listed: a pair added to the catalogue joins these
+ * automatically, and none of them can drift from what the server enforces. A
+ * hand-written `REVIEWER = [...]` table would be the authorization policy
+ * living a second time in the tests, and a wrong pair at a call site would then
+ * be invisible.
+ *
+ * Suites that assert *authorization* name their pairs explicitly instead. These
+ * are for the many suites that merely need somebody who can reach a screen.
+ */
+export const everyPermission = (): FixturePermission[] =>
+  catalogue.map((pair) => [pair.resource, pair.action] as const)
+
+export const everyReadPermission = (): FixturePermission[] =>
+  catalogue.filter((pair) => pair.action === 'read')
+    .map((pair) => [pair.resource, pair.action] as const)
+
+export const permissionsOn = (resource: string): FixturePermission[] =>
+  catalogue.filter((pair) => pair.resource === resource)
+    .map((pair) => [pair.resource, pair.action] as const)
+
+/** One authority decided in code, which a fixture may still grant by name. */
+type BuiltinRole = 'APPLICANT' | 'SUPER_ADMIN'
+
+/** A resource and act, as a fixture states the authority it is exercising. */
+export type FixturePermission = readonly [resource: string, action: string]
+
+/**
+ * A signed-in user holding exactly the authority named, and no more.
+ *
+ * `permissions` takes explicit pairs rather than a role-name shorthand, and
+ * that is the whole point: a fixture with a `REVIEWER = [...]` table would be a
+ * second copy of the authorization policy living in the tests, and a wrong pair
+ * at a call site would then be invisible — the test would grant exactly the
+ * mistake it was meant to catch.
+ *
+ * The ad-hoc role is real: a `core_role` row with real permission rows, granted
+ * through the same table the product writes. Nothing here is a stand-in.
+ */
+export const signIn = async (
+  authority: {
+    roles?: readonly BuiltinRole[]
+    permissions?: readonly FixturePermission[]
+    /**
+     * A real password, hashed as the product hashes one.
+     *
+     * Only needed by suites exercising a step-up confirmation. Left unset
+     * elsewhere because scrypt is real CPU and blocks the isolate, so paying
+     * for it on every fixture would slow the whole suite for one assertion.
+     */
+    password?: string
+  } = {},
+) => {
   const userId = crypto.randomUUID()
   const token = crypto.randomUUID()
   const now = Date.now()
+  const builtins = authority.roles ?? []
+  const permissions = authority.permissions ?? []
+  const roleId = crypto.randomUUID()
+  const passwordHash = authority.password === undefined
+    ? 'unused'
+    : await hashPassword(authority.password)
+
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO core_user (
         id, email, password_hash, email_verified_at, row_version, created_at, updated_at
-      ) VALUES (?, ?, 'unused', ?, 1, ?, ?)`,
-    ).bind(userId, `${userId}@example.test`, now, now, now),
-    ...roles.map((role) => env.DB.prepare(
+      ) VALUES (?, ?, ?, ?, 1, ?, ?)`,
+    ).bind(userId, `${userId}@example.test`, passwordHash, now, now, now),
+    ...builtins.map((role) => env.DB.prepare(
       `INSERT INTO core_user_role_grant (
         id, user_id, role, grant_reason, granted_at
       ) VALUES (?, ?, ?, 'TEST_FIXTURE', ?)`,
     ).bind(crypto.randomUUID(), userId, role, now)),
+    ...(permissions.length === 0 ? [] : [
+      env.DB.prepare(
+        `INSERT INTO core_role (
+          id, key, name, description, current_version, created_at, updated_at,
+          created_by_user_id
+        ) VALUES (?, ?, 'Fixture role', 'Composed by a test.', 1, ?, ?, ?)`,
+      ).bind(roleId, `FIXTURE_${roleId.replace(/-/gu, '').slice(0, 20).toUpperCase()}`, now, now, userId),
+      ...permissions.map(([resource, action]) => env.DB.prepare(
+        `INSERT INTO core_role_permission (id, role_id, resource, action, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).bind(crypto.randomUUID(), roleId, resource, action, now)),
+      env.DB.prepare(
+        `INSERT INTO core_user_role_grant (
+          id, user_id, role_id, grant_reason, granted_at
+        ) VALUES (?, ?, ?, 'TEST_FIXTURE', ?)`,
+      ).bind(crypto.randomUUID(), userId, roleId, now),
+    ]),
     env.DB.prepare(
       `INSERT INTO core_session (
         id, user_id, token_digest, expires_at, created_at, updated_at
@@ -75,7 +153,7 @@ export const signIn = async (roles: readonly UserRole[]) => {
       now + 86_400_000, now, now,
     ),
   ])
-  return { userId, cookie: `seb_session=${token}` }
+  return { userId, roleId, cookie: `seb_session=${token}` }
 }
 
 /**
