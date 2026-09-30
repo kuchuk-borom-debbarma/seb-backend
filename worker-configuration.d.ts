@@ -20,6 +20,8 @@ interface __BaseEnv_CloudflareBindings {
 	RL_EMAIL_VERIFY_SESSION: RateLimit;
 	RL_CONFIRMATION_PDF_IP: RateLimit;
 	RL_AUDIT_EXPORT_SESSION: RateLimit;
+	RL_STAGE_ACTION_SESSION: RateLimit;
+	RL_PIPELINE_DRAFT_SESSION: RateLimit;
 	ENVIRONMENT: "develop";
 	STORAGE_TRANSPORT: "cloudinary";
 	SEB_MAX_ENTERPRISE_PER_USER: "1";
@@ -32,7 +34,6 @@ interface __BaseEnv_CloudflareBindings {
 	FRONTEND_ORIGINS: string;
 	FIRST_SUPER_ADMIN_EMAIL: string;
 	FIRST_SUPER_ADMIN_SECRET: string;
-	IDENTIFIER_SECRET: string;
 	ROLE_INVITE_SECRET: string;
 	PORTAL_BASE_URL: string;
 	DATABASE_URL: string;
@@ -48,7 +49,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "ENVIRONMENT" | "STORAGE_TRANSPORT" | "SEB_MAX_ENTERPRISE_PER_USER" | "PINGRAM_NOTIFICATION_TYPE" | "PINGRAM_BASE_URL" | "PINGRAM_FROM_NAME" | "PINGRAM_FROM_ADDRESS" | "AUTH_SECRET" | "AUTH_COOKIE_SAME_SITE" | "FRONTEND_ORIGINS" | "FIRST_SUPER_ADMIN_EMAIL" | "FIRST_SUPER_ADMIN_SECRET" | "IDENTIFIER_SECRET" | "ROLE_INVITE_SECRET" | "PORTAL_BASE_URL" | "DATABASE_URL">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "ENVIRONMENT" | "STORAGE_TRANSPORT" | "SEB_MAX_ENTERPRISE_PER_USER" | "PINGRAM_NOTIFICATION_TYPE" | "PINGRAM_BASE_URL" | "PINGRAM_FROM_NAME" | "PINGRAM_FROM_ADDRESS" | "AUTH_SECRET" | "AUTH_COOKIE_SAME_SITE" | "FRONTEND_ORIGINS" | "FIRST_SUPER_ADMIN_EMAIL" | "FIRST_SUPER_ADMIN_SECRET" | "ROLE_INVITE_SECRET" | "PORTAL_BASE_URL" | "DATABASE_URL">> {}
 }
 declare module "*.graphql" {
 	const value: string;

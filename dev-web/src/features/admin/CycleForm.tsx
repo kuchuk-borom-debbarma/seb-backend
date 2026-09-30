@@ -2,152 +2,45 @@
  * The programme cycle form.
  *
  * A cycle is the policy an application is judged by, frozen at the moment a
- * draft is started. That makes this the densest form in the product: ages,
- * waiting periods, the funding ceiling, which assessments an expansion needs,
- * and the reason catalogue every later administrative action must choose from.
+ * draft is started: ages, the funding ceiling, the pipeline its applications
+ * are worked in, and the kinds of application it accepts — each with the
+ * eligibility rules an enterprise must meet to start one.
  *
- * The reason catalogue matters more than it looks. Desk review, revisions, bank
- * outcomes, programme decisions, award changes and recovery all require a
- * reason approved by the cycle, so a cycle created without them produces a
- * workflow that cannot be operated. The defaults below cover every context the
- * API defines, and are editable like everything else.
+ * The pipeline is chosen here and pinned when the cycle opens; its stages and
+ * actions are authored on the pipeline's own screens. The kinds replace the
+ * hard-coded initial/expansion pair: `EXPANSION` is whatever its rules say.
+ * The last step holds the form's rules about several answers at once, which
+ * travel with the form template.
  */
 import { useState } from 'react'
 import {
-  BarChart3,
   Check,
   ChevronLeft,
   ChevronRight,
-  ClipboardCheck,
-  FileText,
   IndianRupee,
   Info,
-  Plus,
   ShieldCheck,
-  Trash2,
 } from 'lucide-react'
 import type {
-  AssessmentType,
-  DeskReviewCheckType,
-  DeskReviewIdentifierKind,
-  IdentifierDuplicatePolicy,
-  IdentifierRequirement,
+  ApplicationKindInput,
   ProgrammeCycleInput,
-  ProgrammeReasonContext,
 } from '#/graphql/generated/schema'
-
-/**
- * One row of the identifier editor.
- *
- * `checkType` is optional to match the generated input exactly: the API accepts
- * it absent as well as null, and narrowing it here would make every rule the
- * server sends back fail to typecheck on the way in.
- */
-type IdentifierRuleValue = {
-  kind: DeskReviewIdentifierKind
-  requirement: IdentifierRequirement
-  duplicatePolicy: IdentifierDuplicatePolicy
-  checkType?: DeskReviewCheckType | null
-}
 import styles from './CycleForm.module.css'
-import { CHECKS } from './DeskReviewForm'
 import { useMarker } from '#/features/guide/GuideContext'
+import { CycleFormRulesStep, CyclePipelineStep } from '#/features/pipeline/CyclePipelineStep'
 import { defaultFormTemplate } from './defaultFormTemplate'
-import { humanize, toLocalDateTimeInput } from '#/lib/format'
-
-const ASSESSMENT_TYPES: AssessmentType[] = [
-  'UTILIZATION',
-  'PERFORMANCE',
-  'FINANCIAL_AUDIT',
-]
-
-const REASON_CONTEXTS: ProgrammeReasonContext[] = [
-  // Assignment release and reassignment left the product, and their reason
-  // contexts left the API's enum with them. CYCLE_CLOSE stays in the enum but
-  // is not offered here: closing takes a free-text reason, so a catalogue
-  // entry for it was demanded of officers and then never consumed.
-  'REVISION',
-  'REJECTION',
-  'BANK_REFERRAL_CANCEL',
-  'BANK_OUTCOME_CORRECTION',
-  'DECISION_CORRECTION',
-  'AWARD_AMENDMENT',
-  'AWARD_SUSPENSION',
-  'AWARD_CANCELLATION',
-  'AWARD_CLOSURE',
-  'RELEASE_REVERSAL',
-  'RECOVERY',
-  'RECOVERY_WAIVER',
-]
-
-/** One usable reason per context, so a new cycle can be operated immediately. */
-const defaultReasons = () =>
-  REASON_CONTEXTS.map((context) => ({
-    context,
-    code: context,
-    label: humanize(context),
-    applicantMessageTemplate: null as string | null,
-  }))
-
-/** Every identifier the desk review knows how to transcribe. */
-const IDENTIFIER_KINDS: DeskReviewIdentifierKind[] = [
-  'ST_CERTIFICATE',
-  'IDENTITY_DOCUMENT',
-  'BANK_ACCOUNT',
-  'BUSINESS_REGISTRATION',
-]
-
-const IDENTIFIER_REQUIREMENTS: IdentifierRequirement[] = [
-  'REQUIRED_ON_PASS',
-  'OPTIONAL',
-  'OFF',
-]
+import { toLocalDateTimeInput } from '#/lib/format'
 
 /**
- * What each setting means, in the words an officer configuring a cycle needs.
- *
- * The two settings are independent on purpose, and that is the thing most
- * likely to be misread: an identifier can be collected without being compared
- * (joint and family bank accounts are real, and refusing them would be wrong),
- * and it can be compared without being demanded.
+ * The kinds a new cycle starts with: one first application per enterprise at a
+ * time. A later kind — an expansion — is added with the rules that make it one.
  */
-const REQUIREMENT_HELP: Record<IdentifierRequirement, string> = {
-  REQUIRED_ON_PASS: 'Demanded whenever the check it stands behind is passed.',
-  OPTIONAL: 'Collected if the reviewer has it. Never blocks the review.',
-  OFF: 'Not collected at all. The field does not appear.',
-}
-
-/**
- * How Mission SEP is configured today, as the starting point for a new cycle.
- *
- * Business registration is optional rather than demanded: an unregistered
- * enterprise has none, and demanding one would make somebody invent a number to
- * get past the form.
- */
-const defaultIdentifierRules = (): IdentifierRuleValue[] => [
+const defaultKinds = (): ApplicationKindInput[] => [
   {
-    kind: 'ST_CERTIFICATE',
-    requirement: 'REQUIRED_ON_PASS',
-    duplicatePolicy: 'CHECKED',
-    checkType: 'ST_ELIGIBILITY',
-  },
-  {
-    kind: 'IDENTITY_DOCUMENT',
-    requirement: 'REQUIRED_ON_PASS',
-    duplicatePolicy: 'CHECKED',
-    checkType: 'IDENTITY_KYC',
-  },
-  {
-    kind: 'BANK_ACCOUNT',
-    requirement: 'REQUIRED_ON_PASS',
-    duplicatePolicy: 'CHECKED',
-    checkType: 'DOCUMENT_COMPLETENESS',
-  },
-  {
-    kind: 'BUSINESS_REGISTRATION',
-    requirement: 'OPTIONAL',
-    duplicatePolicy: 'NOT_CHECKED',
-    checkType: null,
+    kindKey: 'INITIAL',
+    label: 'First application',
+    description: 'The enterprise’s first Mission SEP application.',
+    rules: [{ ruleType: 'NO_OPEN_APPLICATION_OF_KIND', paramsJson: '{"kind":"INITIAL"}' }],
   },
 ]
 
@@ -156,24 +49,22 @@ export const emptyCycle = (year: number): ProgrammeCycleInput => ({
   displayName: `Mission SEP ${year}`,
   cycleYear: year,
   applicantGuidance: null,
-  partnerBankGuidance: null,
   opensAt: null,
   closesAt: null,
   policy: {
     minimumApplicantAge: 18,
     maximumApplicantAge: 60,
     categoryAMaximumMonths: 24,
-    expansionWaitMonths: 12,
     majorityOwnershipRequired: true,
     jurisdiction: 'TTAADC',
     // Unresolved until TTAADC states one authoritative maximum — roadmap §21.
     fundingCeilingState: 'UNRESOLVED',
     fundingCeilingAmountPaise: null,
     fundingCeilingScope: null,
-    requiredAssessmentTypes: [...ASSESSMENT_TYPES],
     formTemplate: defaultFormTemplate(),
-    identifierRules: defaultIdentifierRules(),
-    reasons: defaultReasons(),
+    // Chosen on the last step; opening refuses a pipeline never published.
+    pipelineId: '',
+    applicationKinds: defaultKinds(),
   },
 })
 
@@ -215,20 +106,7 @@ export function CycleForm({
       policy: { ...current.policy, [key]: value },
     }))
 
-  /*
-   * The API treats an absent list as "collect nothing", so the field is
-   * nullable there. The form always has a list to render, and an empty one is
-   * shown back as the real setting it is rather than as a blank.
-   */
-  const identifierRules: IdentifierRuleValue[] = values.policy.identifierRules ?? []
-
-  const toggleAssessment = (type: AssessmentType) =>
-    setPolicy(
-      'requiredAssessmentTypes',
-      values.policy.requiredAssessmentTypes.includes(type)
-        ? values.policy.requiredAssessmentTypes.filter((candidate) => candidate !== type)
-        : [...values.policy.requiredAssessmentTypes, type],
-    )
+  const kinds = values.policy.applicationKinds
 
   // Milestones definition. The questions the cycle asks are not among them:
   // the form template has its own editor on the cycle's page.
@@ -252,18 +130,26 @@ export function CycleForm({
         values.policy.maximumApplicantAge !== null,
     },
     {
-      id: 'assessments',
+      id: 'funding',
       stepNumber: 3,
-      title: 'Expansion & Funding',
-      subtitle: 'Assessments & ceiling',
-      complete: values.policy.requiredAssessmentTypes.length > 0,
+      title: 'Funding',
+      subtitle: 'The ceiling',
+      complete: values.policy.fundingCeilingState !== null,
     },
     {
-      id: 'review',
+      id: 'pipeline',
       stepNumber: 4,
-      title: 'Desk review & Reasons',
-      subtitle: 'Identifiers & admin rules',
-      complete: values.policy.reasons.length > 0,
+      title: 'Pipeline & kinds',
+      subtitle: 'Route and who may apply',
+      complete: Boolean(values.policy.pipelineId.trim()) && kinds.length > 0,
+    },
+    {
+      id: 'rules',
+      stepNumber: 5,
+      title: 'Answer rules',
+      subtitle: 'Across several answers',
+      // Optional: a form may state no rule between its answers.
+      complete: true,
     },
   ] as const
 
@@ -285,8 +171,8 @@ export function CycleForm({
           <p className={styles.infoText}>
             Nothing here reaches applicants until you open it — and it can only be opened
             once the policy PDF, applicant guidance, the opening date, every eligibility
-            field, at least one assessment, and a reason for every administrative action
-            are all present.
+            field, a published pipeline, and at least one kind of application are all
+            present.
           </p>
         </div>
       </div>
@@ -294,7 +180,7 @@ export function CycleForm({
       {/* Milestone Stepper Navigation */}
       <nav className={styles.stepperNav} aria-label="Cycle creation steps">
         {MILESTONES.map((step, index) => (
-          <div key={step.id} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+          <div key={step.id} className={styles.stepSlot}>
             <button
               type="button"
               className={styles.stepButton}
@@ -511,24 +397,6 @@ export function CycleForm({
                 />
               </div>
 
-              <div className={styles.fieldGroup}>
-                <label className={styles.fieldLabel} htmlFor="expansionWaitMonths">
-                  Expansion waiting period (months)
-                </label>
-                <input
-                  id="expansionWaitMonths"
-                  className={styles.inputField}
-                  type="number"
-                  placeholder="Enter months"
-                  value={values.policy.expansionWaitMonths ?? ''}
-                  onChange={(event) =>
-                    setPolicy(
-                      'expansionWaitMonths',
-                      event.target.value ? Number(event.target.value) : null,
-                    )
-                  }
-                />
-              </div>
             </div>
 
             {/* Fixed policy, stated rather than asked. The values still travel
@@ -542,61 +410,9 @@ export function CycleForm({
         </div>
       )}
 
-      {/* Milestone 3: Expansion & Funding */}
+      {/* Milestone 3: Funding */}
       {activeStep === 2 && (
         <div className={styles.tabPane}>
-          {/* Assessments an expansion must pass */}
-          <div className={styles.sectionCard}>
-            <div className={styles.sectionHeader}>
-              <div
-                className={styles.sectionHeaderIconWrap}
-                data-color="purple"
-                aria-hidden="true"
-              >
-                <ClipboardCheck size={18} />
-              </div>
-              <h2 className={styles.sectionTitle}>Assessments an expansion must pass</h2>
-              <div className={styles.sectionDivider} />
-            </div>
-
-            <div className={styles.choiceCardsGrid}>
-              {ASSESSMENT_TYPES.map((type) => {
-                const isSelected = values.policy.requiredAssessmentTypes.includes(type)
-                const IconComponent =
-                  type === 'UTILIZATION'
-                    ? ClipboardCheck
-                    : type === 'PERFORMANCE'
-                      ? BarChart3
-                      : FileText
-
-                return (
-                  <div
-                    key={type}
-                    className={styles.choiceCard}
-                    data-selected={isSelected ? 'true' : undefined}
-                    data-theme="purple"
-                    onClick={() => toggleAssessment(type)}
-                    role="checkbox"
-                    aria-checked={isSelected}
-                    tabIndex={0}
-                  >
-                    <div className={styles.choiceCardLeft}>
-                      <div className={styles.checkboxIndicator}>
-                        {isSelected ? <Check size={13} aria-hidden="true" /> : null}
-                      </div>
-                      <span className={styles.choiceCardText}>{humanize(type)}</span>
-                    </div>
-                    <IconComponent
-                      size={18}
-                      className={styles.choiceCardIcon}
-                      aria-hidden="true"
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
           {/* Funding Ceiling */}
           <div className={styles.sectionCard}>
             <div className={styles.sectionHeader}>
@@ -740,267 +556,37 @@ export function CycleForm({
         </div>
       )}
 
-      {/* Milestone 4: Desk review identifiers & Reason catalogue */}
+      {/* Milestone 4: The pipeline, and the kinds of application accepted */}
       {activeStep === 3 && (
         <div className={styles.tabPane}>
-          {/* Numbers the desk review writes down */}
           <div className={styles.sectionCard}>
             <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>Numbers the desk review writes down</h2>
+              <h2 className={styles.sectionTitle}>Pipeline and kinds of application</h2>
               <div className={styles.sectionDivider} />
             </div>
-
-            <p className={styles.fieldHint} style={{ margin: 0 }}>
-              A reviewer transcribes these off the documents as they pass each check. The
-              two settings are separate: what is <em>demanded</em> and what is{' '}
-              <em>compared</em> against other applications. A bank account shared by a
-              family is a real thing, so it can be collected without a match ever blocking
-              anybody.
-            </p>
-
-            {identifierRules.length === 0 ? (
-              /*
-               * An empty rule set is a real configuration — it demands nothing
-               * and compares nothing — and it is indistinguishable from a cycle
-               * somebody forgot to configure. Saying so is the difference.
-               */
-              <p className="notice">
-                <span className="notice-title">This cycle asks for no numbers</span>
-                Nothing will be transcribed and no duplicate can be detected. That is a
-                valid setting, but rarely the intended one.
-              </p>
-            ) : null}
-
-            <div className="stack" style={{ gap: '8px' }}>
-              {identifierRules.map((rule, index) => {
-                const update = (patch: Partial<IdentifierRuleValue>) =>
-                  setPolicy(
-                    'identifierRules',
-                    identifierRules.map((current, position) =>
-                      position === index ? { ...current, ...patch } : current,
-                    ),
-                  )
-                return (
-                  <div
-                    className="row"
-                    key={`${rule.kind}-${index}`}
-                    style={{ gap: '10px' }}
-                  >
-                    <select
-                      className={styles.selectField}
-                      aria-label={`Identifier ${index + 1}`}
-                      value={rule.kind}
-                      onChange={(event) =>
-                        update({ kind: event.target.value as DeskReviewIdentifierKind })
-                      }
-                    >
-                      {IDENTIFIER_KINDS.map((kind) => (
-                        <option key={kind} value={kind}>
-                          {humanize(kind)}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      className={styles.selectField}
-                      aria-label={`Demanded, for identifier ${index + 1}`}
-                      value={rule.requirement}
-                      onChange={(event) => {
-                        const requirement = event.target.value as IdentifierRequirement
-                        /*
-                         * Only REQUIRED_ON_PASS has a moment at which it
-                         * applies, and the database enforces exactly that with
-                         * a CHECK. Clearing the check here keeps the form from
-                         * composing a row the API will refuse.
-                         */
-                        update({
-                          requirement,
-                          checkType:
-                            requirement === 'REQUIRED_ON_PASS'
-                              ? (rule.checkType ?? CHECKS[0]!.type)
-                              : null,
-                        })
-                      }}
-                    >
-                      {IDENTIFIER_REQUIREMENTS.map((requirement) => (
-                        <option key={requirement} value={requirement}>
-                          {humanize(requirement)}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      className={styles.selectField}
-                      aria-label={`Evidence for which check, for identifier ${index + 1}`}
-                      value={rule.checkType ?? ''}
-                      disabled={rule.requirement !== 'REQUIRED_ON_PASS'}
-                      onChange={(event) =>
-                        update({ checkType: event.target.value as DeskReviewCheckType })
-                      }
-                    >
-                      {CHECKS.map((check) => (
-                        <option key={check.type} value={check.type}>
-                          {check.title}
-                        </option>
-                      ))}
-                    </select>
-
-                    <label className="checkbox-row" style={{ whiteSpace: 'nowrap' }}>
-                      <input
-                        type="checkbox"
-                        checked={rule.duplicatePolicy === 'CHECKED'}
-                        aria-label={`Compare for duplicates, for identifier ${index + 1}`}
-                        onChange={(event) =>
-                          update({
-                            duplicatePolicy: event.target.checked
-                              ? 'CHECKED'
-                              : 'NOT_CHECKED',
-                          })
-                        }
-                      />
-                      Compare
-                    </label>
-
-                    <button
-                      type="button"
-                      className={styles.cancelButton}
-                      style={{ padding: '8px 12px' }}
-                      aria-label={`Remove identifier ${index + 1}`}
-                      onClick={() =>
-                        setPolicy(
-                          'identifierRules',
-                          identifierRules.filter((_, position) => position !== index),
-                        )
-                      }
-                    >
-                      <Trash2 size={15} aria-hidden="true" />
-                    </button>
-                  </div>
-                )
-              })}
-
-              <div>
-                <button
-                  type="button"
-                  className={styles.prevButton}
-                  disabled={identifierRules.length >= IDENTIFIER_KINDS.length}
-                  onClick={() =>
-                    setPolicy('identifierRules', [
-                      ...identifierRules,
-                      {
-                        // The first kind not already configured, so adding a
-                        // row cannot produce the duplicate the API refuses.
-                        kind:
-                          IDENTIFIER_KINDS.find(
-                            (kind) => !identifierRules.some((rule) => rule.kind === kind),
-                          ) ?? IDENTIFIER_KINDS[0]!,
-                        requirement: 'OPTIONAL',
-                        duplicatePolicy: 'NOT_CHECKED',
-                        checkType: null,
-                      },
-                    ])
-                  }
-                >
-                  <Plus size={15} aria-hidden="true" />
-                  Add an identifier
-                </button>
-              </div>
-
-              <p className={styles.fieldHint} style={{ marginTop: '8px' }}>
-                {REQUIREMENT_HELP.REQUIRED_ON_PASS} {REQUIREMENT_HELP.OPTIONAL}{' '}
-                {REQUIREMENT_HELP.OFF}
-              </p>
-            </div>
+            <CyclePipelineStep
+              pipelineId={values.policy.pipelineId}
+              onPipelineChange={(pipelineId) => setPolicy('pipelineId', pipelineId)}
+              kinds={kinds}
+              onKindsChange={(next) => setPolicy('applicationKinds', next)}
+            />
           </div>
+        </div>
+      )}
 
-          {/* Reason Catalogue (Collapsible disclosure) */}
-          <details className={styles.sectionCard}>
-            <summary
-              className="disclosure"
-              style={{ cursor: 'pointer', fontWeight: 600 }}
-            >
-              <span className={styles.sectionTitle}>Reason catalogue</span>
-              <span className="muted" style={{ marginLeft: '10px', fontSize: '13px' }}>
-                ({values.policy.reasons.length} administrative action reasons)
-              </span>
-            </summary>
-            <p className={styles.fieldHint} style={{ margin: '10px 0' }}>
-              Every later administrative action — a revision, a rejection, a reversal —
-              must choose a reason approved by this cycle. A cycle without them cannot be
-              operated, so these are filled in for you and can be renamed.
-            </p>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th scope="col">Used for</th>
-                    <th scope="col">Code</th>
-                    <th scope="col">Label staff choose</th>
-                    <th scope="col" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {values.policy.reasons.map((reason, index) => (
-                    <tr key={`${reason.context}-${reason.code}-${index}`}>
-                      <td>{humanize(reason.context)}</td>
-                      <td>
-                        <input
-                          className={styles.inputField}
-                          aria-label={`Code for reason ${index + 1}`}
-                          value={reason.code}
-                          onChange={(event) =>
-                            setPolicy(
-                              'reasons',
-                              values.policy.reasons.map((current, position) =>
-                                position === index
-                                  ? { ...current, code: event.target.value }
-                                  : current,
-                              ),
-                            )
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className={styles.inputField}
-                          aria-label={`Label for reason ${index + 1}`}
-                          value={reason.label}
-                          onChange={(event) =>
-                            setPolicy(
-                              'reasons',
-                              values.policy.reasons.map((current, position) =>
-                                position === index
-                                  ? { ...current, label: event.target.value }
-                                  : current,
-                              ),
-                            )
-                          }
-                        />
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className={styles.cancelButton}
-                          style={{ padding: '6px 10px' }}
-                          aria-label={`Remove reason ${index + 1}`}
-                          onClick={() =>
-                            setPolicy(
-                              'reasons',
-                              values.policy.reasons.filter(
-                                (_, position) => position !== index,
-                              ),
-                            )
-                          }
-                        >
-                          <Trash2 size={14} aria-hidden="true" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {/* Milestone 5: What the form says about several answers at once */}
+      {activeStep === 4 && (
+        <div className={styles.tabPane}>
+          <div className={styles.sectionCard}>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>Rules across answers</h2>
+              <div className={styles.sectionDivider} />
             </div>
-          </details>
+            <CycleFormRulesStep
+              template={values.policy.formTemplate}
+              onChange={(rules) => setPolicy('formTemplate', { ...values.policy.formTemplate, rules })}
+            />
+          </div>
         </div>
       )}
 

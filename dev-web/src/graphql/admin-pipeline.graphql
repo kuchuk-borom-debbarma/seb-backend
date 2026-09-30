@@ -1,0 +1,205 @@
+fragment AdminPipelineFields on AdminPipeline {
+  id
+  key
+  name
+  description
+  currentPublishedVersion
+  draftVersion
+  createdAt
+  updatedAt
+  retiredAt
+  retireReason
+}
+
+fragment AdminPipelineDetailFields on AdminPipelineDetail {
+  id
+  key
+  name
+  description
+  currentPublishedVersion
+  createdAt
+  updatedAt
+  retiredAt
+  retireReason
+  versions {
+    id
+    version
+    status
+    revision
+    createdAt
+    updatedAt
+    publishedAt
+    changeNote
+  }
+  draft {
+    version
+    revision
+    updatedAt
+    definitionJson
+    problems { path message }
+  }
+  published {
+    version
+    publishedAt
+    changeNote
+    definitionJson
+  }
+  stages {
+    stageKey
+    ownersVersion
+    owners { roleId roleKey roleName addedAt }
+  }
+}
+
+query AdminPipelines {
+  admin {
+    pipeline {
+      list {
+        success
+        message
+        response { ...AdminPipelineFields }
+      }
+    }
+  }
+}
+
+# The pipelines a cycle may choose: published at least once and not retired.
+query AdminPipelineChoices {
+  admin {
+    pipeline {
+      publishedChoices {
+        success
+        message
+        response { ...AdminPipelineFields }
+      }
+    }
+  }
+}
+
+query AdminPipelineByKey($key: String!) {
+  admin {
+    pipeline {
+      byKey(key: $key) {
+        success
+        message
+        response { ...AdminPipelineDetailFields }
+      }
+    }
+  }
+}
+
+query AdminPipelineCatalogue {
+  admin {
+    pipeline {
+      catalogue {
+        success
+        message
+        response {
+          effects {
+            key
+            group
+            description
+            permission
+            exclusive
+            terminal
+            params { name kind required description }
+          }
+          inputFieldTypes { key description }
+          conditionSources { key description }
+          paramKinds { key description }
+          formRules { key description operandTypes minOperands maxOperands limit }
+          eligibilityRules {
+            key
+            description
+            params { name kind required description }
+          }
+          exampleDefinitionJson
+        }
+      }
+    }
+  }
+}
+
+query ValidatePipelineDraft($definition: String!) {
+  admin {
+    pipeline {
+      validateDraft(definition: $definition) {
+        success
+        message
+        response { problems { path message } }
+      }
+    }
+  }
+}
+
+mutation CreatePipeline($input: CreatePipelineInput!) {
+  admin {
+    pipeline {
+      create(input: $input) {
+        success
+        message
+        response { ...AdminPipelineDetailFields }
+      }
+    }
+  }
+}
+
+mutation SavePipelineDraft($input: SavePipelineDraftInput!) {
+  admin {
+    pipeline {
+      saveDraft(input: $input) {
+        success
+        message
+        response { ...AdminPipelineDetailFields }
+      }
+    }
+  }
+}
+
+mutation PublishPipeline($input: PublishPipelineInput!) {
+  admin {
+    pipeline {
+      publish(input: $input) {
+        success
+        message
+        response { ...AdminPipelineDetailFields }
+      }
+    }
+  }
+}
+
+mutation DiscardPipelineDraft($input: DiscardPipelineDraftInput!) {
+  admin {
+    pipeline {
+      discardDraft(input: $input) {
+        success
+        message
+        response { ...AdminPipelineDetailFields }
+      }
+    }
+  }
+}
+
+mutation RetirePipeline($input: RetirePipelineInput!) {
+  admin {
+    pipeline {
+      retire(input: $input) {
+        success
+        message
+        response { ...AdminPipelineDetailFields }
+      }
+    }
+  }
+}
+
+mutation SetPipelineStageOwners($input: SetPipelineStageOwnersInput!) {
+  admin {
+    pipeline {
+      setStageOwners(input: $input) {
+        success
+        message
+        response { ...AdminPipelineDetailFields }
+      }
+    }
+  }
+}

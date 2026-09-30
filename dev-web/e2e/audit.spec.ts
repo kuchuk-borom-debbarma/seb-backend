@@ -13,6 +13,7 @@ import {
   SUPER_ADMIN_EMAIL,
   signIn,
   signUpApplicant,
+  fillSettled,
   submittedThroughApi,
   uniqueEmail,
 } from './support'
@@ -24,7 +25,7 @@ const grantWithReason = async (
   reason: string,
 ) => {
   await page.goto('/admin/access')
-  await page.getByLabel('Email address').fill(email)
+  await fillSettled(page.getByLabel('Email address'), email)
   await page.getByRole('button', { name: 'Look them up' }).click()
   await expect(page.getByRole('heading', { name: email })).toBeVisible()
   await page
@@ -33,9 +34,9 @@ const grantWithReason = async (
   await page.getByLabel('Why they should have it').fill(reason)
   await page.getByLabel('Your password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Grant it' }).click()
-  await expect(page.getByRole('button', { name: 'Grant it' })).toBeHidden({
-    timeout: 15_000,
-  })
+  // The office's own confirmation, so a refused grant fails here, by name,
+  // rather than later as a history entry that never appears.
+  await expect(page.getByText('Casework reader granted.')).toBeVisible({ timeout: 15_000 })
 }
 
 test.describe('the activity history', () => {
@@ -103,7 +104,7 @@ test.describe('the activity history', () => {
       activity.getByRole('link', { name: /^Submitted application / }),
     ).toBeVisible()
     await expect(
-      activity.getByRole('link', { name: /^Started an initial application/u }),
+      activity.getByRole('link', { name: /^Started an application \(INITIAL/u }),
     ).toBeVisible()
     // Only this file's history: signing in just now happened, but not to it.
     await expect(activity.getByRole('link', { name: /^Signed in/u })).toHaveCount(0)

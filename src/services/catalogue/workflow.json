@@ -1,0 +1,235 @@
+{
+  "$comment": [
+    "The workflow vocabulary: everything a pipeline, a stage action, a cycle's",
+    "application kinds and a form's cross-field rules may be configured with.",
+    "",
+    "Pipelines, stages, status flags, actions and their inputs are data, authored",
+    "by whoever holds the `pipeline` permissions. What that data may SAY is fixed",
+    "here, in code, because each entry below is backed by code that carries it",
+    "out: an effect by its handler, a rule by its evaluators, a parameter kind by",
+    "its validator and its editor control. A configuration can only combine these;",
+    "it cannot invent one, so nothing configured can ask for behaviour that does",
+    "not exist.",
+    "",
+    "This file is the source of truth. `workflow.generated.ts` is derived from it",
+    "and is what the Worker imports, for the same reason `auth/catalog.json` has",
+    "a generated twin: a JSON import widens every literal to `string`. Regenerate",
+    "with `npm run workflow-catalog:generate`.",
+    "",
+    "`npm run check:workflow-catalog` proves the file against the code in BOTH",
+    "directions — every entry here has its code, and every registered piece of",
+    "code is declared here — and `test/service/workflow-catalogue.test.ts` proves",
+    "what a regex cannot, such as each handler's parameter schema matching the",
+    "parameters declared below."
+  ],
+
+  "inputFieldTypes": [
+    { "key": "TEXT", "description": "A short line of text, such as a reference number." },
+    { "key": "LONG_TEXT", "description": "A paragraph, such as a note to the next stage. Never copied into the activity history." },
+    { "key": "DATE", "description": "A calendar date." },
+    { "key": "INTEGER", "description": "A whole number." },
+    { "key": "MONEY_PAISE", "description": "An amount of money, entered in rupees and kept in paise." },
+    { "key": "BOOLEAN", "description": "Yes or no." },
+    { "key": "SINGLE_CHOICE", "description": "One of a fixed list of options, such as a bank." },
+    { "key": "MULTI_CHOICE", "description": "Any of a fixed list of options." },
+    { "key": "STATEMENT", "description": "Text shown to the officer, with no answer." }
+  ],
+
+  "conditionSources": [
+    { "key": "ANSWER", "description": "An answer the applicant gave on the submitted form." },
+    { "key": "STATUS_FLAG", "description": "Whether the application currently holds a status flag." },
+    { "key": "RECORDED_VALUE", "description": "A value an earlier action recorded on the application." },
+    { "key": "INPUT", "description": "What the officer entered into this action's own inputs." }
+  ],
+
+  "paramKinds": [
+    { "key": "STAGE_KEY", "description": "A stage of the same pipeline." },
+    { "key": "STATUS_FLAG_KEY", "description": "A status flag the pipeline declares." },
+    { "key": "INPUT_KEY", "description": "One of the action's own input fields." },
+    { "key": "ANSWER_KEY", "description": "A question on the form of any cycle that pins the pipeline; checked when the cycle opens." },
+    { "key": "RECORDED_VALUE_KEY", "description": "A recorded value the pipeline declares." },
+    { "key": "CHOICE_ROUTES", "description": "For each option of a choice input, the stage it sends the application to." },
+    { "key": "TEXT", "description": "Fixed text written by the author, such as a message to the applicant." },
+    { "key": "BOOLEAN", "description": "A yes or no setting." },
+    { "key": "COUNT", "description": "A whole number of zero or more." },
+    { "key": "MONEY_PAISE", "description": "A fixed amount of money, in paise." },
+    { "key": "APPLICATION_KIND_KEY", "description": "A kind of application the cycle declares." },
+    { "key": "PIPELINE_KEY", "description": "Any pipeline, by its key." }
+  ],
+
+  "formRules": [
+    {
+      "key": "AT_LEAST_ONE_TRUE",
+      "description": "At least one of these yes-or-no questions must be answered yes — for example, a grant, a loan, or both.",
+      "operandTypes": ["BOOLEAN", "ATTESTATION"],
+      "minOperands": 2,
+      "maxOperands": 8,
+      "limit": "NONE"
+    },
+    {
+      "key": "DIFFERENT_VALUES",
+      "description": "These answers must all differ — for example, a first and a second choice of bank.",
+      "operandTypes": ["SINGLE_CHOICE", "TEXT", "EMAIL", "PHONE"],
+      "minOperands": 2,
+      "maxOperands": 8,
+      "limit": "NONE"
+    },
+    {
+      "key": "SUM_AT_MOST",
+      "description": "These amounts together may not exceed a fixed limit.",
+      "operandTypes": ["MONEY_PAISE", "INTEGER"],
+      "minOperands": 1,
+      "maxOperands": 8,
+      "limit": "REQUIRED"
+    },
+    {
+      "key": "AT_MOST_FIELD",
+      "description": "The first answer may not exceed the second — for example, a loan asked for may not exceed the project's cost.",
+      "operandTypes": ["MONEY_PAISE", "INTEGER", "DATE"],
+      "minOperands": 2,
+      "maxOperands": 2,
+      "limit": "NONE"
+    }
+  ],
+
+  "eligibilityRules": [
+    {
+      "key": "PRIOR_APPLICATION_HAS_FLAG",
+      "description": "The enterprise has an earlier application that holds a status flag, held for at least a number of months.",
+      "params": [
+        { "name": "flag", "kind": "STATUS_FLAG_KEY", "required": true, "description": "The flag the earlier application must hold." },
+        { "name": "pipelineKey", "kind": "PIPELINE_KEY", "required": false, "description": "Only earlier applications worked in this pipeline." },
+        { "name": "minMonthsSinceFlag", "kind": "COUNT", "required": false, "description": "How long ago, at least, the flag must have been added." }
+      ]
+    },
+    {
+      "key": "PRIOR_RECORDED_VALUE_AT_LEAST",
+      "description": "An earlier application of the enterprise recorded a value of at least an amount.",
+      "params": [
+        { "name": "value", "kind": "RECORDED_VALUE_KEY", "required": true, "description": "The recorded value to read." },
+        { "name": "amountPaise", "kind": "MONEY_PAISE", "required": true, "description": "The least it must be." }
+      ]
+    },
+    {
+      "key": "NO_OPEN_APPLICATION_OF_KIND",
+      "description": "The enterprise has no unfinished application of a kind — a draft, or one still being worked.",
+      "params": [
+        { "name": "kind", "kind": "APPLICATION_KIND_KEY", "required": true, "description": "The kind that must have no open application." }
+      ]
+    },
+    {
+      "key": "MAX_APPLICATIONS_OF_KIND",
+      "description": "The enterprise has made fewer than a number of applications of a kind, across every cycle.",
+      "params": [
+        { "name": "kind", "kind": "APPLICATION_KIND_KEY", "required": true, "description": "The kind to count." },
+        { "name": "max", "kind": "COUNT", "required": true, "description": "How many are allowed in all." }
+      ]
+    },
+    {
+      "key": "ENTERPRISE_AGE_AT_LEAST",
+      "description": "The enterprise was established at least a number of months ago.",
+      "params": [
+        { "name": "months", "kind": "COUNT", "required": true, "description": "The least age, in whole months." }
+      ]
+    }
+  ],
+
+  "effects": [
+    {
+      "key": "ADD_STATUS",
+      "group": "APPLICATION",
+      "description": "Adds a status flag. A flag that ends the pipeline is added by COMPLETE_PIPELINE or CLOSE_APPLICATION instead.",
+      "permission": "BY_FLAG_KIND",
+      "params": [{ "name": "flag", "kind": "STATUS_FLAG_KEY", "required": true, "description": "The flag to add." }]
+    },
+    {
+      "key": "REMOVE_STATUS",
+      "group": "APPLICATION",
+      "description": "Removes a status flag.",
+      "permission": "BY_FLAG_KIND",
+      "params": [{ "name": "flag", "kind": "STATUS_FLAG_KEY", "required": true, "description": "The flag to remove." }]
+    },
+    {
+      "key": "SET_RECORDED_VALUE",
+      "group": "APPLICATION",
+      "description": "Keeps what the officer entered as a named value on the application, such as the approved grant.",
+      "permission": "stage:decide",
+      "params": [
+        { "name": "input", "kind": "INPUT_KEY", "required": true, "description": "The input whose value is kept." },
+        { "name": "target", "kind": "RECORDED_VALUE_KEY", "required": true, "description": "The name it is kept under." },
+        { "name": "atMostAnswer", "kind": "ANSWER_KEY", "required": false, "description": "It may not exceed the applicant's answer to this question." },
+        { "name": "atMostCycleCeiling", "kind": "BOOLEAN", "required": false, "description": "It may not exceed the cycle's funding ceiling." }
+      ]
+    },
+    {
+      "key": "REQUEST_REVISION",
+      "group": "APPLICATION",
+      "description": "Asks the applicant to correct the form stages the officer names. When they resubmit, the application returns to this stage.",
+      "permission": "stage:request_revision",
+      "exclusive": "LIFECYCLE",
+      "params": [{ "name": "flag", "kind": "STATUS_FLAG_KEY", "required": true, "description": "The flag held while the applicant corrects it; it must allow revision-scoped editing." }]
+    },
+    {
+      "key": "NOTIFY_APPLICANT",
+      "group": "APPLICATION",
+      "description": "Tells the applicant, on their timeline and by email when asked to.",
+      "permission": null,
+      "params": [
+        { "name": "message", "kind": "TEXT", "required": true, "description": "What the applicant reads." },
+        { "name": "email", "kind": "BOOLEAN", "required": false, "description": "Also send it by email." }
+      ]
+    },
+    {
+      "key": "ADD_INTERNAL_NOTE",
+      "group": "APPLICATION",
+      "description": "Keeps what the officer wrote as a staff-only note on the application.",
+      "permission": "application:note",
+      "params": [{ "name": "input", "kind": "INPUT_KEY", "required": true, "description": "The long-text input holding the note." }]
+    },
+    {
+      "key": "MOVE_TO_STAGE",
+      "group": "STAGE",
+      "description": "Sends the application to another stage.",
+      "permission": "stage:advance",
+      "exclusive": "STAGE",
+      "params": [{ "name": "target", "kind": "STAGE_KEY", "required": true, "description": "The stage it goes to." }]
+    },
+    {
+      "key": "MOVE_BY_CHOICE",
+      "group": "STAGE",
+      "description": "Sends the application to the stage chosen by one of the action's inputs — for example, the bank.",
+      "permission": "stage:advance",
+      "exclusive": "STAGE",
+      "params": [
+        { "name": "input", "kind": "INPUT_KEY", "required": true, "description": "The single-choice input that decides." },
+        { "name": "routes", "kind": "CHOICE_ROUTES", "required": true, "description": "Where each option sends it; every option must be routed." }
+      ]
+    },
+    {
+      "key": "RETURN_TO_PREVIOUS",
+      "group": "STAGE",
+      "description": "Sends the application back to the stage it actually came from.",
+      "permission": "stage:return",
+      "exclusive": "STAGE",
+      "params": []
+    },
+    {
+      "key": "COMPLETE_PIPELINE",
+      "group": "STAGE",
+      "description": "Finishes the application's journey successfully, with a flag that ends the pipeline.",
+      "permission": "stage:advance",
+      "exclusive": "STAGE",
+      "terminal": true,
+      "params": [{ "name": "flag", "kind": "STATUS_FLAG_KEY", "required": true, "description": "The terminal flag it finishes with." }]
+    },
+    {
+      "key": "CLOSE_APPLICATION",
+      "group": "STAGE",
+      "description": "Ends the application's journey without success, such as a rejection, with a flag that ends the pipeline.",
+      "permission": "stage:close",
+      "exclusive": "STAGE",
+      "terminal": true,
+      "params": [{ "name": "flag", "kind": "STATUS_FLAG_KEY", "required": true, "description": "The terminal flag it closes with." }]
+    }
+  ]
+}

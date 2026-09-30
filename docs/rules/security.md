@@ -71,18 +71,14 @@ people in the office.
 
 ## Secrets are separated by purpose
 
-Three secrets exist and none is a synonym for another:
+Two secrets exist and none is a synonym for another:
 
 | Secret | Keys | Rotating it |
 | --- | --- | --- |
 | `AUTH_SECRET` | session and challenge signing | signs everybody out |
-| `IDENTIFIER_SECRET` | the digest of transcribed identity numbers | **stops the duplicate check matching anything already recorded**, silently |
 | `ROLE_INVITE_SECRET` | sealed role invitations | invalidates outstanding invitations; recoverable by reissuing |
 
-They are separate precisely so that rotating one does not do the others' damage.
-`IDENTIFIER_SECRET` is the dangerous one: it is effectively set once, because
-every stored digest was made with it, and a new value makes the duplicate check
-pass everything.
+They are separate precisely so that rotating one does not do the other's damage.
 
 Deployed environments take secrets from `wrangler secret put`, never from a
 checked-in file. `.env.example` holds names and never a value.

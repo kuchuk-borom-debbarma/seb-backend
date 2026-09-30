@@ -219,7 +219,7 @@ export const getCurrentSession = async (
    * as a branch inside the guard, which every future guard would have to
    * remember and the direction that mistake fails in is "too permissive".
    */
-  return { ...current, permissions: permissionsOf(current) }
+  return { ...current, permissions: permissionsOf(current), ownedStages: new Set(current.ownedStages) }
 }
 
 /**

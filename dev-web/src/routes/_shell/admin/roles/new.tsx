@@ -54,7 +54,8 @@ function ComposePage() {
       })).access.createRole),
     onMutate: () => setError(null),
     onSuccess: async (role) => {
-      await queryClient.invalidateQueries({ queryKey: rolesQuery.queryKey })
+      // Stale, not waited on: the page this goes to loads what it shows.
+      void queryClient.invalidateQueries({ queryKey: rolesQuery.queryKey })
       // Straight into the editor: the role exists but holds nothing, so the
       // job is not finished and the screen should not pretend it is.
       await navigate({ to: '/admin/roles/$key', params: { key: role.key } })
@@ -73,7 +74,7 @@ function ComposePage() {
       />
 
       <form
-        className="card stack"
+        className="card card-body stack"
         onSubmit={(submitted) => {
           submitted.preventDefault()
           create.mutate()
@@ -87,7 +88,7 @@ function ComposePage() {
             required
             maxLength={80}
             value={name}
-            placeholder="Desk reviewer"
+            placeholder="SBI bank officer"
             onChange={(changed) => setName(changed.target.value)}
           />
         </div>
@@ -100,7 +101,7 @@ function ComposePage() {
             required
             maxLength={63}
             value={key}
-            placeholder="DESK_REVIEWER"
+            placeholder="SBI_BANK"
             onChange={(changed) => setKey(changed.target.value)}
           />
           <p className="field-hint">
@@ -119,7 +120,7 @@ function ComposePage() {
             rows={3}
             maxLength={500}
             value={description}
-            placeholder="Reads casework and completes the desk review checklist."
+            placeholder="Works the State Bank of India stage: sends files back and records the loan."
             onChange={(changed) => setDescription(changed.target.value)}
           />
           <p className="field-hint">
@@ -130,7 +131,7 @@ function ComposePage() {
         {error ? <p className="field-error">{error}</p> : null}
 
         <div className="row">
-          <button type="submit" className="button" disabled={create.isPending}>
+          <button type="submit" className="button" data-variant="primary" disabled={create.isPending}>
             {create.isPending ? 'Composing…' : 'Compose the role'}
           </button>
         </div>

@@ -62,6 +62,14 @@ export const changedStageKeys = (
   template: ResolvedFormTemplate,
   previous: AnswerMap,
   next: AnswerMap,
+  /*
+   * The documents each side pinned, for a caller that reports what changed to
+   * a person. A file question carries no answer, so without these a replaced
+   * file was a change nobody was told about — an officer read "Owners" as all
+   * that changed when the certificate they had asked for was new too. Left out
+   * by the save path, which asks only whether the answers moved.
+   */
+  files?: { previous: PinnedFiles; next: PinnedFiles },
 ): string[] => {
   const changed = new Set<string>()
   for (const field of template.fields) {
@@ -76,10 +84,28 @@ export const changedStageKeys = (
      * change is in scope.
      */
     if (field.repeatGroupKey !== null) continue
+    if (field.type === 'FILE') {
+      if (files && files.previous.get(field.key) !== files.next.get(field.key)) {
+        changed.add(field.stageKey)
+      }
+      continue
+    }
     if (!sameValue(previous[field.key], next[field.key])) changed.add(field.stageKey)
   }
   return template.stages.map((stage) => stage.key).filter((key) => changed.has(key))
 }
+
+/**
+ * The document each file question points at: which document, at which version.
+ * Two sides that pin the same document at the same version attached the same
+ * file; anything else — a replacement, a removal, a first upload — differs.
+ */
+export type PinnedFiles = ReadonlyMap<string, string>
+
+export const pinnedFilesOf = (
+  pins: readonly { fieldKey: string; documentId: string; documentVersion: number }[],
+): PinnedFiles =>
+  new Map(pins.map((pin) => [pin.fieldKey, `${pin.documentId}@${pin.documentVersion}`]))
 
 /** Whether two answer sets say the same thing, by the same rule as the diff. */
 export const answersEqual = (

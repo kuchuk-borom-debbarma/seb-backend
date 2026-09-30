@@ -1,8 +1,7 @@
 /**
  * Queries behind the intake console.
  *
- * Staleness is chosen per query rather than globally. Queue counts move as
- * colleagues work, so they are refreshed often; a queue page is held long
+ * Staleness is chosen per query rather than globally. A list page is held long
  * enough that stepping into an application and back does not refetch, which is
  * the single most common movement in this part of the product.
  */
@@ -10,23 +9,12 @@ import { queryOptions } from '@tanstack/react-query'
 import {
   IntakeByReferenceDocument,
   IntakeQueueDocument,
-  IntakeQueuesDocument,
 } from '#/graphql/generated/operations'
 import type { AdminIntakeQueueInput } from '#/graphql/generated/schema'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
 
 export const QUEUE_PAGE_SIZE = 20
-
-export const queueSummaryQuery = (cycleId?: string) =>
-  queryOptions({
-    queryKey: ['intake-queues', cycleId ?? null],
-    queryFn: async () => {
-      const data = await gql(IntakeQueuesDocument, { cycleId: cycleId ?? null })
-      return unwrap(data.admin.intake.queues).queues
-    },
-    staleTime: 15_000,
-  })
 
 /**
  * One page of a queue.

@@ -10,6 +10,7 @@ import { expect, test, type Page } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
+  choosePipeline,
   WORKER_URL,
   signIn,
   signUpApplicant,
@@ -31,6 +32,7 @@ const createDraftCycle = async (page: Page, prefix: string): Promise<string> => 
   await page.getByLabel('Guidance for applicants').fill('Draft under authoring.')
   const local = (value: Date) => value.toISOString().slice(0, 16)
   await page.getByLabel('Applications open').fill(local(new Date(Date.now() - 3_600_000)))
+  await choosePipeline(page)
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
   return page.url().split('/').pop() as string

@@ -65,7 +65,6 @@ describe('the application PDF', () => {
       answers: {
         ...(completeAnswers() as AnswerMap),
         GOVERNMENT_SCHEME_NAME: 'ত্রিপুরা খাদ্য — ₹ ब्यवसाय 🌾',
-        EXISTING_BANK_NAME: 'আগরতলা ব্যাংক',
       },
       extra: [{ label: 'Approved amount', value: '₹9,000' }],
     })
@@ -81,8 +80,8 @@ describe('the application PDF', () => {
         ...(completeAnswers() as AnswerMap),
         // Numbers where strings are expected, and the reverse.
         GOVERNMENT_SCHEME_NAME: 12345 as unknown as string,
-        TOTAL_PROJECT_COST_PAISE: 'not a number' as unknown as number,
-        EXISTING_CREDIT_STATUS: 'A_VALUE_NO_OPTION_DECLARES',
+        SEED_FUND_REQUESTED_PAISE: 'not a number' as unknown as number,
+        LOAN_BANK_FIRST_CHOICE: 'A_VALUE_NO_OPTION_DECLARES',
       },
     })
     await expect(PDFDocument.load(bytes)).resolves.toBeDefined()

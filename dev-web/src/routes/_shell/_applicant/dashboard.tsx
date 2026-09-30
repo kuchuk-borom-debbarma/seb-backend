@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
 import { applicantDashboardQuery } from '#/features/dashboard/dashboardQueries'
+import { correcting, standingLabel } from '#/features/application/journey'
 import { formatDateTime, formatRelative, humanize } from '#/lib/format'
 import styles from '#/features/dashboard/Dashboard.module.css'
 
@@ -81,9 +82,20 @@ function ApplicantDashboard() {
     data?.applications.nodes.find(
       (application) => application.programmeCycleId === cycleId,
     ) ?? null
-  const revisions = data?.revisions.nodes ?? []
+  /*
+   * Drafts need the applicant; submitted files are listed separately, each
+   * saying where it is in the words its pipeline gives the applicant.
+   */
   const drafts = data?.drafts.nodes ?? []
-  const attention = [...revisions, ...drafts]
+  /*
+   * A submitted file the office has handed back for corrections is the
+   * applicant's move, exactly as a draft is: it belongs under "Needs your
+   * attention", not under "Submitted" saying the office is still checking.
+   */
+  const inPipeline = data?.submitted.nodes ?? []
+  const toCorrect = inPipeline.filter(correcting)
+  const submitted = inPipeline.filter((application) => !correcting(application))
+  const attention = [...toCorrect, ...drafts]
   const firstCycle = cycles[0]
   const firstEnterprise = data?.enterprises.nodes[0]
   const guide = new Map((data?.guide ?? []).map((entry) => [entry.status, entry]))
@@ -92,11 +104,11 @@ function ApplicantDashboard() {
     if (enterprises === 0) {
       return { to: '/enterprises/new', label: 'Register an enterprise' } as const
     }
-    if (revisions[0]) {
+    if (toCorrect[0]) {
       return {
-        to: '/applications/$id/form',
-        params: { id: revisions[0].id },
-        label: 'Continue requested changes',
+        to: '/applications/$id',
+        params: { id: toCorrect[0].id },
+        label: 'Make the corrections',
       } as const
     }
     if (drafts[0]) {
@@ -159,7 +171,9 @@ function ApplicantDashboard() {
                   params={{ id: applicationInCycle(firstCycle.id)!.id }}
                   className={styles.cycleHeroButton}
                 >
-                  View your application
+                  {toCorrect.some((each) => each.id === applicationInCycle(firstCycle.id)!.id)
+                    ? 'Make the corrections asked for'
+                    : 'View your application'}
                   <ArrowRight size={15} aria-hidden="true" />
                 </Link>
               ) : enterprises > 0 ? (
@@ -171,7 +185,17 @@ function ApplicantDashboard() {
                   Apply in this cycle
                   <ArrowRight size={15} aria-hidden="true" />
                 </Link>
-              ) : null}
+              ) : (
+                /*
+                 * An open cycle with no way into it read as a dead end. The
+                 * first step is the enterprise, so the card says so and goes
+                 * there.
+                 */
+                <Link to="/enterprises/new" className={styles.cycleHeroButton}>
+                  Register your enterprise to apply
+                  <ArrowRight size={15} aria-hidden="true" />
+                </Link>
+              )}
             </section>
           ) : (
             <section className={styles.cycleHero} aria-label="Active cycle">
@@ -196,7 +220,26 @@ function ApplicantDashboard() {
                 View all
               </Link>
             </div>
-            {attention.length === 0 ? (
+            {attention.length === 0 && enterprises === 0 ? (
+              /*
+               * With no enterprise there is exactly one thing to do, and
+               * "Nothing needs action" said the opposite.
+               */
+              <div className={styles.applicationList}>
+                <Link to="/enterprises/new" className={styles.applicationRow}>
+                  <Building2 className={styles.rowIcon} aria-hidden="true" />
+                  <span className={styles.rowText}>
+                    <strong>Register your enterprise</strong>
+                    <small>
+                      An application is made for an enterprise, so this comes first.
+                    </small>
+                  </span>
+                  <span className="badge" data-tone="action">
+                    First step
+                  </span>
+                </Link>
+              </div>
+            ) : attention.length === 0 ? (
               <div className={styles.attentionEmpty}>
                 <div className={styles.checkBadge}>
                   <Check size={22} aria-hidden="true" />
@@ -212,10 +255,13 @@ function ApplicantDashboard() {
               <div className={styles.applicationList}>
                 {attention.map((application) => {
                   const status = guide.get(application.status)
+                  const asked = correcting(application)
                   return (
                     <Link
                       key={application.id}
-                      to="/applications/$id/form"
+                      // A correction opens the application's page first, where
+                      // the office's notes say what to change in each section.
+                      to={asked ? '/applications/$id' : '/applications/$id/form'}
                       params={{ id: application.id }}
                       className={styles.applicationRow}
                     >
@@ -226,20 +272,17 @@ function ApplicantDashboard() {
                           {application.referenceNumber ??
                             `Phase ${application.phaseNumber}`}
                           {' · '}
-                          {status?.nextAction ??
-                            status?.label ??
-                            humanize(application.status)}
+                          {asked
+                            ? 'The office asked for corrections. Make them and submit again.'
+                            : (status?.nextAction ??
+                              status?.label ??
+                              humanize(application.status))}
                         </small>
                       </span>
-                      <span
-                        className="badge"
-                        data-tone={
-                          application.status === 'REVISION_REQUIRED'
-                            ? 'action'
-                            : undefined
-                        }
-                      >
-                        {status?.label ?? humanize(application.status)}
+                      <span className="badge" data-tone="action">
+                        {asked
+                          ? standingLabel(application)
+                          : (status?.label ?? humanize(application.status))}
                       </span>
                     </Link>
                   )
@@ -247,6 +290,44 @@ function ApplicantDashboard() {
               </div>
             )}
           </section>
+
+          {submitted.length > 0 ? (
+            <section className={styles.attentionCard} aria-label="Submitted applications">
+              <div className={styles.cardHeader}>
+                <h2 className={styles.cardTitle}>Submitted</h2>
+                <Link to="/applications" className={styles.cardLink}>
+                  View all
+                </Link>
+              </div>
+              <div className={styles.applicationList}>
+                {submitted.map((application) => (
+                  <Link
+                    key={application.id}
+                    to="/applications/$id"
+                    params={{ id: application.id }}
+                    className={styles.applicationRow}
+                  >
+                    <FileText className={styles.rowIcon} aria-hidden="true" />
+                    <span className={styles.rowText}>
+                      <strong>{application.businessName}</strong>
+                      <small>
+                        {application.referenceNumber}
+                        {application.journey?.stageExplanation
+                          ? ` · ${application.journey.stageExplanation}`
+                          : ''}
+                      </small>
+                    </span>
+                    <span
+                      className="badge"
+                      data-tone={application.journey?.ended ? 'ok' : undefined}
+                    >
+                      {standingLabel(application)}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </div>
 
         {/* Readiness Checklist Banners for Empty Data */}
@@ -288,10 +369,17 @@ function ApplicantDashboard() {
                       </small>
                     </div>
                   </div>
-                  <Link to="/applications/new" className={styles.emptyStateAction}>
-                    Start application
-                    <ChevronRight size={15} aria-hidden="true" />
-                  </Link>
+                  {enterprises > 0 ? (
+                    <Link to="/applications/new" className={styles.emptyStateAction}>
+                      Start application
+                      <ChevronRight size={15} aria-hidden="true" />
+                    </Link>
+                  ) : (
+                    // Offered only once it can work: an application needs
+                    // an enterprise, and a button into a refusal is worse
+                    // than saying what comes first.
+                    <span className={styles.emptyStateHint}>After your enterprise</span>
+                  )}
                 </div>
               ) : null}
               {cycles.length === 0 ? (
@@ -315,36 +403,23 @@ function ApplicantDashboard() {
           </section>
         ) : null}
 
-        {/* Bottom Section: Get Started Action Grid */}
-        <section className={styles.getStartedCard} aria-label="Get started">
-          <div className={styles.cardHeader}>
-            <h2 className={styles.cardTitle}>Get started</h2>
-            <Link to="/guide" className={styles.cardLink}>
-              Full guide <ChevronRight size={14} aria-hidden="true" />
-            </Link>
-          </div>
-          <div className={styles.getStartedGrid}>
-            <Link to="/enterprises/new" className={styles.getStartedItem}>
-              <div className={styles.getStartedItemLeft}>
-                <div className={styles.getStartedIconBadge} data-color="blue">
-                  <Building2 aria-hidden="true" />
-                </div>
-                <span className={styles.getStartedLabel}>Register an enterprise</span>
-              </div>
-              <ChevronRight
-                className={styles.getStartedChevron}
-                size={16}
-                aria-hidden="true"
-              />
-            </Link>
-            {cycles.some((cycle) => applicationInCycle(cycle.id) === null) &&
-            enterprises > 0 ? (
-              <Link to="/applications/new" className={styles.getStartedItem}>
+        {/* Bottom Section: Get Started Action Grid — only once set up, since
+            until then the readiness list above offers the same steps. */}
+        {enterprises > 0 && applications > 0 ? (
+          <section className={styles.getStartedCard} aria-label="Get started">
+            <div className={styles.cardHeader}>
+              <h2 className={styles.cardTitle}>Get started</h2>
+              <Link to="/guide" className={styles.cardLink}>
+                Full guide <ChevronRight size={14} aria-hidden="true" />
+              </Link>
+            </div>
+            <div className={styles.getStartedGrid}>
+              <Link to="/enterprises/new" className={styles.getStartedItem}>
                 <div className={styles.getStartedItemLeft}>
-                  <div className={styles.getStartedIconBadge} data-color="green">
-                    <FilePlus2 aria-hidden="true" />
+                  <div className={styles.getStartedIconBadge} data-color="blue">
+                    <Building2 aria-hidden="true" />
                   </div>
-                  <span className={styles.getStartedLabel}>Start an application</span>
+                  <span className={styles.getStartedLabel}>Register an enterprise</span>
                 </div>
                 <ChevronRight
                   className={styles.getStartedChevron}
@@ -352,22 +427,38 @@ function ApplicantDashboard() {
                   aria-hidden="true"
                 />
               </Link>
-            ) : null}
-            <Link to="/cycles" className={styles.getStartedItem}>
-              <div className={styles.getStartedItemLeft}>
-                <div className={styles.getStartedIconBadge} data-color="purple">
-                  <CalendarDays aria-hidden="true" />
+              {cycles.some((cycle) => applicationInCycle(cycle.id) === null) &&
+              enterprises > 0 ? (
+                <Link to="/applications/new" className={styles.getStartedItem}>
+                  <div className={styles.getStartedItemLeft}>
+                    <div className={styles.getStartedIconBadge} data-color="green">
+                      <FilePlus2 aria-hidden="true" />
+                    </div>
+                    <span className={styles.getStartedLabel}>Start an application</span>
+                  </div>
+                  <ChevronRight
+                    className={styles.getStartedChevron}
+                    size={16}
+                    aria-hidden="true"
+                  />
+                </Link>
+              ) : null}
+              <Link to="/cycles" className={styles.getStartedItem}>
+                <div className={styles.getStartedItemLeft}>
+                  <div className={styles.getStartedIconBadge} data-color="purple">
+                    <CalendarDays aria-hidden="true" />
+                  </div>
+                  <span className={styles.getStartedLabel}>Check programme cycles</span>
                 </div>
-                <span className={styles.getStartedLabel}>Check programme cycles</span>
-              </div>
-              <ChevronRight
-                className={styles.getStartedChevron}
-                size={16}
-                aria-hidden="true"
-              />
-            </Link>
-          </div>
-        </section>
+                <ChevronRight
+                  className={styles.getStartedChevron}
+                  size={16}
+                  aria-hidden="true"
+                />
+              </Link>
+            </div>
+          </section>
+        ) : null}
       </div>
     </main>
   )

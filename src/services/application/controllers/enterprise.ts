@@ -204,12 +204,12 @@ const changeEnterpriseDeletion = async (
   }
   if (deleted) {
     // Named individually so the applicant can act on the list instead of
-    // hunting for whichever draft or award is holding the enterprise open.
+    // hunting for whichever application is holding the enterprise open.
     const blockers = await listEnterpriseDeletionBlockers(context.db, applicant.id, input.id)
     if (blockers.length > 0) {
       return {
         ...failure(
-          'Delete all drafts first. Submitted applications and awards retain their enterprise.',
+          'Delete all drafts first. Submitted applications retain their enterprise.',
         ),
         blockers,
       }

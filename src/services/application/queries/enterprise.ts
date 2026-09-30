@@ -7,7 +7,6 @@ import {
   sebApplication,
   sebEnterprise,
   sebEnterpriseVersion,
-  sebFundingAward,
   sebFundingCase,
   sebFundingCaseVersion,
 } from '../../../db/schema'
@@ -341,7 +340,7 @@ export const updateEnterpriseAggregate = async (
  *
  * Ownership scoping belongs in this read as well as in the final write.
  * Without it the richer response would reveal whether another applicant's
- * opaque enterprise ID has application or award history.
+ * opaque enterprise ID has application history.
  */
 export const listEnterpriseDeletionBlockers = async (
   db: Database,
@@ -353,26 +352,19 @@ export const listEnterpriseDeletionBlockers = async (
       applicationId: sebApplication.id,
       referenceNumber: sebApplication.referenceNumber,
       status: sebApplication.status,
-      awardId: sebFundingAward.id,
     })
     .from(sebApplication)
-    .leftJoin(sebFundingAward, eq(sebFundingAward.applicationId, sebApplication.id))
     .where(
       and(
         eq(sebApplication.enterpriseId, enterpriseId),
         eq(sebApplication.applicantUserId, userId),
-        // A live application blocks deletion. So does a deleted one that still
-        // has an award, because the award has to keep its enterprise.
-        or(isNull(sebApplication.deletedAt), isNotNull(sebFundingAward.id)),
+        // A live application blocks deletion. Only a draft can be deleted, so
+        // a submitted application always blocks: it keeps its enterprise.
+        isNull(sebApplication.deletedAt),
       ),
     )
-    .orderBy(asc(sebApplication.phaseNumber), asc(sebApplication.createdAt))
-  return rows.map((row) => ({
-    applicationId: row.applicationId,
-    referenceNumber: row.referenceNumber,
-    status: row.status,
-    hasAward: row.awardId !== null,
-  }))
+    .orderBy(asc(sebApplication.createdAt))
+  return rows
 }
 
 export const setEnterpriseDeleted = async (
@@ -394,13 +386,8 @@ export const setEnterpriseDeleted = async (
     ? sql`NOT EXISTS (
         SELECT 1
         FROM ${sebApplication}
-        LEFT JOIN ${sebFundingAward}
-          ON ${sebFundingAward.applicationId} = ${sebApplication.id}
         WHERE ${sebApplication.enterpriseId} = ${input.enterpriseId}
-          AND (
-            ${sebApplication.deletedAt} IS NULL
-            OR ${sebFundingAward.id} IS NOT NULL
-          )
+          AND ${sebApplication.deletedAt} IS NULL
       )`
     : undefined
   const statePredicate = input.deleted

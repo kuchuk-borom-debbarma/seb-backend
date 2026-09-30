@@ -18,70 +18,69 @@ enterprises because one promoter can operate more than one business. Each
 current canonical profile.
 
 Each enterprise has one long-lived `seb_funding_case`. The case is the complete
-Mission SEP funding history for that enterprise across policy years. It groups
-the initial application, any later expansion applications, awards,
-disbursements, and assessments.
+Mission SEP funding history for that enterprise across policy years: every
+application it makes, of every kind.
 
 ```text
 core_user
   └── seb_enterprise (one user may own many)
         └── seb_funding_case (exactly one per enterprise)
-              ├── seb_application: INITIAL, phase 1
-              │     └── seb_funding_award
-              │           ├── seb_disbursement
-              │           └── seb_award_assessment
-              └── seb_application: EXPANSION, phase 2 or greater
-                    └── links to one qualifying earlier award
+              ├── seb_application: kind INITIAL, phase 1
+              │     └── seb_application_stage_action (its pipeline history)
+              └── seb_application: kind EXPANSION, phase 2 or greater
 
-seb_programme_cycle
-  └── identifies the policy/application window for each application
+seb_programme_cycle ── seb_programme_cycle_version
+  ├── its form, its application kinds and their eligibility rules
+  └── pins one published seb_pipeline_version when it opens
+
+seb_pipeline
+  ├── seb_pipeline_version (a frozen JSONB definition; one draft at a time)
+  │     └── seb_pipeline_version_stage (its stages, as foreign-key targets)
+  └── seb_pipeline_stage (a stage's identity across versions)
+        └── seb_pipeline_stage_owner (which roles work it, with history)
 ```
+
+The kinds are the cycle's own: `INITIAL` and `EXPANSION` above are what a
+cycle might declare, not values the schema knows.
 
 The expected application lifecycle is:
 
 1. The applicant signs up and verifies their email.
 2. They create or select an enterprise. A new enterprise also receives its one
    Mission SEP funding case.
-3. They start an application in an open programme cycle. The first application
-   is `INITIAL` with phase `1`; later applications are `EXPANSION` with phase
-   `2` or greater.
+3. They start an application of one of the kinds an open programme cycle
+   declares, if its eligibility rules hold. The application records its kind,
+   its phase number, and the pipeline version the cycle pinned.
 4. Meaningful saves create immutable `seb_application_version` rows pinning
-   the exact programme-cycle version and phase classification. The answers
-   themselves are sparse `seb_application_version_answer` rows keyed by the
-   template's field keys — one row per answered value, no row at all for an
-   unanswered question.
+   the exact programme-cycle version, kind and phase. The answers themselves
+   are sparse `seb_application_version_answer` rows keyed by the template's
+   field keys — one row per answered value, no row at all for an unanswered
+   question.
 5. Documents occupy stable logical slots in `seb_application_document`.
    Replacements create new immutable file versions with new storage object keys.
 6. Submission creates an append-only `seb_application_submission` and
    `seb_application_submission_document` rows pointing to the exact form and
-   file versions reviewed by TTAADC.
-7. Review transitions and applicant-visible messages are recorded in
-   `seb_application_event`. A correction request is added as a
-   `seb_revision_request`; an incorrect request is cancelled and replaced, not
-   edited.
-8. Assignment, desk review, offline bank evidence, and programme decision
-   records retain the complete administrative path without editing older facts.
-9. A sanctioned application receives one `seb_funding_award`. Releases and
-   compensating reversals are recorded in the append-only disbursement ledger,
-   while utilization, performance, and audit results accumulate as assessments.
-10. Every release creates a separate 180-day utilization obligation. A
-   cancelled award with retained funds may open a versioned recovery case whose
-   entries remain append-only.
-11. An expansion application links to one authoritative earlier award through
-   `seb_application_qualifying_award`. Corrections and cancellations create
-   immutable `seb_application_qualifying_award_version` rows, so an incorrect
-   association is never overwritten or deleted. The future application service
-   derives eligibility from the preceding phase, retained disbursement dates,
-   and competing applications rather than trusting a manual
-   Phase-II flag.
+   file versions the office reads. The head moves from `DRAFT` to
+   `IN_PIPELINE`, enters its pinned pipeline version's initial stage, and gains
+   the flags the pipeline adds on submission.
+7. Every action an officer takes at a stage is one append-only
+   `seb_application_stage_action` row, and the same statement updates the head:
+   its stage, its trail of stages, its status flags and its recorded values.
+   Applicant-visible messages go to `seb_application_event`. A correction
+   request is a `seb_revision_request`; an incorrect request is cancelled and
+   replaced, not edited.
+8. A resubmission resolves the open requests, leaves the file at the stage
+   that asked, and removes the flag that let the applicant edit.
+9. A terminal flag ends the journey: the head keeps `IN_PIPELINE` and its flags,
+   and sits at no stage.
 
 ## Why the schema has both current rows and versions
 
 Mutable business roots—enterprise, programme cycle, funding case, application,
-document, award, and qualifying-award link—store stable IDs and the small
-set of current fields needed for fast lists, ownership checks, uniqueness, and
-optimistic concurrency. Each root also has a dedicated immutable version table
-containing the complete state accepted at that version.
+and document—store stable IDs and the small set of current fields needed for
+fast lists, ownership checks, uniqueness, and optimistic concurrency. Each root
+also has a dedicated immutable version table containing the complete state
+accepted at that version.
 
 This intentional duplication serves two different questions:
 
@@ -94,9 +93,9 @@ but an older `seb_application_version.business_name` never changes. Reviewers
 therefore always see the form that was actually submitted, not today's
 enterprise profile.
 
-Version rows, submissions, events, disbursements, and assessments are
-append-only contracts. Service/query modules must expose no update or delete
-functions for them. Database triggers are intentionally not used; the service
+Version rows, submissions, events, stage actions, and published pipeline
+versions are append-only contracts. Service/query modules must expose no update
+or delete functions for them. Database triggers are intentionally not used; the service
 layer will guard version creation and use `current_version` or `status_version`
 for optimistic concurrency.
 
@@ -153,26 +152,13 @@ for optimistic concurrency.
   complete immutable profile history.
 - `seb_programme_cycle` / `seb_programme_cycle_version`: versioned Mission SEP
   policy/application windows such as 2026 and later cycles.
-- `seb_programme_cycle_assessment_rule`, `seb_programme_cycle_identifier_rule`:
-  what one cycle version demands. Both carry a
-  composite foreign key on `(programme_cycle_id, programme_cycle_version)`, so a
-  rule belongs to a *version* and editing a cycle cannot change what an
-  already-submitted application is judged by. There is deliberately no
-  document-rule table: which documents a cycle demands is expressed by `FILE`
-  fields in the form template below, and a document slot names its `field_key`.
-
-  The identifier rules carry **two independent settings**, which is the point of
-  the table. `requirement` is `REQUIRED_ON_PASS`, `OPTIONAL` or `OFF`;
-  `duplicate_policy` is `CHECKED` or `NOT_CHECKED`. A bank account can be
-  collected without a match ever blocking anybody — joint and family accounts
-  are real — and a certificate can be compared without being demanded when its
-  check is `NOT_APPLICABLE`. A `CHECK` enforces that `REQUIRED_ON_PASS` names a
-  real desk-review check and that nothing else names one, because only a
-  requirement conditional on a check has a moment at which it applies.
-
-  **No rows means the cycle demands nothing and compares nothing.** That is the
-  honest default for a table that did not exist yesterday, and it is what keeps
-  cycles created before it working unchanged.
+- `seb_programme_cycle_application_kind` /
+  `seb_programme_cycle_application_kind_rule`: the kinds of application one
+  cycle version accepts — a key, a label, an order — and the eligibility rules
+  of each, as a rule type from the workflow catalogue with its parameters as a
+  small bounded JSONB object. Pinned to the cycle version and copied forward
+  like the form. The rule types are a `CHECK`; what their parameters mean is
+  parsed by the rule's own evaluator in `services/application/eligibility`.
 - `seb_programme_cycle_form_stage`, `seb_programme_cycle_form_field`,
   `seb_programme_cycle_form_field_option`,
   `seb_programme_cycle_form_field_condition`: the application form itself, as
@@ -199,14 +185,20 @@ for optimistic concurrency.
   authoring time, so the engine, answer storage, and renderer never read these
   tables; they exist for the authoring round trip, which strips the derived
   rows and shows the definition instead.
-- `seb_programme_cycle_reason` / `seb_programme_cycle_event`: the cycle
-  version's decision-reason catalogue, and the append-only cycle lifecycle
-  timeline.
+- `seb_programme_cycle_form_rule` / `seb_programme_cycle_form_rule_operand`:
+  a form's rules about several answers at once — "a grant, a loan, or both",
+  "the two banks differ". A rule has a type from the workflow catalogue, the
+  stage its refusal is shown on, a message, and a limit only where its type
+  takes one (a `CHECK` spells out both arms). Each operand is a composite
+  foreign key onto `(cycle, version, field_key, field_type)`, so a rule cannot
+  read a question the form does not ask, or read it as the wrong type.
+- `seb_programme_cycle_event`: the append-only cycle lifecycle timeline.
 - `seb_funding_case` / `seb_funding_case_version`: the enterprise's single
   long-running Mission SEP funding chain.
-- `seb_application` / `seb_application_version`: current workflow head and
-  immutable per-save rows pinning the cycle version, classification, expansion
-  facts, and the server-computed category.
+- `seb_application` / `seb_application_version`: current head and immutable
+  per-save rows pinning the cycle version, kind, phase and the server-computed
+  category. The head also carries where the file is in its pipeline — see
+  [Pipelines](#seb-pipelines-and-the-stage-history) below.
 - `seb_application_version_answer`: what the applicant answered, one sparse row
   per value. Composite foreign keys make an answer for a question the pinned
   cycle version never asked impossible in SQL; `entry_index` addresses repeated
@@ -221,44 +213,100 @@ for optimistic concurrency.
   result must be accepted before staff download.
 - `seb_revision_request`: immutable reviewer correction requests and their
   resolution or cancellation metadata.
-- `seb_application_event`: append-only applicant-facing workflow timeline.
-- `seb_application_assignment_event`: append-only history of who a file passed
-  to; the head keeps only the most recent for fast queues. **Advisory, not a
-  lock** — nothing reads it to decide whether a write is allowed, and it is
-  written as a side effect of the work rather than as a step before it.
+- `seb_application_event`: append-only applicant-facing timeline. An event a
+  stage action produced names it by `stage_action_id`, a composite foreign key
+  that also proves it belongs to the same application.
 - `seb_application_internal_note`: staff-only append-only notes and corrections.
-- `seb_desk_review` / `seb_desk_review_check`: frozen submission outcome and
-  fixed initial scrutiny checklist. `conflict_acknowledged` records whether the
-  reviewer declared the application was their own — permitted with disclosure,
-  and the disclosure is kept beside the judgement it qualifies.
-- `seb_desk_review_identifier`: append-only record of the numbers a reviewer
-  read off the documents a check passed. Stores a normalized value for public
-  instruments and a keyed digest for identity and bank numbers, never the whole
-  number — only the last four digits, so a reviewer can confirm by eye.
-  Carries a copy of `funding_case_id` so the duplicate question is one seek
-  rather than a walk through reviews and applications; the copy cannot drift
-  because an application's funding case is fixed when it is created.
-- `seb_partner_bank_referral` / version / outcome: offline bank identity,
-  referral lifecycle, feedback, and superseding corrections.
-- `seb_programme_decision`: append-only decisions on an application, each
-  pinning the submission and bank outcome that were in front of the decider. A
-  decision carries its own `conflict_acknowledged`, and so does each superseding
-  correction, because each is a separate act by a possibly different officer.
 
-### `seb`: awards and derived expansion eligibility
+### `seb`: pipelines and the stage history
 
-- `seb_funding_award` / `seb_funding_award_version`: the authoritative sanction
-  created for one application.
-- `seb_application_qualifying_award` /
-  `seb_application_qualifying_award_version`: the current earlier-award link and
-  immutable link/correction/cancellation history for an expansion application.
-- `seb_disbursement`: positive release and reversal ledger entries; corrections
-  use compensating reversals, never updates.
-- `seb_utilization_obligation`: one 180-day evidence deadline per release.
-- `seb_award_assessment`: retained utilization, performance, and financial-audit
-  results. The highest assessment number for each award and type is current.
-- `seb_recovery_case` / version / entry: current recovery state, immutable
-  lifecycle history, and append-only demands, receipts, waivers, and reversals.
+The post-submission workflow is configured, not coded, so these tables hold
+configuration and its history rather than one table per desk. The narrative is
+the [pipeline guide](../../../docs/pipeline-guide.md).
+
+- `seb_pipeline`: a pipeline's identity — key, name, description — and the
+  version a cycle may pin today. Retired together or not at all: retirement
+  time, actor and reason are one `CHECK` group.
+- `seb_pipeline_version`: one version's whole shape as a **frozen JSONB
+  document** (`definition`, at most 256 KB) — its stages, actions, inputs,
+  effects, status flags and recorded values. `status` is `DRAFT` or
+  `PUBLISHED`; a partial unique index allows one draft per pipeline, and
+  `revision` guards the draft against two authors interleaving edits. A
+  published version is never updated: every write predicate names
+  `status = 'DRAFT'`, and a `CHECK` ties `published_at` and its publisher to the
+  status.
+- `seb_pipeline_stage`: a stage's identity across every version of its
+  pipeline, created the first time a draft names the key, so owners can be set
+  before publishing. `owners_version` guards the owner list.
+- `seb_pipeline_stage_owner`: which roles work a stage, kept like grants —
+  closed rather than deleted, with who and why. A partial unique index allows
+  one live row per role and stage; a partial index on `role_id` serves the
+  session query, which reads a person's owned stages with their permissions.
+- `seb_pipeline_version_stage`: the stages of one published version,
+  materialised from its document at publish so an application's stage and its
+  action history are foreign keys rather than strings nothing checks. A partial
+  unique index allows exactly one initial stage per version.
+- `seb_application_stage_action`: every action taken on an application at a
+  stage — the stage, the action, the actor, where the file went, what the
+  officer entered (normalized by the form engine, at most 64 KB), the flags
+  added and removed, the values recorded, the form stages sent back, and
+  whether the actor disclosed acting on their own application. Append-only.
+  `status_version` is the version the action produced, and it is unique per
+  application: a second guard, beside the head's, that two racing actions
+  cannot both land. An index on `(actor_user_id, application_id)` answers
+  "files I have acted on".
+
+**Why the definition is a document when the form is rows.** The rule stated
+under [Integrity rules](#integrity-rules) — a document cannot be a foreign-key
+target — decides both. The form's whole job is to be referenced: an answer, a
+document slot, a revision request each name part of it. Of a pipeline, only the
+stages are referenced (by an application, its actions, and a stage's owners),
+so only the stages are rows. The rest is referenced by nothing, and rows would
+add a join to every read without adding a guarantee. The document is
+zod-parsed against the workflow catalogue on every save, publish and load, so
+stored configuration naming an effect the code no longer has fails closed.
+
+**The head carries its pipeline state.** On `seb_application`:
+
+| Column | Holds |
+| --- | --- |
+| `pipeline_id`, `pipeline_version` | the version the application is worked in — its cycle's pin, copied when it starts |
+| `current_stage_key`, `stage_entered_at` | where it is and since when; null before submission and after the journey ends |
+| `stage_trail` | the stages it came through, newest last — what "send back" returns along |
+| `status_flags` | the configured flags it holds now |
+| `recorded_values` | values actions recorded, such as the approved grant, by their declared key |
+| `application_kind` | which of its cycle's kinds it is |
+
+`status` itself is reduced to `DRAFT` and `IN_PIPELINE`, the one line nothing
+configurable may move: before the first submission the applicant owns the
+form, after it the pipeline does. Everything an office would call a status is
+a flag. A `CHECK` ties status to stage with every NULL arm spelled out — a
+draft is at no stage; a file in its pipeline is at a stage with the time it
+arrived, or at none because its journey ended.
+
+**Flags and the trail are `text[]` on the head, not rows.** The guarded update
+that moves a file changes its flags in the same row write, so keeping them on
+the head costs no extra statement and needs no cross-row consistency; their
+history is on the action rows. `CHECK`s bound them (at most 32 flags, 64 trail
+entries, each a valid key, no NULL element) and `recorded_values` (an object of
+at most 8 KB). A GIN index on `status_flags` serves "every file holding this
+flag" across stages; `(pipeline_id, current_stage_key, stage_entered_at, id)`,
+partial on live files at a stage, is the stage queue's seek and its keyset
+order in one; `(pipeline_id, status, status_changed_at)` serves the
+office-wide list.
+
+**What went.** Migration `0003_pipelines.sql` dropped the fixed workflow's
+tables — desk review with its checks and transcribed identifiers, the
+partner-bank referral with its versions and outcome, the programme decision,
+funding awards, disbursements, utilization obligations, award assessments,
+recovery cases with their versions and entries, qualifying awards, assignment
+events — and the cycle's assessment rules, identifier rules and reason
+catalogue. It also dropped the head's assignment columns, the application
+type, the expansion facts on the version row, and the cycle's partner-bank
+guidance and expansion wait. It emptied every application and cycle, because
+the data was QA-only and an application cannot be carried into a pipeline that
+did not exist when it was worked; users, roles, grants, enterprises, funding
+cases, announcements and the activity history were kept.
 
 ## How the application form maps to snapshots
 
@@ -268,13 +316,9 @@ four form-template tables, and a save stores what was answered as rows in
 is an authoring act, not a schema change. What `seb_application_version`
 itself still carries as typed columns is only what the server owns:
 
-- Classification: exact programme-cycle version, initial/expansion type, and
+- Classification: exact programme-cycle version, the application's kind, and
   phase number. These remain historical even if the current heads are
   corrected.
-- Expansion facts: prior sanction order/date, net retained disbursement, and
-  continuous-operation months, derived by the backend from the qualifying
-  award and append-only ledger — an applicant must never be able to assert
-  them, so they are never answers.
 - Declaration acceptance time, and the `application_category` (`CATEGORY_A` or
   `CATEGORY_B`) the server computes at submission from the enterprise's
   establishment date against the cycle's threshold.
@@ -290,8 +334,9 @@ Evidence lives in its own versioned document tables rather than inside any
 snapshot; a document slot names the `FILE` field it satisfies by `field_key`.
 
 There is deliberately no `is_phase_two` or `is_expansion_funding` Boolean:
-`application_type`, `phase_number`, the funding case, and the qualifying award
-express the relationship without contradictory state.
+`application_kind`, `phase_number` and the funding case express the
+relationship without contradictory state, and whether a kind may be started is
+the cycle's eligibility rules over the enterprise's history.
 
 ## Integrity rules
 
@@ -300,13 +345,15 @@ query is wrong:
 
 - An application's applicant must be the portal owner of its enterprise.
 - An application's funding case must belong to that same enterprise.
-- An award's application must belong to the award's funding case.
-- A qualifying application and qualifying award must belong to the same case.
-- A qualifying-award correction retains its previous award in an immutable
-  version; cancellation clears only the current unique pointer.
-- A reversal can reference only a disbursement from the same award.
-- Submissions, revisions, and events can reference records only from their own
-  application.
+- An application's pipeline version, and its current stage, must exist:
+  `(pipeline_id, pipeline_version, current_stage_key)` references the
+  published version's materialised stages, so a file cannot sit at a stage its
+  version does not have.
+- A stage action's stage, and the stage it sent the file to, must be stages of
+  the same pinned version.
+- A stage's owner must be a real stage of that pipeline, and a real role.
+- Submissions, revisions, events and stage actions can reference records only
+  from their own application.
 
 Foreign keys use `RESTRICT`/`NO ACTION`; none use `CASCADE`. Business roots are
 soft-deleted with `deleted_at`, `deleted_by_user_id`, and `delete_reason`, so an
@@ -315,26 +362,25 @@ cannot silently be reused. Sessions are the deliberate exception and are
 physically removed to prevent unbounded accumulation.
 
 Some rules require an atomic multi-row decision and therefore belong to guarded
-services, not one row-level check. Expansion eligibility verifies the preceding
-phase, same enterprise/case, the target cycle’s calendar wait, every required
-latest utilization/performance/financial-audit result, and no competing active
-application. Award creation verifies the latest effective decision. Ledger
-writes enforce sanction limits and prevent over-reversals; recovery balances
-and zero-balance closure are recalculated inside write predicates.
-Closed awards retain whether releases were complete or a remainder was
-deliberately not released. Recovery cases may be cancelled only while their
-append-only ledger is empty; after the first entry, corrections and zero-balance
-closure preserve the accounting trail.
+services, not one row-level check. A stage action's write repeats, inside its
+predicate, the status version, the stage the officer was looking at, and the
+pinned pipeline version. Eligibility is evaluated over the enterprise's whole
+history in one read. What an action may do to a file — at most one move, a
+return only along the file's own trail, a bound on an approved amount — is
+decided by the pure engine in `services/pipeline` before the write, and the
+write can only carry out that decision.
 
-Cycle rules — the form template, assessment and reason rules — are normalized
-rows rather than a JSON document, and the reason survives any engine: **a
-document cannot be a foreign-key target**, and the template's entire job is to
-be referenced. A document slot names a file field, a revision request names a
+Cycle rules — the form template, its cross-field rules, and the application
+kinds — are normalized rows rather than a JSON document, and the reason
+survives any engine: **a document cannot be a foreign-key target**, and the
+template's entire job is to be referenced. A document slot names a file field, a revision request names a
 stage, an option belongs to a field, an answer names the question it answers.
 Against a JSON column every one of those becomes an assertion in application
 code. Rows also make cross-row uniqueness a one-line index and let two cycle
-versions be diffed in SQL. JSON text remains reserved for small allow-listed
-audit and event metadata.
+versions be diffed in SQL. JSON is reserved for what nothing references: audit
+payloads, a pipeline definition (whose referenced part, its stages, is rows),
+an eligibility rule's parameters, an action's inputs, and the values a file has
+recorded — each bounded in size by a `CHECK`.
 
 ## Versions and concurrency
 
@@ -346,23 +392,20 @@ not collide.
 | Column | On | Guards |
 | --- | --- | --- |
 | `current_version` | every versioned head | content edits |
-| `status_version` | `seb_application` | workflow transitions |
-| `assignment_version` | `seb_application` | who worked it last |
-| `ledger_version` | `seb_funding_award`, `seb_recovery_case` | money entries |
+| `status_version` | `seb_application` | submission and every stage action |
+| `revision` | `seb_pipeline_version` | edits to a pipeline draft |
+| `owners_version` | `seb_pipeline_stage` | who owns a stage |
 | `row_version` | `core_user` | identity edits |
 | sequence numbers | every append-only table | ordering, unique-indexed |
 
-Separating them is what lets two officers work without fighting: noting who
-worked a file bumps `assignment_version` and nothing else, so it cannot
-invalidate a colleague's in-flight desk review, and recording a payment bumps
-`ledger_version` without manufacturing an award-policy version for an accounting
-entry.
+Separating them is what lets unrelated work proceed without fighting: an
+applicant editing a draft bumps `current_version` and cannot invalidate an
+action on the file's stage, and changing who owns a stage bumps
+`owners_version` without touching the pipeline's draft or anybody's file.
 
 These surface at the API as mandatory `expectedVersion`,
-`expectedStatusVersion`, `expectedLedgerVersion`, `expectedReferralVersion` and
-`expectedDocumentVersion` inputs. `assignment_version` is deliberately **not**
-among them: nothing asks a caller to have seen a particular assignment, because
-the assignment does not gate anything.
+`expectedStatusVersion` and `expectedDocumentVersion` inputs, and their
+pipeline equivalents.
 
 ### The guarded-write shape
 
@@ -376,8 +419,8 @@ One data-modifying statement, which is implicitly atomic:
    timestamp: it is the same tuple, not a value that two requests could share.
 3. The update's row count decides the outcome.
 
-A losing request therefore writes nothing at all — no half-applied referral,
-no orphaned audit row — and is told `The record changed. Reload and try
+A losing request therefore writes nothing at all — no half-applied stage
+action, no orphaned audit row — and is told `The record changed. Reload and try
 again.`
 
 The audit row doubles as the operation's unique identity: dependent writes
@@ -385,9 +428,9 @@ require its exact ID rather than correlating on `updated_at`, because two
 independent requests may legitimately share the same millisecond.
 
 Some rules cannot be a row-level check because they are a decision across many
-rows — expansion eligibility, sanction limits, over-reversal, zero-balance
-closure. Those live in the guarded service predicates, described in
-[the services README](../../services/README.md).
+rows — eligibility over an enterprise's history, where a stage action may send
+a file, a bound on an approved amount. Those live in the guarded services,
+described in [the services README](../../services/README.md).
 
 ## Searching
 
@@ -438,8 +481,10 @@ middle. Until it is enabled the interface must go on saying "starts with".
   a scan.
 - A composite foreign key needs a unique **constraint**, not a unique index; see
   "Changing a table that already exists" below for why.
-- JSON is limited to safe audit/event metadata — for audit rows, the declared
-  payloads of `services/audit-vocabulary` — never form fields or files.
+- JSON is limited to what nothing references: audit payloads (the declared
+  payloads of `services/audit-vocabulary`), pipeline definitions, eligibility
+  rule parameters, stage-action inputs and recorded values — never the form's
+  questions, answers or files, and always bounded by a `CHECK`.
 
 ## Current assumptions
 
@@ -450,7 +495,7 @@ middle. Until it is enabled the interface must go on saying "starts with".
   that primary owner.
 - Each enterprise has exactly one long-lived Mission SEP funding case.
 - The first application is phase 1 and later phases are generic, not limited to
-  Phase II.
+  Phase II. Which kinds exist is each cycle's configuration.
 - Application versions are full snapshots made on meaningful saves, not on
   every keystroke.
 - The TTAADC policy/application form is authoritative when it differs from the
@@ -459,12 +504,12 @@ middle. Until it is enabled the interface must go on saying "starts with".
   A resolved policy can later be represented in programme-cycle policy data and
   submission validation.
 - No programme cycle is seeded by the base schema.
-- Administrative cycle, intake, desk review, offline-bank, decision, award,
-  release, assessment, recovery, and role-management services exist, as do
-  account self-service (password reset, email change), a malware scanner
+- Administrative cycle, intake, pipeline and role-management services exist,
+  as do account self-service (password reset, email change), a malware scanner
   behind a swappable seam (Cloudmersive; a permissive transport until its key
   is configured), and best-effort email notification with PDF attachments.
-  Payment integration remains a public-launch blocker.
+  Money after approval — sanction, releases, assessments, recovery — is not
+  tracked; payment integration remains a public-launch blocker.
 - `database/schema.sql` is the whole schema and is generated, never hand-edited.
   Databases are built and changed by the ordered chain under
   `database/migrations/` — `db:generate` writes the next file from the
@@ -542,11 +587,14 @@ tables that moved — which is what keeps `database/schema.sql` a description of
 the schema rather than a second copy of it.
 
 Then `npm run db:generate` writes the change as the chain's next migration,
-and `npm run db:migrate` carries every database forward. Migrations never
-guard with `IF NOT EXISTS`, deliberately: the guard would make a re-run *look*
-successful against a table already present in an older shape, leaving the
-database on the old definition while the code assumes the new one — run-once
-is what the chain's bookkeeping is for.
+and `npm run db:migrate` carries every database forward. Hand-harden the
+generated file so it is **idempotent** — `IF EXISTS`, `IF NOT EXISTS`,
+constraints guarded by a `pg_constraint` lookup, data changes guarded so a
+second run is a no-op — name every destructive step in a comment, and add no
+triggers. A guard alone could hide a table left in an older shape, which is why
+`npm run check:migration` rehearses the chain over seeded data, runs it twice,
+and asserts the destination is exactly `database/schema.sql`. The rule and its
+reason are in [the code rules](../../../docs/rules/code.md).
 
 **One ordering rule is not obvious.** A composite foreign key needs its
 referenced columns covered by a unique **constraint**, and generated DDL

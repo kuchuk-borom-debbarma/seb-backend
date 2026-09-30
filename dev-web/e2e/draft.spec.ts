@@ -18,7 +18,7 @@ test.describe('the application form', () => {
     await page.context().clearCookies()
   })
 
-  test('saves answers as they are typed and says so', async ({ page }) => {
+  test('saves answers when Save is pressed, and says so', async ({ page }) => {
     const id = await startApplication(page, {
       cycleCode,
       prefix: 'draft',
@@ -26,10 +26,13 @@ test.describe('the application form', () => {
     })
     await page.goto(`/applications/${id}/form`)
 
-    await page.getByRole('button', { name: 'Add owners' }).click()
+    await page.getByRole('button', { name: 'Add owner', exact: true }).click()
     await page.getByLabel('Full name').fill('Bethel Debbarma')
-    // Autosave is debounced, so the indicator is the honest signal that the
-    // server has the answer — not the keystroke.
+    // Nothing is saved on a timer: the answer waits, said to be unsaved, until
+    // the applicant saves it — and the indicator is the server's word, not
+    // the click's.
+    await expect(page.getByText('Unsaved changes')).toBeVisible()
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
 
     await page.reload()
@@ -94,9 +97,9 @@ test.describe('the application form', () => {
     const rail = page.getByRole('navigation', { name: 'Form categories' })
     for (const title of [
       'Owners',
-      'Project cost and funding',
-      'Previous support and credit',
-      'Evidence',
+      'Funding requested',
+      'Previous support',
+      'Documents',
     ]) {
       await expect(rail.getByText(title, { exact: true })).toBeVisible()
     }
@@ -123,17 +126,52 @@ test.describe('the application form', () => {
     await government.getByLabel('Yes').check()
     await expect(page.getByLabel('Scheme')).toBeVisible()
 
-    await expect(page.getByLabel('Bank', { exact: true })).toBeHidden()
-    const credit = page.getByRole('group', {
-      name: 'Does this enterprise have existing bank credit?',
-    })
-    await credit.getByLabel('Yes').check()
-    await expect(page.getByLabel('Bank', { exact: true })).toBeVisible()
-
     // "No" is a complete answer, not the absence of one, and it puts the
     // details away again.
     await government.getByLabel('No').check()
     await expect(page.getByLabel('Scheme')).toBeHidden()
+
+    // The same on the funding stage: the banks and the amount are asked only
+    // of somebody who wants a loan.
+    await page.goto(`/applications/${id}/form?stage=FINANCIAL#WANTS_BANK_LOAN`)
+    await expect(page.getByLabel(/^First choice of bank/u)).toBeHidden()
+    await page.getByRole('group', { name: 'Do you want a bank loan?' }).getByLabel('Yes').check()
+    await expect(page.getByLabel(/^First choice of bank/u)).toBeVisible()
+    await expect(page.getByLabel(/^Loan amount requested/u)).toBeVisible()
+  })
+
+  /*
+   * The rules about several answers at once. The browser checks them as the
+   * applicant answers, so the message is on the screen before anything is
+   * sent; the server checks them again on submission, which is why the review
+   * screen refuses too.
+   */
+  test('says so at once when the funding answers contradict each other', async ({ page }) => {
+    const id = await startApplication(page, {
+      cycleCode,
+      prefix: 'draft',
+      businessName: 'Draft Works',
+    })
+    await page.goto(`/applications/${id}/form?stage=FINANCIAL#WANTS_GRANT`)
+
+    // Neither a grant nor a loan.
+    await page.getByRole('group', { name: 'Do you want a grant?' }).getByLabel('No').check()
+    await page.getByRole('group', { name: 'Do you want a bank loan?' }).getByLabel('No').check()
+    await expect(page.getByText('Ask for a grant, a bank loan, or both.')).toBeVisible()
+
+    // A loan from the same bank twice.
+    await page.getByRole('group', { name: 'Do you want a bank loan?' }).getByLabel('Yes').check()
+    await expect(page.getByText('Ask for a grant, a bank loan, or both.')).toBeHidden()
+    await page.getByLabel(/^First choice of bank/u).selectOption('SBI')
+    await page.getByLabel(/^Second choice of bank/u).selectOption('SBI')
+    await expect(page.getByText('Choose two different banks.')).toBeVisible()
+
+    // The server holds the same rule: the review screen will not submit it.
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
+    await page.goto(`/applications/${id}/review`)
+    await expect(page.getByText('Choose two different banks.')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Submit application' })).toBeDisabled()
   })
 
   test('will not submit an incomplete application, and lists what is missing', async ({
@@ -161,17 +199,17 @@ test.describe('the application form', () => {
       prefix: 'draft',
       businessName: 'Draft Works',
     })
-    await page.goto(
-      `/applications/${id}/form?stage=FINANCIAL#TOTAL_PROJECT_COST_PAISE`,
-    )
+    await page.goto(`/applications/${id}/form?stage=FINANCIAL#WANTS_GRANT`)
 
-    await page.getByLabel('Total project cost (₹)').fill('500000')
+    await page.getByRole('group', { name: 'Do you want a grant?' }).getByLabel('Yes').check()
+    await page.getByLabel(/^Desired grant amount/u).fill('500000')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
 
     await page.reload()
     // Stored as paise, shown as rupees: 500000 rupees must not come back as
-    // 50000000 or 5000.
-    await expect(page.getByLabel('Total project cost (₹)')).toHaveValue('500000')
+    // 50000000 or 5000. The box groups the digits the Indian way.
+    await expect(page.getByLabel(/^Desired grant amount/u)).toHaveValue('₹5,00,000')
   })
 })
 

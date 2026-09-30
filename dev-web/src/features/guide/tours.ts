@@ -12,9 +12,12 @@
  */
 
 import { can, isApplicant, isSuperAdministrator, type Permission } from '#/lib/session'
-import type { AdminIntakeQueueKey } from '#/graphql/generated/schema'
 
-/** The four desks a file passes between. */
+/**
+ * The desks a file passes between. A pipeline decides which stages there are;
+ * these are who sits at them — the applicant, the programme office's stages,
+ * and a partner bank's stage.
+ */
 export const DESKS = {
   applicant: 'Applicant',
   office: 'Programme office',
@@ -37,13 +40,6 @@ export type TourStep = {
    * margin bracket beside it, the way an officer marks a passage in a file.
    */
   mark?: string
-  /**
-   * Narrows a list route to one queue, using the API's own keys.
-   *
-   * A step that says "pick one out of the queue" should land on the queue it
-   * means rather than on whatever the reader last filtered to.
-   */
-  search?: { queue: AdminIntakeQueueKey }
   /** Stated when a step needs data the demonstration may not have yet. */
   needs?: string
 }
@@ -52,9 +48,11 @@ export type TourStep = {
  * Which account may walk a route.
  *
  * `super` is a narrowing of `admin`, not a separate desk: role management is
- * the one office job an ordinary administrator cannot do.
+ * the one office job an ordinary administrator cannot do. `stage` is anybody
+ * who works a pipeline stage, such as a bank's officer, whether or not they
+ * read the office-wide list.
  */
-export type TourAudience = 'applicant' | 'admin' | 'super'
+export type TourAudience = 'applicant' | 'admin' | 'stage' | 'super'
 
 export type Tour = {
   id: string
@@ -122,7 +120,7 @@ export const TOURS: Tour[] = [
       },
       {
         title: 'Keep the reference number',
-        body: 'Submission freezes a copy of the answers and the documents attached to them, and issues one reference number that never changes again — through review, corrections, the award, and every payment.',
+        body: 'Submission freezes a copy of the answers and the documents attached to them, and issues one reference number that never changes again — through every stage, every correction and every decision.',
         desk: DESKS.applicant,
       },
     ],
@@ -133,60 +131,38 @@ export const TOURS: Tour[] = [
     title: 'Reviewing what comes in',
     audience: 'A programme officer at the desk',
     promise:
-      'How work is picked up, checked, and either sent to a bank, returned for correction, or closed.',
+      'How submitted work is found, read, noted, and — through its pipeline — moved on or returned for correction.',
     steps: [
       {
         title: 'Start from what needs you',
-        body: 'The console leads with the three queues waiting on the programme office. The rest are shown as counts, because an application waiting on a bank is information rather than work.',
+        body: 'The console leads with the stages you work and the submitted files that have waited longest. Which stage holds each one is its pipeline’s, and the list shows it.',
         desk: DESKS.office,
         to: '/admin',
         mark: 'waiting-on-us',
       },
       {
-        title: 'Open a queue',
-        body: 'Every filter lives in the address, so a view can be bookmarked or sent to a colleague and comes back with the same rows in it.',
+        title: 'Open the list',
+        body: 'Filter by pipeline, by stage, by the status flags a file holds, or by what was asked for. Every filter lives in the address, so a view can be bookmarked or sent to a colleague and comes back with the same rows in it.',
         desk: DESKS.office,
         to: '/admin/queue',
         mark: 'queue-filters',
       },
       {
-        title: 'Pick a file out of the queue',
+        title: 'Pick a file out of the list',
         body: 'Every row is one application, longest wait first. Opening one is also how this route learns which file you are working on — the steps after this follow it.',
         desk: DESKS.office,
         to: '/admin/queue',
-        search: { queue: 'NEW_SUBMISSIONS' },
         mark: 'queue-rows',
         needs:
-          'A submitted application. If this queue is empty, nothing has been sent in yet.',
-      },
-      {
-        title: 'Just start working on it',
-        body: 'There is nothing to reserve first. Anybody with the right role can act, and this panel only says who was here last so you can decide whether to duplicate somebody. If two of you act at once, the second is told the record changed and nothing is overwritten.',
-        desk: DESKS.office,
-        to: '/admin/applications/$id',
-        mark: 'assignment',
-        needs: 'Open an application from the queue first; this route then follows it.',
+          'A submitted application. If the list is empty, nothing has been sent in yet.',
       },
       {
         title: 'What to do next is decided by where the file is',
-        body: 'Only the transitions the API will accept from this status are offered — the desk review on a submitted application, the form that completes it on one under review, nothing at all on one waiting for somebody else. A button that exists to be refused teaches people to distrust the screen.',
+        body: 'What may happen next is the file’s pipeline’s: the actions its current stage offers, to the roles that own that stage. A button that exists to be refused teaches people to distrust the screen, so none is offered here that the pipeline would refuse.',
         desk: DESKS.office,
         to: '/admin/applications/$id',
         mark: 'next-step',
         needs: 'Open an application from the queue first.',
-      },
-      {
-        title: 'Run the nine checks',
-        body: 'A desk review is one form and one write, not a wizard that could be abandoned half-recorded. The outcome decides what happens next: on to a bank, back to the applicant, or closed.',
-        desk: DESKS.office,
-        needs: 'Open a submitted application and start its desk review.',
-      },
-      {
-        title: 'Write down what the documents actually say',
-        body: 'Passing a check means you read a document, so the number on it is asked for as you go. Until these were kept, the programme held no identity number at all and could not tell whether one certificate or one bank account had been used on two applications. A repeat is not refused — the same promoter returns for a later phase — but it has to be answered, and the answer stays beside the number that raised it.',
-        desk: DESKS.office,
-        mark: 'desk-review-identifiers',
-        needs: 'Start a desk review and pass a check to see the fields appear.',
       },
       {
         title: 'Everything said about a file stays with it',
@@ -198,93 +174,46 @@ export const TOURS: Tour[] = [
       },
       {
         title: 'Ask for corrections precisely',
-        body: 'Naming a section unlocks exactly that section for the applicant and nothing else. They see your words, and the application returns to you when they resubmit.',
+        body: 'A stage that asks for a correction names the sections; exactly those unlock for the applicant and nothing else. They see your words, and the application returns to that stage when they resubmit.',
         desk: DESKS.office,
       },
     ],
   },
   {
-    id: 'deciding',
-    for: 'admin',
-    title: 'The bank and the decision',
-    audience: 'A programme officer carrying a file through approval',
-    promise: 'How an application reaches a partner bank, comes back, and is decided.',
-    steps: [
-      {
-        title: 'Refer it to a partner bank',
-        body: 'The bank evaluates the proposal and writes back. Nothing is decided here — the office records what the bank said, which is why every form asks for the reference and date of the bank’s own document.',
-        desk: DESKS.bank,
-        to: '/admin/applications/$id',
-        mark: 'bank-stage',
-        needs: 'An application whose desk review ended in "Refer to a partner bank".',
-      },
-      {
-        title: 'Record the outcome, never edit it',
-        body: 'A correction supersedes the outcome it replaces and both are kept. What the bank first said, and when the office learned otherwise, are both part of the file.',
-        desk: DESKS.bank,
-      },
-      {
-        title: 'Decide it',
-        body: 'An application that has cleared the bank stage waits to be decided, and is decided on its own screen. The record names the submission and the bank outcome that were read, so the file still shows what was in front of whoever decided it.',
-        desk: DESKS.office,
-        to: '/admin/applications/$id',
-        mark: 'decision-stage',
-        needs: 'An application waiting to be decided.',
-      },
-      {
-        title: 'A decision is never edited',
-        body: 'A correction supersedes the decision it replaces and carries its own reason, and only the most recent decision can be superseded. Once an award exists the correction belongs in the award record instead, because money has already moved on the strength of it.',
-        desk: DESKS.office,
-      },
-    ],
-  },
-  {
-    id: 'money',
-    for: 'admin',
-    title: 'From approval to money',
-    audience: 'A programme officer handling sanctions and payments',
+    id: 'working-a-stage',
+    for: 'stage',
+    title: 'Working your stage',
+    audience: 'An officer who works a pipeline stage',
     promise:
-      'How a sanction order is issued, how instalments are released, and what has to be in hand before money moves.',
+      'How the files waiting at your stage are found, and how an action moves one on, sends it back, or asks the applicant to correct it.',
     steps: [
       {
-        title: 'Start from what has been approved',
-        body: 'An award is issued against the programme’s decision and takes its amount from it, so the work starts here: files that have a decision and no sanction order yet.',
+        title: 'Start from your stages',
+        body: 'Every stage your roles work is here, with how many files wait at each. A bank officer sees their bank’s stage and no other: two stages can need the same permissions and still belong to different people.',
         desk: DESKS.office,
-        to: '/admin/queue',
-        search: { queue: 'APPROVED' },
-        mark: 'queue-rows',
-        needs:
-          'An approved application. If this queue is empty, nothing has been approved yet.',
+        to: '/admin/stages',
+        mark: 'my-stages',
       },
       {
-        title: 'Issue the sanction order',
-        body: 'The number and the date are the sanction letter’s own. The amount is not asked for — it comes from the programme’s decision, and a second figure typed on this screen could only ever disagree with the letter.',
+        title: 'Open the file, not a form',
+        body: 'A stage’s queue lists its files oldest arrival first. Open one to see where it stands: its status, what has been recorded on it, and the trail of stages it came through.',
         desk: DESKS.office,
-        to: '/admin/applications/$id/funding',
-        needs: 'Open an approved application from the queue first.',
+        to: '/admin/applications/$id',
+        mark: 'next-step',
+        needs: 'Open a file from one of your stage queues first.',
       },
       {
-        title: 'The ledger is the record, and the screen does not add it up',
-        body: 'Every entry is appended and numbered; nothing is removed. The totals come from the programme’s own arithmetic, because a subtotal computed in the browser is one more thing that can disagree with the sanction letter.',
+        title: 'Each button is one configured action',
+        body: 'What a button asks for and what it does is set by the pipeline: an amount pre-filled from what was asked, the bank the applicant chose first, a note for the next stage. If a colleague acted a moment before you, nothing is written and you are told the file changed.',
         desk: DESKS.office,
-        to: '/admin/applications/$id/funding',
-        mark: 'ledger',
-        needs: 'An application with a sanction order issued against it.',
+        to: '/admin/applications/$id',
+        mark: 'next-step',
+        needs: 'Open a file from one of your stage queues first.',
       },
       {
-        title: 'Release an instalment',
-        body: 'The most consequential write in the product, and the API guards it: the approval it is paid under, evidence the bank account was verified, the executed performance agreement, and where the programme requires it, the physical verification.',
-        desk: DESKS.office,
-      },
-      {
-        title: 'Correct a payment without deleting it',
-        body: 'A reversal is its own ledger entry naming the payment it corrects. Neither is removed, and the applicant sees the correction folded into the payment it belongs to.',
-        desk: DESKS.office,
-      },
-      {
-        title: 'What the applicant is allowed to know',
-        body: 'Their funding screen shows the sanctioned amount, what has reached them, and what is still to come. Internal banking prerequisites and reviewer notes are absent from that view by design.',
-        desk: DESKS.applicant,
+        title: 'Sending back retraces the file’s own steps',
+        body: 'A send-back returns the file to the stage it actually came from, never to one chosen by hand — so a file routed to one bank and sent back goes to the office that routed it, which may then choose the other bank.',
+        desk: DESKS.bank,
       },
     ],
   },
@@ -298,7 +227,7 @@ export const TOURS: Tour[] = [
     steps: [
       {
         title: 'Write the policy',
-        body: 'Age bands, category thresholds, the assessments an award will need, and the reasons staff may choose from. All of it is decided before anyone applies.',
+        body: 'Age bands, category thresholds, the kinds of application it accepts and who may start each, and the pipeline its files are worked in. All of it is decided before anyone applies.',
         desk: DESKS.office,
         to: '/admin/cycles/new',
         mark: 'cycle-policy',
@@ -332,15 +261,15 @@ export const TOURS: Tour[] = [
       },
       {
         title: 'The policy once it is frozen',
-        body: 'This is what an application started under the cycle carries: the eligibility rules, the questions it asks, the assessments an award will need, and the version they were frozen at. A later cycle changing its mind does not reach back.',
+        body: 'This is what an application started under the cycle carries: the eligibility rules, the questions it asks, the pipeline version it is worked in, and the version they were frozen at. A later cycle — or a later pipeline version — changing its mind does not reach back.',
         desk: DESKS.office,
         to: '/admin/cycles/$id',
         mark: 'cycle-frozen',
         needs: 'Open a cycle from the list.',
       },
       {
-        title: 'Reasons are part of the policy',
-        body: 'Asking for a correction, rejecting an application, writing off a recovery — each names a reason from this cycle’s catalogue, so the programme can report on why things happened.',
+        title: 'The route is the pipeline’s',
+        body: 'Which stages a file passes through, who works each, and what every action there does is the pipeline the cycle names. Changing the route is publishing a new pipeline version, and only cycles opened after that use it.',
         desk: DESKS.office,
       },
     ],
@@ -398,5 +327,6 @@ export const canWalk = (
    * screens, which is what a tour is for.
    */
   if (tour.for === 'admin') return can(user, 'application', 'read')
+  if (tour.for === 'stage') return can(user, 'stage', 'read')
   return isApplicant(user)
 }

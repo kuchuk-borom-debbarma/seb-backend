@@ -98,45 +98,22 @@ test.describe('how this works', () => {
     await expect(navigation.getByRole('link', { name: 'How this works' })).toBeVisible()
   })
 
-  test('draws the whole route, each stop under its desk', async ({ page }) => {
+  /*
+   * What happens after submission is each cycle's pipeline's, so the page
+   * describes the route in general — drafted, submitted into a pipeline,
+   * worked stage by stage, ended by an action — rather than drawing one
+   * route and implying every file takes it.
+   */
+  test('says how a file moves, from draft to the end of its journey', async ({ page }) => {
     await page.goto('/guide')
 
-    const diagram = page.getByRole('region', { name: 'Route diagram' })
-    for (const stop of ['Draft', 'Submitted', 'Sanctioned']) {
-      await expect(diagram.getByRole('heading', { name: stop, exact: true })).toBeVisible()
-    }
-
-    // Eleven states, and the count on the page says the same number the
-    // diagram draws rather than one read from a query.
-    await expect(page.getByText('11 states', { exact: true })).toBeVisible()
-    await expect(page.getByText('4 desks', { exact: true })).toBeVisible()
+    const moves = page.getByRole('region', { name: 'How a file moves' })
+    await expect(moves.getByRole('heading', { name: 'How a file moves' })).toBeVisible()
+    await expect(moves.getByText('Each stage.', { exact: true })).toBeVisible()
+    await expect(moves.getByText('The end.', { exact: true })).toBeVisible()
+    // Every stated standing is listed before the pipeline's part, in order.
+    await expect(moves.getByRole('listitem').first()).toContainText(/Draft/u)
     await expect(page.getByText('1 reference number', { exact: true })).toBeVisible()
-
-    /*
-     * The diagram is a swimlane grid: a stop sits under the desk that holds
-     * it, and the file moves right as it changes hands. Submitted belongs to
-     * the programme office, so it sits to the right of the applicant's Draft.
-     */
-    const draft = await diagram
-      .getByRole('heading', { name: 'Draft', exact: true })
-      .boundingBox()
-    const submitted = await diagram
-      .getByRole('heading', { name: 'Submitted', exact: true })
-      .boundingBox()
-    expect(submitted?.x ?? 0).toBeGreaterThan(draft?.x ?? 0)
-
-    // And within a desk, later work sits lower: the desk review happens after
-    // submission, so its stop is below Submitted.
-    const deskReview = await diagram
-      .getByRole('heading', { name: 'Desk review', exact: true })
-      .boundingBox()
-    expect(deskReview?.y ?? 0).toBeGreaterThan(submitted?.y ?? 0)
-
-    // The bank's stop is likewise to the right of the applicant's.
-    const withBank = await diagram
-      .getByRole('heading', { name: 'With a partner bank' })
-      .boundingBox()
-    expect(withBank?.x ?? 0).toBeGreaterThan(draft?.x ?? 0)
   })
 
   test('offers only the routes this account can actually walk', async ({ page }) => {
@@ -196,7 +173,7 @@ test.describe('walking a route', () => {
 
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     await expect(rail).toBeVisible()
-    await expect(rail.getByText('Step 1 of 9')).toBeVisible()
+    await expect(rail.getByText('Step 1 of 6')).toBeVisible()
     await expect(rail.getByText('Programme office', { exact: true })).toBeVisible()
     await expect(
       rail.getByRole('heading', { name: 'Start from what needs you' }),
@@ -241,10 +218,10 @@ test.describe('walking a route', () => {
 
     await rail.getByRole('button', { name: 'Next' }).click()
     await expect(page).toHaveURL(/\/admin\/queue/u)
-    await expect(rail.getByText('Step 2 of 9')).toBeVisible()
+    await expect(rail.getByText('Step 2 of 6')).toBeVisible()
 
     await rail.getByRole('button', { name: 'Back' }).click()
-    await expect(rail.getByText('Step 1 of 9')).toBeVisible()
+    await expect(rail.getByText('Step 1 of 6')).toBeVisible()
     await expect(page).toHaveURL(/\/admin$/u)
   })
 
@@ -265,7 +242,7 @@ test.describe('walking a route', () => {
 
     await expect(rail.getByText('To try this')).toBeVisible()
     await expect(
-      rail.getByText(/If this queue is empty, nothing has been sent in yet/u),
+      rail.getByText(/If the list is empty, nothing has been sent in yet/u),
     ).toBeVisible()
   })
 
@@ -296,12 +273,12 @@ test.describe('walking a route', () => {
 
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     await rail.getByRole('button', { name: 'Next' }).click()
-    await expect(rail.getByText('Step 2 of 9')).toBeVisible()
+    await expect(rail.getByText('Step 2 of 6')).toBeVisible()
 
     // A demonstration gets interrupted. Coming back must not start again.
     await page.reload()
     await expect(
-      page.getByRole('complementary', { name: /Guided route/u }).getByText('Step 2 of 9'),
+      page.getByRole('complementary', { name: /Guided route/u }).getByText('Step 2 of 6'),
     ).toBeVisible()
   })
 
@@ -336,7 +313,7 @@ test.describe('walking a route', () => {
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     await rail.getByRole('button', { name: 'Next' }).focus()
     await page.keyboard.press('Enter')
-    await expect(rail.getByText('Step 2 of 9')).toBeVisible()
+    await expect(rail.getByText('Step 2 of 6')).toBeVisible()
   })
 })
 
@@ -383,26 +360,28 @@ test.describe('a question that explains itself', () => {
       businessName: 'Guide Works',
     })
     await page.goto(`/applications/${id}/form`)
-    // The explained question lives on the second stage of a staged form.
+    // The explained question lives on the second stage of a staged form, and
+    // is asked of somebody who wants a grant.
     await fillOwnersStage(page)
+    await page.getByRole('group', { name: 'Do you want a grant?' }).getByLabel('Yes').check()
 
     /*
      * The control must still be named by its own label. Putting the explanation
      * inside the <label> would have made the field announce as
-     * "Seed fund requested (₹) ?".
+     * "Desired grant amount (₹) ?".
      */
     await expect(
-      page.getByLabel('Seed fund requested (₹)', { exact: true }),
+      page.getByLabel('Desired grant amount (₹)', { exact: true }),
     ).toBeVisible()
 
     const opener = page.getByRole('button', {
-      name: 'Why Seed fund requested (₹) is asked',
+      name: 'About “Desired grant amount (₹)”',
     })
     await expect(opener).toHaveAttribute('aria-expanded', 'false')
 
     await opener.click()
     await expect(page.getByRole('note')).toBeVisible()
-    await expect(page.getByRole('note')).toContainText(/how much seed funding/u)
+    await expect(page.getByRole('note')).toContainText(/deciding how much grant/u)
     await expect(opener).toHaveAttribute('aria-expanded', 'true')
 
     // Escape closes it, because a popover that can only be closed with the
@@ -422,9 +401,10 @@ test.describe('a question that explains itself', () => {
     // One explanation on the whole form. An icon beside every label teaches
     // nothing and doubles the reading — so the first stage carries none at
     // all, and the stage that holds the one explained question holds one.
-    await expect(page.getByRole('button', { name: /^Why .* is asked$/u })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^About “.*”$/u })).toHaveCount(0)
     await fillOwnersStage(page)
-    await expect(page.getByRole('button', { name: /^Why .* is asked$/u })).toHaveCount(1)
+    await page.getByRole('group', { name: 'Do you want a grant?' }).getByLabel('Yes').check()
+    await expect(page.getByRole('button', { name: /^About “.*”$/u })).toHaveCount(1)
   })
 })
 
@@ -468,19 +448,19 @@ test.describe('the office is led to the work, not only to the console', () => {
 
     await page
       .getByRole('article')
-      .filter({ hasText: 'From approval to money' })
+      .filter({ hasText: 'Working your stage' })
       .getByRole('button', { name: 'Walk this route' })
       .click()
-    await expect(page).toHaveURL(/\/admin\/queue/u)
+    await expect(page).toHaveURL(/\/admin\/stages$/u)
 
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     await rail.getByRole('button', { name: 'Next' }).click()
 
-    // Step two names /admin/applications/$id/funding. With no application in
-    // hand it must not navigate, and must not fabricate an id.
-    await expect(page).toHaveURL(/\/admin\/queue/u)
+    // Step two names /admin/applications/$id. With no file in hand it must not
+    // navigate, and must not fabricate an id.
+    await expect(page).toHaveURL(/\/admin\/stages$/u)
     await expect(
-      rail.getByText(/Open an approved application from the queue first/u),
+      rail.getByText(/Open a file from one of your stage queues first/u),
     ).toBeVisible()
     await expect(page.locator('[data-marked]')).toHaveCount(0)
 
@@ -518,22 +498,22 @@ test.describe('the office is led to the work, not only to the console', () => {
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     for (const step of [2, 3, 4]) {
       await rail.getByRole('button', { name: 'Next' }).click()
-      await expect(rail.getByText(`Step ${step} of 9`)).toBeVisible()
+      await expect(rail.getByText(`Step ${step} of 6`)).toBeVisible()
     }
 
-    // Step four is the "who is on this" card, on that exact application.
+    // Step four is where the file stands in its pipeline, on that exact file.
     await expect(page).toHaveURL(new RegExp(`/admin/applications/${id}$`, 'u'))
     await expect(page.locator('[data-marked]')).toHaveCount(1)
-    await expect(page.locator('[data-guide="assignment"][data-marked]')).toBeVisible()
+    await expect(page.locator('[data-guide="next-step"][data-marked]')).toBeVisible()
 
     /*
-     * And the product is still the product while the guide talks about it. The
-     * bracketed card is readable, and the action beside it is enabled — which
-     * is the property the card exists to demonstrate: it reports who was here
-     * last and forbids nothing.
+     * And the product is still the product while the guide talks about it: the
+     * bracketed panel's actions stay usable. The file was just submitted, so it
+     * waits at the first stage, and a super administrator works every stage.
      */
-    await expect(page.getByText('Who is on this', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Start desk review' })).toBeEnabled()
+    await expect(
+      page.getByRole('button', { name: 'Move to Industries & Commerce' }),
+    ).toBeEnabled()
   })
 
   test('knows it has arrived, even after another kind of file was opened', async ({
@@ -570,7 +550,7 @@ test.describe('the office is led to the work, not only to the console', () => {
     const rail = page.getByRole('complementary', { name: /Guided route/u })
     for (const step of [2, 3, 4]) {
       await rail.getByRole('button', { name: 'Next' }).click()
-      await expect(rail.getByText(`Step ${step} of 9`)).toBeVisible()
+      await expect(rail.getByText(`Step ${step} of 6`)).toBeVisible()
     }
 
     await expect(page).toHaveURL(new RegExp(`/admin/applications/${id}$`, 'u'))
@@ -588,15 +568,13 @@ test.describe('the office reads its own words', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin')
 
-    const opener = page.getByRole('button', {
-      name: 'Why new submissions and revision responses are counted apart',
-    })
+    const opener = page.getByRole('button', { name: 'Why these stages are yours' })
     await expect(opener).toBeVisible()
     await expect(opener).toHaveAttribute('aria-expanded', 'false')
 
     await opener.click()
     await expect(opener).toHaveAttribute('aria-expanded', 'true')
-    await expect(page.getByRole('note')).toContainText(/never land in one pile/u)
+    await expect(page.getByRole('note')).toContainText(/one of your roles owns it/u)
 
     await page.keyboard.press('Escape')
     await expect(opener).toHaveAttribute('aria-expanded', 'false')

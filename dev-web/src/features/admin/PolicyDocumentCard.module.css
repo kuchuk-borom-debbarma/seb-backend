@@ -1,0 +1,12 @@
+/* The policy upload: a styled label around a visually hidden file input. */
+.fileButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.fileButton:focus-within > span {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

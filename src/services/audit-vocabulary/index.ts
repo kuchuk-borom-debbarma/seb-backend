@@ -18,7 +18,7 @@ import { applicationVocabulary } from './application'
 import { exportVocabulary } from './audit'
 import { authVocabulary } from './auth'
 import { caseworkVocabulary } from './casework'
-import { fundingVocabulary } from './funding'
+import { pipelineVocabulary } from './pipeline'
 import { programmeVocabulary } from './programme'
 import type { AuditCategory, AuditSpec } from './types'
 
@@ -27,8 +27,8 @@ export const auditVocabulary = {
   ...accessVocabulary,
   ...applicationVocabulary,
   ...caseworkVocabulary,
-  ...fundingVocabulary,
   ...programmeVocabulary,
+  ...pipelineVocabulary,
   ...announcementVocabulary,
   ...exportVocabulary,
   // `any` is the widest spec: each entry keeps its own precise type through

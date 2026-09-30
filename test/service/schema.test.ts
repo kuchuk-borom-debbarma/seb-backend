@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import { ensureTestPipeline, TEST_INITIAL_STAGE, TEST_PIPELINE_ID } from '../support/pipeline'
 import { env } from '../support/worker'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -68,6 +69,8 @@ const insertEnterprise = async (
 }
 
 const insertCycle = async (userId: string, cycleId = crypto.randomUUID()) => {
+  // An open cycle version pins a published pipeline version.
+  await ensureTestPipeline(userId)
   const now = Date.now()
   const code = `TEST-${cycleId}`
   await env.DB.batch([
@@ -79,19 +82,9 @@ const insertCycle = async (userId: string, cycleId = crypto.randomUUID()) => {
     env.DB.prepare(
       `INSERT INTO seb_programme_cycle_version (
         id, programme_cycle_id, version, cycle_code, display_name, cycle_year, status,
-        change_type, changed_by_user_id, created_at
-      ) VALUES (?, ?, 1, ?, 'Mission SEP Test Cycle', 2026, 'OPEN', 'CREATED', ?, ?)`,
-    ).bind(crypto.randomUUID(), cycleId, code, userId, now),
-    env.DB.prepare(
-      `INSERT INTO seb_programme_cycle_reason (
-        id, programme_cycle_id, programme_cycle_version, context, code, label, created_at
-      ) VALUES (?, ?, 1, 'RELEASE_REVERSAL', 'TEST_REVERSAL', 'Test reversal', ?)`,
-    ).bind(`reversal-${cycleId}`, cycleId, now),
-    env.DB.prepare(
-      `INSERT INTO seb_programme_cycle_reason (
-        id, programme_cycle_id, programme_cycle_version, context, code, label, created_at
-      ) VALUES (?, ?, 1, 'AWARD_CLOSURE', 'TEST_CLOSURE', 'Test closure', ?)`,
-    ).bind(`closure-${cycleId}`, cycleId, now),
+        change_type, changed_by_user_id, created_at, pipeline_id, pipeline_version
+      ) VALUES (?, ?, 1, ?, 'Mission SEP Test Cycle', 2026, 'OPEN', 'CREATED', ?, ?, ?, 1)`,
+    ).bind(crypto.randomUUID(), cycleId, code, userId, now, TEST_PIPELINE_ID),
     /*
      * One stage and one question, because an answer row's composite key points
      * at the pinned template field. Without them a version can exist but cannot
@@ -141,9 +134,10 @@ interface ApplicationInput {
   caseId: string
   cycleId: string
   applicationId?: string
-  type?: 'INITIAL' | 'EXPANSION'
+  kind?: string
   phase?: number
-  status?: string
+  /** A submitted application sits at the fixture pipeline's initial stage. */
+  status?: 'DRAFT' | 'IN_PIPELINE'
 }
 
 const insertApplication = async ({
@@ -152,17 +146,19 @@ const insertApplication = async ({
   caseId,
   cycleId,
   applicationId = crypto.randomUUID(),
-  type = 'INITIAL',
+  kind = 'INITIAL',
   phase = 1,
   status = 'DRAFT',
 }: ApplicationInput) => {
   const now = Date.now()
+  const submitted = status === 'IN_PIPELINE'
   await env.DB.prepare(
     `INSERT INTO seb_application (
       id, applicant_user_id, enterprise_id, funding_case_id, programme_cycle_id,
-      application_type, phase_number, current_version, status, status_version,
-      status_changed_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 1, ?, ?, ?)`,
+      application_kind, phase_number, current_version, status, status_version,
+      status_changed_at, created_at, updated_at, pipeline_id, pipeline_version,
+      current_stage_key, stage_entered_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 1, ?, ?, ?, ?, 1, ?, ?)`,
   )
     .bind(
       applicationId,
@@ -170,12 +166,15 @@ const insertApplication = async ({
       enterpriseId,
       caseId,
       cycleId,
-      type,
+      kind,
       phase,
       status,
       now,
       now,
       now,
+      TEST_PIPELINE_ID,
+      submitted ? TEST_INITIAL_STAGE : null,
+      submitted ? now : null,
     )
     .run()
   return applicationId
@@ -188,31 +187,6 @@ const createGraph = async () => {
   const cycleId = await insertCycle(userId)
   const applicationId = await insertApplication({ userId, enterpriseId, caseId, cycleId })
   return { userId, enterpriseId, caseId, cycleId, applicationId }
-}
-
-const insertAward = async (
-  userId: string,
-  caseId: string,
-  applicationId: string,
-  awardId = crypto.randomUUID(),
-) => {
-  const now = Date.now()
-  const order = `ORDER-${awardId}`
-  await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO seb_funding_award (
-        id, funding_case_id, application_id, sanction_order_number, sanction_date,
-        sanctioned_amount_paise, status, current_version, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, '2026-08-01', 10000000, 'ACTIVE', 1, ?, ?)`,
-    ).bind(awardId, caseId, applicationId, order, now, now),
-    env.DB.prepare(
-      `INSERT INTO seb_funding_award_version (
-        id, funding_award_id, version, sanction_order_number, sanction_date,
-        sanctioned_amount_paise, status, change_type, changed_by_user_id, created_at
-      ) VALUES (?, ?, 1, ?, '2026-08-01', 10000000, 'ACTIVE', 'CREATED', ?, ?)`,
-    ).bind(crypto.randomUUID(), awardId, order, userId, now),
-  ])
-  return awardId
 }
 
 describe('core and Mission SEP schema', () => {
@@ -242,39 +216,33 @@ describe('core and Mission SEP schema', () => {
       'seb_announcement',
       'seb_announcement_board',
       'seb_application',
-      'seb_application_assignment_event',
       'seb_application_document',
       'seb_application_document_scan',
       'seb_application_document_version',
       'seb_application_event',
       'seb_application_internal_note',
-      'seb_application_qualifying_award',
-      'seb_application_qualifying_award_version',
+      'seb_application_stage_action',
       'seb_application_submission',
       'seb_application_submission_document',
       'seb_application_version',
       'seb_application_version_answer',
-      'seb_award_assessment',
       'seb_cycle_policy_document',
       'seb_cycle_policy_document_scan',
       'seb_cycle_policy_document_version',
       'seb_cycle_policy_upload_intent',
-      'seb_desk_review',
-      'seb_desk_review_check',
-      'seb_desk_review_identifier',
-      'seb_disbursement',
       'seb_document_upload_intent',
       'seb_enterprise',
       'seb_enterprise_version',
-      'seb_funding_award',
-      'seb_funding_award_version',
       'seb_funding_case',
       'seb_funding_case_version',
-      'seb_partner_bank_outcome',
-      'seb_partner_bank_referral',
-      'seb_partner_bank_referral_version',
+      'seb_pipeline',
+      'seb_pipeline_stage',
+      'seb_pipeline_stage_owner',
+      'seb_pipeline_version',
+      'seb_pipeline_version_stage',
       'seb_programme_cycle',
-      'seb_programme_cycle_assessment_rule',
+      'seb_programme_cycle_application_kind',
+      'seb_programme_cycle_application_kind_rule',
       'seb_programme_cycle_event',
       'seb_programme_cycle_form_field',
       'seb_programme_cycle_form_field_condition',
@@ -282,16 +250,11 @@ describe('core and Mission SEP schema', () => {
       'seb_programme_cycle_form_group_definition',
       'seb_programme_cycle_form_group_definition_member',
       'seb_programme_cycle_form_group_definition_member_option',
+      'seb_programme_cycle_form_rule',
+      'seb_programme_cycle_form_rule_operand',
       'seb_programme_cycle_form_stage',
-      'seb_programme_cycle_identifier_rule',
-      'seb_programme_cycle_reason',
       'seb_programme_cycle_version',
-      'seb_programme_decision',
-      'seb_recovery_case',
-      'seb_recovery_case_version',
-      'seb_recovery_entry',
       'seb_revision_request',
-      'seb_utilization_obligation',
     ])
   })
 
@@ -338,9 +301,9 @@ describe('core and Mission SEP schema', () => {
         'core_audit_event_created_idx',
         'seb_enterprise_owner_idx',
         'seb_application_case_phase_idx',
-        'seb_funding_award_case_idx',
-        'seb_disbursement_award_occurred_idx',
-        'seb_application_qualifying_award_version_number_uq',
+        'seb_application_stage_queue_idx',
+        'seb_application_status_flags_idx',
+        'seb_application_pipeline_status_idx',
       ]),
     )
   })
@@ -576,7 +539,7 @@ describe('core and Mission SEP schema', () => {
       env.DB.prepare(
         `INSERT INTO seb_application_version (
           id, application_id, version, programme_cycle_id, programme_cycle_version,
-          application_type, phase_number, change_type, changed_by_user_id, created_at
+          application_kind, phase_number, change_type, changed_by_user_id, created_at
         ) VALUES (?, ?, 1, ?, 1, 'INITIAL', 1, 'INITIAL', ?, ?)`,
       ).bind(versionId, graph.applicationId, graph.cycleId, graph.userId, now),
       env.DB.prepare(
@@ -606,18 +569,18 @@ describe('core and Mission SEP schema', () => {
       env.DB.prepare(
         `INSERT INTO seb_programme_cycle_version (
           id, programme_cycle_id, version, cycle_code, display_name, cycle_year, policy_reference,
-          status, change_type, changed_by_user_id, created_at
+          status, change_type, changed_by_user_id, created_at, pipeline_id, pipeline_version
         ) SELECT ?, id, 2, cycle_code, display_name, cycle_year, 'POLICY-V2', status,
-          'UPDATED', ?, ? FROM seb_programme_cycle WHERE id = ?`,
-      ).bind(crypto.randomUUID(), graph.userId, now + 1, graph.cycleId),
+          'UPDATED', ?, ?, ?, 1 FROM seb_programme_cycle WHERE id = ?`,
+      ).bind(crypto.randomUUID(), graph.userId, now + 1, TEST_PIPELINE_ID, graph.cycleId),
       env.DB.prepare(
-        `UPDATE seb_application SET application_type = 'EXPANSION', phase_number = 2,
+        `UPDATE seb_application SET application_kind = 'EXPANSION', phase_number = 2,
          current_version = 2, updated_at = ? WHERE id = ?`,
       ).bind(now + 1, graph.applicationId),
       env.DB.prepare(
         `INSERT INTO seb_application_version (
           id, application_id, version, programme_cycle_id, programme_cycle_version,
-          application_type, phase_number, change_type, change_reason,
+          application_kind, phase_number, change_type, change_reason,
           changed_by_user_id, created_at
         ) VALUES (?, ?, 2, ?, 2, 'EXPANSION', 2, 'SAVE',
           'Moved to the revised policy cycle', ?, ?)`,
@@ -642,70 +605,16 @@ describe('core and Mission SEP schema', () => {
     expect(
       await env.DB.prepare(
         `SELECT programme_cycle_version AS "cycleVersion",
-          application_type AS "applicationType", phase_number AS "phaseNumber"
+          application_kind AS "applicationKind", phase_number AS "phaseNumber"
          FROM seb_application_version WHERE application_id = ? AND version = 1`,
       )
         .bind(graph.applicationId)
         .first(),
     ).toEqual({
       cycleVersion: 1,
-      applicationType: 'INITIAL',
+      applicationKind: 'INITIAL',
       phaseNumber: 1,
     })
-  })
-
-  it('enforces initial and generic expansion phase rules', async () => {
-    const graph = await createGraph()
-    const now = Date.now()
-    await expect(
-      insertApplication({
-        ...graph,
-        applicationId: crypto.randomUUID(),
-        type: 'INITIAL',
-        phase: 2,
-      }),
-    ).rejects.toThrow()
-
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_application_version (
-          id, application_id, version, programme_cycle_id, programme_cycle_version,
-          application_type, phase_number, change_type, changed_by_user_id, created_at
-        ) VALUES (?, ?, 2, ?, 99, 'INITIAL', 1, 'SAVE', ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), graph.applicationId, graph.cycleId, graph.userId, now)
-        .run(),
-    ).rejects.toThrow()
-    await expect(
-      insertApplication({
-        ...graph,
-        applicationId: crypto.randomUUID(),
-        type: 'EXPANSION',
-        phase: 1,
-      }),
-    ).rejects.toThrow()
-    await insertApplication({
-      ...graph,
-      applicationId: crypto.randomUUID(),
-      type: 'EXPANSION',
-      phase: 2,
-    })
-    await insertApplication({
-      ...graph,
-      applicationId: crypto.randomUUID(),
-      type: 'EXPANSION',
-      phase: 3,
-    })
-
-    expect(
-      await env.DB.prepare(
-        `SELECT phase_number AS phase FROM seb_application
-         WHERE funding_case_id = ? AND application_type = 'EXPANSION'
-         ORDER BY phase_number`,
-      )
-        .bind(graph.caseId)
-        .all(),
-    ).toMatchObject({ results: [{ phase: 2 }, { phase: 3 }] })
   })
 
   it('accepts nullable drafts and binds submissions to exact versions', async () => {
@@ -714,7 +623,7 @@ describe('core and Mission SEP schema', () => {
     await env.DB.prepare(
       `INSERT INTO seb_application_version (
         id, application_id, version, programme_cycle_id, programme_cycle_version,
-        application_type, phase_number, change_type, changed_by_user_id, created_at
+        application_kind, phase_number, change_type, changed_by_user_id, created_at
       ) VALUES (?, ?, 1, ?, 1, 'INITIAL', 1, 'INITIAL', ?, ?)`,
     )
       .bind(crypto.randomUUID(), graph.applicationId, graph.cycleId, graph.userId, now)
@@ -749,7 +658,7 @@ describe('core and Mission SEP schema', () => {
         env.DB.prepare(
           `INSERT INTO seb_application_version (
             id, application_id, version, programme_cycle_id, programme_cycle_version,
-            application_type, phase_number, change_type, changed_by_user_id,
+            application_kind, phase_number, change_type, changed_by_user_id,
             created_at, ${field}
           ) VALUES (?, ?, 2, ?, 1, 'INITIAL', 1, 'SAVE', ?, ?, ?)`,
         )
@@ -764,419 +673,6 @@ describe('core and Mission SEP schema', () => {
           .run(),
       ).rejects.toThrow()
     }
-  })
-
-  it('scopes and versions qualifying-award links without deleting corrections', async () => {
-    const first = await createGraph()
-    const firstAwardId = await insertAward(
-      first.userId,
-      first.caseId,
-      first.applicationId,
-    )
-    const expansionId = await insertApplication({
-      ...first,
-      applicationId: crypto.randomUUID(),
-      type: 'EXPANSION',
-      phase: 2,
-    })
-    await expect(
-      insertAward(first.userId, first.caseId, first.applicationId),
-    ).rejects.toThrow()
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_funding_award (
-          id, funding_case_id, application_id, sanction_order_number, sanction_date,
-          sanctioned_amount_paise, status, current_version, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, '2026-08-02', 1, 'ACTIVE', 1, ?, ?)`,
-      )
-        .bind(
-          crypto.randomUUID(),
-          first.caseId,
-          expansionId,
-          `ORDER-${firstAwardId}`,
-          Date.now(),
-          Date.now(),
-        )
-        .run(),
-    ).rejects.toThrow()
-
-    const linkId = crypto.randomUUID()
-    const now = Date.now()
-    await env.DB.batch([
-      env.DB.prepare(
-        `INSERT INTO seb_application_qualifying_award (
-          id, application_id, funding_case_id, current_funding_award_id, status,
-          current_version, created_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'ACTIVE', 1, ?, ?, ?)`,
-      ).bind(linkId, expansionId, first.caseId, firstAwardId, first.userId, now, now),
-      env.DB.prepare(
-        `INSERT INTO seb_application_qualifying_award_version (
-          id, qualifying_award_link_id, funding_case_id, version, funding_award_id,
-          status, change_type, changed_by_user_id, created_at
-        ) VALUES (?, ?, ?, 1, ?, 'ACTIVE', 'LINKED', ?, ?)`,
-      ).bind(
-        crypto.randomUUID(),
-        linkId,
-        first.caseId,
-        firstAwardId,
-        first.userId,
-        now,
-      ),
-    ])
-
-    // One award can back only one current attempt. Rejected/deleted attempts
-    // first clear their pointer, after which the immutable version keeps the
-    // historic association and a later application can reuse the award.
-    const competingExpansionId = await insertApplication({
-      ...first,
-      applicationId: crypto.randomUUID(),
-      type: 'EXPANSION',
-      phase: 3,
-    })
-    await expect(env.DB.prepare(
-        `INSERT INTO seb_application_qualifying_award (
-          id, application_id, funding_case_id, current_funding_award_id, status,
-          current_version, created_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'ACTIVE', 1, ?, ?, ?)`,
-      )
-        .bind(
-          crypto.randomUUID(),
-          competingExpansionId,
-          first.caseId,
-          firstAwardId,
-          first.userId,
-          now,
-          now,
-        )
-        .run()).rejects.toThrow()
-
-    // A link cannot smuggle in an award from another funding case.
-    const second = await createGraph()
-    const otherCaseAwardId = await insertAward(
-      second.userId,
-      second.caseId,
-      second.applicationId,
-    )
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_application_qualifying_award (
-          id, application_id, funding_case_id, current_funding_award_id, status,
-          current_version, created_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'ACTIVE', 1, ?, ?, ?)`,
-      )
-        .bind(
-          crypto.randomUUID(),
-          competingExpansionId,
-          first.caseId,
-          otherCaseAwardId,
-          first.userId,
-          now,
-          now,
-        )
-        .run(),
-    ).rejects.toThrow()
-
-    // Correcting the association keeps the original award in version 1.
-    const replacementSourceApplicationId = await insertApplication({
-      ...first,
-      applicationId: crypto.randomUUID(),
-      type: 'EXPANSION',
-      phase: 4,
-    })
-    const replacementAwardId = await insertAward(
-      first.userId,
-      first.caseId,
-      replacementSourceApplicationId,
-    )
-    await env.DB.batch([
-      env.DB.prepare(
-        `UPDATE seb_application_qualifying_award
-         SET current_funding_award_id = ?, current_version = 2, updated_at = ?
-         WHERE id = ? AND current_version = 1`,
-      ).bind(replacementAwardId, now + 1, linkId),
-      env.DB.prepare(
-        `INSERT INTO seb_application_qualifying_award_version (
-          id, qualifying_award_link_id, funding_case_id, version, funding_award_id,
-          status, change_type, change_reason, changed_by_user_id, created_at
-        ) VALUES (?, ?, ?, 2, ?, 'ACTIVE', 'CORRECTED',
-          'Corrected qualifying award', ?, ?)`,
-      ).bind(
-        crypto.randomUUID(),
-        linkId,
-        first.caseId,
-        replacementAwardId,
-        first.userId,
-        now + 1,
-      ),
-    ])
-
-    // Cancellation clears only the current pointer; immutable versions remain.
-    await env.DB.batch([
-      env.DB.prepare(
-        `UPDATE seb_application_qualifying_award
-         SET current_funding_award_id = NULL, status = 'CANCELLED', current_version = 3,
-           updated_at = ?, cancelled_at = ?, cancelled_by_user_id = ?,
-           cancellation_reason = 'Application withdrawn'
-         WHERE id = ? AND current_version = 2`,
-      ).bind(now + 2, now + 2, first.userId, linkId),
-      env.DB.prepare(
-        `INSERT INTO seb_application_qualifying_award_version (
-          id, qualifying_award_link_id, funding_case_id, version, funding_award_id,
-          status, change_type, change_reason, changed_by_user_id, created_at
-        ) VALUES (?, ?, ?, 3, ?, 'CANCELLED', 'CANCELLED',
-          'Application withdrawn', ?, ?)`,
-      ).bind(
-        crypto.randomUUID(),
-        linkId,
-        first.caseId,
-        replacementAwardId,
-        first.userId,
-        now + 2,
-      ),
-    ])
-
-    expect(
-      await env.DB.prepare(
-        `SELECT version, funding_award_id AS "awardId", status
-         FROM seb_application_qualifying_award_version
-         WHERE qualifying_award_link_id = ? ORDER BY version`,
-      )
-        .bind(linkId)
-        .all(),
-    ).toMatchObject({
-      results: [
-        { version: 1, awardId: firstAwardId, status: 'ACTIVE' },
-        { version: 2, awardId: replacementAwardId, status: 'ACTIVE' },
-        { version: 3, awardId: replacementAwardId, status: 'CANCELLED' },
-      ],
-    })
-
-    // The old award is reusable by a different expansion after the current
-    // association moves away from it. A link root remains one-to-one with its
-    // application; retries receive their own application and link roots.
-    const retryExpansionId = await insertApplication({
-      ...first,
-      applicationId: crypto.randomUUID(),
-      type: 'EXPANSION',
-      phase: 5,
-    })
-    await env.DB.prepare(
-      `INSERT INTO seb_application_qualifying_award (
-        id, application_id, funding_case_id, current_funding_award_id, status,
-        current_version, created_by_user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'ACTIVE', 1, ?, ?, ?)`,
-    )
-      .bind(
-        crypto.randomUUID(),
-        retryExpansionId,
-        first.caseId,
-        firstAwardId,
-        first.userId,
-        now + 3,
-        now + 3,
-      )
-      .run()
-  })
-
-  it('keeps disbursements as a positive, ordered, same-award ledger', async () => {
-    const first = await createGraph()
-    const awardId = await insertAward(first.userId, first.caseId, first.applicationId)
-    const releaseId = crypto.randomUUID()
-    const now = Date.now()
-    await env.DB.prepare(
-      `INSERT INTO seb_disbursement (
-        id, funding_award_id, sequence_number, entry_type, amount_paise,
-        occurred_at, external_reference, approval_reference, approval_date,
-        bank_account_verified_at, performance_agreement_reference,
-        performance_agreement_executed_at, physical_verification_required,
-        applicant_message, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 1, 'RELEASE', 5000000, ?, 'BANK-RELEASE-1',
-        'TTM-TEST', '2025-01-01', ?, 'AGREEMENT-TEST', ?, false,
-        'Test release.', ?, ?)`,
-    )
-      .bind(releaseId, awardId, now, now, now, first.userId, now)
-      .run()
-    await env.DB.prepare(
-      `INSERT INTO seb_disbursement (
-        id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-        amount_paise, occurred_at, external_reference, reason_category_id,
-        applicant_message, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 2, 'REVERSAL', ?, 1000000, ?, 'BANK-REVERSAL-1',
-        (SELECT id FROM seb_programme_cycle_reason WHERE context = 'RELEASE_REVERSAL' LIMIT 1),
-        'Test reversal.', ?, ?)`,
-    )
-      .bind(crypto.randomUUID(), awardId, releaseId, now + 1, first.userId, now + 1)
-      .run()
-
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_disbursement (
-          id, funding_award_id, sequence_number, entry_type, amount_paise,
-          occurred_at, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 3, 'REVERSAL', 1, ?, ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), awardId, now, first.userId, now)
-        .run(),
-    ).rejects.toThrow()
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_disbursement (
-          id, funding_award_id, sequence_number, entry_type, amount_paise,
-          occurred_at, external_reference, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 2, 'RELEASE', 1, ?, 'ANOTHER-REFERENCE', ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), awardId, now, first.userId, now)
-        .run(),
-    ).rejects.toThrow()
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_disbursement (
-          id, funding_award_id, sequence_number, entry_type, amount_paise,
-          occurred_at, external_reference, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 3, 'RELEASE', 1, ?, 'BANK-RELEASE-1', ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), awardId, now, first.userId, now)
-        .run(),
-    ).rejects.toThrow()
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_disbursement (
-          id, funding_award_id, sequence_number, entry_type, amount_paise,
-          occurred_at, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 3, 'RELEASE', 0, ?, ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), awardId, now, first.userId, now)
-        .run(),
-    ).rejects.toThrow()
-    const second = await createGraph()
-    const secondAwardId = await insertAward(second.userId, second.caseId, second.applicationId)
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_disbursement (
-          id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-          amount_paise, occurred_at, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 1, 'REVERSAL', ?, 1, ?, ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), secondAwardId, releaseId, now, second.userId, now)
-        .run(),
-    ).rejects.toThrow()
-  })
-
-  it('requires an explicit disposition whenever an award or award version is closed', async () => {
-    const graph = await createGraph()
-    const awardId = await insertAward(graph.userId, graph.caseId, graph.applicationId)
-    const now = Date.now()
-
-    await expect(
-      env.DB.prepare(
-        `UPDATE seb_funding_award SET status = 'CLOSED', updated_at = ? WHERE id = ?`,
-      ).bind(now, awardId).run(),
-    ).rejects.toThrow()
-
-    await env.DB.prepare(
-      `UPDATE seb_funding_award
-       SET status = 'CLOSED', closure_disposition = 'RELEASES_COMPLETE',
-           current_version = 2, updated_at = ?
-       WHERE id = ?`,
-    ).bind(now, awardId).run()
-
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_funding_award_version (
-          id, funding_award_id, version, sanction_order_number, sanction_date,
-          sanctioned_amount_paise, status, change_type, reason_category_id,
-          changed_by_user_id, created_at
-        ) VALUES (?, ?, 2, ?, '2026-08-01', 10000000, 'CLOSED',
-          'STATUS_CHANGED', ?, ?, ?)`,
-      ).bind(
-        crypto.randomUUID(), awardId, `ORDER-${awardId}`,
-        `closure-${graph.cycleId}`, graph.userId, now,
-      ).run(),
-    ).rejects.toThrow()
-
-    await env.DB.prepare(
-      `INSERT INTO seb_funding_award_version (
-        id, funding_award_id, version, sanction_order_number, sanction_date,
-        sanctioned_amount_paise, status, closure_disposition, change_type,
-        reason_category_id, changed_by_user_id, created_at
-      ) VALUES (?, ?, 2, ?, '2026-08-01', 10000000, 'CLOSED',
-        'RELEASES_COMPLETE', 'STATUS_CHANGED', ?, ?, ?)`,
-    ).bind(
-      crypto.randomUUID(), awardId, `ORDER-${awardId}`,
-      `closure-${graph.cycleId}`, graph.userId, now,
-    ).run()
-
-    expect(await env.DB.prepare(
-      `SELECT status, closure_disposition AS disposition
-       FROM seb_funding_award WHERE id = ?`,
-    ).bind(awardId).first()).toEqual({
-      status: 'CLOSED',
-      disposition: 'RELEASES_COMPLETE',
-    })
-  })
-
-  it('retains reassessment history and validates its type, outcome, and ordering key', async () => {
-    const graph = await createGraph()
-    const awardId = await insertAward(graph.userId, graph.caseId, graph.applicationId)
-    const now = Date.now()
-    for (const [number, outcome] of [
-      [1, 'FAILED'],
-      [2, 'PASSED'],
-    ] as const) {
-      await env.DB.prepare(
-        `INSERT INTO seb_award_assessment (
-          id, funding_award_id, assessment_type, assessment_number, outcome,
-          evidence_reference, applicant_summary, assessed_by_user_id, assessed_at, created_at
-        ) VALUES (?, ?, 'PERFORMANCE', ?, ?, 'EVIDENCE-TEST', 'Test result.', ?, ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), awardId, number, outcome, graph.userId, now + number, now)
-        .run()
-    }
-
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_award_assessment (
-          id, funding_award_id, assessment_type, assessment_number, outcome,
-          evidence_reference, applicant_summary, assessed_by_user_id, assessed_at, created_at
-        ) VALUES (?, ?, 'PERFORMANCE', 2, 'PASSED', 'EVIDENCE-TEST', 'Test result.', ?, ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), awardId, graph.userId, now, now)
-        .run(),
-    ).rejects.toThrow()
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_award_assessment (
-          id, funding_award_id, assessment_type, assessment_number, outcome,
-          evidence_reference, applicant_summary, assessed_by_user_id, assessed_at, created_at
-        ) VALUES (?, ?, 'UNKNOWN', 3, 'PASSED', 'EVIDENCE-TEST', 'Test result.', ?, ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), awardId, graph.userId, now, now)
-        .run(),
-    ).rejects.toThrow()
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_award_assessment (
-          id, funding_award_id, assessment_type, assessment_number, outcome,
-          evidence_reference, applicant_summary, assessed_by_user_id, assessed_at, created_at
-        ) VALUES (?, ?, 'PERFORMANCE', 1, 'UNKNOWN', 'EVIDENCE-TEST', 'Test result.', ?, ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), awardId, graph.userId, now, now)
-        .run(),
-    ).rejects.toThrow()
-
-    expect(
-      await env.DB.prepare(
-        `SELECT assessment_number AS number, outcome FROM seb_award_assessment
-         WHERE funding_award_id = ? ORDER BY assessment_number`,
-      )
-        .bind(awardId)
-        .all(),
-    ).toMatchObject({
-      results: [
-        { number: 1, outcome: 'FAILED' },
-        { number: 2, outcome: 'PASSED' },
-      ],
-    })
   })
 
   it('retains immutable R2 versions when a logical document is soft-deleted', async () => {
@@ -1235,7 +731,7 @@ describe('core and Mission SEP schema', () => {
       env.DB.prepare(
         `INSERT INTO seb_application_version (
           id, application_id, version, programme_cycle_id, programme_cycle_version,
-          application_type, phase_number, change_type, changed_by_user_id, created_at
+          application_kind, phase_number, change_type, changed_by_user_id, created_at
         ) VALUES (?, ?, 1, ?, 1, 'INITIAL', 1, 'INITIAL', ?, ?)`,
       ).bind(
         crypto.randomUUID(),
@@ -1247,7 +743,7 @@ describe('core and Mission SEP schema', () => {
       env.DB.prepare(
         `INSERT INTO seb_application_version (
           id, application_id, version, programme_cycle_id, programme_cycle_version,
-          application_type, phase_number, change_type, changed_by_user_id, created_at
+          application_kind, phase_number, change_type, changed_by_user_id, created_at
         ) VALUES (?, ?, 1, ?, 1, 'INITIAL', 1, 'INITIAL', ?, ?)`,
       ).bind(
         crypto.randomUUID(),
@@ -1452,6 +948,14 @@ describe('what a template may declare about a question', () => {
       .rejects.toThrow()
   })
 
+  /** A cycle's funding ceiling: the money column every amount check mirrors. */
+  const setCeiling = (cycleId: string, amountPaise: string) => env.DB.prepare(
+    `UPDATE seb_programme_cycle_version
+        SET funding_ceiling_state = 'RESOLVED', funding_ceiling_amount_paise = ?,
+            funding_ceiling_scope = 'APPLICATION'
+      WHERE programme_cycle_id = ?`,
+  ).bind(amountPaise, cycleId).run()
+
   /**
    * An amount larger than a JavaScript number can hold exactly.
    *
@@ -1466,48 +970,14 @@ describe('what a template may declare about a question', () => {
    * against it.
    */
   it('refuses an amount too large to be read back', async () => {
-    const userId = await insertUser()
-    const enterpriseId = await insertEnterprise(userId)
-    const caseId = await insertCase(userId, enterpriseId)
-    const cycleId = await insertCycle(userId)
-    const applicationId = await insertApplication({
-      userId, enterpriseId, caseId, cycleId, status: 'APPROVED',
-    })
+    const cycleId = await insertCycle(await insertUser())
     // One past what a JavaScript number holds exactly.
-    const beyond = '9007199254740992'
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_funding_award (
-          id, funding_case_id, application_id, sanction_order_number,
-          sanction_date, sanctioned_amount_paise, status, current_version, ledger_version,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, 'SO/1', '2026-04-01', ?, 'ACTIVE', 1, 0, ?, ?)`,
-      ).bind(
-        crypto.randomUUID(), caseId, applicationId, beyond, Date.now(), Date.now(),
-      ).run(),
-    ).rejects.toThrow()
+    await expect(setCeiling(cycleId, '9007199254740992')).rejects.toThrow()
   })
 
   it('accepts the largest amount that survives being read back', async () => {
-    const userId = await insertUser()
-    const enterpriseId = await insertEnterprise(userId)
-    const caseId = await insertCase(userId, enterpriseId)
-    const cycleId = await insertCycle(userId)
-    const applicationId = await insertApplication({
-      userId, enterpriseId, caseId, cycleId, status: 'APPROVED',
-    })
-    await expect(
-      env.DB.prepare(
-        `INSERT INTO seb_funding_award (
-          id, funding_case_id, application_id, sanction_order_number,
-          sanction_date, sanctioned_amount_paise, status, current_version, ledger_version,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, 'SO/2', '2026-04-01', ?, 'ACTIVE', 1, 0, ?, ?)`,
-      ).bind(
-        crypto.randomUUID(), caseId, applicationId, '9007199254740991',
-        Date.now(), Date.now(),
-      ).run(),
-    ).resolves.toBeDefined()
+    const cycleId = await insertCycle(await insertUser())
+    await expect(setCeiling(cycleId, '9007199254740991')).resolves.toBeDefined()
   })
 
   it('accepts a date that may not be in the future', async () => {

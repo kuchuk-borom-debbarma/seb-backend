@@ -571,12 +571,12 @@ describe('inviting somebody to a staff role', () => {
     await composeRole('DESK_REVIEWER', [['application', 'read']], founder.userId)
     await composeRole(
       'DECISION_APPROVER',
-      [['application', 'read'], ['decision', 'record']],
+      [['application', 'read'], ['stage', 'decide']],
       founder.userId,
     )
     await composeRole(
       'CASEWORKER',
-      [['application', 'read'], ['application', 'review'], ['role', 'invite']],
+      [['application', 'read'], ['stage', 'advance'], ['role', 'invite']],
       founder.userId,
     )
   }
@@ -792,7 +792,7 @@ describe('inviting somebody to a staff role', () => {
     const subject = await applicantAccount()
     const callers = [
       { what: 'reads only', session: await sessionHolding(['READER'], [['application', 'read']]) },
-      { what: 'decides only', session: await sessionHolding(['DECIDER'], [['decision', 'record']]) },
+      { what: 'decides only', session: await sessionHolding(['DECIDER'], [['stage', 'decide']]) },
       { what: 'an applicant', session: await sessionHolding(['APPLICANT']) },
     ]
     for (const { what, session } of callers) {
@@ -854,7 +854,7 @@ describe('the vocabulary the schema publishes', () => {
     expect(published).toEqual(
       catalogue.map((pair) => `${pair.resource}:${pair.action}`).sort(),
     )
-    expect(published.length, 'catalogue size').toBe(38)
+    expect(published.length, 'catalogue size').toBe(36)
   })
 
   it('names the two authorities the server decides for itself', async () => {
@@ -1197,7 +1197,7 @@ describe('authentication', () => {
       ).bind(roleId, Date.now(), Date.now(), user.id),
       env.DB.prepare(
         `INSERT INTO core_role_permission (id, role_id, resource, action, created_at)
-         VALUES (?, ?, 'application', 'review', ?)`,
+         VALUES (?, ?, 'stage', 'advance', ?)`,
       ).bind(crypto.randomUUID(), roleId, Date.now()),
       env.DB.prepare(
         `INSERT INTO core_user_role_grant (
@@ -1246,7 +1246,7 @@ describe('authentication', () => {
     })
     const roleContext = cookieAuthContext(cookie)
     expect(await authenticatedApplicant(roleContext)).toBeNull()
-    expect(await authenticatedWithPermission(roleContext, 'application', 'review')).not.toBeNull()
+    expect(await authenticatedWithPermission(roleContext, 'stage', 'advance')).not.toBeNull()
   })
 
   it('signs in an administrator holding no applicant grant and refuses applicant operations', async () => {
@@ -2635,7 +2635,7 @@ describe('administrative role management', () => {
       `SELECT id FROM core_role WHERE key = ?`,
     ).bind(OFFICE_ROLE).first<{ id: string }>()
     for (const [resource, action] of [
-      ['application', 'read'], ['application', 'review'],
+      ['application', 'read'], ['stage', 'advance'],
     ] as const) {
       await env.DB.prepare(
         `INSERT INTO core_role_permission (id, role_id, resource, action, created_at)

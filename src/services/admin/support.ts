@@ -12,15 +12,12 @@
  * an entity this service owns. Audit metadata stays deliberately smaller than
  * the business record — a flat map of primitives, never the form itself.
  */
-import { sql, type SQL } from 'drizzle-orm'
-import { sebApplication } from '../../db/schema'
 import {
   auditEventRow,
   type ActionWrittenBy,
   type AuditEventInput,
   type AuditEventRecord,
 } from '../audit-event'
-import { failure } from '../envelope'
 /*
  * Re-exported rather than moved out of every caller's import: `constraintSafe`
  * is named in this package's README as part of the shared preamble, and it is
@@ -29,7 +26,7 @@ import { failure } from '../envelope'
  */
 export { constraintSafe } from '../constraints'
 import { authenticatedWithPermission, type ActionOf, type Resource } from '../auth'
-import type { AdminOperationContext, AdminResult } from './types'
+import type { AdminOperationContext } from './types'
 
 /**
  * The one refusal every insufficiently authorized staff request receives.
@@ -80,44 +77,11 @@ export const adminAudit = <A extends AdminAuditAction>(
   input: AuditEventInput<A> & { now: Date },
 ): AuditEventRecord => auditEventRow(context, { ...input, createdAt: input.now })
 
-/**
- * Whether the head update that opens this transaction actually landed.
- *
- * Every guarded write is an `UPDATE ... WHERE status_version = expected`
- * followed by inserts that must fire only if it matched. Those inserts cannot
- * read the update's result, so they re-state the condition — and the obvious
- * re-statement, *"the head is now at `expected + 1`"*, is true whenever the
- * head was **already** there. An officer acting from a page one version stale
- * therefore had their update refused and their inserts accepted: the caller
- * was told the write did not happen, and a decision nobody made appeared on
- * the application.
- *
- * Demonstrated in `test/service/decision-bound.test.ts` before this existed.
- *
- * The timestamp is what makes it this operation rather than that version. Each
- * write mints one `now` and stamps it on the head in the same statement, so
- * the pair identifies the update that just ran and nothing else — no earlier
- * transition can have written the same instant.
- */
-export const headJustMovedTo = (
-  applicationId: string,
-  statusVersion: number,
-  now: Date,
-): SQL => sql`EXISTS (
-  SELECT 1 FROM ${sebApplication}
-  WHERE ${sebApplication.id} = ${applicationId}
-    AND ${sebApplication.statusVersion} = ${statusVersion}
-    AND ${sebApplication.statusChangedAt} = ${now}
-)`
-
-
 /*
  * Re-exported rather than moved out of every caller's import, like
  * `constraintSafe` above: the definitions live in `services/text.ts` because
- * the announcement service needs them too. Imported as well, because this
- * file's own preamble below still normalizes reasons.
+ * the announcement service needs them too.
  */
-import { normalizeRequiredText } from '../text'
 export { normalizeRequiredText, normalizeOptionalText } from '../text'
 
 /*
@@ -125,82 +89,3 @@ export { normalizeRequiredText, normalizeOptionalText } from '../text'
  * D1's `{ meta: { changes } }`, a shape nothing produces any more.
  */
 export { changedExactlyOne } from '../../db'
-
-/**
- * Refuses an undisclosed self-review.
- *
- * A member of staff may act on their own application — `docs/policy-alignment.md`
- * records that as permitted, with disclosure — but they must say so, and the
- * saying is what lands in the audit trail.
- *
- * This used to live on claiming, which was the first act on a file. There is
- * nothing to reserve now, so the disclosure moved onto the transitions that
- * actually decide something: completing a desk review and recording a
- * decision. Left where it was, it would simply never be collected.
- *
- * Absent is treated as not acknowledged. Only somebody reviewing their own
- * application has to send it, so every other caller is unaffected.
- */
-export const undisclosedSelfReview = (
-  applicantUserId: string,
-  actorId: string,
-  acknowledged: boolean | null | undefined,
-): boolean => applicantUserId === actorId && acknowledged !== true
-
-export const SELF_REVIEW_MESSAGE =
-  'Acknowledge that you are acting on your own application.'
-
-/**
- * Whether an act is a *disclosed self-review*, as a term the write evaluates.
- *
- * Deliberately not the caller's word. `undisclosedSelfReview` above refuses an
- * acknowledgement that is **missing** from the applicant; nothing there stops
- * anybody asserting one on a file that is not theirs, and a review wrongly
- * marked as a self-review is worse than one not marked at all — it is a false
- * statement in a record kept for an auditor, and it makes
- * `SEB.SELF_REVIEW_DISCLOSED` return files that were nothing of the kind.
- *
- * So the ownership half is read from the application row inside the same
- * statement that stores the answer, which is the layering rule this codebase
- * follows everywhere else: the controller decides, and the write proves it
- * again in SQL.
- *
- * **A boolean, not a `1`.** It read `${Number(acknowledged)} = 1` and its
- * callers compared the whole subquery to `1` again — the SQLite spelling.
- * Postgres refuses to compare a boolean to an integer, so the disclosure write
- * did not go unrecorded, it *threw*, taking the whole desk review down with
- * it. Anything comparing this to a number will fail the same way.
- */
-export const disclosedSelfReview = (
-  applicationId: string,
-  actorUserId: string,
-  acknowledged: boolean | null | undefined,
-): SQL => sql`(
-  SELECT ${acknowledged === true}
-    AND ${sebApplication.applicantUserId} = ${actorUserId}
-  FROM ${sebApplication} WHERE ${sebApplication.id} = ${applicationId}
-)`
-
-/**
- * The preamble every reasoned, version-guarded administrative transition shares.
- *
- * Each of these transitions is authorized the same way, requires the same
- * bounded mandatory reason, and takes the same optimistic-concurrency version.
- * Only the message describing a malformed request differs, so that is the one
- * thing a caller supplies.
- */
-export const authorizeReasonedTransition = async <R extends Resource>(
-  context: AdminOperationContext,
-  resource: R,
-  action: ActionOf<R>,
-  input: { reason: string; expectedVersion: number },
-  invalidRequestMessage: string,
-): Promise<{ actorId: string; reason: string } | { refusal: AdminResult<never> }> => {
-  const administrator = await currentStaff(context, resource, action)
-  if (!administrator) return { refusal: failure(ADMIN_REQUIRED_MESSAGE) }
-  const reason = normalizeRequiredText(input.reason, 1_000)
-  if (!reason || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
-    return { refusal: failure(invalidRequestMessage) }
-  }
-  return { actorId: administrator.id, reason }
-}

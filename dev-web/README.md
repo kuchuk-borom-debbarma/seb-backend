@@ -20,8 +20,9 @@ Worker. Concretely:
   its screen exists. An entry that leads nowhere is a defect, and the
   end-to-end suite asserts it.
 - Disabled and hidden states come from real data — `editableStageKeys` decides
-  which form stages are open, `expansionEligibility.reasons` decides whether an
-  expansion can start.
+  which form stages are open, `applicationKinds` decides which kinds of
+  application may start and says why the others may not, and an action's
+  `permitted` decides whether its button is live.
 - Money is rendered from the `Money` scalar, which is a decimal string of
   **paise**, not rupees and not a number.
 
@@ -159,23 +160,46 @@ Built:
   signed-in devices with per-session and bulk revocation.
 - **The public site** — a landing page at `/`, an FAQ at `/faq`, and sign-in
   at `/login`, all reachable without an account.
-- **The applicant portal**, at `/dashboard` — enterprises, starting an initial
-  or expansion application, the template-driven form rendered stage by stage
-  as a `FormJourney` stepper with autosave, the review step that shows the
-  whole application before submission, the evidence screen, the validation
-  report and submission or resubmission, the timeline, the funding view, and
-  the cycles an applicant can apply in.
+- **The applicant portal**, at `/dashboard` — enterprises, starting an
+  application of any kind the cycle offers (with every reason a kind is closed),
+  the template-driven form rendered stage by stage as a `FormJourney` stepper
+  saved by hand (Save, "Save & next", Cmd/Ctrl+S, with a prompt before leaving
+  unsaved answers) and its rules about several answers checked as they are typed,
+  the review step that shows the whole application before submission, the
+  evidence screen, the validation report and submission or resubmission, the
+  timeline, and the cycles an applicant can apply in. After submission an
+  application shows its **journey** in the pipeline's own words for the
+  applicant: the stage's label and explanation, how it ended, the statuses the
+  applicant may see, and a "Decided so far" card for the values the office
+  recorded, such as the approved grant.
 - **Account self-service** — profile and display name, password change,
   email change, forgotten-password recovery, and signed-in devices, under
   `/settings` and `/account`.
 - **Programme cycle administration** — the list, the dense policy form, the
   cycle editor's form screen for authoring the stages and questions a draft
-  cycle asks, and every transition the API exposes.
-- **Intake** — the queue console with counts for every named queue, one queue
-  per page with the API's filters and ordering held in the address, reference
-  lookup, an analytics panel on the office home summarising the filtered
-  intake, and the application workspace: internal notes, desk review, and
-  withdrawal of a correction request.
+  cycle asks, and every transition the API exposes. The policy form chooses the
+  cycle's pipeline and declares its kinds of application with their
+  eligibility rules; its last step, "Answer rules", declares the form's rules
+  about several answers at once.
+- **Pipelines** (`/admin/pipelines`) — the list, "New pipeline" (optionally
+  from the worked example), and the editor: a Flow diagram, Stages, Status
+  flags, Recorded values, Actions (inputs, when each is offered, and the
+  effects it has), Owners, and Versions, with Check, Save draft, Publish,
+  Discard draft, Retire and "Start a new draft". See
+  [the pipeline guide](../docs/pipeline-guide.md#the-screens).
+- **Casework** — **My stages** (`/admin/stages`, and the same cards on the
+  office home): each stage the person works, with how many files wait there;
+  each stage's queue, oldest arrival first, with a flag filter; and on the
+  application workspace the **stage panel** — where the file is, its trail,
+  flags and recorded values, open corrections with withdrawal, its stage
+  history, and the actions offered, each opening a dialog that draws the
+  action's inputs with the applicant's own form renderer.
+- **The office-wide list** (`/admin/queue`) — every submitted file the reader
+  may see, filtered by cycle, kind, category, sector, district, dates, the
+  grant and loan asked for, and by pipeline, stage and the flags a file holds,
+  all held in the address; reference lookup; and an analytics panel on the
+  office home summarising the filtered intake. The application workspace adds
+  internal notes.
 - **Access** — exact-address lookup, the complete role history, and grant and
   revoke with the operator's own password as a step-up.
 - **Activity history** — every recorded action, read as a sentence with its
@@ -185,12 +209,6 @@ Built:
   request produced; the filtered view exports as CSV with a stated reason. An
   application's workspace shows its own latest entries, a person's access
   record links to their history, and a role links to its own.
-- **Decisions** — referral to a partner bank, recording and correcting its
-  outcome, and recording and correcting the programme's decision.
-- **Funding** — issuing the sanction order, the award ledger, releasing a
-  payment with every prerequisite the API demands, reversing one, assessments,
-  amending or closing an award, and recovery cases with their own ledger and
-  balance.
 
 Every operation the GraphQL schema exposes now has a screen.
 
@@ -199,11 +217,13 @@ pages, and no control that does not do what it says.
 
 ## The whole programme, end to end
 
-`e2e/journey.spec.ts` carries one application from signup to money in the bank:
-submission, desk review, referral to a partner bank, the bank's outcome,
-the programme decision, the sanction order, and a payment — then signs
-back in as the applicant and checks they can see their own award, and that
-nothing the office keeps to itself has leaked into it.
+The end-to-end suite carries applications through the route the portal ships
+with — TTC, Industries & Commerce, then the bank the applicant chose — forward
+and back: a correction the applicant makes and resubmits, a bank sending a
+file back and the file re-routed to the other bank, and the short journeys of a
+file that asked for no loan and one that is rejected. It then signs back in as
+the applicant and checks what they see, and that nothing the office keeps to
+itself has leaked into it.
 
 It reaches all of that without configured storage by opening a cycle whose
 form declares its document questions `OPTIONAL`. That is a legitimate policy
@@ -282,16 +302,16 @@ The client is a demonstration as well as a client, so it leads people through
 itself.
 
 **How this works** (`/guide`) is the first entry in the navigation. It opens
-with the route a file takes: all eleven states, each placed under the desk that
-holds it — applicant, programme office, partner bank — numbered in
-the order they happen. The office's description of each stop is this screen's
-own; the applicant's plain-language wording is quoted beneath it from the API's
-status guide, where the account is allowed to read it. That surface is
-deliberately behind the applicant guard, so an administrator sees one and not
-the other, and the page says which is which.
+with how a file moves: drafted by its applicant, then submitted into the
+pipeline its cycle names — a configured route of stages, each worked by the
+roles that own it, until an action ends its journey. The two states every
+application shares are quoted from the API's status guide; what happens after
+submission is the pipeline's, so it is described in general here and drawn in
+full on the pipeline's own Flow tab.
 
-**Guided routes** walk the real screens. A route is a sequence of steps, each
-with the desk that holds the work, a sentence about what happens, and where it
+**Guided routes** walk the real screens, listed on `/guide` with the number
+of routes this account may not walk. A route is a sequence of steps, each
+with who does the work, a sentence about what happens, and where it
 happens. Starting one docks a companion rail in a column of its own — the page
 narrows, it does not disappear. A step that is about a particular control draws
 a clay bracket in the margin beside it rather than dimming everything else: a
@@ -324,26 +344,16 @@ would be the demonstration lying about what it knows.
 `Explain` attaches a short answer to a word whose name does not give one. It is
 kept sparse — at most one per card, and only where the meaning is genuinely not
 guessable, because an icon beside every label teaches nothing and doubles the
-reading. One sits on the application form. Nine sit in the programme office,
-which is where the vocabulary is hardest: an applicant reads "Submitted" and
-knows what it means, while an officer reads two queues that both hold
-`SUBMITTED` and has to be told why they are separate.
+reading. One sits on the application form; the rest sit in the programme
+office, where the vocabulary is hardest — frozen evidence, a frozen policy, and
+what a stage action is.
 
 Office copy lives in `src/features/admin/officeGuidance.ts`, in one module
 reviewable as copy, each entry naming the section of the
-[administrator workflow guide][office] it is drawn from. It is
-deliberately **not** a rendering of `features/admin/states.ts`: those doc
-comments are a maintainer's gloss, uneven in coverage and free to say things a
-reader should not be told. The office's description of a thing is not a
-paraphrase of the applicant's — the same distinction `RouteDiagram` already
-draws one level up.
-
-The desk review asks for the numbers on the documents as the checks they
-evidence are passed, so the fields appear beside the work rather than before it,
-and a check that is failed withdraws its question instead of greying it out. A
-value already recorded on another file is refused with the reason field that
-answers it — the guidance calls that a question rather than a verdict, because
-the same promoter legitimately returns for a later phase.
+[administrator workflow guide][office] or the
+[pipeline guide](../docs/pipeline-guide.md) it is drawn from. The office's
+description of a thing is not a paraphrase of the applicant's: an applicant is
+told what the pipeline wrote for them, never a stage's office name.
 
 **Every screen opens with a lede.** `PageHeader` takes `description` for what
 the screen is for and `meta` for the identity that completes the title. Three
@@ -351,7 +361,7 @@ office screens had been spending the lede slot on metadata and so had no lede
 at all; folding the two together would have buried the identity in a muted
 paragraph.
 
-**The first visit knows which desk it is.** The strip is portal-aware and
+**The first visit knows which portal it is.** The strip is portal-aware and
 remembered once per portal, because the two welcomes say different things about
 different work — one key for both would silence the only line that ever explains
 the second.

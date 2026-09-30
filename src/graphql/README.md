@@ -18,7 +18,7 @@ and delegates. No business rule lives in this directory.
 
 ## Layout
 
-Ten `.graphql` files, loaded as text modules by a Wrangler rule and stitched
+Sixteen `.graphql` files, loaded as text modules by a Wrangler rule and stitched
 together in `index.ts`:
 
 ```
@@ -28,12 +28,18 @@ mutations/<ns>/<ns>.graphql   one per namespace
 resolvers/<ns>/<ns>.ts        thin delegation to a service
 ```
 
+`admin` is split further: `pipeline.graphql` and `stage.graphql` beside
+`admin.graphql`, each adding its namespace with `extend type AdminQuery` or
+`extend type AdminMutation`, with resolvers of the same names. Pipeline
+authoring and stage casework are separate services, and one file each keeps
+them reviewable on their own.
+
 The five namespaces are `auth`, `seb` (applicant), `admin` (staff — itself
-nesting `programmeCycle`, `formTemplate`, `intake`, `analytics`, `decision`
-and `funding`), `access` (role management) and `audit` (query-only history).
-Each is a nested field returning a namespace object, so
-`mutation { admin { intake { startDeskReview(…) } } }` rather than a flat
-`adminIntakeStartDeskReview`. That nesting is what the single-mutation rules
+nesting `programmeCycle`, `formTemplate`, `intake`, `analytics`,
+`announcement`, `pipeline` and `stage`), `access` (role management) and
+`audit` (query-only history). Each is a nested field returning a namespace
+object, so `mutation { admin { stage { takeAction(…) } } }` rather than a flat
+`adminStageTakeAction`. That nesting is what the single-mutation rules
 below depend on.
 
 ## Scalars
@@ -54,7 +60,7 @@ stale. Check the exit code, not the log.
 
 ## The refusal codes
 
-`ValidationIssue.code` is `ValidationIssueCode!`, a closed enum of 34 values, and
+`ValidationIssue.code` is `ValidationIssueCode!`, a closed enum of 35 values, and
 not a `String!`. The difference is what happens when the two sides disagree: a
 code the engine emits that the schema does not publish is a **serialization
 error**, where a string would have travelled quietly to a client that has no

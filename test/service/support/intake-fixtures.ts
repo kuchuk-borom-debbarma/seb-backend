@@ -77,39 +77,3 @@ export const submittedProfile = async (input: {
     referenceNumber: head.referenceNumber,
   }
 }
-
-/**
- * A programme decision on a submitted application, written directly.
- *
- * The real path runs desk review, a bank referral, an outcome and the decision
- * mutation — five round trips that would make every decided-range test slow
- * and fail for reasons that have nothing to do with a date filter. What the
- * filter reads is the decision row's timestamp, so that row is what is seeded,
- * with every constraint the table carries satisfied.
- */
-export const seededDecision = async (input: {
-  applicationId: string
-  submissionId: string
-  recordedByUserId: string
-  decidedAt: Date
-}): Promise<void> => {
-  await env.DB.prepare(`INSERT INTO seb_programme_decision (
-    id, application_id, submission_id, bank_outcome_id, decision_number,
-    outcome, decision_reference, decision_date, approved_amount_paise,
-    applicant_conditions, reason_category_id, applicant_message,
-    supersedes_decision_id, correction_reason_category_id, correction_reason,
-    recorded_by_user_id, created_at, conflict_acknowledged
-  ) VALUES (?, ?, ?, NULL, 1, 'APPROVED', ?, ?, 1000000, NULL, NULL,
-    'Approved for testing the decided-between filter.', NULL, NULL, NULL,
-    ?, ?, false)`)
-    .bind(
-      crypto.randomUUID(),
-      input.applicationId,
-      input.submissionId,
-      `DEC-${crypto.randomUUID().slice(0, 12)}`,
-      input.decidedAt.toISOString().slice(0, 10),
-      input.recordedByUserId,
-      input.decidedAt.getTime(),
-    )
-    .run()
-}

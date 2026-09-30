@@ -33,6 +33,8 @@ import {
   resolveTemplate,
   visibleFields as clientVisible,
 } from '../../dev-web/src/features/application/formTemplate'
+import { clientFormRules } from '../../dev-web/src/features/application/formRules'
+import { formRuleEvaluators } from '../../src/services/application/form/cross-field'
 import { answersFor, field, templateOf, type FieldRow } from './support/template'
 
 /**
@@ -375,5 +377,50 @@ describe('the client evaluates visibility exactly as the server does', () => {
         }
       })
     }
+  }
+})
+
+/*
+ * The cross-field rules, compared the same way: the real evaluators on both
+ * sides, over the same operands, rather than against a table of expected
+ * verdicts. The operand sets cover what each rule can meet — unanswered and
+ * hidden operands, empty text and lists, equal and different values, amounts
+ * either side of a limit, dates either way round — for every rule type the
+ * catalogue declares.
+ */
+describe('cross-field rules', () => {
+  type Operand = { key: string; type: 'BOOLEAN' | 'TEXT' | 'SINGLE_CHOICE' | 'MONEY_PAISE' | 'DATE'; value: unknown }
+  const pair = (type: Operand['type'], first: unknown, second: unknown): Operand[] => [
+    { key: 'FIRST', type, value: first },
+    { key: 'SECOND', type, value: second },
+  ]
+  const booleans = [undefined, null, true, false]
+  const choices = [undefined, null, '', 'SBI', 'TGB']
+  const amounts = [undefined, null, 0, 1, 50_000_00, 100_000_00, 100_000_01]
+  const dates = [undefined, '', '2026-01-01', '2026-06-30', '2027-01-01']
+  const operandSets: Operand[][] = [
+    [],
+    ...booleans.flatMap((first) => booleans.map((second) => pair('BOOLEAN', first, second))),
+    ...choices.flatMap((first) => choices.map((second) => pair('SINGLE_CHOICE', first, second))),
+    ...amounts.flatMap((first) => amounts.map((second) => pair('MONEY_PAISE', first, second))),
+    ...dates.flatMap((first) => dates.map((second) => pair('DATE', first, second))),
+    [{ key: 'ONLY', type: 'MONEY_PAISE', value: 5 }],
+  ]
+  const limits = [null, 0, 100_000_00]
+
+  it('declares the same rule types on both sides', () => {
+    expect(Object.keys(clientFormRules).sort()).toEqual(Object.keys(formRuleEvaluators).sort())
+  })
+
+  for (const type of Object.keys(formRuleEvaluators) as (keyof typeof formRuleEvaluators)[]) {
+    it(`${type} agrees on every operand set`, () => {
+      for (const operands of operandSets) {
+        for (const limit of limits) {
+          const server = formRuleEvaluators[type].holds(operands as never, limit)
+          const client = clientFormRules[type].holds(operands as never, limit)
+          expect(client, `${type} ${JSON.stringify(operands)} limit ${limit}`).toBe(server)
+        }
+      }
+    })
   }
 })

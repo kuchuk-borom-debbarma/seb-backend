@@ -57,6 +57,7 @@ import {
   type TemplateView,
 } from './formAuthoring'
 import styles from './FormEditor.module.css'
+import { fieldTypeWords, roleWords } from '#/features/admin/fieldWords'
 
 export const formEditorQuery = (id: string) =>
   queryOptions({
@@ -238,8 +239,8 @@ export function FormEditor({
       // edit quotes the version this one produced.
       queryClient.setQueryData(formEditorQuery(cycleId).queryKey, aggregate)
       closeEditors()
-      await queryClient.invalidateQueries({ queryKey: ['admin-cycle', cycleId] })
-      await queryClient.invalidateQueries({ queryKey: ['admin-cycles'] })
+      void queryClient.invalidateQueries({ queryKey: ['admin-cycle', cycleId] })
+      void queryClient.invalidateQueries({ queryKey: ['admin-cycles'] })
     },
   })
 
@@ -812,7 +813,7 @@ function StagePane({
         >
           <span>{field.label}</span>
           <span className={styles.questionKey}>
-            {field.key} · {humanize(field.type).toLowerCase()}
+            {field.key} · {fieldTypeWords(field.type)}
           </span>
           {field.role ? (
             /*
@@ -828,7 +829,7 @@ function StagePane({
                 + 'but the cycle must always carry a question bound to the role.'
               }
             >
-              read by the programme as {humanize(field.role).toLowerCase()}
+              read by the programme as {roleWords(field.role)}
             </span>
           ) : null}
           {derived ? (

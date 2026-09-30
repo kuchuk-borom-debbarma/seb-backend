@@ -32,10 +32,10 @@
  * decides *which* role state loses a race, and nothing decides whether the
  * person writing it is still allowed to.
  */
-import { and, eq, isNull, sql, type SQL } from 'drizzle-orm'
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 import { batch, changedExactlyOne, type Database } from '../../../db'
 import { constraintSafe } from '../../constraints'
-import { coreRole, coreRolePermission, coreUserRoleGrant } from '../../../db/schema'
+import { coreRole, coreRolePermission, coreUserRoleGrant, sebPipelineStageOwner } from '../../../db/schema'
 import { isCataloguePermission, type Permission } from '../permissions'
 import { insertAuditEventWhere, type AuditEventRecord } from '../../audit-event'
 import { hasActiveBuiltinRole } from './auth'
@@ -49,6 +49,12 @@ export type ManagedRole = {
   permissions: Permission[]
   /** How many live accounts hold it. What makes retiring one a legible decision. */
   memberCount: number
+  /**
+   * The pipeline stages it works now, as `pipelineId/stageKey`: the scope the
+   * invitation ceiling compares, because permissions alone cannot tell one
+   * bank's officer from another's.
+   */
+  ownedStages: string[]
   version: number
   createdAt: Date
   updatedAt: Date
@@ -95,6 +101,11 @@ const roleSelection = {
   memberCount: sql<number>`(
     SELECT count(*)::int FROM ${coreUserRoleGrant} g
      WHERE g.role_id = ${OUTER_ROLE_ID} AND g.revoked_at IS NULL)`,
+  // Seeks seb_pipeline_stage_owner_role_idx: live owners of one role.
+  ownedStages: sql<string[]>`COALESCE((
+    SELECT array_agg(o.pipeline_id || '/' || o.stage_key ORDER BY o.pipeline_id, o.stage_key)
+      FROM ${sebPipelineStageOwner} o
+     WHERE o.role_id = ${OUTER_ROLE_ID} AND o.removed_at IS NULL), '{}')`,
 }
 
 type RoleRow = {
@@ -107,6 +118,7 @@ type RoleRow = {
   updatedAt: Date
   pairs: string[]
   memberCount: number
+  ownedStages: string[]
 }
 
 const toManagedRole = (row: RoleRow): ManagedRole => ({
@@ -123,6 +135,7 @@ const toManagedRole = (row: RoleRow): ManagedRole => ({
       : []
   }),
   memberCount: row.memberCount,
+  ownedStages: row.ownedStages,
   version: row.version,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
@@ -152,6 +165,22 @@ export const findRoleById = (db: Database, id: string): Promise<ManagedRole | nu
 
 export const findRoleByKey = (db: Database, key: string): Promise<ManagedRole | null> =>
   findRoleWhere(db, eq(coreRole.key, key))
+
+/**
+ * Live roles by key, in one statement — the roles a stage's owner list names.
+ * A key that names no live role is simply absent, and the caller refuses it.
+ */
+export const findRolesByKeys = async (
+  db: Database,
+  keys: readonly string[],
+): Promise<ManagedRole[]> => {
+  if (keys.length === 0) return []
+  const rows = await db
+    .select(roleSelection)
+    .from(coreRole)
+    .where(and(inArray(coreRole.key, [...keys]), isNull(coreRole.deletedAt)))
+  return rows.map(toManagedRole)
+}
 
 export type CreateRoleInput = {
   role: typeof coreRole.$inferInsert

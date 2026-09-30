@@ -11,12 +11,16 @@ is an authoring act by a super administrator, not a deploy — and that is the
 point of everything described here.
 
 This guide complements the
-[administrator workflow guide](admin-workflow-guide.md) (the office's journey)
-and the [application guide](application-guide.md) (the applicant's). The code
-behind it lives mainly in `src/db/schema/seb/form-template.ts` (the tables),
+[administrator workflow guide](admin-workflow-guide.md) (the office's journey),
+the [application guide](application-guide.md) (the applicant's) and the
+[pipeline guide](pipeline-guide.md) (what happens to a file once it is
+submitted). The code behind it lives mainly in
+`src/db/schema/seb/form-template.ts` (the tables),
 `src/services/admin/form-template-input.ts` and
-`src/services/admin/group-definitions.ts` (the authoring checks), and
-`src/services/application/form/` (the engine).
+`src/services/admin/group-definitions.ts` (the authoring checks),
+`src/services/application/form/` (the engine, with its rules about several
+answers in `form/cross-field/`), and `src/services/application/eligibility/`
+(who may start which kind of application).
 
 ## What a template is, and who owns it
 
@@ -50,7 +54,9 @@ every question belongs to exactly one stage. The client draws them as the
 
 Stages are also the unit of **revision**: a correction request names one
 stage, and only the named stages unlock when an application is returned for
-correction.
+correction. A correction is asked for by a configured stage action in the
+office's pipeline, and the file returns to the stage that asked when the
+applicant resubmits — see the [pipeline guide](pipeline-guide.md).
 
 ## The fourteen field types
 
@@ -165,31 +171,109 @@ implementations of one grammar; `test/service/client-parity.test.ts` runs both
 over the same templates and asserts they agree on every operator and every
 grouping.
 
-## The two roles, and why only two
+## Rules about several answers at once
+
+A condition decides one question. Some rules are about several answers
+together, and no single question's bounds can say them: "a grant, a bank loan,
+or both", "the two banks must differ". A cycle declares these as **cross-field
+rules**, each with a key, the stage its refusal is shown on, the sentence the
+applicant reads, and the questions it reads (its *operands*).
+
+| Rule | Holds when | Reads | Limit |
+| --- | --- | --- | --- |
+| `AT_LEAST_ONE_TRUE` | at least one of the questions is answered yes | 2–8 `BOOLEAN` or `ATTESTATION` questions | none |
+| `DIFFERENT_VALUES` | the answers given all differ | 2–8 `SINGLE_CHOICE`, `TEXT`, `EMAIL` or `PHONE` questions | none |
+| `SUM_AT_MOST` | the amounts given add up to no more than the limit | 1–8 `MONEY_PAISE` or `INTEGER` questions | required, zero or more |
+| `AT_MOST_FIELD` | the first answer is no more than the second | exactly 2 `MONEY_PAISE`, `INTEGER` or `DATE` questions | none |
+
+**A rule only ever sees the questions the applicant was actually asked.** A
+hidden question's answer reads as unanswered, so a rule about a loan says
+nothing to somebody who asked for no loan, and `AT_LEAST_ONE_TRUE` holds when
+none of its questions is on the screen: a rule cannot demand an answer to a
+question nobody was shown. Unanswered questions are not compared at all —
+`DIFFERENT_VALUES` compares only the answers given, and `AT_MOST_FIELD` holds
+until both are answered.
+
+The rule types are a closed vocabulary declared in
+`src/services/catalogue/workflow.json`, not something a cycle invents. Each is
+evaluated twice, by the server and by the browser, so the refusal appears the
+moment the second answer is given rather than at submission;
+`check:workflow-catalog` fails the build if a type lacks either evaluator, and
+`client-parity.test.ts` runs both over the same answers. The server's verdict
+is the one that counts: submission and its dry run report a broken rule as
+`FORM_RULE_VIOLATED`, on the rule's stage and against its first question, with
+the rule's own message. A save does not check rules, because "a grant, a loan,
+or both" cannot hold part way through a form.
+
+Authoring refuses a rule that could never hold or never fail, naming the rule:
+a type this build does not know, a stage the form does not have, a message
+empty or over 300 characters, too few or too many questions, the same question
+twice, a question of a type the rule cannot read, a question inside a repeated
+group (there is no one answer to read there), or a limit given where none is
+taken or missing where one is required. A cycle may declare at most 20 rules.
+
+### The default form's money questions
+
+The worked example is what the default form asks about money, on its
+`FINANCIAL` stage:
+
+| Key | Question | Asked when |
+| --- | --- | --- |
+| `WANTS_GRANT` | Do you want a grant? | always, required |
+| `SEED_FUND_REQUESTED_PAISE` | Desired grant amount | the applicant wants a grant; then required, at least ₹0.01 |
+| `WANTS_BANK_LOAN` | Do you want a bank loan? | always, required |
+| `LOAN_BANK_FIRST_CHOICE` | First choice of bank | the applicant wants a loan; then required |
+| `LOAN_BANK_SECOND_CHOICE` | Second choice of bank | the applicant wants a loan; never required |
+| `LOAN_AMOUNT_REQUESTED_PAISE` | Loan amount requested | the applicant wants a loan; then required, at least ₹0.01 |
+
+Both bank questions offer the State Bank of India (`SBI`) and the Tripura
+Gramin Bank (`TGB`). Two rules sit over them:
+
+- `GRANT_OR_LOAN` (`AT_LEAST_ONE_TRUE` over the two yes/no questions): *"Ask
+  for a grant, a bank loan, or both."*
+- `DIFFERENT_BANKS` (`DIFFERENT_VALUES` over the two choices): *"Choose two
+  different banks."*
+
+> Rina answers no to both questions and is told to ask for a grant, a loan, or
+> both. She asks for a loan from the State Bank of India, and gives the same
+> bank as her second choice; she is told to choose two different banks.
+> Leaving the second choice blank is fine: it is a preference, and an
+> unanswered choice is not compared.
+
+The key `SEED_FUND_REQUESTED_PAISE` predates grants and loans being separate
+questions, and is kept because it is pinned (below). The default form no
+longer asks for the total project cost, the promoter's contribution, a
+proposed loan amount, or any existing bank credit.
+
+## The three roles
+
+
 
 Most code never names a question — it walks the template. But a little code is
 not template-aware and still has to find its input: the administrative queue
 filters across many cycles at once, so there is no single pinned template to
-resolve a key from, and the decision's amount bound has the same problem. A
-**role** is how such code finds its input.
+resolve a key from. A **role** is how such code finds its input.
 
 | Role | Pinned key | Why it exists |
 | --- | --- | --- |
-| `SEED_FUND_REQUESTED_PAISE` | yes — the key must be `SEED_FUND_REQUESTED_PAISE` | the queue's cross-cycle amount filter and the decision's bound read it as a literal in SQL |
+| `SEED_FUND_REQUESTED_PAISE` | yes — the key must be `SEED_FUND_REQUESTED_PAISE` | the grant the applicant asks for: the queue's cross-cycle amount filter reads it as a literal in SQL, and the funding ceiling is checked against it |
+| `LOAN_REQUESTED_PAISE` | yes — the key must be `LOAN_AMOUNT_REQUESTED_PAISE` | the bank loan the applicant asks for, read the same way |
 | `APPLICANT_DATE_OF_BIRTH` | no — any key, and it may live inside the owners group | the age rule resolves it per template; no SQL path reads it, which is what a pin is for |
 
-There used to be six. The business name, sector, establishment date and
-category stopped being answers at all — they are read live from the enterprise
-entity, and the category is computed by the server at submission — so the
-questions that duplicated them left the template, and their roles left with
-them. The cost of a pin, stated plainly: a role-bound field with a canonical
-key **cannot be renamed**.
+The two money roles must be `MONEY_PAISE` questions and the date of birth a
+`DATE`. The business name, sector, establishment date and category are not
+roles because they are not answers at all — they are read live from the
+enterprise entity, and the category is computed by the server at submission.
+The cost of a pin, stated plainly: a role-bound field with a canonical key
+**cannot be renamed**.
 
-A template must bind each role exactly once. Authoring refuses the gap by
-name (*"This cycle has no question the programme can read as …"*), and
-`resolveFormTemplate` refuses to resolve a template with an unbound role at
-all — so a cycle can never reach the state where its form cannot be read
-back.
+**Roles are optional, but never ambiguous.** A cycle binds the roles it asks:
+a loan-only round has no grant amount, and a role-bound question hidden by its
+conditions is simply unanswered, not an error. Whatever reads a role reads it
+as possibly absent. What authoring refuses is a role bound twice, bound off its
+pinned key, or bound to a question of the wrong type — each of those is a rule
+that would silently read the wrong answer — and `resolveFormTemplate` refuses
+to resolve such a template at all.
 
 ## Repeated groups
 
@@ -209,7 +293,7 @@ document has its own versioned row and cannot repeat per entry), or a
 `STATEMENT` (the same prose n times is noise).
 
 The one role allowed inside a group is `APPLICANT_DATE_OF_BIRTH` — the age
-rule walks the group's entries for it (see the pipeline below).
+rule walks the group's entries for it (see the validation step below).
 
 ## Reusable structures
 
@@ -300,11 +384,12 @@ mystery in the client.
 ## Versioning and copy-forward
 
 Every change to a cycle — its policy or its form — creates a new cycle
-version, and the version bump copies **ten rule tables** forward with
+version, and the version bump copies **eleven rule tables** forward with
 `INSERT … SELECT`: the four form tables (stages, fields, options, conditions),
-the three structure tables (definitions, members, member options), and the
-identifier rules, assessment rules and reason catalogue
-(`src/services/admin/queries/programme-cycle.ts`). A rule table missed here
+the three structure tables (definitions, members, member options), the
+cross-field rules and their operands, and the application kinds and their
+eligibility rules (`copyPolicyForward` in
+`src/services/admin/queries/programme-cycle.ts`). A rule table missed here
 would silently empty the first time a cycle changed version — for the form
 tables that loses the entire questionnaire — which is why the copy is written
 as a block and commented as one.
@@ -351,14 +436,14 @@ The office edits all of this on the cycle editor's form screen in the client —
 stages, questions, presentation, structures — described in the
 [administrator workflow guide](admin-workflow-guide.md#authoring-the-application-form).
 
-## The applicant's pipeline
+## From rows to a submitted form
 
 1. **Resolve.** `resolveFormTemplate`
    (`src/services/application/form/template.ts`, read via
    `src/services/application/queries/form-template.ts`) turns the pinned
-   version's rows into a usable form: it verifies both roles are bound,
-   anchors patterns, and strips derived-structure bookkeeping. It is the one
-   door from rows to a form.
+   version's rows into a usable form: it verifies no role is bound twice or
+   off its key, anchors patterns, and strips derived-structure bookkeeping.
+   It is the one door from rows to a form.
 2. **Render.** The client's `FormRenderer` walks the template and draws one
    control per question — labels, help, choices, bounds and conditions are all
    the cycle's own. Visibility is evaluated client-side with the same grammar
@@ -368,8 +453,9 @@ stages, questions, presentation, structures — described in the
    rather than dropped, hidden answers are pruned, and answers addressed to a
    `STATEMENT` or to a server-derived field are refused.
 4. **Validate.** `validateAnswersForSubmission` applies every field's rules
-   and conditions, then the three **policy rules** that read cycle scalars
-   rather than template rows, finding their inputs through the roles:
+   and conditions, the cycle's rules about several answers (above), then the
+   three **policy rules** that read cycle scalars rather than template rows,
+   finding their inputs through the roles:
    - **Age** — at least one owner's date of birth must fall in the cycle's
      band (default 18–60). Deliberately "at least one": a firm with a founder
      of 30 and a retired parent as co-owner is eligible, and the issue
@@ -380,20 +466,78 @@ stages, questions, presentation, structures — described in the
      establishment date cannot be sorted, so submission is refused with
      `ESTABLISHMENT_DATE_MISSING`, pointing at the enterprise screen where
      the fix lives.
-   - **Ceiling** — the requested amount is refused above the cycle's funding
-     ceiling, where the cycle has one resolved; unresolved means no ceiling
-     is enforced.
+   - **Ceiling** — the grant asked for is refused above the cycle's funding
+     ceiling, where the cycle has one resolved at the scope of one
+     application; unresolved means no ceiling is enforced. A cycle that asks
+     for no grant has nothing to check.
 5. **Submit.** Submission freezes an application version, writes the sparse
    answer rows against the pinned template, stamps the computed category on
    the version row, freezes the exact version of every document, mints the
-   reference number — and then, best-effort and after the write has already
-   succeeded, emails a confirmation with a PDF copy of the application
+   reference number, and enters the file at the first stage of the pipeline
+   version its cycle pinned — and then, best-effort and after the write has
+   already succeeded, emails a confirmation with a PDF copy of the application
    (`src/services/application/confirmation.ts`).
+
+## Kinds of application, and who may start one
+
+A cycle declares the **kinds** of application it accepts — a first
+application, an expansion, whatever a later cycle calls them — each with a
+key, a label, an optional description, and **eligibility rules**. The code
+knows no kind by name: "expansion" is a kind a cycle declares, with rules that
+say when an enterprise may start one. A cycle must declare at least one kind,
+and at most ten.
+
+| Rule | An enterprise may start this kind when |
+| --- | --- |
+| `PRIOR_APPLICATION_HAS_FLAG` | an earlier application of it holds a status flag — optionally only in one pipeline, and optionally held for at least a number of months |
+| `PRIOR_RECORDED_VALUE_AT_LEAST` | an earlier application of it recorded a value (such as an approved grant) of at least an amount |
+| `NO_OPEN_APPLICATION_OF_KIND` | it has no unfinished application of a kind — a draft, or one still being worked |
+| `MAX_APPLICATIONS_OF_KIND` | it has made fewer than a number of submitted applications of a kind, across every cycle |
+| `ENTERPRISE_AGE_AT_LEAST` | it was established at least a number of months ago |
+
+Every rule of a kind must hold. They are all evaluated, not the first to fail,
+and the applicant is shown every reason at once: an applicant told one reason
+at a time learns the rules by trial. A fact a rule needs and cannot find fails
+the rule rather than passing it — an enterprise with no establishment date
+cannot show its age.
+
+> The 2027 cycle declares `INITIAL` with `NO_OPEN_APPLICATION_OF_KIND` for
+> itself, and `EXPANSION` requiring an earlier application holding
+> `GRANT_APPROVED` for at least twelve months. Rina's enterprise was approved
+> a grant in March 2026. In January 2027 she is shown that expansion opens
+> twelve months after the earlier outcome; in April she may start one.
+
+The rules are asked when an application is started, again when a removed
+draft is restored, and again at the first submission, because the history the
+draft was started against may have moved. A resubmission is the same attempt
+and is not re-asked. The history is read across every cycle, since "an earlier
+application holds a flag" does not care which cycle it was in. When a flag was
+added comes from the pipeline's action history.
+
+An application's **phase number** is one more than the count of the
+enterprise's earlier applications of the kinds its cycle declares before this
+one, so a first application is phase 1.
+
+## A pipeline reads the form
+
+The office's pipeline (see the [pipeline guide](pipeline-guide.md)) may read
+the applicant's answers: to offer an action only when a grant was asked for,
+to pre-fill a bank from the first choice, to bound an approved grant by the
+amount asked. The two are authored apart, so they are held together when a
+cycle opens: every answer the pipeline reads must be a **top-level** question
+of the cycle's frozen form, of the type the pipeline expects, an answer used to
+bound money must be a number, and a pre-filled choice must not be able to
+arrive with an option its input does not offer. A mismatch is refused at
+opening rather than surfacing later as a condition silently never true on the
+first file that reaches it. Renaming or retyping a question a pipeline reads
+therefore has to happen together with the pipeline.
 
 ## Elsewhere
 
 - [Administrator workflow guide](admin-workflow-guide.md) — authoring in the
   office's language, and everything after submission
+- [Pipeline guide](pipeline-guide.md) — the stages, actions and status flags a
+  submitted file is worked through
 - [Application guide](application-guide.md) — the applicant's journey the
   form sits inside
 - [Database schema](../src/db/schema/README.md) — the tables, keys and CHECKs

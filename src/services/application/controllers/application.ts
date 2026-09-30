@@ -1,18 +1,16 @@
-/** Applicant application, validation, expansion, and submission use cases. */
+/** Applicant application, validation, eligibility, and submission use cases. */
 import { auditActions, applicationStatuses } from '../../../db/schema'
 import { decodeCursor, pageSize } from '../pagination'
 import {
   findEnterpriseFacts,
-  evaluateExpansionEligibility,
-  expansionClaimFromAward,
   findApplicationVersion,
+  findCycleApplicationKinds,
+  findEligibilityHistory,
   findEnterpriseApplicationSource,
-  findExpansionAwardForApplication,
   findLatestSubmittedVersion,
   findOpenProgrammeCycle,
   findProgrammeCycleIdentity,
   findDownloadablePolicyDocument,
-  findSubmissionPolicy,
   findUserEmailById,
   findDraftChanges,
   findOwnedApplicationHead,
@@ -26,7 +24,6 @@ import {
   loadOwnedApplication,
   saveApplicationSnapshot,
   setApplicationDeleted,
-  snapshotRecordToPublic,
   submitApplicationSnapshot,
 } from '../queries/application'
 import {
@@ -48,6 +45,7 @@ import {
   ownedApplicationAtVersion,
 } from '../ownership'
 import { applicationStatusGuide } from '../status-guide'
+import { getCurrentSession } from '../../auth'
 import type { ValidationReport } from '../form/engine'
 /*
  * Re-exported because `applicationFormTemplate` and `validateApplication` below
@@ -60,21 +58,19 @@ import type { ValidationReport } from '../form/engine'
  * here instead would be a second copy of the vocabulary, so the two functions
  * carry a suppression rather than this module carrying a duplicate.
  */
-export type { ResolvedFormTemplate } from '../form/types'
+export type { ApplicationFormTemplate } from '../form/types'
 export type { ValidationReport } from '../form/engine'
-import type { AnswerMap, AnswerValue, ResolvedFormTemplate } from '../form/types'
+import type { AnswerMap, ApplicationFormTemplate, ResolvedFormTemplate } from '../form/types'
 import type {
   Application,
   ApplicationOperationContext,
   ApplicationSection,
   ApplicationStatus,
   ApplicationStatusGuideEntry,
+  ApplicationKindEligibility,
   ApplicationSummary,
-  ApplicationType,
   Connection,
   DownloadAuthorization,
-  ExpansionClaim,
-  ExpansionEligibility,
   ProgrammeCycle,
   SebResult,
   TimelineEvent,
@@ -85,6 +81,7 @@ import {
   normalizeAnswers,
   requiredDocumentFieldKeys,
   applicationCategoryOf,
+  applicationGrantCeiling,
   validateAnswersForSubmission,
 } from '../form/engine'
 import {
@@ -94,18 +91,11 @@ import {
   findPinnedCycleRules,
   findPinnedRulesForApplication,
 } from '../queries/form-template'
-import { ROLE_CANONICAL_KEY } from '../../../db/schema'
 import { confirmationPdfUrl } from '../confirmation-link'
 import { sendNotification } from '../../external-notification'
 import { insertAuditEvent } from '../../audit-event'
 import { auditReason } from '../../audit-vocabulary/fields'
-
-const EMPTY_EXPANSION_CLAIM: ExpansionClaim = {
-  priorSanctionOrderNumber: null,
-  priorSanctionDate: null,
-  priorNetDisbursedAmountPaise: null,
-  continuousOperationMonths: null,
-}
+import { eligibilityOf } from '../eligibility'
 
 export const availableProgrammeCycles = async (
   context: ApplicationOperationContext,
@@ -160,7 +150,7 @@ export const myApplications = async (
     enterpriseId?: string | null
     status?: ApplicationStatus | null
     programmeCycleId?: string | null
-    applicationType?: ApplicationType | null
+    applicationKind?: string | null
     search?: string | null
     includeDeleted?: boolean | null
   },
@@ -182,7 +172,7 @@ export const myApplications = async (
       enterpriseId: input.enterpriseId,
       status: input.status,
       programmeCycleId: input.programmeCycleId,
-      applicationType: input.applicationType,
+      applicationKind: input.applicationKind,
       search: input.search,
       includeDeleted: input.includeDeleted === true,
     }),
@@ -199,10 +189,65 @@ export const applicationById = async (
   return application ? success(application) : failure('The application was not found.')
 }
 
-export const expansionEligibility = async (
+/**
+ * Every kind the cycle's current version declares, judged against the
+ * enterprise's history.
+ *
+ * Each verdict comes from the kind's configured rules alone (`../eligibility`):
+ * the code knows no kind by name. `phaseNumber` rides along for the start
+ * operation — the count of this enterprise's applications of every kind
+ * declared before this one, plus one — so a first application is phase 1 and
+ * an application of a later kind follows the attempts before it.
+ */
+const judgeKinds = async (
+  context: ApplicationOperationContext,
+  enterpriseId: string,
+  cycle: { id: string; currentVersion: number },
+  now: Date,
+  excludeApplicationId?: string,
+): Promise<Array<ApplicationKindEligibility & { phaseNumber: number }>> => {
+  const [kinds, history] = await Promise.all([
+    findCycleApplicationKinds(context.db, cycle.id, cycle.currentVersion),
+    findEligibilityHistory(context.db, enterpriseId, now, excludeApplicationId),
+  ])
+  return kinds.map((kind, index) => {
+    const earlier = new Set(kinds.slice(0, index).map((each) => each.kindKey))
+    const verdict = eligibilityOf(kind.rules, history)
+    return {
+      kindKey: kind.kindKey,
+      label: kind.label,
+      description: kind.description,
+      eligible: verdict.eligible,
+      reasons: verdict.reasons,
+      phaseNumber: 1 + history.applications.filter((prior) => earlier.has(prior.kind)).length,
+    }
+  })
+}
+
+/**
+ * Whether this enterprise may still hold an application of its kind — asked
+ * again when a draft is submitted or restored, because the history it was
+ * started against may have moved. The application itself is left out of the
+ * history, so "no open application of this kind" does not count itself.
+ */
+const kindStillEligible = async (
+  context: ApplicationOperationContext,
+  head: { id: string; enterpriseId: string; programmeCycleId: string; applicationKind: string },
+  cycleVersion: number,
+  now: Date,
+): Promise<string | null> => {
+  const judged = await judgeKinds(
+    context, head.enterpriseId, { id: head.programmeCycleId, currentVersion: cycleVersion }, now, head.id,
+  )
+  const kind = judged.find((each) => each.kindKey === head.applicationKind)
+  if (!kind) return 'This kind of application is no longer offered by the programme cycle.'
+  return kind.eligible ? null : kind.reasons.join(' ')
+}
+
+export const applicationKindEligibility = async (
   input: { enterpriseId: string; programmeCycleId: string },
   context: ApplicationOperationContext,
-): Promise<SebResult<ExpansionEligibility>> => {
+): Promise<SebResult<{ kinds: ApplicationKindEligibility[] }>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
   const now = new Date()
@@ -212,20 +257,13 @@ export const expansionEligibility = async (
   ])
   if (!source) return failure('The enterprise was not found or its funding case is not open.')
   if (!cycle) return failure('The programme cycle is not open.')
-  const evaluated = await evaluateExpansionEligibility(
-    context.db,
-    source.fundingCase.id,
-    now,
-    undefined,
-    cycle.id,
-  )
-  return success(evaluated.result)
+  const judged = await judgeKinds(context, source.enterprise.id, cycle, now)
+  return success({ kinds: judged.map(({ phaseNumber: _phase, ...kind }) => kind) })
 }
 
-const startApplication = async (
-  input: { enterpriseId: string; programmeCycleId: string },
+export const startApplication = async (
+  input: { enterpriseId: string; programmeCycleId: string; applicationKind: string },
   context: ApplicationOperationContext,
-  expansion: boolean,
 ): Promise<SebResult<Application>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
@@ -237,26 +275,10 @@ const startApplication = async (
   if (!source) return failure('The enterprise was not found or its funding case is not open.')
   if (!cycle) return failure('The programme cycle is not open.')
 
-  let phaseNumber = 1
-  let qualifyingAwardId: string | null = null
-  let qualifyingReleaseAt: Date | null = null
-  let expansionClaim = EMPTY_EXPANSION_CLAIM
-  if (expansion) {
-    const evaluated = await evaluateExpansionEligibility(
-      context.db,
-      source.fundingCase.id,
-      now,
-      undefined,
-      cycle.id,
-    )
-    if (!evaluated.result.eligible || !evaluated.award || !evaluated.result.nextPhaseNumber) {
-      return failure('The enterprise is not currently eligible for an expansion application.')
-    }
-    phaseNumber = evaluated.result.nextPhaseNumber
-    qualifyingAwardId = evaluated.award.awardId
-    qualifyingReleaseAt = evaluated.award.firstReleaseAt
-    expansionClaim = expansionClaimFromAward(evaluated.award, now)
-  }
+  const kind = (await judgeKinds(context, source.enterprise.id, cycle, now))
+    .find((each) => each.kindKey === input.applicationKind)
+  if (!kind) return failure('Select a kind of application this programme cycle offers.')
+  if (!kind.eligible) return failure(kind.reasons.join(' '))
 
   /*
    * The cycle's form, resolved before anything is written.
@@ -277,8 +299,8 @@ const startApplication = async (
       fundingCaseId: source.fundingCase.id,
       programmeCycleId: cycle.id,
       programmeCycleVersion: cycle.currentVersion,
-      applicationType: expansion ? 'EXPANSION' : 'INITIAL',
-      phaseNumber,
+      applicationKind: kind.kindKey,
+      phaseNumber: kind.phaseNumber,
       /*
        * Empty. Nothing is prefilled any more: the enterprise facts stopped
        * being answers when the entity became their single home, and the two
@@ -286,9 +308,6 @@ const startApplication = async (
        * are things only the applicant can say.
        */
       answerRows: [],
-      expansionClaim,
-      qualifyingAwardId,
-      qualifyingReleaseAt,
       now,
       audit: auditRecord(context, {
         actorUserId: applicant.id,
@@ -299,8 +318,8 @@ const startApplication = async (
         // same batch, and the audit row does not wait for it to exist.
         applicationId,
         payload: {
-          type: expansion ? 'EXPANSION' : 'INITIAL',
-          phaseNumber,
+          kind: kind.kindKey,
+          phaseNumber: kind.phaseNumber,
           enterpriseId: source.enterprise.id,
           programmeCycleId: cycle.id,
         },
@@ -310,9 +329,8 @@ const startApplication = async (
   )
   if (!inserted) {
     return failure(
-      'This enterprise already has a live application for this funding phase. '
-      + 'One live application per phase, whichever cycle it is in — a new '
-      + 'attempt becomes possible if that one is rejected or cancelled.',
+      'This enterprise already has an application in this programme cycle, or the '
+      + 'cycle changed while it was being started. Reload and try again.',
     )
   }
   return success(requireInvariant(
@@ -320,16 +338,6 @@ const startApplication = async (
     'Created application could not be read.',
   ))
 }
-
-export const startInitialApplication = (
-  input: { enterpriseId: string; programmeCycleId: string },
-  context: ApplicationOperationContext,
-): Promise<SebResult<Application>> => startApplication(input, context, false)
-
-export const startExpansionApplication = (
-  input: { enterpriseId: string; programmeCycleId: string },
-  context: ApplicationOperationContext,
-): Promise<SebResult<Application>> => startApplication(input, context, true)
 
 /**
  * The stages a revision may change, or null when this save is out of scope.
@@ -361,32 +369,6 @@ const revisionChangesAreAllowed = async (
   return changed.every((stageKey) => openStageKeys.has(stageKey)) ? openStageKeys : null
 }
 
-const expansionEvidenceForHead = async (
-  context: ApplicationOperationContext,
-  application: Application,
-  now: Date,
-): Promise<{
-  claim: ExpansionClaim
-  qualifyingAwardId: string | null
-  qualifyingReleaseAt: Date | null
-} | null> => {
-  if (application.applicationType === 'INITIAL') {
-    return {
-      claim: EMPTY_EXPANSION_CLAIM,
-      qualifyingAwardId: null,
-      qualifyingReleaseAt: null,
-    }
-  }
-  const award = await findExpansionAwardForApplication(context.db, application.id)
-  return award
-    ? {
-        claim: expansionClaimFromAward(award, now),
-        qualifyingAwardId: award.awardId,
-        qualifyingReleaseAt: award.firstReleaseAt,
-      }
-    : null
-}
-
 export const saveApplicationDraft = async (
   input: {
     applicationId: string
@@ -401,7 +383,7 @@ export const saveApplicationDraft = async (
   if ('refusal' in authorized) return authorized.refusal
   const applicant = { id: authorized.applicantId }
   const application = authorized.application
-  if (application.status !== 'DRAFT' && application.status !== 'REVISION_REQUIRED') {
+  if (application.status === 'IN_PIPELINE' && application.editableStageKeys.length === 0) {
     return failure('The application cannot be edited in its current status.')
   }
   /*
@@ -429,10 +411,10 @@ export const saveApplicationDraft = async (
    */
   const answers = pruneHidden(rules.template, normalized.value)
 
-  const revisionStageKeys = application.status === 'REVISION_REQUIRED'
+  const revisionStageKeys = application.status === 'IN_PIPELINE'
     ? await revisionChangesAreAllowed(context, application, rules.template, answers)
     : undefined
-  if (application.status === 'REVISION_REQUIRED' && !revisionStageKeys) {
+  if (application.status === 'IN_PIPELINE' && !revisionStageKeys) {
     return failure('Only stages requested for revision may be changed.')
   }
   // Nothing changed, so nothing is versioned. An autosave that stores an
@@ -441,8 +423,6 @@ export const saveApplicationDraft = async (
     return success(application)
   }
   const now = new Date()
-  const expansionEvidence = await expansionEvidenceForHead(context, application, now)
-  if (!expansionEvidence) return failure('The qualifying award is no longer valid.')
   const currentVersionRecord = await findApplicationVersion(
     context.db,
     application.id,
@@ -453,9 +433,6 @@ export const saveApplicationDraft = async (
     head: application,
     userId: applicant.id,
     answerRows: answersToRows(rules.template, answers),
-    expansionClaim: expansionEvidence.claim,
-    qualifyingAwardId: expansionEvidence.qualifyingAwardId,
-    qualifyingReleaseAt: expansionEvidence.qualifyingReleaseAt,
     revisionStageKeys: revisionStageKeys ? [...revisionStageKeys] : undefined,
     programmeCycleVersion: readableVersion.programmeCycleVersion,
     now,
@@ -521,34 +498,19 @@ const changeApplicationDeletion = async (
     head.statusVersion !== input.expectedStatusVersion ||
     head.status !== 'DRAFT'
   ) return failure('Only an unchanged draft can be removed or restored.')
-  let restoreAwardId: string | null = null
-  let restoreAwardNetDisbursedPaise: number | null = null
-  let restoreAwardFirstReleaseAt: Date | null = null
-  if (!deleted && head.applicationType === 'EXPANSION') {
-    const evaluated = await evaluateExpansionEligibility(
-      context.db,
-      head.fundingCaseId,
-      new Date(),
-      head.id,
-      head.programmeCycleId,
-    )
-    if (!evaluated.result.eligible || !evaluated.award) {
-      return failure('The expansion draft is no longer eligible for restoration.')
-    }
-    restoreAwardId = evaluated.award.awardId
-    restoreAwardNetDisbursedPaise = evaluated.award.netDisbursedPaise
-    restoreAwardFirstReleaseAt = evaluated.award.firstReleaseAt
-  }
   const now = new Date()
+  if (!deleted) {
+    const cycle = await findOpenProgrammeCycle(context.db, head.programmeCycleId, now)
+    if (!cycle) return failure('The programme cycle is no longer open.')
+    const refusal = await kindStillEligible(context, head, cycle.currentVersion, now)
+    if (refusal) return failure(refusal)
+  }
   const reason = deleted ? (input.reason?.trim() || 'REMOVED_BY_APPLICANT') : null
   const changed = await runConstraintSafe(() => setApplicationDeleted(context.db, {
       head,
       userId: applicant.id,
       deleted,
       reason,
-      restoreAwardId,
-      restoreAwardNetDisbursedPaise,
-      restoreAwardFirstReleaseAt,
       now,
       audit: auditRecord(context, {
         actorUserId: applicant.id,
@@ -657,7 +619,7 @@ const submit = async (
   if ('refusal' in authorized) return authorized.refusal
   const applicant = { id: authorized.applicantId }
   const application = authorized.application
-  if (application.status !== (resubmission ? 'REVISION_REQUIRED' : 'DRAFT')) {
+  if (application.status !== (resubmission ? 'IN_PIPELINE' : 'DRAFT')) {
     return failure('The application changed or cannot be submitted in its current status.')
   }
   const now = new Date()
@@ -671,17 +633,11 @@ const submit = async (
   if (resubmission && revisionStageKeys?.size === 0) {
     return failure('There are no open revision requests to resolve.')
   }
-  const expansionEvidence = await expansionEvidenceForHead(context, application, now)
-  if (!expansionEvidence) return failure('The expansion application is no longer eligible.')
-  if (application.applicationType === 'EXPANSION') {
-    const evaluated = await evaluateExpansionEligibility(
-      context.db,
-      application.fundingCaseId,
-      now,
-      application.id,
-      application.programmeCycleId,
-    )
-    if (!evaluated.result.eligible) return failure('The expansion application is no longer eligible.')
+  // A first submission re-asks the kind's rules: the history the draft was
+  // started against may have moved. A resubmission is the same attempt.
+  if (cycle) {
+    const refusal = await kindStillEligible(context, application, cycle.currentVersion, now)
+    if (refusal) return failure(refusal)
   }
   /*
    * Resolved **once**, and handed to both the validator and the write.
@@ -729,9 +685,6 @@ const submit = async (
       currentVersion: readableVersion,
       userId: applicant.id,
       answerRows: answersToRows(rules.template, answers),
-      expansionClaim: expansionEvidence.claim,
-      qualifyingAwardId: expansionEvidence.qualifyingAwardId,
-      qualifyingReleaseAt: expansionEvidence.qualifyingReleaseAt,
       revisionStageKeys: revisionStageKeys ? [...revisionStageKeys] : undefined,
       programmeCycleVersion: readableVersion.programmeCycleVersion,
       referenceNumber,
@@ -787,13 +740,16 @@ export const resubmitApplication = (
 /**
  * The plain-language catalogue for every application status.
  *
- * Static, but kept behind the applicant guard so the whole `seb` namespace has
- * one authentication rule rather than an exception a reader has to remember.
+ * Behind a session, like the rest of the `seb` namespace — but any session,
+ * not only an applicant's. "How this works" is read by the programme office as
+ * well, and a staff account holding no applicant role was shown a guide with
+ * no statuses in it. The catalogue is fixed wording that names nobody, so
+ * reading it needs no authority beyond being signed in.
  */
 export const applicationStatusExplanations = async (
   context: ApplicationOperationContext,
 ): Promise<SebResult<{ statuses: ApplicationStatusGuideEntry[] }>> => {
-  if (!await currentApplicant(context)) return failure(AUTH_REQUIRED_MESSAGE)
+  if (!await getCurrentSession(context)) return failure(AUTH_REQUIRED_MESSAGE)
   return success({ statuses: applicationStatusGuide })
 }
 
@@ -801,20 +757,20 @@ export const applicationStatusExplanations = async (
  * The form one of this applicant's applications is filled against.
  *
  * Its own operation rather than a field on the application, because the two
- * have opposite lifetimes: the application changes on every autosave and the
+ * have opposite lifetimes: the application changes on every save and the
  * form does not change at all once the cycle version is pinned.
  */
 export const applicationFormTemplate = async (
   applicationId: string,
   context: ApplicationOperationContext,
-): Promise<SebResult<ResolvedFormTemplate>> => {
-  const owned = await ownedApplication<ResolvedFormTemplate>(applicationId, context)
+): Promise<SebResult<ApplicationFormTemplate>> => {
+  const owned = await ownedApplication<ApplicationFormTemplate>(applicationId, context)
   if ('refusal' in owned) return owned.refusal
   const rules = await findPinnedRulesForApplication(
     context.db, owned.application.id, owned.application.currentVersion,
   )
   return rules
-    ? success(rules.template)
+    ? success({ ...rules.template, grantCeilingPaise: applicationGrantCeiling(rules.policy) })
     : failure('The form this application was filled against could not be read.')
 }
 

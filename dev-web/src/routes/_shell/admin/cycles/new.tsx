@@ -44,7 +44,8 @@ function NewCyclePage() {
       return unwrap(data.admin.programmeCycle.create).head
     },
     onSuccess: async (cycle) => {
-      await queryClient.invalidateQueries({ queryKey: ['admin-cycles'] })
+      // Stale, not waited on: the page this goes to loads what it shows.
+      void queryClient.invalidateQueries({ queryKey: ['admin-cycles'] })
       await router.navigate({
         to: '/admin/cycles/$id',
         params: { id: cycle.id },

@@ -28,6 +28,7 @@ import {
   type Role,
 } from '#/features/roles/roleQueries'
 import { can, isSuperAdministrator } from '#/lib/session'
+import styles from '#/features/roles/Roles.module.css'
 
 export const Route = createFileRoute('/_shell/admin/roles/')({
   loader: ({ context }) => context.queryClient.ensureQueryData(rolesQuery),
@@ -104,27 +105,27 @@ function RoleSummary({ role, mayCompose }: { role: Role; mayCompose: boolean }) 
     <article className="card">
       <div className="card-header">
         <div>
-          <h3>
+          <h3 className={styles.title}>
             <KeyRound size={16} aria-hidden /> {role.name}
           </h3>
           <p className="field-hint">{role.description}</p>
         </div>
         {mayCompose ? (
-          <Link to="/admin/roles/$key" params={{ key: role.key }} className="button-quiet">
+          <Link to="/admin/roles/$key" params={{ key: role.key }} className="button" data-variant="ghost">
             Edit
           </Link>
         ) : null}
       </div>
 
-      <dl className="detail-grid">
+      <dl className={styles.facts}>
         <div>
           <dt className="field-label">Key</dt>
           <dd><code>{role.key}</code></dd>
         </div>
         <div>
           <dt className="field-label">Held by</dt>
-          <dd>
-            <Users size={14} aria-hidden />{' '}
+          <dd className={styles.withIcon}>
+            <Users size={14} aria-hidden />
             {role.memberCount === 1 ? '1 account' : `${role.memberCount} accounts`}
           </dd>
         </div>
@@ -144,9 +145,9 @@ function RoleSummary({ role, mayCompose }: { role: Role; mayCompose: boolean }) 
           This role holds nothing yet, so it grants nothing.
         </p>
       ) : (
-        <ul className="chip-list">
+        <ul className={styles.chips}>
           {role.permissions.map((permission) => (
-            <li key={permissionKey(permission)} className="chip">
+            <li key={permissionKey(permission)} className={styles.chip}>
               {humanizeKey(permission.resource)}: {permission.action}
             </li>
           ))}

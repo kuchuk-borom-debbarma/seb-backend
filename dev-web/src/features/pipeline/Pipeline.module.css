@@ -1,0 +1,443 @@
+/* The pipeline editor. Global primitives (.card, .input, .button, .tabs …)
+   carry the look; this file lays the editor out and draws the flow. */
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+/* Anything the page scrolls to lands below the sticky toolbar, not under it. */
+.underToolbar {
+  scroll-margin-top: 5.5rem;
+}
+
+.toolbarState {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.875rem;
+}
+
+.toolbarActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.problems {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.875rem;
+}
+
+.problemLink {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.problemPath {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  margin-left: var(--space-2);
+}
+
+/* Two panes: the list of things on the left, the one being edited on the right. */
+.split {
+  display: grid;
+  grid-template-columns: minmax(12rem, 16rem) 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.listItem:hover {
+  background: var(--surface-sunken);
+}
+
+.listItem[aria-current='true'] {
+  background: var(--brand-tint);
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.listKey {
+  font-size: 0.6875rem;
+  color: var(--ink-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--space-4);
+}
+
+.subsection {
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--space-4);
+  margin-top: var(--space-2);
+}
+
+.subsectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.subsectionTitle {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.item {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  background: var(--paper);
+}
+
+.itemHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.itemTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.iconButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.conditionRow {
+  display: grid;
+  grid-template-columns: 4.5rem 9rem minmax(8rem, 1fr) 9rem minmax(6rem, 1fr) 2rem;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+@media (max-width: 960px) {
+  .conditionRow {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.effectPermission {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chipToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.chipToggle[aria-pressed='true'] {
+  border-color: var(--brand);
+  background: var(--brand-tint);
+  color: var(--brand);
+}
+
+.chipToggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ---- The flow ------------------------------------------------------------ */
+
+.flowWrap {
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+}
+
+.flow {
+  display: block;
+  max-width: none;
+  font-family: inherit;
+}
+
+.nodeStage,
+.nodeUnreachable,
+.nodeApplicant,
+.nodeComplete,
+.nodeClose {
+  stroke-width: 1.5;
+}
+
+.nodeStage {
+  fill: var(--surface);
+  stroke: var(--brand);
+}
+
+.nodeUnreachable {
+  fill: var(--surface);
+  stroke: var(--danger);
+  stroke-dasharray: 5 4;
+}
+
+.nodeApplicant {
+  fill: var(--yellow-tint);
+  stroke: var(--accent-yellow);
+  stroke-dasharray: 5 4;
+}
+
+.nodeComplete {
+  fill: var(--green-tint);
+  stroke: var(--green);
+}
+
+.nodeClose {
+  fill: var(--danger-tint);
+  stroke: var(--danger);
+}
+
+.nodeSelectable {
+  cursor: pointer;
+}
+
+.nodeSelectable:hover rect,
+.nodeSelectable:focus-visible rect {
+  fill: var(--brand-tint);
+}
+
+.nodeSelectable:focus-visible {
+  outline: none;
+}
+
+.nodeLabel {
+  font-size: 13px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+
+.nodeNote {
+  font-size: 11px;
+  fill: var(--ink-muted);
+}
+
+.nodeNoteWarn {
+  font-size: 11px;
+  fill: var(--danger);
+}
+
+.edge_move,
+.edge_return,
+.edge_revision,
+.edge_end {
+  stroke-width: 1.5;
+}
+
+.edge_move {
+  stroke: var(--brand);
+}
+
+.edge_return {
+  stroke: var(--ink-faint);
+  stroke-dasharray: 6 4;
+}
+
+.edge_revision {
+  stroke: var(--accent-yellow);
+  stroke-dasharray: 6 4;
+}
+
+.edge_end {
+  stroke: var(--green);
+}
+
+.arrow_move { fill: var(--brand); }
+.arrow_return { fill: var(--ink-faint); }
+.arrow_revision { fill: var(--accent-yellow); }
+.arrow_end { fill: var(--green); }
+
+.edgeLabel {
+  font-size: 11px;
+  fill: var(--ink-muted);
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.tagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag {
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  font-size: 0.8125rem;
+}
+
+/* The global .tab is drawn for links; as a button it needs the browser's
+   button chrome taken away, keeping the underline the selected state sets. */
+.tabButton {
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* The problem list's heading keeps its warning icon on the same line. */
+.problemsTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--danger);
+}
+
+/* Copying an action sits under the list it adds to. */
+.copyAction {
+  margin-top: var(--space-3);
+  padding: var(--space-2);
+  border-top: 1px solid var(--hairline);
+}
+
+/* The number an edge carries, and the legend that names it. */
+.edgeBadge {
+  fill: var(--surface);
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.edgeBadgeText {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+
+.flowLegend {
+  columns: 2 22rem;
+  column-gap: var(--space-6);
+  margin: var(--space-3) 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+}
+
+.flowLegend li {
+  break-inside: avoid;
+  margin-bottom: var(--space-1);
+}
+
+.flowLegendRoute {
+  font-weight: 600;
+}
+
+.flowLegendNumber {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 600;
+  vertical-align: 1px;
+}

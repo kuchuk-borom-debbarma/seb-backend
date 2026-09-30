@@ -213,7 +213,7 @@ describe('editing what a role may do', () => {
       }),
       updateRole(operator.cookie, {
         roleId: role.id, expectedVersion: role.version,
-        permissions: [['decision', 'record']],
+        permissions: [['stage', 'decide']],
       }),
     ])
     const landed = both.filter((one) => one.data.access.updateRole.success)
@@ -425,7 +425,7 @@ describe('who may compose a role at all', () => {
       } } } } }`, {}, reader.cookie,
     )
     expect(catalogue.data.access.permissionCatalogue.success).toBe(true)
-    expect(catalogue.data.access.permissionCatalogue.response.resources).toHaveLength(12)
+    expect(catalogue.data.access.permissionCatalogue.response.resources).toHaveLength(11)
 
     // And somebody without it sees neither.
     const outsider = await signIn({ permissions: permissionsOn('announcement') })
@@ -437,7 +437,7 @@ describe('who may compose a role at all', () => {
   it('offers an issuer only the roles within their own authority', async () => {
     const operator = await superAdministrator()
     await composed(operator.cookie, 'READS_ONLY', [['application', 'read']])
-    await composed(operator.cookie, 'DECIDES', [['decision', 'record']])
+    await composed(operator.cookie, 'DECIDES', [['stage', 'decide']])
 
     const issuer = await signIn({
       permissions: [['role', 'invite'], ['role', 'read'], ['application', 'read']],

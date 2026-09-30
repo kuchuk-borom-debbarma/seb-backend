@@ -56,10 +56,12 @@ function GroupEntries({
   template,
   field,
   answers,
+  showLabel,
 }: {
   template: ResolvedTemplate
   field: FormField
   answers: AnswerMap
+  showLabel: boolean
 }) {
   const entries = entriesOf(answers, field.key)
   if (entries.length === 0) {
@@ -72,7 +74,7 @@ function GroupEntries({
   }
   return (
     <div style={{ gridColumn: '1 / -1' }}>
-      <span className="field-label">{field.label}</span>
+      {showLabel ? <span className="field-label">{field.label}</span> : null}
       <div className="stack">
         {entries.map((entry: AnswerEntry, index) => {
           const visible = visibleFields(template, answers, entry, field.key)
@@ -108,16 +110,29 @@ export function AnswerSummary({
   stageAction?: (stageKey: string) => React.ReactNode
 }) {
   const visible = visibleFields(template, answers)
+  const shown = template.stages
+    .map((stage) => ({
+      stage,
+      fields: template
+        .fieldsOfStage(stage.key)
+        .filter((field) => visible.has(field.key) && field.type !== 'FILE'),
+    }))
+    .filter(({ fields }) => fields.length > 0)
   return (
     <div className="stack">
-      {template.stages.map((stage) => {
-        const fields = template
-          .fieldsOfStage(stage.key)
-          .filter((field) => visible.has(field.key) && field.type !== 'FILE')
-        if (fields.length === 0) return null
+      {shown.map(({ stage, fields }, index) => {
         return (
-          <div key={stage.key}>
-            <div className="label-row">
+          <div
+            key={stage.key}
+            // A rule between stages, so each heading reads as the start of
+            // its own part rather than a label on the answer above it.
+            style={
+              index === 0
+                ? undefined
+                : { borderTop: '1px solid var(--hairline)', paddingTop: 'var(--space-4)' }
+            }
+          >
+            <div className="label-row" style={{ marginBottom: 'var(--space-3)', gap: 'var(--space-2)' }}>
               <h3 className="eyebrow">{stage.title}</h3>
               {stageAction?.(stage.key)}
             </div>
@@ -129,6 +144,8 @@ export function AnswerSummary({
                     template={template}
                     field={field}
                     answers={answers}
+                    // "Owners" under the heading "Owners" says nothing new.
+                    showLabel={field.label.trim().toLowerCase() !== stage.title.trim().toLowerCase()}
                   />
                 ) : (
                   <Fact

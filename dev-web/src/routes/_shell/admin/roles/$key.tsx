@@ -27,6 +27,7 @@ import { Minus, Plus, Trash2, Users } from 'lucide-react'
 import { useState } from 'react'
 import { PageHeader } from '#/components/PageHeader'
 import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
+import styles from '#/features/roles/Roles.module.css'
 import {
   catalogueQuery,
   humanizeKey,
@@ -58,6 +59,12 @@ function EditGate() {
 
 function EditLoader({ roleKey }: { roleKey: string }) {
   const found = useQuery(roleQuery(roleKey))
+  /*
+   * The version a save produced, held here rather than in the page: the page
+   * is keyed on the version and remounts the moment the save lands, so a flag
+   * of its own would be thrown away with it.
+   */
+  const [savedVersion, setSavedVersion] = useState<number | null>(null)
   const role = found.data?.response
   if (found.data && !found.data.success) {
     return (
@@ -73,10 +80,26 @@ function EditLoader({ roleKey }: { roleKey: string }) {
    * role moves underneath it. Without this a reload after a refused save would
    * re-mount with the stale selection still in hand.
    */
-  return <EditPage key={`${role.id}:${role.version}`} role={role} />
+  return (
+    <EditPage
+      key={`${role.id}:${role.version}`}
+      role={role}
+      justSaved={savedVersion === role.version}
+      onSaved={setSavedVersion}
+    />
+  )
 }
 
-function EditPage({ role }: { role: Role }) {
+function EditPage({
+  role,
+  justSaved,
+  onSaved,
+}: {
+  role: Role
+  /** Whether the version on screen is the one this reader just saved. */
+  justSaved: boolean
+  onSaved: (version: number) => void
+}) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const catalogue = useQuery(catalogueQuery)
@@ -119,9 +142,12 @@ function EditPage({ role }: { role: Role }) {
         },
       })).access.updateRole),
     onMutate: () => setError(null),
-    onSuccess: async () => {
+    onSuccess: async (updated) => {
       setPassword('')
-      await queryClient.invalidateQueries({ queryKey: ['roles'] })
+      // Said once a save lands: the pending list empties either way, and an
+      // empty list alone cannot tell "saved" from "nothing was changed".
+      if (updated) onSaved(updated.version)
+      void queryClient.invalidateQueries({ queryKey: ['roles'] })
     },
     onError: (failure) => setError(messageFor(failure)),
   })
@@ -138,7 +164,7 @@ function EditPage({ role }: { role: Role }) {
       })).access.deleteRole),
     onMutate: () => setError(null),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['roles'] })
+      void queryClient.invalidateQueries({ queryKey: ['roles'] })
       await navigate({ to: '/admin/roles' })
     },
     onError: (failure) => setError(messageFor(failure)),
@@ -177,21 +203,23 @@ function EditPage({ role }: { role: Role }) {
           </div>
         </div>
 
-        <div>
-          <label className="field-label" htmlFor="role-name">What the office calls it</label>
-          <input
-            id="role-name" className="input" required maxLength={80}
-            value={name} onChange={(changed_) => setName(changed_.target.value)}
-          />
-        </div>
+        <div className={styles.section}>
+          <div>
+            <label className="field-label" htmlFor="role-name">What the office calls it</label>
+            <input
+              id="role-name" className="input" required maxLength={80}
+              value={name} onChange={(changed_) => setName(changed_.target.value)}
+            />
+          </div>
 
-        <div>
-          <label className="field-label" htmlFor="role-description">What it is for</label>
-          <textarea
-            id="role-description" className="input" required rows={3} maxLength={500}
-            value={description}
-            onChange={(changed_) => setDescription(changed_.target.value)}
-          />
+          <div>
+            <label className="field-label" htmlFor="role-description">What it is for</label>
+            <textarea
+              id="role-description" className="input" required rows={3} maxLength={500}
+              value={description}
+              onChange={(changed_) => setDescription(changed_.target.value)}
+            />
+          </div>
         </div>
 
         <div className="card-header">
@@ -204,19 +232,17 @@ function EditPage({ role }: { role: Role }) {
           </div>
         </div>
 
+        <div className={styles.groups}>
         {(catalogue.data?.response?.resources ?? []).map((resource) => {
           const all = resource.actions.map((act) =>
             permissionKey({ resource: resource.resource, action: act.action }))
           const every = all.every((pair) => chosen.has(pair))
           return (
-            <fieldset key={resource.resource} className="stack">
-              <legend className="field-label">
-                {humanizeKey(resource.resource)}
-              </legend>
-              <p className="field-hint">{resource.description}</p>
+            <fieldset key={resource.resource} className={styles.group}>
+              <legend className={styles.legend}>{humanizeKey(resource.resource)}</legend>
               <button
                 type="button"
-                className="button-quiet"
+                className={styles.selectAll}
                 onClick={() => setChosen((held) => {
                   const next = new Set(held)
                   for (const pair of all) {
@@ -227,15 +253,17 @@ function EditPage({ role }: { role: Role }) {
                 })}
               >
                 {every ? <Minus size={14} aria-hidden /> : <Plus size={14} aria-hidden />}
-                {every ? ' Clear all' : ' Select all'}
+                {every ? 'Clear all' : 'Select all'}
               </button>
+              <p className={`field-hint ${styles.purpose}`}>{resource.description}</p>
+              <div className={styles.acts}>
               {resource.actions.map((act) => {
                 const pair = permissionKey({
                   resource: resource.resource,
                   action: act.action,
                 })
                 return (
-                  <label key={pair} className="checkbox">
+                  <label key={pair} className={styles.act}>
                     <input
                       type="checkbox"
                       checked={chosen.has(pair)}
@@ -243,17 +271,19 @@ function EditPage({ role }: { role: Role }) {
                     />
                     <span>
                       <strong>{humanizeKey(act.action)}</strong>
-                      <span className="field-hint"> {act.description}</span>
+                      <span className="field-hint">{act.description}</span>
                     </span>
                   </label>
                 )
               })}
+              </div>
             </fieldset>
           )
         })}
+        </div>
 
         {changed ? (
-          <div className="card">
+          <div className={styles.pending}>
             <h4>About to change</h4>
             <ul>
               {added.map((pair) => <li key={pair}>Add <code>{pair}</code></li>)}
@@ -273,6 +303,7 @@ function EditPage({ role }: { role: Role }) {
           </div>
         ) : null}
 
+        <div className={styles.section}>
         <div>
           <label className="field-label" htmlFor="role-password">Your password</label>
           <input
@@ -293,10 +324,17 @@ function EditPage({ role }: { role: Role }) {
           <button
             type="submit"
             className="button"
+            data-variant="primary"
             disabled={!changed || password.length === 0 || save.isPending}
           >
             {save.isPending ? 'Saving…' : 'Save what it may do'}
           </button>
+          {justSaved && !changed ? (
+            <span className="field-hint" role="status">
+              Saved. Everyone holding this role has it from their next request.
+            </span>
+          ) : null}
+        </div>
         </div>
       </form>
 
@@ -316,7 +354,7 @@ function EditPage({ role }: { role: Role }) {
 
         {retiring ? (
           <form
-            className="stack"
+            className={styles.section}
             onSubmit={(submitted) => {
               submitted.preventDefault()
               retire.mutate()
@@ -339,19 +377,21 @@ function EditPage({ role }: { role: Role }) {
               />
             </div>
             <div className="row">
-              <button type="submit" className="button-danger" disabled={retire.isPending}>
+              <button type="submit" className="button" data-variant="danger" disabled={retire.isPending}>
                 {retire.isPending ? 'Retiring…' : 'Retire it'}
               </button>
-              <button type="button" className="button-quiet" onClick={() => setRetiring(false)}>
+              <button type="button" className="button" data-variant="ghost" onClick={() => setRetiring(false)}>
                 Keep it
               </button>
             </div>
           </form>
         ) : (
-          <div className="row">
-            <button type="button" className="button-danger" onClick={() => setRetiring(true)}>
-              <Trash2 size={16} aria-hidden /> Retire this role
-            </button>
+          <div className={styles.section}>
+            <div className="row">
+              <button type="button" className="button" data-variant="danger" onClick={() => setRetiring(true)}>
+                <Trash2 size={16} aria-hidden /> Retire this role
+              </button>
+            </div>
           </div>
         )}
       </section>

@@ -223,3 +223,37 @@ export const insertAuditEvent = async (
 ): Promise<void> => {
   await insertAuditEventWhere(db, row, sql`TRUE`)
 }
+
+/**
+ * The same row as {@link insertAuditEventWhere}, as a member of a caller's
+ * data-modifying `WITH`, written once per row of `source`.
+ *
+ * A stage action changes the head, appends its own row, opens revision
+ * requests, keeps notes, adds a timeline event and records itself — six writes
+ * that must be one fact. As a {@link batch} that is six round trips on one
+ * connection; as one `WITH … INSERT …` it is one, and the database still sees
+ * them as one statement that either wrote everything or nothing.
+ *
+ * `source` names an earlier member of the same `WITH` — the guarded head
+ * update — so the row is written exactly when that member returned a row: a
+ * losing writer's update returns none, and this inserts none. That is the same
+ * "conditioned on the business statement having landed" rule as the predicate
+ * form, expressed as a join instead of a `WHERE EXISTS`.
+ *
+ * The column list is explicit, unlike the drizzle insert above, because a raw
+ * insert has no declaration order to lean on; `check:insert-arity` holds the
+ * two lists to the table.
+ */
+export const auditEventCteMember = (row: AuditEventRecord, source: SQL): SQL => sql`
+  INSERT INTO ${coreAuditEvent} (
+    id, actor_user_id, action, entity_type, entity_id,
+    outcome, request_id, ip_address, user_agent,
+    changes_json, metadata_json, created_at,
+    subject_user_id, application_id, payload, payload_version
+  )
+  SELECT ${row.id}, ${row.actorUserId}, ${row.action}, ${row.entityType}, ${row.entityId},
+    ${row.outcome}, ${row.requestId}, ${row.ipAddress}, ${row.userAgent},
+    NULL, NULL, ${row.createdAt},
+    ${row.subjectUserId}, ${row.applicationId}, ${row.payload}::jsonb, 1
+  FROM ${source}
+`

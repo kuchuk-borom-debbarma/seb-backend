@@ -85,28 +85,19 @@ export const versionedSoftDeleteColumns = (deletedByUserId: () => AnyPgColumn) =
 })
 
 /**
- * The desk-review vocabulary, kept here rather than beside the review tables.
+ * Shared by the form template and the pipeline tables — every configured key
+ * in the schema has this one shape.
  *
- * Both the review tables and the programme-cycle rules need these words, and
- * `review.ts` already imports `programme.ts` — so defining them there and
- * importing back would make the two schema modules circular. A leaf both can
- * reach costs nothing and keeps the dependency one way.
+ *
+ * The one spelling of a template key.
+ *
+ * Stage keys, field keys and choice values share a vocabulary because they are
+ * the same identifier in several places: these tables, the answer rows, the
+ * document slot, and the `id` the client puts on the control so a validation
+ * issue can link straight to the answer that is wrong. One spelling means there
+ * is no mapping anywhere that can drift.
+ *
+ * This CHECK is what stops "the enum is gone" becoming "the column is a free
+ * string".
  */
-export const deskReviewChecks = [
-  'IDENTITY_KYC',
-  'ST_ELIGIBILITY',
-  'MAJORITY_OWNERSHIP',
-  'JURISDICTION',
-  'FORM_COMPLETENESS',
-  'DOCUMENT_COMPLETENESS',
-  'ANSWER_DOCUMENT_CONSISTENCY',
-  'DPR_FEASIBILITY',
-  'EXPANSION_EVIDENCE',
-] as const
-
-export const deskReviewIdentifierKinds = [
-  'ST_CERTIFICATE',
-  'IDENTITY_DOCUMENT',
-  'BANK_ACCOUNT',
-  'BUSINESS_REGISTRATION',
-] as const
+export const TEMPLATE_KEY_PATTERN = '^[A-Z][A-Z0-9_]{1,63}$'

@@ -18,7 +18,7 @@
 import { failure, success } from '../../envelope'
 import { currentStaff, ADMIN_REQUIRED_MESSAGE } from '../support'
 import { constraintSafe, normalizeRequiredText } from '../support'
-import type { AssessmentType } from '../types'
+import type { EligibilityRuleType, FormRuleType } from '../../catalogue/workflow.generated'
 import { loadProgrammeCycle, updateDraftProgrammeCycle } from '../queries/programme-cycle'
 import { formTemplateProblem } from '../form-template-input'
 import { expandGroupDefinitions } from '../group-definitions'
@@ -48,7 +48,6 @@ const currentInput = (
   displayName: cycle.head.displayName,
   cycleYear: cycle.head.cycleYear,
   applicantGuidance: cycle.version.applicantGuidance,
-  partnerBankGuidance: cycle.version.partnerBankGuidance,
   // Dates, not strings: the resolver coerces the wire's `DateTime` before the
   // controller sees it, so this side of the seam works in `Date` throughout.
   opensAt: cycle.head.opensAt ?? null,
@@ -57,38 +56,30 @@ const currentInput = (
     minimumApplicantAge: cycle.version.minimumApplicantAge,
     maximumApplicantAge: cycle.version.maximumApplicantAge,
     categoryAMaximumMonths: cycle.version.categoryAMaximumMonths,
-    expansionWaitMonths: cycle.version.expansionWaitMonths,
     majorityOwnershipRequired: cycle.version.majorityOwnershipRequired,
     jurisdiction: cycle.version.jurisdiction,
     fundingCeilingState: cycle.version.fundingCeilingState,
     fundingCeilingAmountPaise: cycle.version.fundingCeilingAmountPaise,
     fundingCeilingScope: cycle.version.fundingCeilingScope,
     /*
-     * Narrowed here rather than by casting the whole object.
-     *
-     * This function used to end in `as ProgrammeCycleInput & …`, which made
-     * every field of the policy unchecked — and this is the one place that
-     * rebuilds a cycle's *entire* rule set in order to change one question. A
-     * field added to `ProgrammeCycleInput` and forgotten here would compile,
-     * and every form edit would silently reset it to its default. The cast is
-     * gone so the compiler proves the round trip is complete; only the value
-     * the row reads back as `string` is narrowed, and only that value.
+     * No cast over the whole object: this is the one place that rebuilds a
+     * cycle's *entire* rule set in order to change one question, so a field
+     * added to `ProgrammeCycleInput` and forgotten here must fail to compile
+     * rather than be silently reset by every form edit. Only the values a row
+     * reads back as `string` are narrowed, and only those.
      */
-    requiredAssessmentTypes: cycle.assessmentRules.map(
-      (rule) => rule.assessmentType as AssessmentType,
-    ),
     formTemplate: templateOf(cycle),
-    identifierRules: cycle.identifierRules.map((rule) => ({
-      kind: rule.kind,
-      requirement: rule.requirement,
-      duplicatePolicy: rule.duplicatePolicy,
-      checkType: rule.checkType,
-    })),
-    reasons: cycle.reasons.map((reason) => ({
-      context: reason.context,
-      code: reason.code,
-      label: reason.label,
-      applicantMessageTemplate: reason.applicantMessageTemplate,
+    pipelineId: cycle.version.pipelineId,
+    applicationKinds: cycle.applicationKinds.map((kind) => ({
+      kindKey: kind.kindKey,
+      label: kind.label,
+      description: kind.description,
+      rules: cycle.applicationKindRules
+        .filter((rule) => rule.kindKey === kind.kindKey)
+        .map((rule) => ({
+          ruleType: rule.ruleType as EligibilityRuleType,
+          params: rule.params,
+        })),
     })),
   },
 })
@@ -243,6 +234,16 @@ const templateOf = (
     operator: condition.operator,
     comparisonValue: condition.comparisonValue,
   })) as FormTemplateInput['conditions'],
+  rules: cycle.formRules.map((rule) => ({
+    ruleKey: rule.ruleKey,
+    ruleType: rule.ruleType as FormRuleType,
+    stageKey: rule.stageKey,
+    message: rule.message,
+    limitValue: rule.limitValue,
+    operands: cycle.formRuleOperands
+      .filter((operand) => operand.ruleKey === rule.ruleKey)
+      .map((operand) => ({ fieldKey: operand.fieldKey, fieldType: operand.fieldType })),
+  })),
   }
 }
 
@@ -364,7 +365,10 @@ export const removeFormGroupDefinition = (
 export const replaceFormTemplate = (
   input: Scope & { template: FormTemplateInput },
   context: AdminOperationContext,
-) => editTemplate(input, context, () => input.template)
+  // Rules omitted are rules kept: the question editor resends the questions it
+  // shows, and must not silently drop the cross-field rules it does not.
+) => editTemplate(input, context, (current) =>
+  ({ ...input.template, rules: input.template.rules ?? current.rules }))
 
 export const addFormStage = (
   input: Scope & { stage: FormTemplateInput['stages'][number] },

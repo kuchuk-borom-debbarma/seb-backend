@@ -5,6 +5,11 @@
  * product's promise to applicants: they must be reviewable in a pull request
  * and must change together with the workflow that produces the status.
  *
+ * Two statuses only. Everything after submission — which stage holds the
+ * application, whether it was approved, whether a correction is asked for —
+ * is the pipeline's, configured as stages and status flags, and explained by
+ * the pipeline's own labels rather than by strings fixed here.
+ *
  * Deliberately carries no timing. Programme staff do not commit to a completion
  * date, so nothing here may imply one; a status says who holds the work, not
  * when they will finish it.
@@ -20,72 +25,11 @@ const guide: Record<ApplicationStatus, Omit<ApplicationStatusGuideEntry, 'status
     nextActor: 'APPLICANT',
     nextAction: 'Complete every section and the required documents, then submit.',
   },
-  SUBMITTED: {
+  IN_PIPELINE: {
     label: 'Submitted',
-    explanation: 'Your application has been received and is waiting to be picked up '
-      + 'for review.',
+    explanation: 'Your application has been received and the programme office is working '
+      + 'on it. Where it is, and anything asked of you, is shown alongside it.',
     nextActor: 'PROGRAMME_OFFICE',
-    nextAction: null,
-  },
-  DESK_REVIEW: {
-    label: 'Under desk review',
-    explanation: 'A reviewer is checking your answers, eligibility, and documents.',
-    nextActor: 'PROGRAMME_OFFICE',
-    nextAction: null,
-  },
-  REVISION_REQUIRED: {
-    label: 'Changes requested',
-    explanation: 'The programme office has asked you to correct specific sections. '
-      + 'Only those sections can be edited.',
-    nextActor: 'APPLICANT',
-    nextAction: 'Make the requested corrections and submit your application again.',
-  },
-  PARTNER_BANK_EVALUATION: {
-    label: 'With the partner bank',
-    explanation: 'Your application has been referred to a partner bank for its '
-      + 'assessment of the proposal.',
-    nextActor: 'PROGRAMME_OFFICE',
-    nextAction: null,
-  },
-  AWAITING_DECISION: {
-    label: 'Awaiting a decision',
-    explanation: 'The bank has answered and your application is complete. It is now '
-      + 'waiting for the programme to take the funding decision.',
-    nextActor: 'PROGRAMME_OFFICE',
-    nextAction: null,
-  },
-  APPROVED: {
-    label: 'Approved',
-    explanation: 'Your application has been approved. The sanction order that '
-      + 'releases funding is prepared next.',
-    nextActor: 'PROGRAMME_OFFICE',
-    nextAction: null,
-  },
-  REJECTED: {
-    label: 'Not approved',
-    explanation: 'Your application was not approved. The reason is recorded in your '
-      + 'application history.',
-    nextActor: 'NOBODY',
-    nextAction: null,
-  },
-  SANCTIONED: {
-    label: 'Sanctioned',
-    explanation: 'A funding award has been created for your application. Payments '
-      + 'are released against it as their conditions are met.',
-    nextActor: 'PROGRAMME_OFFICE',
-    nextAction: null,
-  },
-  DISBURSED: {
-    label: 'Funds released',
-    explanation: 'At least one payment has been released against your award. '
-      + 'Utilization evidence is required for every release.',
-    nextActor: 'APPLICANT',
-    nextAction: 'Provide utilization evidence for each payment when it is requested.',
-  },
-  CANCELLED: {
-    label: 'Cancelled',
-    explanation: 'This application is closed and no longer progressing.',
-    nextActor: 'NOBODY',
     nextAction: null,
   },
 }

@@ -20,9 +20,10 @@ import {
   formFieldWidths,
   ICON_NAME_PATTERN,
   ROLE_CANONICAL_KEY,
-  TEMPLATE_KEY_PATTERN,
 } from '../../db/schema/seb/form-template'
+import { TEMPLATE_KEY_PATTERN } from '../../db/schema/shared'
 import { MAX_ANSWER_BYTES } from '../application/form/engine'
+import { formRuleCatalogue } from '../catalogue/workflow.generated'
 
 const KEY = new RegExp(TEMPLATE_KEY_PATTERN, 'u')
 
@@ -584,32 +585,16 @@ if (budget > MAX_ANSWER_BYTES) {
 }
 
 /**
- * The two bindings a cycle cannot be read or opened without.
+ * The role bindings, which are optional but never ambiguous.
  *
- * `resolveFormTemplate` returns `null` unless every role is bound, and nothing
- * here demanded it — so an officer could **remove the requested-amount
- * question** and get a cycle whose form could no longer be read back at all.
- * The editor showed nothing, the applicant's form was unavailable, and the
- * only sign anything was wrong appeared later, when opening the cycle failed.
- *
- * Named individually rather than "the form is invalid", because the officer has
- * just removed or reworded one specific question and that is the one to put
- * back. `openingProblem` still checks at open time; this is what stops the
- * cycle reaching that state at all.
+ * A role is how code finds one question across every cycle — the queue's
+ * requested amount, the age rule's date of birth, a stage action bounding an
+ * approval by the applicant's own figure. A cycle may leave a role unbound (a
+ * loan-only round asks for no grant), so whatever reads a role reads it as
+ * possibly absent. What it may not do is bind one twice, off its pinned key,
+ * or to a question of the wrong type: each of those is a rule that silently
+ * reads the wrong answer.
  */
-/*
- * What each role is *for*, said to the officer who just removed its holder.
- * The bare enum name told them which internal key was unbound and nothing
- * about why the programme needs it or what to do instead.
- */
-const ROLE_PURPOSE: Record<string, string> = {
-  SEED_FUND_REQUESTED_PAISE:
-    'the amount of seed funding requested — the queue, the decision bound and '
-    + 'the analytics all read it',
-  APPLICANT_DATE_OF_BIRTH:
-    'an owner\u2019s date of birth — the age eligibility rule reads it',
-}
-
 const roleProblem = (template: FormTemplateInput): string | null => {
   const bound = new Map<string, string[]>()
   for (const field of template.fields) {
@@ -618,32 +603,77 @@ const roleProblem = (template: FormTemplateInput): string | null => {
   }
   for (const role of formFieldRoles) {
     const holders = bound.get(role) ?? []
-    if (holders.length === 0) {
-      return `Every cycle needs one question the programme reads as ${role}: `
-        + `${ROLE_PURPOSE[role] ?? 'a reporting question'}. `
-        + 'Bind another question to this role before removing its holder.'
-    }
     if (holders.length > 1) {
       return `${holders.join(' and ')} both claim to be the cycle's ${role}.`
     }
     const pinned = ROLE_CANONICAL_KEY[role]
-    if (pinned !== undefined && holders[0] !== pinned) {
+    if (holders.length === 1 && pinned !== undefined && holders[0] !== pinned) {
       return `Only ${pinned} may be the cycle's ${role}, not ${holders[0]}.`
     }
   }
-  /*
-   * The role's own type, mirrored from the schema's role CHECK: the age rule
-   * parses a date and the decision bound parses an amount, so a mistyped
-   * holder is a rule that silently never fires — or a CHECK violation the
-   * officer sees as an internal error.
-   */
+  // Mirrored from the schema's role CHECK, so the officer reads a sentence
+  // rather than an internal error.
   for (const field of template.fields) {
     if (field.role === 'APPLICANT_DATE_OF_BIRTH' && field.fieldType !== 'DATE') {
       return `${field.fieldKey} plays APPLICANT_DATE_OF_BIRTH and must be a DATE question.`
     }
-    if (field.role === 'SEED_FUND_REQUESTED_PAISE' && field.fieldType !== 'MONEY_PAISE') {
-      return `${field.fieldKey} plays SEED_FUND_REQUESTED_PAISE and must be a MONEY_PAISE question.`
+    if (field.role && field.role !== 'APPLICANT_DATE_OF_BIRTH' && field.fieldType !== 'MONEY_PAISE') {
+      return `${field.fieldKey} plays ${field.role} and must be a MONEY_PAISE question.`
     }
+  }
+  return null
+}
+
+/**
+ * The rules about several answers at once, against the catalogue.
+ *
+ * Each rule type declares which question types it reads, how many, and
+ * whether it takes a limit (`services/catalogue/workflow.json`). A rule that
+ * reads a question this form does not ask, or one of the wrong type, is one
+ * that could never hold or never fail — refused here with the rule's key.
+ */
+const formRuleProblem = (
+  template: FormTemplateInput,
+  fieldsByKey: Map<string, FormTemplateInput['fields'][number]>,
+): string | null => {
+  const rules = template.rules ?? []
+  if (rules.length > 20) return 'A form may declare at most 20 rules about several answers.'
+  const stageKeys = new Set(template.stages.map((stage) => stage.stageKey))
+  for (const rule of rules) {
+    const entry = formRuleCatalogue[rule.ruleType]
+    if (!entry) return `${rule.ruleKey} uses a rule type this build does not know.`
+    if (!KEY.test(rule.ruleKey)) return `${rule.ruleKey} is not a valid rule key.`
+    if (!stageKeys.has(rule.stageKey)) {
+      return `${rule.ruleKey} is shown on ${rule.stageKey}, which this form does not have.`
+    }
+    const message = rule.message.trim()
+    if (message.length === 0 || message.length > 300) {
+      return `${rule.ruleKey} needs a message of at most 300 characters.`
+    }
+    if (rule.operands.length < entry.minOperands || rule.operands.length > entry.maxOperands) {
+      return `${rule.ruleKey} reads ${rule.operands.length} questions; `
+        + `${rule.ruleType} reads ${entry.minOperands} to ${entry.maxOperands}.`
+    }
+    if (new Set(rule.operands.map((operand) => operand.fieldKey)).size !== rule.operands.length) {
+      return `${rule.ruleKey} names the same question twice.`
+    }
+    for (const operand of rule.operands) {
+      const field = fieldsByKey.get(operand.fieldKey)
+      if (!field) return `${rule.ruleKey} reads ${operand.fieldKey}, which this form does not ask.`
+      if (field.fieldType !== operand.fieldType || !entry.operandTypes.includes(field.fieldType)) {
+        return `${rule.ruleKey} cannot read ${operand.fieldKey}: ${rule.ruleType} reads `
+          + `${entry.operandTypes.join(', ')} questions.`
+      }
+      // Top level only: inside a repeated group there is no one answer to read.
+      if (field.parentFieldKey) {
+        return `${rule.ruleKey} reads ${operand.fieldKey}, which is answered inside a group.`
+      }
+    }
+    const hasLimit = rule.limitValue !== null && rule.limitValue !== undefined
+    if (entry.limit === 'REQUIRED' && (!hasLimit || !Number.isSafeInteger(rule.limitValue) || rule.limitValue! < 0)) {
+      return `${rule.ruleKey} needs a limit of zero or more.`
+    }
+    if (entry.limit === 'NONE' && hasLimit) return `${rule.ruleKey} takes no limit.`
   }
   return null
 }
@@ -694,6 +724,7 @@ export const formTemplateProblem = (template: FormTemplateInput): string | null 
     () => optionProblem(template, fieldsByKey),
     () => ruleProblem(template, fieldsByKey),
     () => roleProblem(template),
+    () => formRuleProblem(template, fieldsByKey),
     () => budgetProblem(template),
     () => hasVisibilityCycle(template)
       ? 'These questions depend on each other in a circle, so none of them could be shown.'

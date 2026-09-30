@@ -4,9 +4,8 @@
  *
  * Deliberately dumb about workflow. It is handed everything it renders — the
  * template, the answers, the cycle's name, a heading and whatever extra rows
- * the occasion adds — so the same builder serves the submission receipt, the
- * approval letter's enclosure and the sanction notice without knowing which
- * one it is producing.
+ * the occasion adds — so it serves the submission receipt today, and any
+ * later enclosure, without knowing which one it is producing.
  *
  * The one guarantee that matters: **content can never make this throw.** The
  * PDF travels on a best-effort email after a write that has already
@@ -23,10 +22,9 @@ import type {
 
 /**
  * Mirrors `rupees` in `form/rules.ts`, which is deliberately unexported —
- * that file is the validation engine's and nothing of it leaks. Exported from
- * here instead so the three notification hooks format one amount one way.
+ * that file is the validation engine's and nothing of it leaks.
  */
-export const formatPaise = (paise: number): string =>
+const formatPaise = (paise: number): string =>
   `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
 
 /** ISO 216 A4 in PDF points. */

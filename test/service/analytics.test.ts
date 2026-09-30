@@ -9,7 +9,6 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { count, sql } from 'drizzle-orm'
-import { env } from '../support/worker'
 import { everyReadPermission, graphql, openCycle, signIn } from '../support/api'
 import {
   activeDatabase,
@@ -17,7 +16,8 @@ import {
   freshDatabase,
   resetDatabase,
 } from '../support/harness'
-import { seededDecision, submittedProfile } from './support/intake-fixtures'
+import { submittedProfile } from './support/intake-fixtures'
+import { TEST_INITIAL_STAGE, TEST_PIPELINE_ID } from '../support/pipeline'
 import { sebApplication } from '../../src/db/schema'
 
 beforeAll(async () => {
@@ -80,11 +80,11 @@ const seedSpread = async (administrator: { cookie: string; userId: string }) => 
 describe('the intake analytics summary', () => {
   it('counts one seeded set along every dimension, and sums what was asked for', async () => {
     const administrator = await signIn({ roles: ['APPLICANT', 'SUPER_ADMIN'] })
-    const { cycleOne, cycleTwo, established } = await seedSpread(administrator)
+    const { cycleOne, cycleTwo } = await seedSpread(administrator)
 
     const whole = await summary(administrator.cookie)
     expect(whole.success).toBe(true)
-    expect(whole.response.statuses).toEqual([{ status: 'SUBMITTED', count: 3 }])
+    expect(whole.response.statuses).toEqual([{ status: 'IN_PIPELINE', count: 3 }])
     expect(new Map(whole.response.categories.map(
       (entry: any) => [entry.category, entry.count],
     ))).toEqual(new Map([['CATEGORY_A', 1], ['CATEGORY_B', 2]]))
@@ -114,29 +114,12 @@ describe('the intake analytics summary', () => {
     const filtered = await summary(administrator.cookie, {
       cycleIds: [cycleOne.id], sectors: ['INFORMATION_TECHNOLOGY'],
     })
-    expect(filtered.response.statuses).toEqual([{ status: 'SUBMITTED', count: 1 }])
+    expect(filtered.response.statuses).toEqual([{ status: 'IN_PIPELINE', count: 1 }])
     expect(filtered.response.categories).toEqual([{ category: 'CATEGORY_A', count: 1 }])
     expect(filtered.response.districts).toEqual([{ district: 'DHALAI', count: 1 }])
     expect(filtered.response.requested).toEqual({
       count: 1, totalPaise: '5000000', averagePaise: '5000000',
     })
-
-    // The decided range reaches the summary too: decide one, then ask for it.
-    await seededDecision({
-      applicationId: established.applicationId,
-      submissionId: established.submissionId,
-      recordedByUserId: administrator.userId,
-      decidedAt: new Date(),
-    })
-    const decided = await summary(administrator.cookie, {
-      decidedFrom: new Date(Date.now() - 60_000).toISOString(),
-      decidedTo: new Date(Date.now() + 60_000).toISOString(),
-    })
-    expect(decided.response.statuses).toEqual([{ status: 'SUBMITTED', count: 1 }])
-    const decidedElsewhen = await summary(administrator.cookie, {
-      decidedFrom: '2030-01-01T00:00:00Z',
-    })
-    expect(decidedElsewhen.response.statuses).toEqual([])
   })
 
   it('answers with no input argument at all, defaulting to no filters', async () => {
@@ -166,14 +149,8 @@ describe('the intake analytics summary', () => {
     for (const [input, message] of [
       [{ requestedMinPaise: 200, requestedMaxPaise: 100 },
         'The requested amount range is invalid.'],
-      [{ decidedFrom: '2026-02-01T00:00:00Z', decidedTo: '2026-01-01T00:00:00Z' },
-        'The decision date range is invalid.'],
       [{ submittedFrom: '2026-02-01T00:00:00Z', submittedTo: '2026-01-01T00:00:00Z' },
         'The submission date range is invalid.'],
-      [{ queue: 'NEW_SUBMISSIONS', status: 'SUBMITTED' },
-        'Filter by queue or by status, not both.'],
-      [{ queue: 'NEW_SUBMISSIONS', statuses: ['SUBMITTED'] },
-        'Filter by queue or by status, not both.'],
       [{ phaseNumber: 0 }, 'Phase number must be positive.'],
     ] as const) {
       const refused = await summary(administrator.cookie, input as Record<string, unknown>)
@@ -188,7 +165,7 @@ describe('the intake analytics summary', () => {
     const reviewer = await signIn({ permissions: everyReadPermission() })
     const allowed = await summary(reviewer.cookie)
     expect(allowed.success).toBe(true)
-    expect(allowed.response.statuses).toEqual([{ status: 'SUBMITTED', count: 3 }])
+    expect(allowed.response.statuses).toEqual([{ status: 'IN_PIPELINE', count: 3 }])
 
     const applicant = await signIn({ roles: ['APPLICANT'] })
     const refused = await summary(applicant.cookie)
@@ -245,19 +222,19 @@ describe('the analytic predicates against a populated plan', () => {
     await db.execute(sql`
       INSERT INTO seb_application (
         id, applicant_user_id, enterprise_id, funding_case_id, programme_cycle_id,
-        application_type, phase_number, reference_number, current_version,
+        application_kind, phase_number, reference_number, current_version,
         created_at, updated_at, status, status_version, status_changed_at,
-        assignment_version
+        pipeline_id, pipeline_version, current_stage_key, stage_entered_at
       )
       SELECT 'app-' || n, ${administrator.userId}, 'ent-' || n, 'case-' || n,
         ${cycle.id}, 'INITIAL', 1, 'SEP-SEED-' || n, 1, now(), now(),
-        'SUBMITTED', 2, now(), 0
+        'IN_PIPELINE', 2, now(), ${TEST_PIPELINE_ID}, 1, ${TEST_INITIAL_STAGE}, now()
       FROM generate_series(1, 200) AS n
     `)
     await db.execute(sql`
       INSERT INTO seb_application_version (
         id, application_id, version, programme_cycle_id, programme_cycle_version,
-        application_type, phase_number, change_type, change_reason,
+        application_kind, phase_number, change_type, change_reason,
         changed_by_user_id, created_at, application_category
       )
       SELECT 'appv-' || n, 'app-' || n, 1, ${cycle.id}, 2, 'INITIAL', 1,

@@ -29,9 +29,9 @@ const noNames = (): ReferenceNames => ({
 
 describe('every declared action', () => {
   it('is here once per catalogue action', () => {
-    // The catalogue has 83 actions; a spec per action is what makes the
+    // The catalogue has 71 actions; a spec per action is what makes the
     // history readable for all of them.
-    expect(specs).toHaveLength(83)
+    expect(specs).toHaveLength(71)
   })
 
   it.each(specs)('%s has an example its own schema accepts', (_action, spec) => {
@@ -71,7 +71,6 @@ describe('every declared action', () => {
       ['SEB.ENTERPRISE_DELETED', 'SEB.ENTERPRISE_RESTORED'],
       ['SEB.CYCLE_OPENED', 'SEB.CYCLE_CLOSED'],
       ['SEB.CYCLE_CLOSED', 'SEB.CYCLE_ARCHIVED'],
-      ['SEB.RECOVERY_CLOSED', 'SEB.RECOVERY_CANCELLED'],
       ['AUTH.PASSWORD_RESET_REQUESTED', 'USER.EMAIL_CHANGE_REQUESTED'],
     ] as const) {
       expect(auditVocabulary[first].payload, `${first} / ${second}`).toBe(auditVocabulary[second].payload)
@@ -182,13 +181,14 @@ describe('building a row', () => {
     }).subjectUserId).toBe('holder')
     // APPLICANT: resolved inside the insert, from the application it names.
     const onFile = auditEventRow(context(), {
-      action: 'SEB.DESK_REVIEW_STARTED', entityType: 'SEB_APPLICATION', entityId: 'a', actorUserId: 'officer',
-      applicationId: 'a', payload: { statusVersion: 2 },
+      action: 'SEB.REVISION_CANCELLED', entityType: 'SEB_APPLICATION', entityId: 'a', actorUserId: 'officer',
+      applicationId: 'a', payload: { revisionRequestId: 'r', reason: 'Asked for the wrong stage.' },
     })
     expect(dialect.sqlToQuery(sql`${onFile.subjectUserId}`).sql).toContain('applicant_user_id')
     // No application, no applicant — never a subselect that finds nobody.
     expect(auditEventRow(context(), {
-      action: 'SEB.DESK_REVIEW_STARTED', entityType: 'SEB_APPLICATION', payload: { statusVersion: 2 },
+      action: 'SEB.REVISION_CANCELLED', entityType: 'SEB_APPLICATION',
+      payload: { revisionRequestId: 'r', reason: 'Asked for the wrong stage.' },
     } as never).subjectUserId).toBeNull()
   })
 })

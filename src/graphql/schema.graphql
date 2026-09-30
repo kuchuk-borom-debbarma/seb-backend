@@ -316,54 +316,6 @@ enum ProgrammeCycleStatus {
   ARCHIVED
 }
 
-"""Where an award is in its own life."""
-enum AwardStatus {
-  """In force. Money may be released against it."""
-  ACTIVE
-
-  """Held. No money moves until it is active again."""
-  SUSPENDED
-
-  """Revoked. Anything already paid may become a recovery case."""
-  CANCELLED
-
-  """Finished. `closureDisposition` says how."""
-  CLOSED
-}
-
-"""How a closed award ended."""
-enum AwardClosureDisposition {
-  """Everything sanctioned was released."""
-  RELEASES_COMPLETE
-
-  """
-  Part of the sanctioned amount was never released. A deliberate outcome, not
-  an unfinished one.
-  """
-  REMAINDER_NOT_RELEASED
-}
-
-"""What is being assessed about an award."""
-enum AssessmentType {
-  """Whether one payment was used for what it was given for."""
-  UTILIZATION
-
-  """Whether the enterprise is doing what it said it would."""
-  PERFORMANCE
-
-  """A formal audit of the accounts."""
-  FINANCIAL_AUDIT
-}
-
-"""What an assessment concluded."""
-enum AssessmentOutcome {
-  """Satisfactory."""
-  PASSED
-
-  """Not satisfactory. May block a later phase, and may open a recovery."""
-  FAILED
-}
-
 """Whether the API is up, and what it is connected to."""
 type Health {
   """Which service this is."""
@@ -783,4 +735,42 @@ type FormTemplate {
   Includes group members, addressed through their `repeatGroupKey`.
   """
   fields: [FormField!]!
+
+  """
+  The rules about several answers at once, such as "a grant, a loan, or both".
+
+  Evaluated over the questions the applicant was actually asked; a hidden
+  question reads as unanswered. The client evaluates them too, so a refusal
+  appears before submitting, and the server's verdict is the one that counts.
+  """
+  rules: [FormRule!]!
+
+  """
+  The most one application may ask for as a grant under the pinned version,
+  so the form can state the limit before an answer goes over it. Null when the
+  version sets no per-application ceiling, and on the programme office's own
+  view of a form, which is not an application's.
+  """
+  grantCeilingPaise: Money
+}
+
+"""One rule about several answers, as the form declares it."""
+type FormRule {
+  """The rule's key, unique within the form."""
+  key: String!
+
+  """Which kind of rule it is."""
+  type: FormRuleType!
+
+  """The form stage its refusal is shown on."""
+  stageKey: String!
+
+  """What the applicant is told when the rule does not hold."""
+  message: String!
+
+  """The fixed limit, in the operands' own unit, for SUM_AT_MOST; null otherwise."""
+  limit: Float
+
+  """The questions it reads, in order. Order matters for AT_MOST_FIELD: the first may not exceed the second."""
+  operandKeys: [String!]!
 }

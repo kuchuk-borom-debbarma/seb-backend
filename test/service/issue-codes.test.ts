@@ -51,7 +51,7 @@ describe('the refusal codes a client may branch on', () => {
 
   it('has a set that did not silently collapse to nothing', () => {
     // A comparison of two empty lists is a fast green run that proves nothing.
-    expect(validationIssueCodes.length).toBe(34)
+    expect(validationIssueCodes.length).toBe(35)
     expect(new Set(validationIssueCodes).size).toBe(validationIssueCodes.length)
   })
 

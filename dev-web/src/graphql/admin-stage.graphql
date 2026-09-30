@@ -1,0 +1,169 @@
+# Working files at pipeline stages: the stages a person works, each stage's
+# queue, one file as its stage shows it, and the two writes a stage offers.
+#
+# Which actions a file offers, and whether this caller may take each, is the
+# API's to say (`permitted`), from the same check `takeAction` runs — so the
+# panel never offers a button the next request would refuse.
+
+query MyStages {
+  admin {
+    stage {
+      myStages {
+        success
+        message
+        response {
+          pipelineId
+          pipelineKey
+          pipelineName
+          pipelineVersion
+          stageKey
+          stageName
+          waiting
+        }
+      }
+    }
+  }
+}
+
+query StageQueue($input: AdminStageQueueInput!) {
+  admin {
+    stage {
+      queue(input: $input) {
+        success
+        message
+        response {
+          nodes {
+            id
+            referenceNumber
+            enterpriseName
+            applicationKind
+            statusVersion
+            stageEnteredAt
+            flags { key label }
+            recordedValues { key label type value }
+          }
+          pageInfo { endCursor hasNextPage totalCount }
+        }
+      }
+    }
+  }
+}
+
+query StageApplication($applicationId: ID!) {
+  admin {
+    stage {
+      application(applicationId: $applicationId) {
+        success
+        message
+        response {
+          id
+          referenceNumber
+          enterpriseName
+          applicantUserId
+          applicationKind
+          statusVersion
+          pipelineId
+          pipelineVersion
+          stage { key name description applicantLabel }
+          stageEnteredAt
+          trail { key name }
+          flags { key label applicantLabel kind terminal applicantVisible }
+          recordedValues { key label type value }
+          ended { key label }
+          awaitingApplicant
+          openRevisions { id stageKey }
+          revisionStageKeys
+          worksStage
+          canWithdrawRevision
+          actions {
+            key
+            label
+            description
+            confirmation
+            inputForm { ...FormTemplateFields }
+            defaults
+            requestsRevision
+            closesApplication
+            returnsFile
+            permitted
+          }
+          history {
+            id
+            stageKey
+            stageName
+            actionKey
+            actionLabel
+            toStageKey
+            toStageName
+            actor { id email }
+            flagsAdded
+            flagsRemoved
+            recorded { key label type value }
+            inputs { key label type value }
+            revisionStageKeys
+            selfReviewDisclosed
+            createdAt
+          }
+        }
+      }
+    }
+  }
+}
+
+mutation TakeStageAction($input: TakeStageActionInput!) {
+  admin {
+    stage {
+      takeAction(input: $input) {
+        success
+        message
+        response { applicationId stageActionId statusVersion stageKey flags ended }
+        issues { stageKey field code message }
+        stale
+      }
+    }
+  }
+}
+
+mutation WithdrawRevision($input: WithdrawRevisionInput!) {
+  admin {
+    stage {
+      withdrawRevision(input: $input) {
+        success
+        message
+        response { applicationId statusVersion flags openRevisionCount }
+        stale
+      }
+    }
+  }
+}
+
+# The pipelines a list may filter by, and one pipeline's published shape for
+# its stages and status flags. Both need `pipeline`/`read`; a screen without it
+# offers the stages the caller works instead.
+query StagePipelineChoices {
+  admin {
+    pipeline {
+      publishedChoices {
+        success
+        message
+        response { id key name currentPublishedVersion }
+      }
+    }
+  }
+}
+
+query StagePipelineShape($key: String!) {
+  admin {
+    pipeline {
+      byKey(key: $key) {
+        success
+        message
+        response {
+          id
+          key
+          published { version definitionJson }
+        }
+      }
+    }
+  }
+}

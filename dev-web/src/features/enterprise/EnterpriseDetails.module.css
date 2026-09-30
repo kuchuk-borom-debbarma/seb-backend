@@ -354,3 +354,30 @@
     padding: 8px 20px 20px;
   }
 }
+
+/* The step after registering: applying for this enterprise. */
+.nextStep {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding: 20px 24px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+
+.nextStepTitle {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.nextStepText {
+  margin: 0;
+  font-size: 14px;
+  color: #475569;
+}

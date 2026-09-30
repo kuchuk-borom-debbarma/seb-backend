@@ -112,6 +112,17 @@ describe('the band edges', () => {
       flat, answersFor(flat, { DATE_OF_BIRTH: '1950-01-01' }), NOW).value!
     const report = validateAnswersForSubmission(flat, answers, new Set(), NOW, onlyMax)
     expect(report.issues[0]?.message).toBe('This programme is open to applicants aged 0 to 60.')
+    const onlyMin = { ...permissivePolicy, minimumApplicantAge: 90 }
+    expect(validateAnswersForSubmission(flat, answers, new Set(), NOW, onlyMin).issues[0]?.message)
+      .toBe('This programme is open to applicants aged 90 to any.')
+  })
+
+  it('passes a top-level date of birth inside the band', () => {
+    const flat = templateOf([field('NOTE', 'TEXT', 1, { maxLength: 50 })])
+    const answers = normalizeAnswers(
+      flat, answersFor(flat, { DATE_OF_BIRTH: '1990-01-01' }), NOW).value!
+    expect(validateAnswersForSubmission(flat, answers, new Set(), NOW, banded).issues
+      .map((issue) => issue.code)).not.toContain('AGE_INELIGIBLE')
   })
 
   it('skips an owner whose date is not there at all', () => {

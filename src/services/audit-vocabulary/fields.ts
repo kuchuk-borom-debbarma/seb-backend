@@ -20,15 +20,9 @@ const EMAIL_LIMIT = 254
 /** An identifier of another row. Not constrained to a UUID: `'BOARD'` is one. */
 export const auditId = z.string().min(1).max(128)
 
-/** Money, as the ledger holds it: a non-negative whole number of paise. */
-export const paise = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
-
 export const count = z.number().int().nonnegative()
 
 export const version = z.number().int().positive()
-
-/** An ISO calendar date, `YYYY-MM-DD`. */
-export const isoDate = z.iso.date()
 
 /** An ISO instant, as `Date.prototype.toISOString` writes it. */
 export const isoInstant = z.iso.datetime()
@@ -76,7 +70,6 @@ export const auditEmail = (value: string): string | undefined => {
 /** The label every reason field shares, so the screen reads one word for it. */
 export const REASON_FIELD: AuditFieldSpec = { label: 'Reason', kind: 'REASON' }
 export const VERSION_FIELD: AuditFieldSpec = { label: 'Version', kind: 'COUNT' }
-export const REASON_CATEGORY_FIELD: AuditFieldSpec = { label: 'Reason category', kind: 'ID' }
 
 /** The payload of an action that has nothing to add beyond its row. */
 export const empty = z.strictObject({})

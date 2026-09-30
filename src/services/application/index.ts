@@ -1,25 +1,23 @@
 export {
   applicationById,
+  applicationKindEligibility,
   applicationDraftChanges,
   applicationFormTemplate,
   applicationStatusExplanations,
   applicationTimeline,
   availableProgrammeCycles,
   cyclePolicyDocumentDownloadUrl,
-  expansionEligibility,
   myApplications,
   myProgrammeCycles,
   restoreApplicationDraft,
   resubmitApplication,
   saveApplicationDraft,
   softDeleteApplicationDraft,
-  startExpansionApplication,
-  startInitialApplication,
+  startApplication,
   submitApplication,
   submittedApplicationCopy,
   validateApplication,
 } from './controllers/application'
-export { applicationFunding } from './controllers/funding'
 export {
   createEnterprise,
   enterpriseById,

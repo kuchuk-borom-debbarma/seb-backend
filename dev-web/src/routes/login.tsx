@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, redirect, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
+import { useHydrated } from '#/lib/hydration'
 import {
   ArrowLeft,
   CheckCircle2,
@@ -65,6 +66,9 @@ function LoginPage() {
   const router = useRouter()
   const { next } = Route.useSearch()
   const queryClient = useQueryClient()
+  // Disabled until hydrated: typing before then was wiped by hydration and a
+  // quick submit sent an empty form. See `useHydrated`.
+  const hydrated = useHydrated()
   const [role, setRole] = useState<UserRole>('applicant')
   const [isSignUp, setIsSignUp] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -262,194 +266,56 @@ function LoginPage() {
                     event.preventDefault()
                     signIn.mutate()
                   }}
-                  className="mt-4 space-y-3.5"
                 >
-                  {/* Official Email */}
-                  <div className="space-y-1">
-                    <label
-                      htmlFor="admin-email"
-                      className="block text-[11px] font-semibold text-[#64748b]"
-                    >
-                      Email Address
-                    </label>
-                    <input
-                      id="admin-email"
-                      type="email"
-                      required
-                      disabled={signIn.isPending}
-                      inputMode="email"
-                      autoComplete="username"
-                      value={adminEmail}
-                      onChange={(e) => setAdminEmail(e.target.value)}
-                      placeholder="admin@sep.com"
-                      className="w-full h-11 px-3.5 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
-                    />
-                  </div>
-
-                  {/* Password Input */}
-                  <div className="space-y-1 relative">
-                    <label
-                      htmlFor="admin-password"
-                      className="block text-[11px] font-semibold text-[#64748b]"
-                    >
-                      Password
-                    </label>
-                    <div className="relative">
-                      <input
-                        id="admin-password"
-                        type={showPassword ? 'text' : 'password'}
-                        required
-                        disabled={signIn.isPending}
-                        autoComplete="current-password"
-                        value={adminPassword}
-                        onChange={(e) => setAdminPassword(e.target.value)}
-                        placeholder="••••••••••••"
-                        className="w-full h-11 px-3.5 pr-10 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
-                      />
-                      <button
-                        type="button"
-                        disabled={signIn.isPending}
-                        onClick={() => setShowPassword(!showPassword)}
-                        aria-label={showPassword ? 'Hide password' : 'Show password'}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 size-9 flex items-center justify-center text-[#94a3b8] hover:text-[#475569] cursor-pointer"
-                      >
-                        {showPassword ? (
-                          <EyeOff className="size-4" />
-                        ) : (
-                          <Eye className="size-4" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  <p className="text-right text-[11px] leading-relaxed text-[#64748b]">
-                    <Link
-                      to="/forgot-password"
-                      className="font-semibold text-[#0f2444] hover:underline"
-                    >
-                      Forgot your password?
-                    </Link>
-                  </p>
-
-                  {signIn.isError ? (
-                    <p
-                      className="rounded-lg border border-[#fecaca] bg-[#fef2f2] p-3 text-xs text-[#991b1b]"
-                      role="alert"
-                    >
-                      {messageFor(signIn.error)}
-                    </p>
-                  ) : null}
-
-                  {/* Submit Admin Button */}
-                  <div className="pt-1">
-                    <button
-                      type="submit"
-                      disabled={signIn.isPending}
-                      className="w-full min-h-[48px] rounded-lg bg-[#0f2444] hover:bg-[#1e3a66] active:bg-[#0c1d37] text-white py-3 px-4 text-xs sm:text-sm font-semibold shadow-xs transition-colors disabled:opacity-75 cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      {signIn.isPending ? (
-                        <span className="inline-flex items-center gap-2">
-                          <span className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          <span>Authenticating Administrator...</span>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-2">
-                          <LockKeyhole className="size-4" />
-                          <span>Sign In as Administrator</span>
-                        </span>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Security Notice */}
-                  <div className="mt-2.5 rounded-lg bg-[#f8fafc] border border-[#e2e8f0] p-3 text-left">
-                    <div className="flex items-start gap-2">
-                      <Info className="size-3.5 text-[#0f2444] shrink-0 mt-0.5" />
-                      <p className="text-[10.5px] leading-relaxed text-[#475569]">
-                        <strong className="text-[#0f2444]">Administrative Access:</strong>{' '}
-                        Accounts with administrative roles (Admin, Approver, Reviewer,
-                        Super Admin) are provisioned centrally.
-                      </p>
-                    </div>
-                  </div>
-                </form>
-              ) : isSignUp ? (
-                /* ================================================================= */
-                /* APPLICANT REGISTRATION                                             */
-                /* ================================================================= */
-                challenge ? (
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      verifySignup.mutate()
-                    }}
-                    className="mt-4 space-y-3.5"
+                  <fieldset
+                    disabled={!hydrated}
+                    className="m-0 min-w-0 border-0 p-0 mt-4 space-y-3.5"
                   >
-                    <div className="rounded-lg border border-[#bfdbfe] bg-[#eff6ff] p-3 text-left">
-                      <div className="flex items-start gap-2">
-                        <Info className="mt-0.5 size-3.5 shrink-0 text-[#1d4ed8]" />
-                        <p className="text-[10.5px] leading-relaxed text-[#1e40af]">
-                          {challenge.delivery === 'CONSOLE' ? (
-                            <>
-                              <strong>Read the code from the server console.</strong> This
-                              development server prints the six-digit code to its log
-                              instead of emailing it.
-                            </>
-                          ) : (
-                            <>
-                              <strong>Check your inbox.</strong> We emailed a six-digit
-                              code to the address you entered.
-                            </>
-                          )}{' '}
-                          It expires {formatRelative(challenge.expiresAt)}.
-                        </p>
-                      </div>
-                    </div>
-
+                    {/* Official Email */}
                     <div className="space-y-1">
                       <label
-                        htmlFor="signup-otp"
+                        htmlFor="admin-email"
                         className="block text-[11px] font-semibold text-[#64748b]"
                       >
-                        Six-digit code sent to {applicantEmail}
+                        Email Address
                       </label>
                       <input
-                        id="signup-otp"
-                        type="text"
+                        id="admin-email"
+                        type="email"
                         required
-                        disabled={verifySignup.isPending}
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        pattern="\d{6}"
-                        maxLength={6}
-                        value={otp}
-                        onChange={(event) => setOtp(event.target.value)}
-                        className="w-full h-11 px-3.5 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
+                        disabled={signIn.isPending}
+                        inputMode="email"
+                        autoComplete="username"
+                        value={adminEmail}
+                        onChange={(e) => setAdminEmail(e.target.value)}
+                        placeholder="admin@sep.com"
+                        className="w-full h-11 px-3.5 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
                       />
                     </div>
 
-                    <div className="space-y-1">
+                    {/* Password Input */}
+                    <div className="space-y-1 relative">
                       <label
-                        htmlFor="signup-password"
+                        htmlFor="admin-password"
                         className="block text-[11px] font-semibold text-[#64748b]"
                       >
-                        Choose a password
+                        Password
                       </label>
                       <div className="relative">
                         <input
-                          id="signup-password"
+                          id="admin-password"
                           type={showPassword ? 'text' : 'password'}
                           required
-                          disabled={verifySignup.isPending}
-                          autoComplete="new-password"
-                          value={applicantPassword}
-                          onChange={(event) => setApplicantPassword(event.target.value)}
+                          disabled={signIn.isPending}
+                          autoComplete="current-password"
+                          value={adminPassword}
+                          onChange={(e) => setAdminPassword(e.target.value)}
                           placeholder="••••••••••••"
                           className="w-full h-11 px-3.5 pr-10 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
                         />
                         <button
                           type="button"
-                          disabled={verifySignup.isPending}
+                          disabled={signIn.isPending}
                           onClick={() => setShowPassword(!showPassword)}
                           aria-label={showPassword ? 'Hide password' : 'Show password'}
                           className="absolute right-1 top-1/2 -translate-y-1/2 size-9 flex items-center justify-center text-[#94a3b8] hover:text-[#475569] cursor-pointer"
@@ -463,37 +329,185 @@ function LoginPage() {
                       </div>
                     </div>
 
-                    {verifySignup.isError ? (
+                    <p className="text-right text-[11px] leading-relaxed text-[#64748b]">
+                      <Link
+                        to="/forgot-password"
+                        className="font-semibold text-[#0f2444] hover:underline"
+                      >
+                        Forgot your password?
+                      </Link>
+                    </p>
+
+                    {signIn.isError ? (
                       <p
                         className="rounded-lg border border-[#fecaca] bg-[#fef2f2] p-3 text-xs text-[#991b1b]"
                         role="alert"
                       >
-                        {messageFor(verifySignup.error)}
+                        {messageFor(signIn.error)}
                       </p>
                     ) : null}
 
-                    <button
-                      type="submit"
-                      disabled={verifySignup.isPending}
-                      className="w-full min-h-[48px] rounded-lg bg-[#0f2444] hover:bg-[#1e3a66] active:bg-[#0c1d37] text-white py-3 px-4 text-xs sm:text-sm font-semibold shadow-xs transition-colors disabled:opacity-75 cursor-pointer"
+                    {/* Submit Admin Button */}
+                    <div className="pt-1">
+                      <button
+                        type="submit"
+                        disabled={signIn.isPending}
+                        className="w-full min-h-[48px] rounded-lg bg-[#0f2444] hover:bg-[#1e3a66] active:bg-[#0c1d37] text-white py-3 px-4 text-xs sm:text-sm font-semibold shadow-xs transition-colors disabled:opacity-75 cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        {signIn.isPending ? (
+                          <span className="inline-flex items-center gap-2">
+                            <span className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            <span>Authenticating Administrator...</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-2">
+                            <LockKeyhole className="size-4" />
+                            <span>Sign In as Administrator</span>
+                          </span>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Security Notice */}
+                    <div className="mt-2.5 rounded-lg bg-[#f8fafc] border border-[#e2e8f0] p-3 text-left">
+                      <div className="flex items-start gap-2">
+                        <Info className="size-3.5 text-[#0f2444] shrink-0 mt-0.5" />
+                        <p className="text-[10.5px] leading-relaxed text-[#475569]">
+                          <strong className="text-[#0f2444]">
+                            Administrative Access:
+                          </strong>{' '}
+                          Accounts with administrative roles (Admin, Approver, Reviewer,
+                          Super Admin) are provisioned centrally.
+                        </p>
+                      </div>
+                    </div>
+                  </fieldset>
+                </form>
+              ) : isSignUp ? (
+                /* ================================================================= */
+                /* APPLICANT REGISTRATION                                             */
+                /* ================================================================= */
+                challenge ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      verifySignup.mutate()
+                    }}
+                  >
+                    <fieldset
+                      disabled={!hydrated}
+                      className="m-0 min-w-0 border-0 p-0 mt-4 space-y-3.5"
                     >
-                      {verifySignup.isPending
-                        ? 'Creating account...'
-                        : 'Create Applicant Account'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={verifySignup.isPending}
-                      onClick={() => {
-                        setChallenge(null)
-                        setOtp('')
-                        setApplicantPassword('')
-                        verifySignup.reset()
-                      }}
-                      className="w-full min-h-[44px] rounded-lg border border-[#cbd5e1] bg-white px-4 py-2.5 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc] cursor-pointer"
-                    >
-                      Use a different email address
-                    </button>
+                      <div className="rounded-lg border border-[#bfdbfe] bg-[#eff6ff] p-3 text-left">
+                        <div className="flex items-start gap-2">
+                          <Info className="mt-0.5 size-3.5 shrink-0 text-[#1d4ed8]" />
+                          <p className="text-[10.5px] leading-relaxed text-[#1e40af]">
+                            {challenge.delivery === 'CONSOLE' ? (
+                              <>
+                                <strong>Read the code from the server console.</strong>{' '}
+                                This development server prints the six-digit code to its
+                                log instead of emailing it.
+                              </>
+                            ) : (
+                              <>
+                                <strong>Check your inbox.</strong> We emailed a six-digit
+                                code to the address you entered.
+                              </>
+                            )}{' '}
+                            It expires {formatRelative(challenge.expiresAt)}.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label
+                          htmlFor="signup-otp"
+                          className="block text-[11px] font-semibold text-[#64748b]"
+                        >
+                          Six-digit code sent to {applicantEmail}
+                        </label>
+                        <input
+                          id="signup-otp"
+                          type="text"
+                          required
+                          disabled={verifySignup.isPending}
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          pattern="\d{6}"
+                          maxLength={6}
+                          value={otp}
+                          onChange={(event) => setOtp(event.target.value)}
+                          className="w-full h-11 px-3.5 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label
+                          htmlFor="signup-password"
+                          className="block text-[11px] font-semibold text-[#64748b]"
+                        >
+                          Choose a password
+                        </label>
+                        <div className="relative">
+                          <input
+                            id="signup-password"
+                            type={showPassword ? 'text' : 'password'}
+                            required
+                            disabled={verifySignup.isPending}
+                            autoComplete="new-password"
+                            value={applicantPassword}
+                            onChange={(event) => setApplicantPassword(event.target.value)}
+                            placeholder="••••••••••••"
+                            className="w-full h-11 px-3.5 pr-10 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
+                          />
+                          <button
+                            type="button"
+                            disabled={verifySignup.isPending}
+                            onClick={() => setShowPassword(!showPassword)}
+                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 size-9 flex items-center justify-center text-[#94a3b8] hover:text-[#475569] cursor-pointer"
+                          >
+                            {showPassword ? (
+                              <EyeOff className="size-4" />
+                            ) : (
+                              <Eye className="size-4" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {verifySignup.isError ? (
+                        <p
+                          className="rounded-lg border border-[#fecaca] bg-[#fef2f2] p-3 text-xs text-[#991b1b]"
+                          role="alert"
+                        >
+                          {messageFor(verifySignup.error)}
+                        </p>
+                      ) : null}
+
+                      <button
+                        type="submit"
+                        disabled={verifySignup.isPending}
+                        className="w-full min-h-[48px] rounded-lg bg-[#0f2444] hover:bg-[#1e3a66] active:bg-[#0c1d37] text-white py-3 px-4 text-xs sm:text-sm font-semibold shadow-xs transition-colors disabled:opacity-75 cursor-pointer"
+                      >
+                        {verifySignup.isPending
+                          ? 'Creating account...'
+                          : 'Create Applicant Account'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={verifySignup.isPending}
+                        onClick={() => {
+                          setChallenge(null)
+                          setOtp('')
+                          setApplicantPassword('')
+                          verifySignup.reset()
+                        }}
+                        className="w-full min-h-[44px] rounded-lg border border-[#cbd5e1] bg-white px-4 py-2.5 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc] cursor-pointer"
+                      >
+                        Use a different email address
+                      </button>
+                    </fieldset>
                   </form>
                 ) : (
                   <form
@@ -501,47 +515,51 @@ function LoginPage() {
                       event.preventDefault()
                       startSignup.mutate()
                     }}
-                    className="mt-4 space-y-3.5"
                   >
-                    <div className="space-y-1">
-                      <label
-                        htmlFor="signup-email"
-                        className="block text-[11px] font-semibold text-[#64748b]"
-                      >
-                        Email Address
-                      </label>
-                      <input
-                        id="signup-email"
-                        type="email"
-                        required
-                        disabled={startSignup.isPending}
-                        inputMode="email"
-                        autoComplete="username"
-                        value={applicantEmail}
-                        onChange={(event) => setApplicantEmail(event.target.value)}
-                        placeholder="applicant@example.com"
-                        className="w-full h-11 px-3.5 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
-                      />
-                    </div>
-
-                    {startSignup.isError ? (
-                      <p
-                        className="rounded-lg border border-[#fecaca] bg-[#fef2f2] p-3 text-xs text-[#991b1b]"
-                        role="alert"
-                      >
-                        {messageFor(startSignup.error)}
-                      </p>
-                    ) : null}
-
-                    <button
-                      type="submit"
-                      disabled={startSignup.isPending}
-                      className="w-full min-h-[48px] rounded-lg bg-[#0f2444] hover:bg-[#1e3a66] active:bg-[#0c1d37] text-white py-3 px-4 text-xs sm:text-sm font-semibold shadow-xs transition-colors disabled:opacity-75 cursor-pointer"
+                    <fieldset
+                      disabled={!hydrated}
+                      className="m-0 min-w-0 border-0 p-0 mt-4 space-y-3.5"
                     >
-                      {startSignup.isPending
-                        ? 'Sending verification code...'
-                        : 'Send verification code'}
-                    </button>
+                      <div className="space-y-1">
+                        <label
+                          htmlFor="signup-email"
+                          className="block text-[11px] font-semibold text-[#64748b]"
+                        >
+                          Email Address
+                        </label>
+                        <input
+                          id="signup-email"
+                          type="email"
+                          required
+                          disabled={startSignup.isPending}
+                          inputMode="email"
+                          autoComplete="username"
+                          value={applicantEmail}
+                          onChange={(event) => setApplicantEmail(event.target.value)}
+                          placeholder="applicant@example.com"
+                          className="w-full h-11 px-3.5 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
+                        />
+                      </div>
+
+                      {startSignup.isError ? (
+                        <p
+                          className="rounded-lg border border-[#fecaca] bg-[#fef2f2] p-3 text-xs text-[#991b1b]"
+                          role="alert"
+                        >
+                          {messageFor(startSignup.error)}
+                        </p>
+                      ) : null}
+
+                      <button
+                        type="submit"
+                        disabled={startSignup.isPending}
+                        className="w-full min-h-[48px] rounded-lg bg-[#0f2444] hover:bg-[#1e3a66] active:bg-[#0c1d37] text-white py-3 px-4 text-xs sm:text-sm font-semibold shadow-xs transition-colors disabled:opacity-75 cursor-pointer"
+                      >
+                        {startSignup.isPending
+                          ? 'Sending verification code...'
+                          : 'Send verification code'}
+                      </button>
+                    </fieldset>
                   </form>
                 )
               ) : (
@@ -553,89 +571,93 @@ function LoginPage() {
                     event.preventDefault()
                     signIn.mutate()
                   }}
-                  className="mt-4 space-y-3.5"
                 >
-                  <div className="space-y-1">
-                    <label
-                      htmlFor="applicant-email"
-                      className="block text-[11px] font-semibold text-[#64748b]"
-                    >
-                      Email Address
-                    </label>
-                    <input
-                      id="applicant-email"
-                      type="email"
-                      required
-                      disabled={signIn.isPending}
-                      inputMode="email"
-                      autoComplete="username"
-                      value={applicantEmail}
-                      onChange={(event) => setApplicantEmail(event.target.value)}
-                      placeholder="applicant@sep.com"
-                      className="w-full h-11 px-3.5 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label
-                      htmlFor="applicant-password"
-                      className="block text-[11px] font-semibold text-[#64748b]"
-                    >
-                      Password
-                    </label>
-                    <div className="relative">
+                  <fieldset
+                    disabled={!hydrated}
+                    className="m-0 min-w-0 border-0 p-0 mt-4 space-y-3.5"
+                  >
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="applicant-email"
+                        className="block text-[11px] font-semibold text-[#64748b]"
+                      >
+                        Email Address
+                      </label>
                       <input
-                        id="applicant-password"
-                        type={showPassword ? 'text' : 'password'}
+                        id="applicant-email"
+                        type="email"
                         required
                         disabled={signIn.isPending}
-                        autoComplete="current-password"
-                        value={applicantPassword}
-                        onChange={(event) => setApplicantPassword(event.target.value)}
-                        placeholder="••••••••••••"
-                        className="w-full h-11 px-3.5 pr-10 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
+                        inputMode="email"
+                        autoComplete="username"
+                        value={applicantEmail}
+                        onChange={(event) => setApplicantEmail(event.target.value)}
+                        placeholder="applicant@sep.com"
+                        className="w-full h-11 px-3.5 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
                       />
-                      <button
-                        type="button"
-                        disabled={signIn.isPending}
-                        onClick={() => setShowPassword(!showPassword)}
-                        aria-label={showPassword ? 'Hide password' : 'Show password'}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 size-9 flex items-center justify-center text-[#94a3b8] hover:text-[#475569] cursor-pointer"
-                      >
-                        {showPassword ? (
-                          <EyeOff className="size-4" />
-                        ) : (
-                          <Eye className="size-4" />
-                        )}
-                      </button>
                     </div>
-                  </div>
 
-                  <p className="text-right text-[11px] leading-relaxed text-[#64748b]">
-                    <Link
-                      to="/forgot-password"
-                      className="font-semibold text-[#0f2444] hover:underline"
-                    >
-                      Forgot your password?
-                    </Link>
-                  </p>
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="applicant-password"
+                        className="block text-[11px] font-semibold text-[#64748b]"
+                      >
+                        Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="applicant-password"
+                          type={showPassword ? 'text' : 'password'}
+                          required
+                          disabled={signIn.isPending}
+                          autoComplete="current-password"
+                          value={applicantPassword}
+                          onChange={(event) => setApplicantPassword(event.target.value)}
+                          placeholder="••••••••••••"
+                          className="w-full h-11 px-3.5 pr-10 rounded-lg bg-[#f8fafc] border border-[#cbd5e1] text-xs sm:text-sm text-[#1e293b] placeholder:text-[#94a3b8] outline-none transition-colors focus:border-[#0f2444] focus:bg-white"
+                        />
+                        <button
+                          type="button"
+                          disabled={signIn.isPending}
+                          onClick={() => setShowPassword(!showPassword)}
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 size-9 flex items-center justify-center text-[#94a3b8] hover:text-[#475569] cursor-pointer"
+                        >
+                          {showPassword ? (
+                            <EyeOff className="size-4" />
+                          ) : (
+                            <Eye className="size-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
 
-                  {signIn.isError ? (
-                    <p
-                      className="rounded-lg border border-[#fecaca] bg-[#fef2f2] p-3 text-xs text-[#991b1b]"
-                      role="alert"
-                    >
-                      {messageFor(signIn.error)}
+                    <p className="text-right text-[11px] leading-relaxed text-[#64748b]">
+                      <Link
+                        to="/forgot-password"
+                        className="font-semibold text-[#0f2444] hover:underline"
+                      >
+                        Forgot your password?
+                      </Link>
                     </p>
-                  ) : null}
 
-                  <button
-                    type="submit"
-                    disabled={signIn.isPending}
-                    className="w-full min-h-[48px] rounded-lg bg-[#0f2444] hover:bg-[#1e3a66] active:bg-[#0c1d37] text-white py-3 px-4 text-xs sm:text-sm font-semibold shadow-xs transition-colors disabled:opacity-75 cursor-pointer"
-                  >
-                    {signIn.isPending ? 'Signing in...' : 'Sign In'}
-                  </button>
+                    {signIn.isError ? (
+                      <p
+                        className="rounded-lg border border-[#fecaca] bg-[#fef2f2] p-3 text-xs text-[#991b1b]"
+                        role="alert"
+                      >
+                        {messageFor(signIn.error)}
+                      </p>
+                    ) : null}
+
+                    <button
+                      type="submit"
+                      disabled={signIn.isPending}
+                      className="w-full min-h-[48px] rounded-lg bg-[#0f2444] hover:bg-[#1e3a66] active:bg-[#0c1d37] text-white py-3 px-4 text-xs sm:text-sm font-semibold shadow-xs transition-colors disabled:opacity-75 cursor-pointer"
+                    >
+                      {signIn.isPending ? 'Signing in...' : 'Sign In'}
+                    </button>
+                  </fieldset>
                 </form>
               )}
             </div>

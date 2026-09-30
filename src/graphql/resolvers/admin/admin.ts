@@ -18,45 +18,24 @@ type FormScope = { programmeCycleId: string; expectedVersion: number; reason: st
 
 import {
   analyticsSummary,
-  cancelRecoveryCase,
   addInternalNote,
   adminDocumentDownloadUrl,
   archiveProgrammeCycle,
-  changeFundingAward,
-  cancelRevisionRequest,
   changeOpenCycleClosingTime,
-  cancelBankReferral,
   closeProgrammeCycle,
-  closeRecoveryCase,
-  completeDeskReview,
-  correctBankOutcome,
-  correctDecision,
-  createFundingAward,
   createProgrammeCycle,
   cyclePolicyDownloadUrl,
   finalizeCyclePolicyUpload,
-  fundingByApplication,
   intakeByReference,
   intakeQueue,
-  intakeQueues,
   intakeWorkspace,
   issueCyclePolicyUpload,
   openProgrammeCycle,
-  openRecoveryCase,
   programmeCycleApplicationCounts,
   programmeCycleById,
   programmeCycleEvents,
   programmeCycles,
-  recordBankOutcome,
-  recordFundingAssessment,
-  recordFundingRelease,
-  recordRecoveryEntry,
-  recordDecision,
-  recoveryById,
-  referApplicationToBank,
-  reverseFundingRelease,
   setProgrammeCycleDeleted,
-  startDeskReview,
   updateDraftProgrammeCycleController,
   updateOpenCycleGuidance,
 } from '../../../services/admin'
@@ -72,20 +51,69 @@ import {
   findCyclePolicyDocument,
   listCyclePolicyDocumentVersions,
 } from '../../../services/admin/queries/policy-document'
-import type { StaffMember } from '../../../loaders'
 import type { GraphQLContext } from '../../types'
+import { pipelineVersionKey } from '../../../loaders'
 import { snapshotRecordToPublic } from '../../../services/application/queries/application'
+import type { ProgrammeCycleAggregate } from '../../../services/admin/queries/programme-cycle'
 
 type Args<T> = { input: T }
 
-/** Null when nobody holds it, and when the holder's account is gone. */
-const resolveAssignee = (
-  parent: { assignedToUserId: string | null },
-  _args: unknown,
-  context: GraphQLContext,
-): Promise<StaffMember | null> | null => (parent.assignedToUserId
-  ? context.loaders.userById.load(parent.assignedToUserId)
-  : null)
+/** The columns of a queue row its name resolvers read. */
+type QueueRow = {
+  pipelineId: string
+  pipelineVersion: number
+  currentStageKey: string | null
+  statusFlags: string[]
+}
+
+const definitionOf = (row: QueueRow, context: GraphQLContext) =>
+  context.loaders.pipelineDefinition.load(pipelineVersionKey(row.pipelineId, row.pipelineVersion))
+
+type CycleInput = Parameters<typeof createProgrammeCycle>[0]
+type KindInput = CycleInput['policy']['applicationKinds'][number]
+
+/** A cycle as the wire carries it: each kind rule's parameters as JSON text. */
+type WireCycle = Omit<CycleInput, 'policy'> & {
+  policy: Omit<CycleInput['policy'], 'applicationKinds'> & {
+    applicationKinds: Array<Omit<KindInput, 'rules'> & {
+      rules: Array<{ ruleType: KindInput['rules'][number]['ruleType']; paramsJson: string }>
+    }>
+  }
+}
+
+/** The longest parameter text read at all; the controller bounds the object. */
+const MAX_PARAMS_JSON = 8192
+
+/*
+ * Text that is not one JSON object becomes `null`, which every rule's
+ * parameter schema refuses — so malformed settings reach the officer as the
+ * controller's sentence naming the kind and rule, not as a parse error.
+ */
+const paramsOf = (text: string): Record<string, unknown> | null => {
+  if (text.length > MAX_PARAMS_JSON) return null
+  try {
+    const value: unknown = JSON.parse(text)
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+const fromWire = (cycle: WireCycle): CycleInput => ({
+  ...cycle,
+  policy: {
+    ...cycle.policy,
+    applicationKinds: cycle.policy.applicationKinds.map((kind) => ({
+      ...kind,
+      rules: kind.rules.map((rule) => ({
+        ruleType: rule.ruleType,
+        params: paramsOf(rule.paramsJson),
+      })),
+    })),
+  },
+})
 
 export const adminResolvers = {
   Query: { admin: () => ({}) },
@@ -93,7 +121,6 @@ export const adminResolvers = {
   AdminQuery: {
     programmeCycle: () => ({}),
     intake: () => ({}),
-    funding: () => ({}),
     analytics: () => ({}),
     announcement: () => ({}),
   },
@@ -104,8 +131,6 @@ export const adminResolvers = {
     programmeCycle: () => ({}),
     formTemplate: () => ({}),
     intake: () => ({}),
-    decision: () => ({}),
-    funding: () => ({}),
     announcement: () => ({}),
   },
   AdminAnnouncementQuery: {
@@ -127,14 +152,9 @@ export const adminResolvers = {
   },
   AdminIntakeQuery: {
     queue: (_parent: unknown, args: { input?: Parameters<typeof intakeQueue>[0] }, context: GraphQLContext) => intakeQueue(args.input ?? {}, context),
-    queues: (_parent: unknown, args: { cycleId?: string | null }, context: GraphQLContext) => intakeQueues(args.cycleId, context),
     byReference: (_parent: unknown, args: { referenceNumber: string }, context: GraphQLContext) => intakeByReference(args.referenceNumber, context),
     workspace: (_parent: unknown, args: { applicationId: string }, context: GraphQLContext) => intakeWorkspace(args.applicationId, context),
     documentDownloadUrl: (_parent: unknown, args: { applicationId: string; submissionDocumentId: string }, context: GraphQLContext) => adminDocumentDownloadUrl(args, context),
-  },
-  AdminFundingQuery: {
-    byApplication: (_parent: unknown, args: { applicationId: string }, context: GraphQLContext) => fundingByApplication(args.applicationId, context),
-    recoveryById: (_parent: unknown, args: { recoveryCaseId: string }, context: GraphQLContext) => recoveryById(args.recoveryCaseId, context),
   },
   /*
    * Every one of these takes the same scope — which cycle, at which version,
@@ -207,8 +227,8 @@ export const adminResolvers = {
     ),
   },
   AdminProgrammeCycleMutation: {
-    create: (_parent: unknown, args: Args<Parameters<typeof createProgrammeCycle>[0]>, context: GraphQLContext) => createProgrammeCycle(args.input, context),
-    updateDraft: (_parent: unknown, args: Args<{ id: string; expectedVersion: number; reason: string; cycle: Parameters<typeof createProgrammeCycle>[0] }>, context: GraphQLContext) => updateDraftProgrammeCycleController({ ...args.input.cycle, id: args.input.id, expectedVersion: args.input.expectedVersion, reason: args.input.reason }, context),
+    create: (_parent: unknown, args: Args<WireCycle>, context: GraphQLContext) => createProgrammeCycle(fromWire(args.input), context),
+    updateDraft: (_parent: unknown, args: Args<{ id: string; expectedVersion: number; reason: string; cycle: WireCycle }>, context: GraphQLContext) => updateDraftProgrammeCycleController({ ...fromWire(args.input.cycle), id: args.input.id, expectedVersion: args.input.expectedVersion, reason: args.input.reason }, context),
     open: (_parent: unknown, args: Args<Parameters<typeof openProgrammeCycle>[0]>, context: GraphQLContext) => openProgrammeCycle(args.input, context),
     issuePolicyDocumentUpload: (_parent: unknown, args: Args<Parameters<typeof issueCyclePolicyUpload>[0]>, context: GraphQLContext) => issueCyclePolicyUpload(args.input, context),
     finalizePolicyDocumentUpload: (_parent: unknown, args: Args<{ uploadId: string }>, context: GraphQLContext) => finalizeCyclePolicyUpload(args.input.uploadId, context),
@@ -221,40 +241,7 @@ export const adminResolvers = {
   },
   AdminIntakeMutation: {
     addInternalNote: (_parent: unknown, args: Args<Parameters<typeof addInternalNote>[0]>, context: GraphQLContext) => addInternalNote(args.input, context),
-    startDeskReview: (_parent: unknown, args: Args<Parameters<typeof startDeskReview>[0]>, context: GraphQLContext) => startDeskReview(args.input, context),
-    completeDeskReview: (_parent: unknown, args: Args<Parameters<typeof completeDeskReview>[0]>, context: GraphQLContext) => completeDeskReview(args.input, context),
-    cancelRevision: (_parent: unknown, args: Args<Parameters<typeof cancelRevisionRequest>[0]>, context: GraphQLContext) => cancelRevisionRequest(args.input, context),
   },
-  AdminDecisionMutation: {
-    referToBank: (_parent: unknown, args: Args<Parameters<typeof referApplicationToBank>[0]>, context: GraphQLContext) => referApplicationToBank(args.input, context),
-    cancelBankReferral: (_parent: unknown, args: Args<Parameters<typeof cancelBankReferral>[0]>, context: GraphQLContext) => cancelBankReferral(args.input, context),
-    recordBankOutcome: (_parent: unknown, args: Args<Parameters<typeof recordBankOutcome>[0]>, context: GraphQLContext) => recordBankOutcome(args.input, context),
-    correctBankOutcome: (_parent: unknown, args: Args<Parameters<typeof correctBankOutcome>[0]>, context: GraphQLContext) => correctBankOutcome(args.input, context),
-    recordDecision: (_parent: unknown, args: Args<Parameters<typeof recordDecision>[0]>, context: GraphQLContext) => recordDecision(args.input, context),
-    correctDecision: (_parent: unknown, args: Args<Parameters<typeof correctDecision>[0]>, context: GraphQLContext) => correctDecision(args.input, context),
-  },
-  AdminFundingMutation: {
-    createAward: (_parent: unknown, args: Args<Parameters<typeof createFundingAward>[0]>, context: GraphQLContext) => createFundingAward(args.input, context),
-    changeAward: (_parent: unknown, args: Args<Parameters<typeof changeFundingAward>[0]>, context: GraphQLContext) => changeFundingAward(args.input, context),
-    recordRelease: (_parent: unknown, args: Args<Parameters<typeof recordFundingRelease>[0]>, context: GraphQLContext) => recordFundingRelease(args.input, context),
-    reverseRelease: (_parent: unknown, args: Args<Parameters<typeof reverseFundingRelease>[0]>, context: GraphQLContext) => reverseFundingRelease(args.input, context),
-    recordAssessment: (_parent: unknown, args: Args<Parameters<typeof recordFundingAssessment>[0]>, context: GraphQLContext) => recordFundingAssessment(args.input, context),
-    openRecovery: (_parent: unknown, args: Args<Parameters<typeof openRecoveryCase>[0]>, context: GraphQLContext) => openRecoveryCase(args.input, context),
-    recordRecoveryEntry: (_parent: unknown, args: Args<Parameters<typeof recordRecoveryEntry>[0]>, context: GraphQLContext) => recordRecoveryEntry(args.input, context),
-    cancelRecovery: (_parent: unknown, args: Args<Parameters<typeof cancelRecoveryCase>[0]>, context: GraphQLContext) => cancelRecoveryCase(args.input, context),
-    closeRecovery: (_parent: unknown, args: Args<Parameters<typeof closeRecoveryCase>[0]>, context: GraphQLContext) => closeRecoveryCase(args.input, context),
-  },
-  /*
-   * The only field in this namespace that fetches anything, on the two types
-   * that carry an assignment.
-   *
-   * Resolved here rather than in the row's own query because joining the user
-   * and grant tables into a list would duplicate an application once per role
-   * its assignee holds. As a field it goes through the request's loader, so a
-   * page of twenty rows naming twenty people costs one lookup.
-   */
-  AdminApplicationQueueItem: { assignedTo: resolveAssignee },
-  AdminApplicationState: { assignedTo: resolveAssignee },
   /*
    * Resolved from the cycle's own rows on read, rather than stored resolved.
    * The workspace does the same for an application; both go through
@@ -275,13 +262,27 @@ export const adminResolvers = {
       minimumApplicantAge: parent.version.minimumApplicantAge,
       maximumApplicantAge: parent.version.maximumApplicantAge,
       categoryAMaximumMonths: parent.version.categoryAMaximumMonths,
-      expansionWaitMonths: parent.version.expansionWaitMonths,
       majorityOwnershipRequired: parent.version.majorityOwnershipRequired,
       jurisdiction: parent.version.jurisdiction,
       fundingCeilingState: parent.version.fundingCeilingState,
       fundingCeilingAmountPaise: parent.version.fundingCeilingAmountPaise,
       fundingCeilingScope: parent.version.fundingCeilingScope,
+      pipelineId: parent.version.pipelineId,
+      pipelineVersion: parent.version.pipelineVersion,
     }),
+    formRules: (parent: Pick<ProgrammeCycleAggregate, 'formRules' | 'formRuleOperands'>) =>
+      parent.formRules.map((rule) => ({
+        ...rule,
+        operands: parent.formRuleOperands.filter((operand) => operand.ruleKey === rule.ruleKey),
+      })),
+    applicationKinds: (
+      parent: Pick<ProgrammeCycleAggregate, 'applicationKinds' | 'applicationKindRules'>,
+    ) => parent.applicationKinds.map((kind) => ({
+      ...kind,
+      rules: parent.applicationKindRules
+        .filter((rule) => rule.kindKey === kind.kindKey)
+        .map((rule) => ({ ruleType: rule.ruleType, paramsJson: JSON.stringify(rule.params) })),
+    })),
     groupDefinitions: (parent: Parameters<typeof definitionsOf>[0]) =>
       definitionsOf(parent),
     formTemplate: (parent: {
@@ -290,13 +291,24 @@ export const adminResolvers = {
       formFields: unknown[]
       formFieldOptions: unknown[]
       formFieldConditions: unknown[]
-    }) => resolveFormTemplate({
+    } & Pick<ProgrammeCycleAggregate, 'formRules' | 'formRuleOperands'>) => resolveFormTemplate({
       programmeCycleId: parent.head.id,
       programmeCycleVersion: parent.head.currentVersion,
       stages: parent.formStages as never,
       fields: parent.formFields as never,
       options: parent.formFieldOptions as never,
       conditions: parent.formFieldConditions as never,
+      rules: parent.formRules.map((rule) => ({
+        ruleKey: rule.ruleKey,
+        ruleType: rule.ruleType,
+        stageKey: rule.stageKey,
+        message: rule.message,
+        limitValue: rule.limitValue,
+        operandKeys: parent.formRuleOperands
+          .filter((operand) => operand.ruleKey === rule.ruleKey)
+          .sort((a, b) => a.position - b.position)
+          .map((operand) => operand.fieldKey),
+      })),
     }),
     // Read here rather than folded into `loadProgrammeCycle`: the document
     // lives beside the cycle, not inside its versioned rule set, and only the
@@ -327,6 +339,25 @@ export const adminResolvers = {
       }
     },
   },
+  /*
+   * Names from the version each row is worked in. A page spans versions, so
+   * each row asks the per-request loader, which reads every version the page
+   * names in one statement and parses each once.
+   */
+  AdminApplicationQueueItem: {
+    stageName: async (parent: QueueRow, _args: unknown, context: GraphQLContext) => {
+      if (parent.currentStageKey === null) return null
+      const definition = await definitionOf(parent, context)
+      return definition?.stages.find((stage) => stage.key === parent.currentStageKey)?.name ?? null
+    },
+    flags: async (parent: QueueRow, _args: unknown, context: GraphQLContext) => {
+      const definition = await definitionOf(parent, context)
+      return parent.statusFlags.map((key) => ({
+        key,
+        label: definition?.statusFlags.find((flag) => flag.key === key)?.label ?? key,
+      }))
+    },
+  },
   AdminWorkspace: {
     notes: (parent: { internalNotes?: unknown[] }) => parent.internalNotes ?? [],
     snapshots: (parent: {
@@ -335,11 +366,5 @@ export const adminResolvers = {
     }) => parent.snapshots.map((snapshot) => snapshotRecordToPublic(snapshot, snapshot.answers)),
     documents: (parent: { documents: Array<{ pin: Record<string, unknown>; file: Record<string, unknown> }> }) =>
       parent.documents.map(({ pin, file }) => ({ ...pin, ...file, id: pin.id })),
-    reviewChecks: (parent: { reviewChecks: Array<{ check: unknown }> }) =>
-      parent.reviewChecks.map(({ check }) => check),
-    releases: (parent: { releases: Array<{ entry: unknown }> }) =>
-      parent.releases.map(({ entry }) => entry),
-    assessments: (parent: { assessments: Array<{ assessment: unknown }> }) =>
-      parent.assessments.map(({ assessment }) => assessment),
   },
 }

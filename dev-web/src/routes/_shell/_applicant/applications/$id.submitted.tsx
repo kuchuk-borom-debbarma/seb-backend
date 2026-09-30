@@ -25,7 +25,8 @@ import {
 } from '#/features/application/applicationQueries'
 import { formatBytes } from '#/features/application/documents'
 import { resolveTemplate } from '#/features/application/formTemplate'
-import { formatDateTime, humanize } from '#/lib/format'
+import { standingLabel } from '#/features/application/journey'
+import { formatDateTime } from '#/lib/format'
 
 export const Route = createFileRoute('/_shell/_applicant/applications/$id/submitted')({
   loader: async ({ context, params }) => {
@@ -63,8 +64,17 @@ function SubmittedPage() {
   return (
     <main className="page">
       <PageHeader
-        title="Your application has been submitted"
-        description="The programme office can now see it. Keep the reference number — you will be asked for it."
+        // A resubmission answers the office's request, and says so.
+        title={
+          submissionNumber && submissionNumber > 1
+            ? 'Your corrections have been sent'
+            : 'Your application has been submitted'
+        }
+        description={
+          submissionNumber && submissionNumber > 1
+            ? 'The reviewers who asked for them can now see them. Keep the reference number — you will be asked for it.'
+            : 'The programme office can now see it. Keep the reference number — you will be asked for it.'
+        }
         actions={
           <>
             {copyUrl ? (
@@ -119,8 +129,9 @@ function SubmittedPage() {
                 </div>
               ) : null}
               <div>
-                <span className="field-label">Status</span>
-                <span>{humanize(application.status)}</span>
+                <span className="field-label">Where it is now</span>
+                {/* The stage's own words for the applicant, not the internal status. */}
+                <span>{standingLabel(application)}</span>
               </div>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { Dialog } from '#/components/Dialog'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import {
   ArrowLeft,
@@ -42,6 +43,7 @@ import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { FormArtwork } from './$id.form'
 import styles from './DraftForm.module.css'
+import { awaitingCorrection } from '#/features/application/revision'
 
 type Application = NonNullable<
   ApplicationByIdQuery['seb']['application']['byId']['response']
@@ -71,7 +73,10 @@ function ReviewPage() {
   )
 
   // Resubmission answers a revision request; a first submission does not.
-  const resubmission = application?.status === 'REVISION_REQUIRED'
+  const resubmission = awaitingCorrection(application)
+
+  // Submitting cannot be undone, so it is asked once more, in words.
+  const [confirming, setConfirming] = useState(false)
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -88,10 +93,18 @@ function ReviewPage() {
       return unwrap(data.seb.application.submit)
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['application', id] })
-      await queryClient.invalidateQueries({ queryKey: ['applications'] })
-      await queryClient.invalidateQueries({ queryKey: ['application-timeline', id] })
-      await queryClient.invalidateQueries({ queryKey: ['draft-changes', id] })
+      /*
+       * Marked stale, not waited on: the submission is already recorded, and
+       * four refetches in a row held the applicant on "Sending…" for seconds
+       * after the server had said yes. The next page's loader fetches what it
+       * needs and shares any request already in flight.
+       */
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['application', id] }),
+        queryClient.invalidateQueries({ queryKey: ['applications'] }),
+        queryClient.invalidateQueries({ queryKey: ['application-timeline', id] }),
+        queryClient.invalidateQueries({ queryKey: ['draft-changes', id] }),
+      ])
       await router.navigate({ to: '/applications/$id/submitted', params: { id } })
     },
   })
@@ -136,6 +149,9 @@ function ReviewPage() {
         template={template}
         activeStep="REVIEW"
         issues={issues}
+        correctionStageKeys={application.revisionRequests
+          .filter((request) => request.resolvedAt === null && request.cancelledAt === null)
+          .map((request) => request.stageKey)}
         editableStageKeys={application.editableStageKeys}
         footerLeft={
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
@@ -172,7 +188,7 @@ function ReviewPage() {
             type="button"
             className={styles.nextButton}
             disabled={!validation.valid || submit.isPending}
-            onClick={() => submit.mutate()}
+            onClick={() => setConfirming(true)}
           >
             <span>
               {submit.isPending
@@ -265,14 +281,16 @@ function ReviewPage() {
                 const fields = template
                   .fieldsOfStage(stage.key)
                   .filter((field) => visible.has(field.key) && field.type !== 'FILE')
-                const isEvidenceStage =
-                  stage.key.toUpperCase().includes('EVIDENCE') ||
-                  stage.key.toUpperCase().includes('DOCUMENT') ||
-                  stage.key.toUpperCase().includes('NOC')
-                const stageTitleText =
-                  stage.title?.toUpperCase() === 'EVIDENCE' || stage.key === 'DOCUMENTS'
-                    ? 'NOC'
-                    : stage.title
+                // A stage with a file question lists the documents attached
+                // to it, read from the template rather than guessed from the
+                // stage's key, which is the cycle author's to choose.
+                const isEvidenceStage = template
+                  .fieldsOfStage(stage.key)
+                  .some((field) => field.type === 'FILE' && visible.has(field.key))
+                const stageDocuments = documents.filter(
+                  (document) => template.byKey.get(document.fieldKey)?.stageKey === stage.key,
+                )
+                const stageTitleText = stage.title
 
                 if (fields.length === 0 && !isEvidenceStage) return null
 
@@ -360,7 +378,7 @@ function ReviewPage() {
                           </span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>
-                              {documents.length} {documents.length === 1 ? 'document' : 'documents'}
+                              {stageDocuments.length} {stageDocuments.length === 1 ? 'document' : 'documents'}
                             </span>
                             <Link
                               to="/applications/$id/documents"
@@ -381,7 +399,7 @@ function ReviewPage() {
                           </div>
                         </div>
 
-                        {documents.length === 0 ? (
+                        {stageDocuments.length === 0 ? (
                           <p style={{ fontSize: '12.5px', color: 'var(--ink-muted)', margin: 0 }}>
                             No documents are attached.
                           </p>
@@ -391,10 +409,10 @@ function ReviewPage() {
                               <thead>
                                 <tr style={{ borderBottom: '1px solid #E2E8F0', textAlign: 'left' }}>
                                   <th style={{ padding: '6px 8px 6px 0', fontSize: '11px', fontWeight: 600, color: 'var(--ink-muted)' }}>
-                                    Documents attached
+                                    For
                                   </th>
                                   <th style={{ padding: '6px 8px', fontSize: '11px', fontWeight: 600, color: 'var(--ink-muted)' }}>
-                                    Document
+                                    File
                                   </th>
                                   <th style={{ padding: '6px 0 6px 8px', fontSize: '11px', fontWeight: 600, color: 'var(--ink-muted)', textAlign: 'right' }}>
                                     File size
@@ -402,7 +420,7 @@ function ReviewPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {documents.map((doc) => (
+                                {stageDocuments.map((doc) => (
                                   <tr key={doc.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
                                     <td style={{ padding: '8px 8px 8px 0', fontWeight: 500, color: 'var(--ink)' }}>
                                       {template.byKey.get(doc.fieldKey)?.label ?? doc.fieldKey}
@@ -476,6 +494,54 @@ function ReviewPage() {
           ) : null}
         </div>
       </ApplicationJourney>
+      <Dialog open={confirming} onClose={submit.isPending ? undefined : () => setConfirming(false)}>
+        <div className={styles.leaveBackdrop} role="presentation">
+          <div
+            className={styles.leaveDialog}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="submit-title"
+            aria-describedby="submit-body"
+          >
+            <h2 id="submit-title" className={styles.leaveTitle}>
+              {resubmission ? 'Send your corrections?' : 'Submit your application?'}
+            </h2>
+            <p id="submit-body" className={styles.leaveBody}>
+              {resubmission
+                ? 'Your corrected application goes back to the reviewers who asked for the changes. The sections you corrected are closed again once it is sent.'
+                : 'The programme office receives a copy of your answers and documents exactly as they are now. You cannot change them afterwards unless the office asks you to.'}
+            </p>
+            {submit.isError ? (
+              <p className="notice" data-tone="error" role="alert">
+                {messageFor(submit.error)}
+              </p>
+            ) : null}
+            <div className={styles.leaveActions}>
+              <button
+                type="button"
+                className={styles.backButton}
+                onClick={() => setConfirming(false)}
+                disabled={submit.isPending}
+              >
+                Not yet
+              </button>
+              <button
+                type="button"
+                className={styles.nextButton}
+                onClick={() => submit.mutate()}
+                disabled={submit.isPending}
+                autoFocus
+              >
+                {submit.isPending
+                  ? 'Sending…'
+                  : resubmission
+                    ? 'Send corrections'
+                    : 'Submit application'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Dialog>
     </div>
   )
 }

@@ -37,7 +37,6 @@ const draftCycle = async (cookie: string): Promise<{ id: string }> => {
     displayName: 'Policy document test cycle',
     cycleYear: 2026,
     applicantGuidance: 'Guide.',
-    partnerBankGuidance: 'Roster.',
     opensAt: new Date(Date.now() - 1_000).toISOString(),
     policy: testPolicy(),
   } }, cookie)

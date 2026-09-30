@@ -1,0 +1,524 @@
+# The workflow vocabulary as the API publishes it.
+#
+# Every enum here mirrors a list in `src/services/catalogue/workflow.json`, and
+# `test/service/workflow-catalogue.test.ts` holds each to exactly that list, so
+# a rule type added to the catalogue without its enum value (or the reverse)
+# fails the build rather than reaching a client as an unknown value.
+
+"""
+A rule about several answers at once, as the workflow catalogue declares it.
+
+Mirrors `formRules` in `services/catalogue/workflow.json`.
+"""
+enum FormRuleType {
+  """At least one of these yes-or-no questions must be answered yes — for example, a grant, a loan, or both."""
+  AT_LEAST_ONE_TRUE
+
+  """These answers must all differ — for example, a first and a second choice of bank."""
+  DIFFERENT_VALUES
+
+  """These amounts together may not exceed a fixed limit."""
+  SUM_AT_MOST
+
+  """The first answer may not exceed the second — for example, a loan asked for may not exceed the project's cost."""
+  AT_MOST_FIELD
+}
+
+"""
+A rule an enterprise must meet to start a kind of application, as the
+workflow catalogue declares it.
+
+Mirrors `eligibilityRules` in `services/catalogue/workflow.json`.
+"""
+enum EligibilityRuleType {
+  """The enterprise has an earlier application that holds a status flag, held for at least a number of months."""
+  PRIOR_APPLICATION_HAS_FLAG
+
+  """An earlier application of the enterprise recorded a value of at least an amount."""
+  PRIOR_RECORDED_VALUE_AT_LEAST
+
+  """The enterprise has no unfinished application of a kind — a draft, or one still being worked."""
+  NO_OPEN_APPLICATION_OF_KIND
+
+  """The enterprise has made fewer than a number of applications of a kind, across every cycle."""
+  MAX_APPLICATIONS_OF_KIND
+
+  """The enterprise was established at least a number of months ago."""
+  ENTERPRISE_AGE_AT_LEAST
+}
+
+"""
+What a stage action can do, as the workflow catalogue declares it.
+
+Mirrors `effects` in `services/catalogue/workflow.json`. Each carries the
+permission it needs; an author combines effects but cannot invent one.
+"""
+enum PipelineEffectType {
+  """Adds a status flag. A flag that ends the pipeline is added by COMPLETE_PIPELINE or CLOSE_APPLICATION instead."""
+  ADD_STATUS
+
+  """Removes a status flag."""
+  REMOVE_STATUS
+
+  """Keeps what the officer entered as a named value on the application, such as the approved grant."""
+  SET_RECORDED_VALUE
+
+  """Asks the applicant to correct the form stages the officer names. When they resubmit, the application returns to this stage."""
+  REQUEST_REVISION
+
+  """Tells the applicant, on their timeline and by email when asked to."""
+  NOTIFY_APPLICANT
+
+  """Keeps what the officer wrote as a staff-only note on the application."""
+  ADD_INTERNAL_NOTE
+
+  """Sends the application to another stage."""
+  MOVE_TO_STAGE
+
+  """Sends the application to the stage chosen by one of the action's inputs — for example, the bank."""
+  MOVE_BY_CHOICE
+
+  """Sends the application back to the stage it actually came from."""
+  RETURN_TO_PREVIOUS
+
+  """Finishes the application's journey successfully, with a flag that ends the pipeline."""
+  COMPLETE_PIPELINE
+
+  """Ends the application's journey without success, such as a rejection, with a flag that ends the pipeline."""
+  CLOSE_APPLICATION
+}
+
+"""
+What a pipeline condition reads.
+
+Mirrors `conditionSources` in `services/catalogue/workflow.json`.
+"""
+enum PipelineConditionSource {
+  """An answer the applicant gave on the submitted form."""
+  ANSWER
+
+  """Whether the application currently holds a status flag."""
+  STATUS_FLAG
+
+  """A value an earlier action recorded on the application."""
+  RECORDED_VALUE
+
+  """What the officer entered into this action's own inputs."""
+  INPUT
+}
+
+"""
+What one of an effect's or eligibility rule's parameters holds, which is
+what the pipeline editor draws a control for.
+
+Mirrors `paramKinds` in `services/catalogue/workflow.json`.
+"""
+enum PipelineParamKind {
+  """A stage of the same pipeline."""
+  STAGE_KEY
+
+  """A status flag the pipeline declares."""
+  STATUS_FLAG_KEY
+
+  """One of the action's own input fields."""
+  INPUT_KEY
+
+  """A question on the form of any cycle that pins the pipeline; checked when the cycle opens."""
+  ANSWER_KEY
+
+  """A recorded value the pipeline declares."""
+  RECORDED_VALUE_KEY
+
+  """For each option of a choice input, the stage it sends the application to."""
+  CHOICE_ROUTES
+
+  """Fixed text written by the author, such as a message to the applicant."""
+  TEXT
+
+  """A yes or no setting."""
+  BOOLEAN
+
+  """A whole number of zero or more."""
+  COUNT
+
+  """A fixed amount of money, in paise."""
+  MONEY_PAISE
+
+  """A kind of application the cycle declares."""
+  APPLICATION_KIND_KEY
+
+  """Any pipeline, by its key."""
+  PIPELINE_KEY
+}
+
+"""
+The kinds of field a stage action may ask an officer to fill in.
+
+Mirrors `inputFieldTypes` in `services/catalogue/workflow.json`; each is a form
+field type, validated by the same engine as the applicant's answers.
+"""
+enum PipelineInputFieldType {
+  """A short line of text, such as a reference number."""
+  TEXT
+
+  """A paragraph, such as a note to the next stage. Never copied into the activity history."""
+  LONG_TEXT
+
+  """A calendar date."""
+  DATE
+
+  """A whole number."""
+  INTEGER
+
+  """An amount of money, entered in rupees and kept in paise."""
+  MONEY_PAISE
+
+  """Yes or no."""
+  BOOLEAN
+
+  """One of a fixed list of options, such as a bank."""
+  SINGLE_CHOICE
+
+  """Any of a fixed list of options."""
+  MULTI_CHOICE
+
+  """Text shown to the officer, with no answer."""
+  STATEMENT
+}
+
+extend type AdminQuery {
+  """
+  Pipelines: the configured routes an application takes after submission —
+  their versions, and which roles work each stage.
+  """
+  pipeline: AdminPipelineQuery!
+}
+
+"""Reading pipelines, as their authors and the cycle editor see them."""
+type AdminPipelineQuery {
+  """
+  Every pipeline, by name, retired ones included.
+
+  **Use case:** the pipelines list. **Refuses:** a caller without the
+  authority to read pipelines.
+  """
+  list: AdminPipelineListResult!
+
+  """
+  One pipeline as its editor needs it: versions, the draft with its problems,
+  the published document, and every stage with the roles that work it now.
+
+  **Use case:** the pipeline editor. **Refuses:** a caller without the
+  authority to read pipelines, and a key that names no pipeline.
+  """
+  byKey("""The pipeline's key, such as `MISSION_SEP`.""" key: String!): AdminPipelineDetailResult!
+
+  """
+  Every problem with a document, without saving it — exactly what publishing
+  it would refuse with.
+
+  **Use case:** the editor's "Check" button. **Refuses:** a caller without the
+  authority to read pipelines.
+  """
+  validateDraft(
+    """The whole pipeline document, as JSON text of at most 48 KB."""
+    definition: String!
+  ): AdminPipelineValidationResult!
+
+  """
+  The vocabulary an author may use — effects, input types, condition sources,
+  parameter kinds, form and eligibility rules — and the shipped example.
+
+  **Use case:** the pipeline editor's pickers and "Start from example".
+  **Refuses:** a caller without the authority to read pipelines.
+  """
+  catalogue: AdminPipelineCatalogueResult!
+
+  """
+  The pipelines a cycle may choose: published at least once and not retired.
+
+  **Use case:** the cycle editor's pipeline picker. **Refuses:** a caller
+  without the authority to read pipelines.
+  """
+  publishedChoices: AdminPipelineListResult!
+}
+
+"""Whether a pipeline version is still being written or has gone live."""
+enum PipelineVersionStatus {
+  """Being written. At most one per pipeline; it changes as a whole, guarded by its revision."""
+  DRAFT
+  """Live for the cycles that open next. It never changes again."""
+  PUBLISHED
+}
+
+"""A pipeline as a list shows it."""
+type AdminPipeline {
+  """The pipeline's identifier, which cycles name."""
+  id: ID!
+  """Its unique key, such as `MISSION_SEP`."""
+  key: String!
+  """Its name for the office."""
+  name: String!
+  """What it is for, possibly empty."""
+  description: String!
+  """The version a cycle opening now would pin; null until the first publish."""
+  currentPublishedVersion: Int
+  """The number of its draft, when it has one. Always null in `publishedChoices`."""
+  draftVersion: Int
+  """When it was created."""
+  createdAt: DateTime!
+  """When anything about it last changed."""
+  updatedAt: DateTime!
+  """When it was retired; null while cycles may still choose it."""
+  retiredAt: DateTime
+  """Why it was retired."""
+  retireReason: String
+}
+
+"""One version of a pipeline, without its document."""
+type AdminPipelineVersion {
+  """The version row's identifier."""
+  id: ID!
+  """Its number, from 1."""
+  version: Int!
+  """Draft or published."""
+  status: PipelineVersionStatus!
+  """How many times the draft was saved; what a save or publish must quote."""
+  revision: Int!
+  """When the version was started."""
+  createdAt: DateTime!
+  """Who started it."""
+  createdByUserId: ID!
+  """When it last changed."""
+  updatedAt: DateTime!
+  """When it was published; null for a draft."""
+  publishedAt: DateTime
+  """Who published it; null for a draft."""
+  publishedByUserId: ID
+  """What the publisher said changed."""
+  changeNote: String
+}
+
+"""One thing wrong with a pipeline document, at the place it is wrong."""
+type PipelineProblem {
+  """Where, as a dotted path into the document, such as `stages.1.actions.0.effects`."""
+  path: String!
+  """What is wrong, in a sentence an author can act on."""
+  message: String!
+}
+
+"""The draft being written, with everything that would stop it being published."""
+type AdminPipelineDraft {
+  """The draft's version number."""
+  version: Int!
+  """Its revision; `saveDraft`, `publish` and `discardDraft` must quote it."""
+  revision: Int!
+  """When it was last saved."""
+  updatedAt: DateTime!
+  """The whole document, as JSON text."""
+  definitionJson: String!
+  """Everything that would stop it being published; empty when it is ready."""
+  problems: [PipelineProblem!]!
+}
+
+"""The version cycles opening now would pin."""
+type AdminPipelinePublished {
+  """Its version number."""
+  version: Int!
+  """When it was published."""
+  publishedAt: DateTime
+  """What the publisher said changed."""
+  changeNote: String
+  """The whole document, as JSON text."""
+  definitionJson: String!
+}
+
+"""A role working a stage now."""
+type AdminPipelineStageOwner {
+  """The role's identifier."""
+  roleId: ID!
+  """The role's key."""
+  roleKey: String!
+  """The role's name."""
+  roleName: String!
+  """Since when it has worked the stage."""
+  addedAt: DateTime!
+}
+
+"""
+A stage's identity across every version of its pipeline, with who works it.
+Ownership is not versioned: a change takes effect at once, without publishing.
+"""
+type AdminPipelineStage {
+  """The stage's key, as the pipeline document names it."""
+  stageKey: String!
+  """The owner list's version; `setStageOwners` must quote it."""
+  ownersVersion: Int!
+  """The roles that work it now, by name."""
+  owners: [AdminPipelineStageOwner!]!
+}
+
+"""One pipeline, as its editor needs it."""
+type AdminPipelineDetail {
+  """The pipeline's identifier."""
+  id: ID!
+  """Its unique key."""
+  key: String!
+  """Its name for the office."""
+  name: String!
+  """What it is for, possibly empty."""
+  description: String!
+  """The version a cycle opening now would pin; null until the first publish."""
+  currentPublishedVersion: Int
+  """When it was created."""
+  createdAt: DateTime!
+  """When anything about it last changed."""
+  updatedAt: DateTime!
+  """When it was retired; null while cycles may still choose it."""
+  retiredAt: DateTime
+  """Why it was retired."""
+  retireReason: String
+  """Every version, newest first."""
+  versions: [AdminPipelineVersion!]!
+  """The draft being written, or null when there is none."""
+  draft: AdminPipelineDraft
+  """The current published version, or null before the first publish."""
+  published: AdminPipelinePublished
+  """Every stage any draft has named, with its owners."""
+  stages: [AdminPipelineStage!]!
+}
+
+"""One parameter an effect or eligibility rule takes."""
+type PipelineCatalogueParam {
+  """The parameter's name in the document."""
+  name: String!
+  """What it holds, which decides the editor's control."""
+  kind: PipelineParamKind!
+  """Whether it must be given."""
+  required: Boolean!
+  """What it means."""
+  description: String!
+}
+
+"""One effect an action may have, as the workflow catalogue declares it."""
+type PipelineEffectEntry {
+  """The effect."""
+  key: PipelineEffectType!
+  """`APPLICATION` for what it changes on the file, `STAGE` for where it sends it."""
+  group: String!
+  """What it does."""
+  description: String!
+  """
+  The permission an officer needs for it, as `resource:action`; `BY_FLAG_KIND`
+  when it depends on the flag, and null when it needs none of its own.
+  """
+  permission: String
+  """`STAGE` or `LIFECYCLE` when an action may have at most one such effect; null otherwise."""
+  exclusive: String
+  """Whether it ends the journey."""
+  terminal: Boolean!
+  """Its parameters."""
+  params: [PipelineCatalogueParam!]!
+}
+
+"""One entry of a simple catalogue list: its key and what it means."""
+type PipelineCatalogueTerm {
+  """The entry."""
+  key: String!
+  """What it means."""
+  description: String!
+}
+
+"""One cross-field form rule, as the workflow catalogue declares it."""
+type FormRuleEntry {
+  """The rule."""
+  key: FormRuleType!
+  """What it checks."""
+  description: String!
+  """The question types it may compare."""
+  operandTypes: [String!]!
+  """The fewest questions it compares."""
+  minOperands: Int!
+  """The most questions it compares."""
+  maxOperands: Int!
+  """`REQUIRED` when the rule takes a fixed limit, `NONE` otherwise."""
+  limit: String!
+}
+
+"""One eligibility rule, as the workflow catalogue declares it."""
+type EligibilityRuleEntry {
+  """The rule."""
+  key: EligibilityRuleType!
+  """What it checks."""
+  description: String!
+  """Its parameters."""
+  params: [PipelineCatalogueParam!]!
+}
+
+"""The vocabulary a pipeline, a cycle's kinds and a form's rules may use."""
+type AdminPipelineCatalogue {
+  """Every effect."""
+  effects: [PipelineEffectEntry!]!
+  """The field types an action's inputs may have."""
+  inputFieldTypes: [PipelineCatalogueTerm!]!
+  """What a condition may read."""
+  conditionSources: [PipelineCatalogueTerm!]!
+  """What a parameter may hold."""
+  paramKinds: [PipelineCatalogueTerm!]!
+  """Every cross-field form rule."""
+  formRules: [FormRuleEntry!]!
+  """Every eligibility rule."""
+  eligibilityRules: [EligibilityRuleEntry!]!
+  """The shipped TTC → Industries & Commerce → bank pipeline, as JSON text, to start from."""
+  exampleDefinitionJson: String!
+}
+
+"""The problems with a document."""
+type AdminPipelineValidation {
+  """Every problem, at its path; empty when the document could be published."""
+  problems: [PipelineProblem!]!
+}
+
+"""Pipelines, or why they could not be read."""
+type AdminPipelineListResult implements BaseResponse {
+  """Whether they were read."""
+  success: Boolean!
+  """What to show when `success` is false — an authority refusal."""
+  message: String
+  """The pipelines. Null whenever `success` is false."""
+  response: [AdminPipeline!]
+}
+
+"""One pipeline, or why the operation on it did not happen."""
+type AdminPipelineDetailResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+  """
+  What to show when `success` is false — an authority refusal, an unknown
+  pipeline, a stale revision or owner list, or the problems stopping a
+  publish.
+  """
+  message: String
+  """The pipeline after the operation. Null whenever `success` is false."""
+  response: AdminPipelineDetail
+}
+
+"""A document's problems, or why it could not be checked."""
+type AdminPipelineValidationResult implements BaseResponse {
+  """Whether the document was checked."""
+  success: Boolean!
+  """What to show when `success` is false — an authority refusal."""
+  message: String
+  """The problems. Null whenever `success` is false."""
+  response: AdminPipelineValidation
+}
+
+"""The catalogue, or why it could not be read."""
+type AdminPipelineCatalogueResult implements BaseResponse {
+  """Whether it was read."""
+  success: Boolean!
+  """What to show when `success` is false — an authority refusal."""
+  message: String
+  """The catalogue. Null whenever `success` is false."""
+  response: AdminPipelineCatalogue
+}

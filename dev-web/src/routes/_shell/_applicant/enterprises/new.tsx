@@ -38,7 +38,8 @@ function NewEnterprisePage() {
     onSuccess: async (enterprise) => {
       // The list is now wrong on every page and with every filter, so the whole
       // key prefix goes rather than the one page we happen to have cached.
-      await queryClient.invalidateQueries({ queryKey: ['enterprises'] })
+      // Stale, not waited on: the page this goes to loads what it shows.
+      void queryClient.invalidateQueries({ queryKey: ['enterprises'] })
       if (search.returnTo === 'application') {
         await router.navigate({
           to: '/applications/new',

@@ -39,15 +39,20 @@ These rules are already agreed and must remain true throughout the roadmap.
 - [x] One person has one portal identity identified by a verified email address.
 - [x] One person may own more than one enterprise.
 - [x] Each enterprise has one primary portal owner.
-- [x] Each enterprise has one long-lived funding case that joins its initial and
-  later expansion applications.
-- [x] One application represents one funding phase attempted in one programme
-  cycle.
-- [x] An initial application is always phase 1.
-- [x] An expansion application is always phase 2 or higher and must follow the
-  immediately preceding funded phase.
+- [x] Each enterprise has one long-lived funding case that joins every
+  application it makes, of every kind.
+- [x] One application is one attempt, of one kind, in one programme cycle.
+- [x] The kinds of application a cycle accepts, and who may start each, are the
+  cycle's configuration. The code knows no kind by name — "expansion" is a kind
+  a cycle declares, with rules saying when an enterprise may start one.
+- [x] An application's phase number is one more than the enterprise's earlier
+  applications of the kinds its cycle declares before this one, so a first
+  application is phase 1.
 - [x] Enterprise Category A/B describes the enterprise's age or maturity. It is
-  separate from INITIAL/EXPANSION, which describes the funding phase.
+  separate from the application's kind.
+- [x] After submission, an application is worked through the pipeline its
+  cycle pinned. The code knows no stage, bank, or post-submission status by
+  name.
 - [x] Application submissions are historical records. Later enterprise or draft
   changes never rewrite what was submitted.
 - [x] Business records are retained for history when corrected, replaced, or
@@ -57,9 +62,6 @@ These rules are already agreed and must remain true throughout the roadmap.
 - [x] The system does not enforce a seed-fund ceiling until the contradictory
   figures in the source documents are resolved by the policy owner.
 - [x] Financing components are not required to add up to the total project cost.
-- [x] Expansion requires the latest performance and financial-audit results,
-  plus every retained release’s latest utilization result, to pass under the
-  target cycle’s pinned rules.
 - [x] A person may be both an applicant and an administrator. Administrative
   actions on that person's own application are allowed and must remain visible
   in the activity history.
@@ -173,11 +175,11 @@ without altering older submitted applications.
 
 - [x] Deleting an enterprise is reversible and preserves its history.
 - [x] An enterprise can be deleted only when all its drafts are already deleted
-  and it has no submitted applications or awards.
+  and it has no submitted applications.
 - [x] Deleting an enterprise also makes its funding case unavailable.
 - [x] Restoring an enterprise restores its funding case in the same action.
 - [x] Another applicant cannot delete or restore the enterprise.
-- [x] A refused deletion lists the exact applications or awards preventing it,
+- [x] A refused deletion lists the exact applications preventing it,
   with their reference numbers and statuses, instead of a general refusal.
 
 ---
@@ -211,59 +213,49 @@ submitted in an older cycle.
 
 ## 4. Starting an application
 
-### 4.1 Initial application
+### 4.1 Choosing a kind
 
 - [x] The applicant chooses one owned, active enterprise and one open programme
   cycle.
-- [x] Starting an application first confirms the enterprise and cycle, then
-  presents initial and expansion as described choices in a separate gated
-  category. No draft is created until the applicant confirms its type.
+- [x] The cycle's kinds of application are shown as described choices, each
+  saying whether this enterprise may start it and, when it may not, every
+  reason why. No draft is created until the applicant confirms a kind they may
+  start.
 - [x] Registering another enterprise from application setup returns with that
-  enterprise selected, preserves the chosen cycle, and advances to application
-  type when both choices are present. A registration opened directly continues
-  to the new enterprise profile.
-- [x] Starting an initial application creates phase 1 and copies the
-  enterprise's current profile into the first draft.
+  enterprise selected, preserves the chosen cycle, and advances to the choice
+  of kind when both choices are present. A registration opened directly
+  continues to the new enterprise profile.
+- [x] Starting an application copies the enterprise's current profile into the
+  first draft and records the kind and phase number.
 - [x] The application remains attached to the selected enterprise and its
   funding case for its entire life.
-- [x] Only one non-rejected attempt for the same phase may remain active across
-  programme cycles.
-- [x] Starting the same phase twice in the same cycle is prevented.
-- [x] A rejected phase may be attempted again only in a later open cycle.
 - [x] The applicant cannot start an application for another person's enterprise.
-- [x] The applicant cannot choose a phase number or mark an initial application
-  as an expansion.
+- [x] The applicant cannot choose a phase number or assert an eligibility fact;
+  eligibility is read from the enterprise's recorded history.
 
-### 4.2 Expansion application
+### 4.2 Eligibility rules
 
-- [x] The applicant asks the system to check whether the next expansion phase is
-  available; the applicant does not type a Phase-II flag.
-- [x] The next phase must immediately follow an awarded phase: phase 1 qualifies
-  phase 2, phase 2 qualifies phase 3, and so on.
-- [x] The qualifying award must be active and belong to the same enterprise and
-  funding case.
-- [x] At least one release under the qualifying award must retain a positive
-  amount after all reversals.
-- [x] Total releases minus reversals must remain greater than zero.
-- [x] Twelve calendar months must have passed since the first release that still
-  retains a positive amount.
-- [x] A release on 29 February reaches its one-year anniversary on 28 February
-  in a non-leap year.
-- [x] A full reversal removes that release from the eligibility calculation; a
-  partial reversal retains the original release date.
-- [x] A competing active attempt for the next phase blocks a second expansion.
-- [x] A rejected expansion can be retried in a later open cycle.
-- [x] Deleting an expansion draft releases its claim on the qualifying award.
-- [x] Restoring a deleted expansion draft succeeds only if all eligibility rules
-  are still true and no replacement application has claimed the award.
-- [x] Expansion drafts receive prior sanction, release, net-disbursement, and
-  operating-period facts from programme records rather than applicant typing.
-- [x] Every failed eligibility check is reported separately with its own
-  applicant-safe message: missing award, inactive award, no positive release,
-  anniversary not reached, an unpassed assessment, or a competing application.
-  Utilization reasons name the release obligation they are about.
-- [x] The exact first eligible calendar instant is returned alongside the
-  reasons, so it can be shown when time is the only unmet rule.
+A cycle gives each kind its own rules. The full vocabulary is in the
+[form template guide](form-template-guide.md#kinds-of-application-and-who-may-start-one).
+
+- [x] A kind may require an earlier application holding a status flag
+  (optionally in one pipeline, optionally for a number of months), an earlier
+  recorded value of at least an amount, no unfinished application of a kind,
+  fewer than a number of applications of a kind, or an enterprise at least a
+  number of months old.
+- [x] Every rule of a kind must hold; all are evaluated and every failing
+  reason is shown at once, in applicant-safe words.
+- [x] A fact a rule needs and cannot find fails the rule rather than passing it.
+- [x] The history is read across every cycle, and when a flag was added comes
+  from the pipeline's action history, never from anything the applicant types.
+- [x] The rules are asked again when a removed draft is restored and at the
+  first submission, because the history may have moved. The application being
+  checked never counts against itself.
+- [ ] Show the first date on which a time-based rule will be met, when time is
+  the only thing unmet.
+- [ ] Let an eligibility rule read released money and assessment results
+  (§17). The fixed expansion rule did; the configured rules cannot until that
+  money is recorded.
 
 ---
 
@@ -306,11 +298,13 @@ submitted in an older cycle.
 - [x] The applicant can view only applications belonging to their account.
 - [x] The application list is paginated and supports stable continuation through
   large histories.
-- [x] Add user-facing autosave status with the unambiguous states “Saving”,
-  “Saved”, and “Could not save”.
-- [x] Add a recovery prompt when the browser has unsaved edits and the applicant
-  tries to leave the page. Registered only while a save is in flight or has
-  failed, so it never interrupts somebody with nothing to lose.
+- [x] Save by hand — Save, "Save & next" and Cmd/Ctrl+S; nothing is saved on a
+  timer — with the unambiguous states “Unsaved changes”, “Saving”, “Saved” and
+  “Could not save”.
+- [x] Ask before losing unsaved answers: the browser's prompt when the tab is
+  closed or reloaded, and a dialog offering to save first when the applicant
+  leaves for another page of the portal. Moving between the form's own stages
+  keeps the answers on screen and is not leaving.
 - [ ] Show “last saved” time and the current draft version without implying that
   a saved draft has been submitted. The saved time is shown, taken from the
   server's own record rather than the moment the request was sent. The draft
@@ -365,15 +359,26 @@ What the software guarantees:
   questions, 20 stages, one level of nesting, no conditions on members yet)
   and a 32 KB worst-case answer budget refused when the *form* is authored
   rather than when an applicant hits it.
-- [x] Two **roles** pin the questions the programme itself must find across
+- [x] Three **roles** pin the questions the programme itself must find across
   cycles — the applicant's date of birth (which may live inside the owners
-  group) and the requested amount (pinned to the key
-  `SEED_FUND_REQUESTED_PAISE`, which SQL reads literally). The business name,
-  sector, establishment date and category stopped being answers: they are read
-  live from the enterprise, and the category is computed at submission.
-- [x] A cycle cannot be saved or opened with a role unbound: authoring refuses
-  it by name, and `resolveFormTemplate` refuses to resolve such a template at
-  all.
+  group), the grant asked for (pinned to the key `SEED_FUND_REQUESTED_PAISE`)
+  and the loan asked for (pinned to `LOAN_AMOUNT_REQUESTED_PAISE`), which SQL
+  reads literally. The business name, sector, establishment date and category
+  are not answers: they are read live from the enterprise, and the category is
+  computed at submission.
+- [x] A cycle binds only the roles it asks — a loan-only round has no grant
+  amount — but a role is never bound twice, off its pinned key, or to a
+  question of the wrong type: authoring refuses it by name, and
+  `resolveFormTemplate` refuses to resolve such a template at all.
+- [x] A cycle may declare rules about several answers at once — at least one of
+  some yes/no questions is yes, some answers all differ, some amounts add up to
+  no more than a limit, one answer is no more than another — and authoring
+  refuses a rule that could never hold or never fail.
+- [x] Refuse a submission that breaks one of those rules, on the stage the
+  rule names, counting only the questions the applicant was asked — in the
+  browser as soon as the second answer is given, and on the server whatever the
+  browser did. A save is not refused: such a rule cannot hold part way through
+  a form.
 - [x] Authoring a form in the cycle editor. The nine `formTemplate` mutations
   and the cycle editor's form screen exist, gated by `form_template`/`update`
   and only while the cycle is a draft.
@@ -389,7 +394,7 @@ bounds — their inputs are cycle scalars, not anything an applicant answers.
   calendar months at submission; Category B means younger. The category is
   computed by the server from the enterprise's establishment date, and a
   sorting cycle refuses submission when that date is missing.
-- [x] The requested amount is refused above the cycle's funding ceiling, where
+- [x] The grant asked for is refused above the cycle's funding ceiling, where
   the cycle states one. Unresolved means no ceiling is enforced — see §21.
 - [x] Real calendar dates only, including correct leap-day handling.
 - [x] Exact rupee-and-paise values, without rounding through floating point.
@@ -479,10 +484,11 @@ expressive than the four fixed conditions this used to list.
 - [x] Submission creates a new frozen formal snapshot, even if the last draft
   was already valid.
 - [x] The first submission receives one stable Mission SEP reference number.
-- [x] The reference number remains unchanged through review, revision, award,
-  and later status changes.
-- [x] Successful submission changes the application to `SUBMITTED` and records
-  an applicant-visible timeline event.
+- [x] The reference number remains unchanged through every stage, revision and
+  status flag.
+- [x] Successful submission enters the application at the first stage of the
+  pipeline version its cycle pinned, adds the flags the pipeline adds on
+  submission, and records an applicant-visible timeline event.
 - [x] Two simultaneous submission attempts cannot create duplicate submissions
   or reference numbers.
 - [x] A deleted draft cannot be submitted.
@@ -499,14 +505,19 @@ expressive than the four fixed conditions this used to list.
 
 ### 7.3 Applicant timeline and status
 
-- [x] The applicant can see the application's current status.
+- [x] The applicant can see the application's current status: a draft, or
+  submitted and being worked.
+- [ ] The applicant can see where a submitted file is, by the stage's applicant
+  label and explanation, and the status flags and recorded values the pipeline
+  lets them see (§14).
 - [x] The applicant can see a chronological, applicant-safe timeline for events
   already recorded on the application.
 - [x] The timeline does not expose internal secrets, staff-only notes, or
   another applicant's information.
 - [x] A status guide defines a label, plain-language explanation, and next
-  action for every status, built from the schema's own status list so a new
-  status cannot be missing from it.
+  action for both statuses the code owns, built from the schema's own status
+  list so a new status cannot be missing from it. Everything after submission
+  is explained by the pipeline's own applicant labels instead.
 - [x] Each status names who must act next—applicant, programme office, or
   nobody—and the guide deliberately carries no dates at all.
 
@@ -514,23 +525,25 @@ expressive than the four fixed conditions this used to list.
 
 ## 8. Revision and resubmission
 
-The applicant response and the staff issuance/cancellation workflow both exist.
+A revision is asked for by a configured stage action (§15). The applicant's
+side of it is complete; the office's side arrives with stage actions.
 
-- [x] A revision request identifies one form stage and gives the applicant a
-  readable correction note.
-- [x] While revision is required, the applicant may edit only stages named by
+- [ ] An officer asks for a revision through an action at the file's stage,
+  naming the form stages to correct and giving the applicant a readable note.
+- [x] While a revision is open, the applicant may edit only stages named by
   unresolved requests.
 - [x] Fields outside those stages must remain identical to the last
   submission.
 - [x] Resubmission validates the complete application and all required evidence.
 - [x] Resubmission creates a new formal snapshot and the next submission number.
 - [x] A successful resubmission resolves all open revision requests through that
-  exact submission and returns the application to `SUBMITTED`.
+  exact submission, removes the flag that let the applicant edit, and leaves
+  the file at the stage that asked — not back at the start.
 - [x] Resubmission remains available after the original programme cycle closes.
-- [x] Let an administrator cancel an incorrect revision request with a reason
-  and issue a replacement without editing or hiding the original request.
+- [ ] Let an officer withdraw an incorrect revision request with a reason and
+  ask again, without editing or hiding the original request.
 - [x] Revision requests carry their stage, issue date, note, and resolved or
-  cancelled state, ready to group by stage.
+  withdrawn state, ready to group by stage.
 - [x] The application reports which stages are editable right now, derived
   from the same rule the draft-save path enforces, so a locked stage can never
   be shown as editable.
@@ -621,7 +634,9 @@ permanently with no recovery path.
   roles could hand its own holder everything.
 - [x] Separate reading casework from deciding it, from shaping the programme:
   the office composes a role that reads and one that decides if it wants them
-  separate, rather than living with a split the code chose.
+  separate, rather than living with a split the code chose. Working a file is
+  the `stage` resource, shaping a pipeline the `pipeline` resource, and which
+  stages a person works is the stage ownership of their roles.
 - [x] Decide authorization by resource and act rather than by role name, so an
   operation states what it needs and a name can change without the rule moving.
 - [x] Publish what the signed-in person may do, so a screen offers only controls
@@ -690,6 +705,10 @@ permanently with no recovery path.
   drawer, with nested routes marking their owning section.
 - [x] Keep the gates advisory: every operation is still refused server-side, so
   the client is never the security boundary.
+- [ ] Name each role in the account menu by the role's own name, not its key
+  re-cased: an officer holding `SBI_BANK` reads "Sbi Bank" where the office
+  named the role "SBI Bank". The session carries role keys only, so this needs
+  the names read in the same statement as the keys — no extra round trip.
 
 ---
 
@@ -702,67 +721,45 @@ permanently with no recovery path.
   when, and why.
 - [x] Let an administrator open a cycle only when its code, display name, policy
   year, policy reference, opening/closing times, applicant guidance, a
-  resolvable form template with both roles bound (required documents are its
-  `FILE` questions), eligibility rules, and every resolved cycle-specific
-  funding limit are present.
+  resolvable form template (required documents are its `FILE` questions), at
+  least one kind of application, a published pipeline to pin, and every
+  resolved cycle-specific funding limit are present.
 - [x] Opening a cycle makes it visible and available for new applicant drafts at
   the stated opening time.
 - [x] Let an administrator close a cycle immediately with a required reason, or
   allow it to close automatically at its stated closing time.
 - [x] Closing a cycle blocks new applications but does not alter existing
-  drafts, submissions, reviews, or requested resubmissions.
-- [x] Let an administrator archive a closed cycle only after no active intake or
-  review action depends on changing that cycle.
+  drafts, submissions, files being worked, or requested resubmissions.
+- [x] Let an administrator archive a closed cycle only when none of its
+  applications is unfinished — no draft, and no file still at a stage of its
+  pipeline.
 - [x] Archived cycles remain readable in histories and reports.
-- [x] Show the administrator counts of drafts, submitted applications, and
-  applications under review before closing or archiving.
+- [x] Show the administrator counts of the cycle's applications by status
+  before closing or archiving.
 - [x] Record a public timeline notice when a cycle's closing time changes after
   it has opened.
 
 ---
 
-## 11. Administrative intake and work queues
+## 11. Administrative intake and the office-wide view
 
-### 11.1 Queue visibility
+What happens to a file after submission is configured as a pipeline (§12–§16).
+This section is the office's view across every pipeline: finding a file,
+reading it, and keeping staff-only notes.
 
-- [x] Administrators have separate named queues for newly submitted, desk
-  review, revision responses, partner-bank evaluation, awaiting decision,
-  approved,
-  rejected, sanctioned, and disbursed applications, with matching counts. New
-  submissions and revision responses are both `SUBMITTED` and are separated by
-  submission number.
-- [x] Each queue item shows reference number, enterprise, applicant, phase,
-  programme cycle, current status, submission time, and last activity time.
-- [x] Support filtering by cycle, status, phase, application type, sector,
-  category, and submission-date range.
+### 11.1 Finding a file
+
 - [x] Support exact lookup by application reference number.
-- [x] Paginate every queue so large programme years remain usable.
-- [x] Default ordering is oldest waiting item first; staff may choose newest
+- [x] Paginate every list so large programme years remain usable.
+- [x] Do not expose draft applications to staff before formal submission.
+- [ ] Filter the office-wide list by pipeline, stage and status flags, and by
+  the grant and loan amounts asked for, replacing the nine fixed queues the
+  hard-coded workflow had. Each item shows reference number, enterprise,
+  applicant, phase, cycle, stage, flags, submission time and last activity.
+- [ ] Default ordering is oldest waiting item first; staff may choose newest
   first or last activity without changing other users' defaults.
-- [x] Do not expose draft applications to reviewers before formal submission.
 
-### 11.2 Working the same file, and conflict visibility
-
-- [x] Let anybody holding the right role act on an application without
-  reserving it first.
-- [x] Show who worked a file last, and when, to all staff. It is advisory: no
-  control is disabled by what it says.
-- [x] Warn when the reviewer is also the applicant or enterprise owner; allow
-  the action under the selected policy and retain the acknowledgement on the
-  transition that decides something. The acknowledgement is stored on the desk
-  review and on the decision it was given for, a superseding correction carries
-  its own, and each writes a `SEB.SELF_REVIEW_DISCLOSED` audit row so the cases
-  are findable by action rather than by joining actor to applicant.
-- [x] Show the acknowledgement wherever the review or decision it belongs to is
-  shown, so a reader of the record sees that the officer was the applicant.
-- [x] Prevent two administrators from unknowingly completing the same review
-  transition from the same old status.
-- [x] Widen who may act on money. Awards, releases and recovery no longer
-  require having reserved the file; they require the permission and the version
-  guard. This is a product change rather than a refactor, and it is recorded
-  here for that reason.
-
-### 11.3 Review workspace
+### 11.2 Reading a file
 
 - [x] Show the exact submitted snapshot, not the applicant's later canonical
   enterprise profile.
@@ -773,213 +770,177 @@ permanently with no recovery path.
 - [x] Let staff add a dated internal note that cannot alter an applicant answer.
 - [x] Internal notes identify their author and cannot be edited or deleted; a
   correction is a new note referring to the earlier one.
+- [ ] Scope every read of a file — the workspace, its documents, its notes — to
+  the stages the reader's roles own and the files they have acted on, unless
+  they hold office-wide `application`/`read`. See
+  [RBAC](admin-rbac.md#stage-ownership-is-scope-and-why-a-permission-is-not-enough).
+- [ ] Record a transcribed identifier behind a passed check and compare it
+  across funding cases. The fixed desk review did this — the ST certificate,
+  identity document and bank account, stored as a keyed digest — and it went
+  with the desk review. A pipeline action can ask for a number as a text input,
+  but nothing compares it across files or keeps it as a digest.
 
 ---
 
-## 12. Desk review and revision requests
+## 12. Pipelines: configuring how a file is worked
 
-- [x] Starting desk review changes `SUBMITTED` to `DESK_REVIEW` and records the
-  reviewer and time.
-- [x] A reviewer checks completeness, eligibility confirmations, required
-  evidence, and consistency between answers and documents.
-- [x] The reviewer records one outcome: request revision, advance to
-  partner-bank evaluation, or reject.
-- [x] A revision request names exactly one editable stage and contains a
-  clear, applicant-safe correction instruction.
-- [x] Multiple stages require separate revision requests so each issue can be
-  tracked and resolved.
-- [x] Issuing one or more requests changes the application to
-  `REVISION_REQUIRED` and exposes the requests in the applicant workflow.
-- [ ] Send a notification when one or more revision requests are issued.
-- [x] A reviewer cannot request edits to server-derived award or expansion
-  facts.
-- [x] A mistaken open request can be cancelled with a reason and replaced; its
-  original text remains in history.
-- [x] A revision response returns to the submitted queue and may be reviewed by
-  the same or a different administrator.
-- [x] Advancing the application requires all review checks and revision requests
-  to be resolved.
-- [x] Rejection requires a standard reason category plus a plain-language reason
-  visible to the applicant.
-- [x] Rejection is final for that cycle attempt but does not erase the
-  application or prevent an eligible later-cycle retry.
+An application's route after submission is **configured, not coded**. The
+office describes it as a pipeline of stages, each worked by the roles that own
+it, each offering actions that ask the officer for inputs and then do
+configured things to the file. The whole model is the
+[pipeline guide](pipeline-guide.md).
 
----
-
-### 12.1 Transcribed identifiers and duplicate detection
-
-- [x] Record the number on the document behind every passed check — the
-  Scheduled Tribe certificate, the identity document, and the bank account with
-  its branch code. A result alone is an attestation with nothing behind it.
-- [x] Compare values with case and separators stripped, so one certificate
-  written two ways is one certificate.
-- [x] Store identity and bank numbers as a keyed digest, never in the clear,
-  keeping only the last four digits so a reviewer can confirm by eye.
-- [x] Refuse a review whose identifier already exists on a **different funding
-  case**, naming both the identifier and the application it was found on.
-- [x] Treat that refusal as a question rather than a verdict: a second-phase
-  expansion by the same promoter is expected, so the reviewer either fails the
-  check or states why it is not the same claim, and the answer is retained.
-- [x] Make which identifiers are demanded, and which are compared, a per-cycle
-  setting rather than a code constant. The two are independent: an identifier
-  can be collected without being compared, and compared without being demanded.
-  Rules are frozen into the cycle version, so editing a cycle cannot change what
-  an already-submitted application is judged by, and a cycle with no rules
-  demands nothing and compares nothing.
-- [ ] Decide with TTAADC whether any identifier should be a hard bar rather than
-  a reviewer judgement. The per-cycle rules make this configurable when the
-  answer arrives; what is not yet built is a setting that refuses outright
-  rather than asking.
+- [x] What an action can do is a fixed vocabulary in code — add or remove a
+  status flag, record a value, ask the applicant for a revision, notify the
+  applicant, keep a staff note, move to a stage, route by a choice, return to
+  the previous stage, complete, close. An author combines these but cannot
+  invent one, and every one is backed by code the build checks for.
+- [x] A pipeline's shape is kept as versions: at most one draft, edited as a
+  whole against a revision number, and published versions never change.
+- [x] A pipeline is checked as a whole, with every problem listed at once: a
+  stage nothing reaches or nothing leaves, no way to finish, an action that
+  moves a file twice or moves it and hands it to the applicant at once, a
+  choice with an unrouted option, a terminal flag added by anything but an
+  ending, an editing flag added by anything but a revision, a return from the
+  first stage, an action needing no permission, or a reference to something
+  that does not exist.
+- [x] A cycle names the pipeline its applications are worked in. Opening pins
+  that pipeline's current published version, and every application in the
+  cycle is worked in that version, so a later publish never re-routes a file.
+- [ ] Let the office create, edit, validate, publish, discard and retire
+  pipelines on screen, starting from the worked Mission SEP example, with every
+  change recorded in the activity history.
+- [x] Refuse to open a cycle whose form cannot carry its pipeline: every answer
+  the pipeline reads must be a top-level question of the right type, and a
+  pre-filled choice must not offer what its input does not.
+- [ ] Move a file already being worked onto a newer published version. Today a
+  file finishes in the version it started in.
+- [ ] Warn, when a pipeline is checked, about an ending that leaves a progress
+  flag on the file: a pipeline whose "Mark the loan fulfilled" completes the
+  file without removing `IN_REVIEW` shows a finished file as both "In review"
+  and "Completed", to the office and the applicant alike.
 
 ---
 
-## 13. Partner-bank evaluation
+## 13. Stages and who works them
 
-Partner-bank verification remains an offline programme activity for now. There
-is no separate bank user or bank portal in this roadmap.
-
-- [x] An administrator sends an eligible application to partner-bank evaluation
-  and records the bank name, referral reference, and referral date.
-- [x] The applicant sees that evaluation is in progress but does not see
-  staff-only bank correspondence.
-- [x] An administrator records the offline bank outcome as recommended, not
-  recommended, or more information required.
-- [x] A recorded outcome includes the decision date, decision reference, and a
-  safe summary.
-- [x] “More information required” creates stage-specific revision requests and
-  returns the applicant to the normal revision flow.
-- [x] “Recommended” advances the application to await a decision.
-- [x] “Not recommended” also advances to await a decision; bank feedback is
-  advisory evidence, and the programme decision records the outcome and
-  applicant-safe reason.
-- [x] Replacement bank outcomes remain additional history entries; an earlier
-  outcome is never overwritten.
+- [x] Each stage lists the roles that own it, kept as history with who changed
+  it and why, rather than overwritten. Ownership is not versioned with the
+  pipeline, so adding an officer's role needs no publish.
+- [x] The signed-in person's owned stages are resolved live, in the same read
+  as their permissions, so removing a role from a stage takes effect on its
+  holders' next request.
+- [x] Let an office holding `pipeline`/`assign` change a stage's owners with a
+  reason, only for roles within their own authority and only at stages they
+  own themselves. (The operation; its screen is part of the pipeline editor.)
+- [x] Stop an invitation handing out a stage: you may offer a role only if you
+  own every stage it owns. Accepting re-checks it against the issuer's stages
+  at that moment.
+- [ ] Show each officer the stages they own with how many files wait at each,
+  and a queue per stage, oldest waiting first.
+- [ ] Set a service level per stage and show files waiting beyond it.
 
 ---
 
-## 14. The programme decision
+## 14. Status flags and recorded values
 
-- [x] An application with either positive or negative bank feedback waits in
-  `AWAITING_DECISION` and is decided directly by a holder of `DECIDE`. There is
-  no meeting to convene and no agenda to build. **This diverges from the TTAADC
-  source, which names a Tripartite Meeting** — see
-  [policy alignment](policy-alignment.md).
-- [x] The decision records the exact submission and bank outcome that were read,
-  so the file still shows what was in front of whoever decided it.
-- [x] Each application receives one recorded outcome per decision: approved,
-  rejected, or revision required. Decisions are numbered per application, so an
-  application sent back and decided again is numbered rather than overwritten.
-- [x] Approval records the approved amount, decision reference, decision date,
-  conditions, and authorized actor.
-- [x] Rejection records a standard category and applicant-safe reason.
-- [x] Revision required uses the existing stage-specific applicant revision
-  flow, and every named stage must be one the application's own cycle declares.
-- [ ] Nothing records that applications were considered *as a set, in a stated
-  order*. The agenda's position was the only place that lived, and it went with
-  the meeting. Whether the programme needs it back is an open question, not a
-  regression to repair.
-- [x] A decision correction creates a superseding decision with a mandatory
-  reason and identifies the administrator who made the correction; the original
-  decision remains visible.
-- [x] The applicant sees the final outcome and safe conditions, but not internal
-  deliberations or staff-only notes.
+- [x] An application's status is the set of flags it holds, declared by its
+  pipeline, each with an office label, an applicant label and explanation, and
+  whether the applicant sees it. The code itself owns only two states: a draft,
+  and a file in its pipeline.
+- [x] A flag is a PROGRESS flag or an OUTCOME flag; changing an OUTCOME flag
+  needs `stage`/`decide`.
+- [x] A terminal flag ends the journey: the file sits at no stage and no action
+  is offered.
+- [x] A stage's presence flags are added when a file arrives and removed when
+  it leaves, so "at the bank" cannot outlive the file being there.
+- [x] Flags the pipeline adds on submission are added the moment a file is
+  submitted.
+- [x] Only a revision may add a flag that lets the applicant edit, and only the
+  applicant's resubmission removes it.
+- [x] An action may keep an input as a named recorded value — an approved
+  grant, a loan's reference — optionally bounded by an answer the applicant
+  gave or by the cycle's ceiling, and the bound is enforced in code whatever is
+  configured.
+- [ ] Show the applicant where their file is, by the stage's applicant label
+  and explanation, and the flags and recorded values the pipeline lets them
+  see.
 
 ---
 
-## 15. Sanction and funding awards
+## 15. Working a file at a stage
 
-- [x] An approved application may receive at most one active funding award.
-- [x] Creating an award requires the sanctioned application, funding case,
-  unique sanction order, sanction date, sanctioned amount, and administrator.
-- [x] The award is tied to the exact application and phase that earned it.
-- [x] The sanction amount must be positive and cannot be silently changed after
-  publication.
-- [x] Corrections create a new award version with a reason while preserving the
-  prior values.
-- [x] Award states are active, suspended, cancelled, and closed.
-- [x] Suspending or cancelling an award requires a reason and immediately blocks
-  new releases.
-- [x] Closing an award requires the programme to state whether all planned
-  releases are complete or the remaining amount will not be released.
-- [x] The applicant can see sanction order, sanction date, sanctioned amount,
-  award status, and applicant-safe conditions.
-- [ ] The applicant can download an official sanction letter generated or
-  uploaded by an administrator. The sanction notice email now encloses a PDF of
-  the application with the sanctioned amount; an official letter, and a portal
-  download, remain open.
-- [x] Award creation changes the application to `SANCTIONED` and records an
-  applicant-visible timeline event.
-
----
-
-## 16. Disbursements and corrections
-
-- [x] Administrators can record a positive release against an active award with
-  occurrence date, external payment reference, amount, and recorder.
-- [x] External payment references are unique so the same payment is not recorded
-  twice.
-- [x] Releases appear in chronological programme history with an unambiguous
-  sequence number.
-- [x] A mistaken release is corrected by a positive reversal linked to that
-  release; the original release is never edited or deleted.
-- [x] A reversal cannot exceed the unreversed amount of its related release.
-- [x] A reversal must belong to the same award as its related release.
-- [x] The award view shows sanctioned amount, gross releases, reversals, net
-  released amount, and remaining planned amount, all derived from the
-  append-only ledger rather than stored.
-- [x] Recording the first successful release changes the application to
-  `DISBURSED` and records an applicant-visible event.
-- [x] Later releases keep the status `DISBURSED` and add separate timeline
-  items.
-- [x] Every release records its approval reference/date, verified payment
-  prerequisites, and actual payment in one transition.
-- [x] Every release creates its own utilization obligation due 180 UTC calendar
-  days after that release.
-- [x] The applicant sees payment date, amount, safe reference, and whether an
-  amount was reversed, with the reversal folded into the release it corrects.
-  Release approval references, bank-account verification, performance agreements,
-  and physical verification stay internal.
-- [x] Releasing more than the currently sanctioned amount requires an explicit
-  corrected award amount before the release can be recorded.
+- [x] An action's inputs — an amount, a bank, a note, a reference, a date — use
+  the application form's own field types and are validated by the same engine
+  as an applicant's answers. An input may be pre-filled from an answer or a
+  recorded value, and the officer may change it.
+- [x] An action needs every permission its effects need, decided by the code's
+  catalogue of effects rather than by the author.
+- [x] A return goes only to the stage the file actually came from.
+- [x] A choice routes the file to the stage configured for the option chosen,
+  and every option must be routed.
+- [ ] Offer, on the application page, the actions the officer may take at the
+  file's stage, with their inputs, and refuse the same action server-side for
+  anybody who does not own the stage.
+- [ ] Take an action as one guarded write: two officers acting at once cannot
+  both land, and the loser is told the file changed.
+- [ ] Ask for and keep a disclosure when an officer acts on their own
+  application, recorded in the activity history.
+- [ ] Record every action in the activity history with where the file went, the
+  flags it gained and lost, what was recorded, and what was entered — never a
+  long note's text.
+- [ ] Notify the applicant when an action says to, best-effort after the write.
+- [ ] Show the applicant's resubmission in a file's stage history, between the
+  request for corrections and what the office did next. The history lists
+  stage actions only, so "Ask the applicant to correct it" is followed
+  directly by the next officer's action with no word that the applicant
+  answered, or when.
 
 ---
 
-## 17. Assessments and post-award monitoring
+## 16. The Mission SEP route
 
-- [x] Administrators can record utilization, performance, and financial-audit
-  assessments against an award.
-- [x] Each assessment has a type, assessment number, date, passed/failed
-  outcome, assessor, evidence reference, and applicant-safe summary.
-- [x] A reassessment creates the next assessment number for that type and does
-  not overwrite the earlier result.
-- [x] The current result of each assessment series is clearly identified while
-  the complete history remains readable. Utilization is assessed per release, so
-  more than one utilization result can be current at once.
-- [x] Failed assessments can trigger award suspension only through a separate,
-  reasoned administrative action; recording “failed” alone does not silently
-  change the award.
-- [x] The applicant sees the applicant-safe summary and outcome; evidence
-  references and internal reviewer notes are never returned.
-- [x] Expansion requires every positively retained release’s latest utilization
-  result and the latest performance and financial-audit results to pass.
+The route the office described — TTC checks the file, Industries & Commerce
+approves the grant and chooses the bank, the chosen bank fulfils the loan — is
+a pipeline like any other, shipped as the worked example. Nothing in the code
+knows its stage names.
 
-### 17.1 Support cancellation and recovery
+- [x] The example is a complete, valid pipeline: TTC may ask for a revision,
+  move the file to Industries & Commerce, or reject it; Industries & Commerce
+  may send it back, approve the grant (no more than asked or than the cycle's
+  ceiling), send it to the bank pre-filled from the applicant's first choice,
+  or complete it when no loan was asked for; each bank may send it back or mark
+  the loan fulfilled with an amount, a reference and a sanction date.
+- [ ] Author and publish it in the deployed portal, create the TTC, Industries
+  & Commerce, State Bank of India and Tripura Gramin Bank roles, and give each
+  its stage.
+- [ ] Walk one application through every path — the revision loop, a send-back
+  from a bank and a re-route to the other, the no-loan completion and a
+  rejection — with programme staff.
 
-- [x] A cancelled award with net released funds may open one active recovery
-  case using an official decision reference.
-- [x] Staff record principal and penal-interest demands, receipts, waivers, and
-  compensating reversals without editing earlier entries.
-- [x] Penal interest is entered from an external official calculation; the
-  portal does not invent a rate.
-- [x] A reversal references a same-case, same-component original entry and
-  cannot exceed its unreversed amount.
-- [x] Recovery closes only when the guarded write observes a zero derived
-  balance.
-- [x] An erroneously opened recovery can be cancelled with a retained reason
-  only while its ledger is empty; cases with entries use compensating
-  corrections and zero-balance closure.
-- [ ] Add court proceedings, statutory notices, hearings, and payment-collection
-  integrations if TTAADC later requires them.
+---
+
+## 17. Money after approval
+
+The hard-coded workflow tracked sanction orders, releases and reversals,
+utilization, performance and audit assessments, and recovery of cancelled
+support. All of it went with that workflow, and none of it is configured yet.
+What a pipeline records today is the approved grant and the loan a bank
+fulfilled, as recorded values.
+
+- [ ] Record a sanction order and date, and give the applicant an official
+  sanction letter.
+- [ ] Record releases against an approved grant as an append-only ledger, with
+  reversals rather than edits, and never above what was approved.
+- [ ] Record utilization, performance and financial-audit results, per release
+  where that is how they are assessed.
+- [ ] Open recovery of support cancelled after money was released, with
+  demands, receipts, waivers and reversals.
+- [ ] Let an eligibility rule read released money and assessment results, so an
+  expansion can again require them.
+
+Each is intended as a configurable effect or recorded value rather than a fixed
+desk, so a later programme year can ask for less or more without a release.
 
 ---
 
@@ -1001,11 +962,11 @@ record.
   stages and a portal link.
 - [ ] Notify the applicant when a revision resubmission is accepted by the
   portal.
-- [ ] Notify the applicant of approval, rejection, sanction, suspension,
-  cancellation, and closure using only applicant-safe text. Approval and
-  sanction now send, each with the amount and a PDF enclosure; rejection,
-  suspension, cancellation and closure do not yet.
-- [ ] Notify the applicant when a release or reversal is recorded.
+- [ ] Notify the applicant when a stage action says to — an approval, a
+  rejection, a move to the bank — using only the text the action configures,
+  on their timeline and by email where it is set. The fixed approval and
+  sanction notices went with the fixed workflow.
+- [ ] Notify the applicant when a release or reversal is recorded (§17).
 - [ ] Keep a communication history showing event type, destination, send time,
   and delivered/failed state without storing OTPs or document contents.
 - [ ] Let authorized staff retry a failed non-OTP notification without repeating
@@ -1067,9 +1028,9 @@ administrator — writes cards the public reads without signing in.
   outcome views are not.
 - [ ] Report sanctioned amount, gross releases, reversals, and net disbursement
   without treating reversals as new payments.
-- [ ] Provide ageing reports showing time spent in each review stage.
-- [ ] Provide a revision report by stage and reason category to identify
-  common applicant difficulties.
+- [ ] Provide ageing reports showing time spent at each pipeline stage.
+- [ ] Provide a revision report by form stage to identify common applicant
+  difficulties.
 - [x] Export the activity history as CSV only for a role holding `audit`/`export`
   as well as `audit`/`read`, and record who exported, when, which filter was
   used, how many rows it carried, and the purpose they gave. No export is
@@ -1081,11 +1042,11 @@ administrator — writes cards the public reads without signing in.
 - [ ] Exports of the other reports in this section — they do not exist yet, and
   each will need the same authority and the same record of who took it.
 - [x] Provide a complete application history in event order: its drafts,
-  evidence, submissions, desk review and revision requests, bank referral and
-  outcome, decision, award, releases, reversals, assessments and recovery —
-  every event on the application or on any record belonging to it — shown on
-  the office's application page and in the activity history by application
-  or by reference number.
+  evidence, submissions, revision requests and notes — every event on the
+  application or on any record belonging to it — shown on the office's
+  application page and in the activity history by application or by reference
+  number. Events the retired fixed workflow recorded stay readable as stored.
+- [ ] Include every stage action in that history, with what it did (§15).
 - [x] Provide a role-change history for super administrators.
 - [x] Let anybody whose role holds `audit`/`read` read the whole recorded
   history, scoped by the people who acted, the people it was about, one
@@ -1120,9 +1081,8 @@ administrator — writes cards the public reads without signing in.
   times; only the whole document can.
 - [x] Limit the request body to 64 KB, refused before parsing.
 - [x] Cap collections that have no cursor at 500 rows, and signed-in devices at
-  100 — while leaving the disbursement and recovery ledgers uncapped, because
-  their totals are folded from those rows and a truncated ledger would report a
-  wrong figure rather than a short list.
+  100. A collection something adds up is never capped, because a truncated
+  ledger would report a wrong figure rather than a short list.
 
 ---
 
@@ -1134,14 +1094,10 @@ complete.
 - [ ] Provision the approved provider's key. The console transport cannot be
   reached from a delivering environment, but nothing is sent without a key.
 - [x] Build a forward path for the schema. `database/schema.sql` is the whole
-  schema while nothing is deployed, and `db:schema:check` proves it is exactly
-  what `src/db/schema` says. The path for afterwards is drizzle-kit's own:
-  there is deliberately **no chain**: `scripts/migrate.mjs` and the
-  `core_schema_migration` ledger were deleted with the engine that needed them,
-  and a generated migration directory went with them — neither checked nor
-  applied, it was a second copy of the schema that could only drift. The escape
-  hatch when a database finally has to be kept is `drizzle-kit generate
-  --custom`, and that is the day the chain begins.
+  schema, and `db:schema:check` proves it is exactly what `src/db/schema` says.
+  Deployed databases move forward through the ordered migration chain under
+  `database/migrations/`, each file idempotent and rehearsed by
+  `check:migration` over seeded data.
 - [x] Add signup, sign-in, OTP, upload, and sensitive-action abuse limits. One
   policy names which operations are limited and by how much, counted against
   the caller's address, their session, and the account being acted on; a
@@ -1172,8 +1128,8 @@ complete.
   contrast, error summaries, and mobile layouts.
 - [ ] Complete applicant journey testing with realistic low-bandwidth and
   interrupted-upload conditions.
-- [ ] Complete administrative review, decision, award, reversal, and role-loss
-  scenario testing with programme staff.
+- [ ] Complete pipeline scenario testing with programme staff — every stage
+  action, send-backs, revisions, routing between banks, and role loss.
 - [ ] Prepare operational procedures for notification failure, document
   rejection, suspected account compromise, incorrect decisions, incorrect
   payments, and service outage.
@@ -1195,15 +1151,18 @@ must be supplied before the affected feature can be completed.
   state whether different cycles/categories have different limits. Until then,
   the portal accepts any positive requested amount and staff decide under the
   prevailing policy.
-- [ ] **Administrative approval limits:** TTAADC must define which role may
-  approve, reject, sanction, suspend, cancel, reverse, or correct each monetary
-  range. Until defined, these actions must not be publicly enabled.
+- [ ] **Administrative approval limits:** TTAADC must define which stage, and
+  which role owning it, may approve or reject each monetary range. A pipeline
+  can express a range today only as an action offered when an answer is within
+  it; until the limits are defined, approving actions must not be publicly
+  enabled.
 - [ ] **Mission SEP 2026 jurisdiction:** TTAADC must resolve whether eligibility
   is Tripura-wide with TTAADC preference or requires the enterprise to be within
   TTAADC. Until selected explicitly in a cycle, that cycle cannot open.
-- [ ] **Award over-release handling:** TTAADC must confirm whether exceptional
-  releases above the original sanction are ever legal. The planned rule blocks
-  them until an authorized award correction raises the sanctioned amount.
+- [ ] **Over-release handling:** TTAADC must confirm whether exceptional
+  releases above the approved grant are ever legal. Nothing records releases
+  yet (§17); when it does, the rule blocks them until an authorized correction
+  raises the approved amount.
 - [ ] **Applicant data retention:** TTAADC must state the retention period after
   rejection, case closure, account closure, and programme archival, including
   document retention. No irreversible business-record deletion should be added
@@ -1223,20 +1182,22 @@ must be supplied before the affected feature can be completed.
   a versioned cycle revision carrying a required reason, and is refused on an
   open cycle, so the trail exists; what does not exist is a decision about whose
   approval it needs.
-- [ ] **Who decides an application.** The portal has no Tripartite Meeting; see
-  [policy alignment](policy-alignment.md), where this is the one row that
-  diverges from the TTAADC source rather than interpreting it.
+- [ ] **Who decides an application.** Whoever owns the stage whose action
+  approves it, holding `stage`/`decide` — in the worked route, Industries &
+  Commerce for the grant and the chosen bank for the loan. The portal has no
+  Tripartite Meeting; see [policy alignment](policy-alignment.md), where this
+  is the one row that diverges from the TTAADC source rather than interpreting
+  it.
 
 ## Completion order
 
 The intended delivery order is explicit so later features do not launch without
 their prerequisites.
 
-1. Complete and harden programme-cycle administration and the current
-   applicant-plus-administrator operational workflow.
-2. Complete intake, review, partner-bank, decision, award, release, assessment,
-   and
-   recovery scenario testing with programme staff.
+1. Complete and harden programme-cycle administration, pipeline authoring and
+   stage casework.
+2. Complete pipeline scenario testing with programme staff, then decide which
+   of the money after approval (§17) the programme needs configured.
 3. Complete administrator recovery before enabling the already implemented
    business workflow publicly. Administrator-only sign-in and role management
    are delivered; account recovery is not.
@@ -1262,7 +1223,8 @@ is a conservative safeguard. Publication/public launch remains blocked by:
 
 The omission of the ST certificate number is an intentional user-approved
 portal decision differing from the paper form; the certificate file remains
-mandatory. Bank roster publication uses governed cycle free text, and both
-positive and negative bank feedback go on to be decided. The portal has no
-Tripartite Meeting: an application that clears the bank stage is decided
-directly, which is a divergence from the source rather than a reading of it.
+mandatory. The partner banks are stages of a pipeline, each owned by its
+bank's role, and which banks an applicant may choose are the options of a form
+question. The portal has no Tripartite Meeting: an application is decided by
+whoever owns the approving stage, which is a divergence from the source rather
+than a reading of it.

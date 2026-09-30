@@ -667,3 +667,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* The reference number, or "not submitted yet", under the enterprise's name. */
+.appSubtitle {
+  font-size: 13px;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}

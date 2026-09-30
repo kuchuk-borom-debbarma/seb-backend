@@ -14,11 +14,8 @@ type AdminQuery {
   """Programme cycles: the rules each round of funding applies."""
   programmeCycle: AdminProgrammeCycleQuery!
 
-  """Applications arriving, and the desk review of them."""
+  """Applications arriving, and the case file of each."""
   intake: AdminIntakeQuery!
-
-  """Awards, payments, assessments and recovery."""
-  funding: AdminFundingQuery!
 
   """Aggregate reporting over the intake casework."""
   analytics: AdminAnalyticsQuery!
@@ -240,23 +237,15 @@ type AdminIntakeQuery {
   """
   The work queue, filtered and ordered as the office needs it.
 
-  **Use case:** `/admin/queue`. Filters combine with AND.
+  **Use case:** `/admin/queue`. Filters combine with AND. `application:read`
+  lists every submitted file; `stage:read` lists the files at stages the
+  caller's roles own and the files the caller has acted on, and the count
+  counts only those.
   """
   queue(
     """Filters, ordering and paging. Every field is optional."""
     input: AdminIntakeQueueInput
   ): AdminApplicationConnectionResult!
-
-  """
-  How many applications sit in each named queue.
-
-  **Use case:** the counts on the queue chips. Every queue is reported even
-  when empty, so the chips do not come and go as work moves.
-  """
-  queues(
-    """Narrow the counts to one cycle. Omit to count across all of them."""
-    cycleId: ID
-  ): AdminQueueSummaryResult!
 
   """
   Finds one application by its exact reference number.
@@ -284,8 +273,8 @@ type AdminIntakeQuery {
   """
   A short-lived link to one document attached to a submission.
 
-  **Use case:** the download on the workspace. Needs only a staff role — a
-  reviewer may read every piece of evidence.
+  **Use case:** the download on the workspace. Allowed on any file the caller
+  may read — office-wide, or at a stage they work, or one they acted on.
 
   **Refuses:** a file whose latest malware scan is not accepted, and a draft
   application, which is refused identically to one that does not exist.
@@ -300,32 +289,6 @@ type AdminIntakeQuery {
     """
     submissionDocumentId: ID!
   ): DocumentDownloadResult!
-}
-
-"""Reading the money on an application."""
-type AdminFundingQuery {
-  """
-  The award, its ledger, and everything downstream, for one application.
-
-  **Use case:** `/admin/applications/$id/funding`.
-
-  **Refuses:** an application with no award yet, which is ordinary rather than
-  an error.
-  """
-  byApplication(
-    """The application to read the money on. Needs an award to exist."""
-    applicationId: ID!
-  ): AdminFundingWorkspaceResult!
-
-  """
-  One recovery case with its entries and its running balance.
-
-  **Use case:** `/admin/recovery/$id`.
-  """
-  recoveryById(
-    """From `AdminRecoveryCase.id` on the funding workspace."""
-    recoveryCaseId: ID!
-  ): AdminRecoveryWorkspaceResult!
 }
 
 """
@@ -355,14 +318,8 @@ input AdminIntakeQueueInput {
   """Only applications at this phase: 1 for a first application."""
   phaseNumber: Int
 
-  """Only first applications, or only later phases."""
-  applicationType: ApplicationType
-
-  """
-  Only applications this person worked last. Advisory rather than ownership —
-  nothing is reserved, so this narrows a list rather than describing a claim.
-  """
-  assigneeUserId: ID
+  """Only applications of this kind, one the cycle declares, such as `INITIAL`."""
+  applicationKind: String
 
   """Only the application with this exact reference."""
   referenceNumber: String
@@ -391,15 +348,6 @@ input AdminIntakeQueueInput {
   middle of a name finds nothing, and the interface says so.
   """
   search: String
-
-  """
-  Only applications in this named queue.
-
-  Mutually exclusive with `status`: two queues are subsets of one status, so
-  supplying both is **refused** rather than silently intersected into an empty
-  page.
-  """
-  queue: AdminIntakeQueueKey
 
   """
   Only applications in any of these funding bands. When given and non-empty
@@ -450,14 +398,25 @@ input AdminIntakeQueueInput {
   requestedMaxPaise: Money
 
   """
-  Only applications with a programme decision recorded at or after this
-  instant. A correction is a decision too: either recording puts the
-  application in the range.
+  Only applications asking for a loan of at least this many paise,
+  **inclusive**. An application that asked for no loan never matches.
   """
-  decidedFrom: DateTime
+  loanRequestedMinPaise: Money
 
-  """Only applications with a programme decision recorded at or before this instant."""
-  decidedTo: DateTime
+  """Only applications asking for a loan of at most this many paise, **inclusive**."""
+  loanRequestedMaxPaise: Money
+
+  """Only applications worked in this pipeline."""
+  pipelineId: ID
+
+  """
+  Only applications at any of these stages of `pipelineId`, which must be
+  given with them. An empty list filters nothing.
+  """
+  stageKeys: [String!]
+
+  """Only applications holding **every** one of these status flags. At most 8."""
+  flags: [String!]
 }
 
 """
@@ -517,20 +476,11 @@ input AdminIntakeAnalyticsInput {
   """
   statuses: [ApplicationStatus!]
 
-  """
-  Only applications in this named queue. Mutually exclusive with `status` and
-  `statuses`, which is **refused** rather than silently intersected.
-  """
-  queue: AdminIntakeQueueKey
-
   """Only applications at this phase: 1 for a first application."""
   phaseNumber: Int
 
-  """Only first applications, or only later phases."""
-  applicationType: ApplicationType
-
-  """Only applications this person worked last. Advisory, not ownership."""
-  assigneeUserId: ID
+  """Only applications of this kind, one the cycle declares, such as `INITIAL`."""
+  applicationKind: String
 
   """Only the application with this exact reference."""
   referenceNumber: String
@@ -585,16 +535,6 @@ input AdminIntakeAnalyticsInput {
 
   """Only applications asking for at most this many paise, **inclusive**."""
   requestedMaxPaise: Money
-
-  """
-  Only applications with a programme decision recorded at or after this
-  instant. A correction is a decision too: either recording puts the
-  application in the range.
-  """
-  decidedFrom: DateTime
-
-  """Only applications with a programme decision recorded at or before this instant."""
-  decidedTo: DateTime
 }
 
 """Which column the queue is ordered by."""
@@ -607,42 +547,6 @@ enum AdminIntakeOrder {
 
   """Most recently touched first, whoever touched it."""
   LAST_ACTIVITY
-}
-
-"""
-The named work queues staff operate from.
-
-`NEW_SUBMISSIONS` and `REVISION_RESPONSES` are both `SUBMITTED` applications,
-separated by whether this is a first submission or an answer to a correction
-request — two completely different jobs that must never land in one pile.
-"""
-enum AdminIntakeQueueKey {
-  """First submissions waiting to be picked up."""
-  NEW_SUBMISSIONS
-
-  """Applications the office has started reviewing."""
-  DESK_REVIEW
-
-  """Answers to correction requests, waiting to be checked."""
-  REVISION_RESPONSES
-
-  """Sent to a bank and awaiting its assessment. Nothing for the office to do."""
-  PARTNER_BANK_EVALUATION
-
-  """Cleared the bank stage and waiting to be decided."""
-  AWAITING_DECISION
-
-  """Approved, awaiting a sanction order."""
-  APPROVED
-
-  """Not approved."""
-  REJECTED
-
-  """Sanctioned, awaiting payment."""
-  SANCTIONED
-
-  """At least partly paid."""
-  DISBURSED
 }
 
 """
@@ -682,104 +586,6 @@ enum ProgrammeJurisdiction {
 
   """The Tripura Tribal Areas Autonomous District Council."""
   TTAADC
-}
-
-"""
-Which administrative action a reason category may be used for.
-
-Every reason belongs to exactly one context, so the reasons offered for
-rejecting an application can never be offered for closing a cycle.
-"""
-enum ProgrammeReasonContext {
-  """Closing a cycle to new applications."""
-  CYCLE_CLOSE
-
-  """Asking the applicant to correct a section."""
-  REVISION
-
-  """Rejecting an application at desk review."""
-  REJECTION
-
-  """Cancelling a referral to a partner bank."""
-  BANK_REFERRAL_CANCEL
-
-  """Correcting a bank outcome already recorded."""
-  BANK_OUTCOME_CORRECTION
-
-  """Correcting a programme decision already recorded."""
-  DECISION_CORRECTION
-
-  """Changing an award after it was made."""
-  AWARD_AMENDMENT
-
-  """Suspending an award."""
-  AWARD_SUSPENSION
-
-  """Cancelling an award."""
-  AWARD_CANCELLATION
-
-  """Closing an award."""
-  AWARD_CLOSURE
-
-  """Reversing a payment already made."""
-  RELEASE_REVERSAL
-
-  """Opening or acting on a recovery case."""
-  RECOVERY
-
-  """Writing off part of a recovery."""
-  RECOVERY_WAIVER
-}
-
-"""What a partner bank concluded. Advisory evidence, never the decision."""
-enum BankOutcome {
-  """The bank supports the proposal."""
-  RECOMMENDED
-
-  """
-  The bank does not support it. The application is still decided by the
-  programme — bank feedback is evidence, not a veto.
-  """
-  NOT_RECOMMENDED
-
-  """The bank cannot conclude without more from the applicant."""
-  MORE_INFORMATION_REQUIRED
-}
-
-"""What the programme decided on an application."""
-enum DecisionOutcome {
-  """Approved. An award follows."""
-  APPROVED
-
-  """Not approved."""
-  REJECTED
-
-  """Sent back to the applicant for correction."""
-  REVISION_REQUIRED
-}
-
-"""What one recovery ledger entry does to the balance."""
-enum RecoveryEntryType {
-  """Money claimed back. Increases what is outstanding."""
-  DEMAND
-
-  """Money received. Reduces what is outstanding."""
-  RECEIPT
-
-  """Money written off. Reduces what is outstanding without being received."""
-  WAIVER
-
-  """A correction to an earlier entry, posted rather than edited in place."""
-  REVERSAL
-}
-
-"""Which part of a recovery an entry applies to."""
-enum RecoveryComponent {
-  """The money itself."""
-  PRINCIPAL
-
-  """Interest charged on late recovery."""
-  PENAL_INTEREST
 }
 
 """A reusable structure a cycle defines, as the editor reads it back."""
@@ -908,11 +714,6 @@ type AdminProgrammeCycle {
   applicantGuidance: String
 
   """
-  Guidance written for partner banks. Never shown to applicants.
-  """
-  partnerBankGuidance: String
-
-  """
   The cycle's lifecycle state, which is not the same as whether its window is
   open. The window is `opensAt`/`closesAt`.
   """
@@ -960,9 +761,6 @@ type AdminCyclePolicy {
   """
   categoryAMaximumMonths: Int
 
-  """How long after an award before a later phase may be applied for."""
-  expansionWaitMonths: Int
-
   """Whether the applicant must confirm majority ownership."""
   majorityOwnershipRequired: Boolean
 
@@ -980,6 +778,15 @@ type AdminCyclePolicy {
 
   """What the ceiling is measured across. Present only where `RESOLVED`."""
   fundingCeilingScope: FundingCeilingScope
+
+  """
+  The pipeline this cycle's applications are worked in. Its published version
+  is pinned when the cycle opens.
+  """
+  pipelineId: ID!
+
+  """The pinned pipeline version. Null while the cycle is a draft."""
+  pipelineVersion: Int
 }
 
 """
@@ -1045,6 +852,60 @@ type AdminCyclePolicyDocument {
   versions: [AdminCyclePolicyDocumentVersion!]!
 }
 
+"""A rule about several answers at once, as a cycle declares it."""
+type AdminFormRule {
+  """How the rule is addressed. Unique within the form."""
+  ruleKey: String!
+
+  """The catalogue's rule type."""
+  ruleType: FormRuleType!
+
+  """The form stage its message is shown on."""
+  stageKey: String!
+
+  """What the applicant is told when it does not hold."""
+  message: String!
+
+  """The fixed limit, for the rule types that take one."""
+  limitValue: Money
+
+  """The questions it reads, in order."""
+  operands: [AdminFormRuleOperand!]!
+}
+
+"""One question a form rule reads."""
+type AdminFormRuleOperand {
+  """The question's key."""
+  fieldKey: String!
+
+  """The question's type."""
+  fieldType: FormFieldType!
+}
+
+"""A kind of application a cycle accepts, and who may start one."""
+type AdminApplicationKind {
+  """How the kind is addressed, such as `EXPANSION`."""
+  kindKey: String!
+
+  """What the applicant is offered it as."""
+  label: String!
+
+  """A sentence more, shown under the label."""
+  description: String
+
+  """Every rule an enterprise must meet to start one."""
+  rules: [AdminApplicationKindRule!]!
+}
+
+"""One eligibility rule of an application kind."""
+type AdminApplicationKindRule {
+  """The catalogue's rule type."""
+  ruleType: EligibilityRuleType!
+
+  """The rule's parameters as a JSON object, keyed as the catalogue declares them."""
+  paramsJson: String!
+}
+
 """
 One cycle with the complete rule set of its current version.
 
@@ -1092,85 +953,13 @@ type AdminCycleAggregate {
   groupDefinitions: [FormGroupDefinition!]!
 
   """
-  Which identity numbers the desk review collects and compares.
-
-  Empty means this cycle demands none and compares none. That is a real
-  setting rather than a missing one, so it comes back as an empty list and is
-  shown back on the form — an unconfigured cycle should be visible.
+  Rules about several answers at once — "a grant, a loan, or both" — as the
+  cycle editor authors them. Ordered by key.
   """
-  identifierRules: [AdminIdentifierRule!]!
+  formRules: [AdminFormRule!]!
 
-  """Which assessments must pass before a later phase may start."""
-  assessmentRules: [AdminAssessmentRule!]!
-
-  """
-  The reasons this cycle offers for each administrative action. A cycle with
-  none cannot be operated, since every later action must name one.
-  """
-  reasons: [AdminReasonCategory!]!
-}
-
-"""
-One identity number this cycle collects, and what it does with it.
-
-`requirement` and `duplicatePolicy` are **independent**, which is the point of
-the table: an account can be collected without a match ever blocking anybody —
-joint and family accounts are real — and a certificate can be compared without
-being demanded.
-"""
-type AdminIdentifierRule {
-  """Which number."""
-  kind: DeskReviewIdentifierKind!
-
-  """Whether the reviewer must transcribe it, and when."""
-  requirement: IdentifierRequirement!
-
-  """Whether it is compared against other applications."""
-  duplicatePolicy: IdentifierDuplicatePolicy!
-
-  """
-  The desk-review check this number is evidence for. Non-null exactly when
-  `requirement` is `REQUIRED_ON_PASS` — only a requirement conditional on a
-  check has a moment at which it applies.
-  """
-  checkType: DeskReviewCheckType
-}
-
-"""One assessment that must pass before a later phase may start."""
-type AdminAssessmentRule {
-  """Stable identifier."""
-  id: ID!
-
-  """What must be assessed before a later phase may start."""
-  assessmentType: AssessmentType!
-
-  """The outcome it must reach."""
-  requiredOutcome: AssessmentOutcome!
-}
-
-"""One approved reason for one administrative action."""
-type AdminReasonCategory {
-  """Stable identifier. Sent as `reasonCategoryId` when acting."""
-  id: ID!
-
-  """Which action this reason may be used for."""
-  context: ProgrammeReasonContext!
-
-  """
-  Stable code for reporting, safe to branch on.
-
-  **Example:** `"INCOMPLETE_EVIDENCE"`
-  """
-  code: String!
-
-  """What staff see in the reason picker."""
-  label: String!
-
-  """
-  Suggested wording for the applicant, which the officer may edit before
-  sending. Null where the action carries no applicant message.
-  """
-  applicantMessageTemplate: String
+  """The kinds of application this cycle accepts, in the order they are offered."""
+  applicationKinds: [AdminApplicationKind!]!
 }
 
 """One page of programme cycles."""
@@ -1252,35 +1041,44 @@ type AdminApplicationQueueItem {
   """The funding band this application is for."""
   category: ApplicationCategory
 
-  """1 for a first application, 2 for the first expansion, and so on."""
+  """1 plus the enterprise's applications of the kinds its cycle declares before this one."""
   phaseNumber: Int!
 
-  """Whether this is a first application or a later phase."""
-  applicationType: ApplicationType!
+  """Which of its cycle's kinds this application is, such as `INITIAL`."""
+  applicationKind: String!
 
-  """Where the application is in the workflow."""
+  """Whether it has been submitted into its pipeline."""
   status: ApplicationStatus!
 
   """Send back as `expectedStatusVersion` when acting."""
   statusVersion: Int!
 
-  """Who worked it last. Null when nobody has."""
-  assignedToUserId: ID
+  """The stage holding it now. Null once an action has ended its journey."""
+  currentStageKey: String
+
+  """When it entered that stage."""
+  stageEnteredAt: DateTime
+
+  """The pipeline's status flags it holds now, in the order they were added."""
+  statusFlags: [String!]!
 
   """
-  Who worked it last, resolved to a person. Null when nobody has, and also
-  when that account no longer exists.
+  The stage's name in the version the file is worked in. Null once its journey
+  has ended, or when that version can no longer be read.
   """
-  assignedTo: StaffMember
-
-  """When it was last worked. Null when nobody has."""
-  assignedAt: DateTime
+  stageName: String
 
   """
-  Moves when the record of who worked it changes. Advisory: no operation asks
-  a caller to have seen a particular value.
+  The flags it holds, with their office labels from the version it is worked
+  in. A flag the version no longer declares reads as its key.
   """
-  assignmentVersion: Int!
+  flags: [AdminStageFlagRef!]!
+
+  """The grant asked for, from the submitted form. Null when the form did not ask."""
+  requestedGrantPaise: Money
+
+  """The bank loan asked for, from the submitted form. Null when the form did not ask."""
+  requestedLoanPaise: Money
 
   """When it was first sent in."""
   firstSubmittedAt: DateTime
@@ -1306,11 +1104,32 @@ type AdminApplicationState {
   """The programme's reference. Null while never submitted."""
   referenceNumber: String
 
-  """Where the application is in the workflow."""
+  """Whether it has been submitted into its pipeline."""
   status: ApplicationStatus!
 
   """Send back as `expectedStatusVersion` when acting."""
   statusVersion: Int!
+
+  """Which of its cycle's kinds this application is."""
+  applicationKind: String!
+
+  """The pipeline it is worked in, pinned from its cycle when it started."""
+  pipelineId: ID!
+
+  """The pinned pipeline version."""
+  pipelineVersion: Int!
+
+  """The stage holding it now. Null once an action has ended its journey."""
+  currentStageKey: String
+
+  """When it entered that stage."""
+  stageEnteredAt: DateTime
+
+  """The stages it came through, oldest first: what "send back" returns along."""
+  stageTrail: [String!]!
+
+  """The pipeline's status flags it holds now."""
+  statusFlags: [String!]!
 
   """
   Who submitted it.
@@ -1320,18 +1139,6 @@ type AdminApplicationState {
   saying so is not, and the form cannot ask for the disclosure without this.
   """
   applicantUserId: ID!
-
-  """Who worked it last. Null when nobody has."""
-  assignedToUserId: ID
-
-  """Who worked it last, resolved to a person."""
-  assignedTo: StaffMember
-
-  """When it was last worked."""
-  assignedAt: DateTime
-
-  """Moves when the record of who worked it changes. Advisory."""
-  assignmentVersion: Int!
 
   """When anything about it last changed."""
   updatedAt: DateTime!
@@ -1364,26 +1171,6 @@ type AdminApplicationConnection {
 
   """Where this page sits in the whole queue."""
   pageInfo: PageInfo!
-}
-
-"""How much work sits in one named queue."""
-type AdminQueueCount {
-  """The named queue these are counted for."""
-  queue: AdminIntakeQueueKey!
-
-  """How many applications are in it."""
-  count: Int!
-}
-
-"""
-Every queue and its size.
-
-Every queue is reported, including empty ones, so the chips on the screen stay
-in the same place as work moves between them.
-"""
-type AdminQueueSummary {
-  """One entry per queue, always the full set."""
-  queues: [AdminQueueCount!]!
 }
 
 """How many of the filtered applications sit in one workflow status."""
@@ -1515,14 +1302,17 @@ type AdminCaseHistoryEntry {
   """Its reference, or null while it was never submitted."""
   referenceNumber: String
 
-  """Initial or expansion."""
-  applicationType: ApplicationType!
+  """Which of its cycle's kinds it was."""
+  applicationKind: String!
 
   """Which funding phase of this enterprise it pursued."""
   phaseNumber: Int!
 
-  """Where it stands."""
+  """Whether it was submitted."""
   status: ApplicationStatus!
+
+  """The status flags it holds now — how its journey went, or is going."""
+  statusFlags: [String!]!
 
   """The cycle that hosted the attempt."""
   cycleCode: String!
@@ -1584,53 +1374,8 @@ type AdminWorkspace {
   """Every correction request, including resolved and cancelled ones."""
   revisions: [AdminRevision!]!
 
-  """Who has worked this file, newest first. Advisory history, not a lock."""
-  assignments: [AdminAssignmentEvent!]!
-
   """Staff-only notes. Never shown to an applicant."""
   notes: [AdminInternalNote!]!
-
-  """Every desk review recorded, oldest first."""
-  reviews: [AdminReview!]!
-
-  """The nine checks of each desk review."""
-  reviewChecks: [AdminReviewCheck!]!
-
-  """
-  The identifier rules frozen with the submission being reviewed, so a cycle
-  edited afterwards does not change what this review is judged by. The
-  desk-review form asks for exactly these.
-  """
-  identifierRules: [AdminIdentifierRule!]!
-
-  """
-  The approved reasons of the cycle version this application's newest
-  submission is pinned to. Every reason-taking action on this file validates
-  its `reasonCategoryId` against exactly this list, so a picker built from it
-  can never offer an id the API refuses — reading the cycle's current version
-  instead would, because revising a cycle re-mints every reason row.
-  """
-  reasons: [AdminReasonCategory!]!
-
-  """Every referral to a partner bank."""
-  referrals: [AdminBankReferral!]!
-
-  """What the banks wrote back, including superseded corrections."""
-  bankOutcomes: [AdminBankOutcomeRecord!]!
-  """Programme decisions, including superseded corrections."""
-  decisions: [AdminDecisionRecord!]!
-
-  """The award, once one exists. Empty before that."""
-  awards: [AdminAward!]!
-
-  """Every ledger entry: payments and reversals."""
-  releases: [AdminDisbursement!]!
-
-  """Every assessment of how the award is being used."""
-  assessments: [AdminAssessment!]!
-
-  """Any recovery cases opened against the award."""
-  recoveries: [AdminRecoveryCase!]!
 }
 
 """One formal submission of an application."""
@@ -1717,38 +1462,6 @@ type AdminRevision {
 }
 
 """
-One entry in the record of who has worked a file.
-
-History rather than a control: nothing reads this to decide whether a write is
-allowed.
-"""
-type AdminAssignmentEvent {
-  """Stable identifier."""
-  id: ID!
-
-  """What happened, as a stable code."""
-  eventType: String!
-
-  """The assignment version this produced."""
-  assignmentVersion: Int!
-
-  """Who it moved from. Null when it moved from nobody."""
-  fromUserId: ID
-
-  """Who it moved to. Null when it moved to nobody."""
-  toUserId: ID
-
-  """The reason given, where the action required one."""
-  reason: String
-
-  """Who did it."""
-  actorUserId: ID!
-
-  """When."""
-  createdAt: DateTime!
-}
-
-"""
 One staff-only note.
 
 Append-only: a correction is a new note pointing at the one it replaces, so
@@ -1769,355 +1482,6 @@ type AdminInternalNote {
 
   """When."""
   createdAt: DateTime!
-}
-
-"""One completed desk review."""
-type AdminReview {
-  """Stable identifier."""
-  id: ID!
-
-  """Which submission was reviewed."""
-  submissionId: ID!
-
-  """What was decided, as a stable code."""
-  outcome: String!
-
-  """Who reviewed it."""
-  reviewedByUserId: ID!
-
-  """When."""
-  reviewedAt: DateTime!
-
-  """
-  Whether the reviewer said they were the applicant on this file.
-
-  True marks a review somebody carried out on their own application, which is
-  allowed once declared. Show it beside the outcome wherever a reviewer's
-  judgement is presented as independent.
-  """
-  conflictAcknowledged: Boolean!
-}
-
-"""One of the nine checks in a desk review."""
-type AdminReviewCheck {
-  """Stable identifier."""
-  id: ID!
-
-  """Which review this check belongs to."""
-  deskReviewId: ID!
-
-  """Which check, as a stable code."""
-  checkType: String!
-
-  """What the reviewer concluded, as a stable code."""
-  result: String!
-
-  """The reviewer's note. Never shown to the applicant."""
-  internalNote: String
-
-  """When the check was recorded."""
-  createdAt: DateTime!
-}
-
-"""One referral of an application to a partner bank."""
-type AdminBankReferral {
-  """Stable identifier."""
-  id: ID!
-
-  """The partner bank this was sent to, as the office recorded it."""
-  bankName: String!
-
-  """Which branch, where the office recorded one."""
-  bankBranch: String
-
-  """The office's reference for the referral."""
-  referralReference: String!
-
-  """When the office sent it, which may precede when it was recorded here."""
-  referralDate: Date!
-
-  """Where the referral is, as a stable code."""
-  status: String!
-
-  """Send back as `expectedReferralVersion` when acting."""
-  currentVersion: Int!
-}
-
-"""
-What a partner bank wrote back.
-
-Never edited: a correction is a new outcome superseding the earlier one, so the
-record shows what was believed and when.
-"""
-type AdminBankOutcomeRecord {
-  """Stable identifier."""
-  id: ID!
-
-  """What the bank concluded."""
-  outcome: BankOutcome!
-
-  """The bank's own reference."""
-  decisionReference: String!
-
-  """The date the bank decided."""
-  decisionDate: Date!
-
-  """The wording shown to the applicant."""
-  applicantSummary: String!
-
-  """When the office recorded it."""
-  createdAt: DateTime!
-}
-
-"""
-One programme decision on an application.
-
-Never edited: a correction is a new decision superseding the earlier one.
-"""
-type AdminDecisionRecord {
-  """Stable identifier."""
-  id: ID!
-
-  """What the programme decided."""
-  outcome: DecisionOutcome!
-
-  """The office's reference for the decision."""
-  decisionReference: String!
-
-  """When the decision was taken, which may precede when it was recorded."""
-  decisionDate: Date!
-
-  """
-  How much was approved, in paise. Null for anything but an approval, and
-  never more than was requested.
-  """
-  approvedAmountPaise: Money
-
-  """The wording shown to the applicant."""
-  applicantMessage: String!
-
-  """When the office recorded it."""
-  createdAt: DateTime!
-
-  """
-  Whether the officer said they were the applicant on this file.
-
-  True marks a decision, or a correction of one, taken by the person it
-  concerns — allowed once declared. A correction carries its own answer, so a
-  superseding record may differ from the one it replaces.
-  """
-  conflictAcknowledged: Boolean!
-}
-
-"""Everything about the money on one application."""
-type AdminFundingWorkspace {
-  """The award itself."""
-  award: AdminAward!
-
-  """Every ledger entry: payments and reversals, oldest first."""
-  ledger: [AdminDisbursement!]!
-
-  """When each payment must be accounted for."""
-  obligations: [AdminUtilizationObligation!]!
-
-  """Every assessment, including superseded ones."""
-  assessments: [AdminAssessment!]!
-
-  """Any recovery cases opened against this award."""
-  recovery: [AdminRecoveryCase!]!
-}
-
-"""One award: what was sanctioned, and where it stands."""
-type AdminAward {
-  """Stable identifier."""
-  id: ID!
-
-  """Which application it was awarded on."""
-  applicationId: ID!
-
-  """The programme's sanction order number."""
-  sanctionOrderNumber: String!
-
-  """The date of the sanction order."""
-  sanctionDate: Date!
-
-  """What was sanctioned, in paise. The ceiling, not what has been paid."""
-  sanctionedAmountPaise: Money!
-
-  """Conditions the applicant must meet."""
-  applicantConditions: String
-
-  """Where the award is in its own life."""
-  status: AwardStatus!
-
-  """How a closed award ended. Null while still open."""
-  closureDisposition: AwardClosureDisposition
-
-  """Send back as `expectedVersion` when amending the award itself."""
-  currentVersion: Int!
-
-  """
-  Send back as `expectedLedgerVersion` when posting money.
-
-  Separate from `currentVersion` on purpose: recording a payment must not
-  invalidate somebody's in-flight amendment, and the reverse.
-  """
-  ledgerVersion: Int!
-}
-
-"""
-One entry in the award ledger.
-
-Append-only. A correction is posted as its own reversal entry rather than
-editing what was there, so the ledger always reconciles.
-"""
-type AdminDisbursement {
-  """Stable identifier."""
-  id: ID!
-
-  """Which entry this is, counting from 1."""
-  sequenceNumber: Int!
-
-  """Whether this is a payment or a reversal, as a stable code."""
-  entryType: String!
-
-  """The payment this reverses. Null on a payment."""
-  relatedDisbursementId: ID
-
-  """The amount, in paise. Always positive; the type says the direction."""
-  amountPaise: Money!
-
-  """When the money moved."""
-  occurredAt: DateTime!
-
-  """The bank's reference, for reconciliation."""
-  externalReference: String
-}
-
-"""When one payment must be accounted for."""
-type AdminUtilizationObligation {
-  """Stable identifier."""
-  id: ID!
-
-  """Which payment this obligation is about."""
-  releaseDisbursementId: ID!
-
-  """When the accounting for it is due."""
-  dueAt: DateTime!
-}
-
-"""One assessment of how an award is being used."""
-type AdminAssessment {
-  """Stable identifier."""
-  id: ID!
-
-  """What was assessed."""
-  assessmentType: AssessmentType!
-
-  """Which assessment of this type this is, counting from 1."""
-  assessmentNumber: Int!
-
-  """What was concluded."""
-  outcome: AssessmentOutcome!
-
-  """
-  Which payment this assesses, for utilization. Null for assessments about the
-  award as a whole.
-  """
-  utilizationObligationId: ID
-
-  """The office's reference for the evidence. Never shown to the applicant."""
-  evidenceReference: String!
-
-  """The wording shown to the applicant."""
-  applicantSummary: String!
-
-  """When it was concluded."""
-  assessedAt: DateTime!
-}
-
-"""One recovery case against an award."""
-type AdminRecoveryCase {
-  """Stable identifier."""
-  id: ID!
-
-  """Which award is being recovered against."""
-  fundingAwardId: ID!
-
-  """Where the case is, as a stable code."""
-  status: String!
-
-  """Send back as `expectedVersion` when acting on the case itself."""
-  currentVersion: Int!
-
-  """Send back as `expectedLedgerVersion` when posting an entry."""
-  ledgerVersion: Int!
-}
-
-"""
-One entry in a recovery ledger.
-
-Append-only, like the award ledger: a mistake is corrected by posting a
-reversal, never by editing what is there.
-"""
-type AdminRecoveryEntry {
-  """Stable identifier."""
-  id: ID!
-
-  """Which entry this is, counting from 1."""
-  sequenceNumber: Int!
-
-  """What this entry does to the balance."""
-  entryType: RecoveryEntryType!
-
-  """Which part of the recovery it applies to."""
-  component: RecoveryComponent!
-
-  """The amount, in paise. Always positive; the type says the direction."""
-  amountPaise: Money!
-
-  """The external reference, for reconciliation."""
-  externalReference: String!
-
-  """When it happened."""
-  occurredAt: DateTime!
-}
-
-"""
-A recovery case's running balance, folded from its entries.
-
-Derived rather than stored, so it cannot drift from the ledger behind it.
-"""
-type AdminRecoveryBalance {
-  """Principal claimed back, in paise."""
-  principalDemanded: Money!
-
-  """Interest claimed, in paise."""
-  interestDemanded: Money!
-
-  """Money received, in paise."""
-  receipts: Money!
-
-  """Money written off, in paise."""
-  waivers: Money!
-
-  """
-  What is still owed, in paise: demanded less receipts less waivers. **This is
-  the figure to show as outstanding.** Zero means the case can be closed.
-  """
-  outstanding: Money!
-}
-
-"""One recovery case with its entries and balance."""
-type AdminRecoveryWorkspace {
-  """The case itself."""
-  recoveryCase: AdminRecoveryCase!
-
-  """Every entry, oldest first."""
-  entries: [AdminRecoveryEntry!]!
-
-  """The running balance, folded from those entries."""
-  balance: AdminRecoveryBalance!
 }
 
 """One cycle with its rules, or the reason the operation was refused."""
@@ -2216,60 +1580,17 @@ type AdminAnalyticsSummaryResult implements BaseResponse {
   response: AdminAnalyticsSummary
 }
 
-"""Every queue and its size, or the reason there is none."""
-type AdminQueueSummaryResult implements BaseResponse {
-  """Whether the summary was returned."""
-  success: Boolean!
-
-  """What to show when `success` is false."""
-  message: String
-
-  """The summary. Null whenever `success` is false."""
-  response: AdminQueueSummary
-}
-
 """One case file, or the reason the operation was refused."""
 type AdminWorkspaceResult implements BaseResponse {
   """Whether the operation succeeded."""
   success: Boolean!
 
   """
-  What to show when `success` is false. Desk-review refusals arrive here: a
-  passed check with no identifier the cycle demands, an identifier already on
-  another funding case, or a stale `expectedStatusVersion`.
+  What to show when `success` is false: a missing staff role, a draft
+  application, or a stale `expectedStatusVersion`.
   """
   message: String
 
   """The case file as it now stands. Null whenever `success` is false."""
   response: AdminWorkspace
-}
-
-"""The money on one application, or the reason the operation was refused."""
-type AdminFundingWorkspaceResult implements BaseResponse {
-  """Whether the operation succeeded."""
-  success: Boolean!
-
-  """
-  What to show when `success` is false — a stale `expectedLedgerVersion`, an
-  amount over what remains, or a reversal larger than the payment it reverses.
-  """
-  message: String
-
-  """The funding position. Null whenever `success` is false."""
-  response: AdminFundingWorkspace
-}
-
-"""One recovery case, or the reason the operation was refused."""
-type AdminRecoveryWorkspaceResult implements BaseResponse {
-  """Whether the operation succeeded."""
-  success: Boolean!
-
-  """
-  What to show when `success` is false — a stale `expectedLedgerVersion`, or a
-  closure attempted while a balance is still outstanding.
-  """
-  message: String
-
-  """The recovery case. Null whenever `success` is false."""
-  response: AdminRecoveryWorkspace
 }

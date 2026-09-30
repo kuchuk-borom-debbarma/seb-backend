@@ -59,12 +59,6 @@ export type AppBindings = CloudflareBindings & {
   SEB_MAX_ENTERPRISE_PER_USER?: string
   AUTH_SECRET?: string
   /**
-   * Keys the digest of the identity numbers a reviewer transcribes. Separate
-   * from AUTH_SECRET on purpose: rotating session signing must not silently
-   * stop the duplicate check from matching anything already recorded.
-   */
-  IDENTIFIER_SECRET?: string
-  /**
    * Seals role invitations. Separate again, and for a sharper reason: an
    * invitation is a bearer credential that lives only in a link, so rotating
    * this must invalidate outstanding invitations without touching sessions.

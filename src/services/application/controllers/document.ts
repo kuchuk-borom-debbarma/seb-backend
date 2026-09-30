@@ -31,6 +31,7 @@ import { failure, success } from '../../envelope'
 import type { ResolvedFormTemplate } from '../form/types'
 import type {
   ApplicationOperationContext,
+  ApplicationStatus,
   DownloadAuthorization,
   DocumentType,
   SebResult,
@@ -67,12 +68,12 @@ import {
 const canEditDocument = async (
   context: ApplicationOperationContext,
   applicationId: string,
-  status: string,
+  status: ApplicationStatus,
   template: ResolvedFormTemplate,
   fieldKey: DocumentType,
 ): Promise<boolean> => {
   if (status === 'DRAFT') return true
-  if (status !== 'REVISION_REQUIRED') return false
+  // Once submitted, only a stage an open revision request names is editable.
   const stageKey = template.byKey.get(fieldKey)?.stageKey
   if (!stageKey) return false
   return (await listOpenRevisionStageKeys(context.db, applicationId)).has(stageKey)

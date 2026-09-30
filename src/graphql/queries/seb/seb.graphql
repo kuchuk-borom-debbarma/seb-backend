@@ -102,50 +102,12 @@ enum ApplicationStatus {
   """Being filled in. Only the applicant sees it, and only they can edit it."""
   DRAFT
 
-  """Sent in and waiting for the programme office to begin."""
-  SUBMITTED
-
-  """The office is checking the form and its evidence."""
-  DESK_REVIEW
-
   """
-  The office has asked for changes. Only the sections they named may be
-  edited, and `resubmit` sends it back.
+  Submitted, and being worked by the programme office through its pipeline.
+  Where it is and anything asked of the applicant — a correction, an outcome —
+  is said by its revision requests and its timeline, not by this status.
   """
-  REVISION_REQUIRED
-
-  """With a partner bank for its own assessment. Nothing for the applicant to do."""
-  PARTNER_BANK_EVALUATION
-
-  """Cleared the bank stage and waiting to be decided."""
-  AWAITING_DECISION
-
-  """Approved. The sanction order follows."""
-  APPROVED
-
-  """Not approved. The reason is on the timeline."""
-  REJECTED
-
-  """A sanction order exists; money has not moved yet."""
-  SANCTIONED
-
-  """At least one release has been paid."""
-  DISBURSED
-
-  """Withdrawn or abandoned before a decision."""
-  CANCELLED
-}
-
-"""Whether this is a first application or a later phase."""
-enum ApplicationType {
-  """The enterprise's first application to the programme."""
-  INITIAL
-
-  """
-  A later phase, against a completed earlier award. Only available where that
-  award qualifies — see `expansionEligibility`.
-  """
-  EXPANSION
+  IN_PIPELINE
 }
 
 """
@@ -267,8 +229,8 @@ type SebApplicationQuery {
     """Only applications in this programme cycle."""
     programmeCycleId: ID
 
-    """Only first applications, or only later phases."""
-    applicationType: ApplicationType
+    """Only applications of this kind, one the cycle declares, such as `INITIAL`."""
+    applicationKind: String
 
     """
     Matches the **start** of a reference number, case-insensitively. A prefix
@@ -322,20 +284,6 @@ type SebApplicationQuery {
   ): SubmittedCopyResult!
 
   """
-  Whether this enterprise may start a later-phase application, and if not, why.
-
-  **Use case:** deciding whether to offer expansion on `/applications/new`, and
-  explaining the wait when it cannot be offered yet.
-  """
-  expansionEligibility(
-    """Which enterprise is asking."""
-    enterpriseId: ID!
-
-    """Which cycle it would apply into — the rules are the cycle's."""
-    programmeCycleId: ID!
-  ): ExpansionEligibilityResult!
-
-  """
   What has happened to this application, oldest first.
 
   **Use case:** the history on `/applications/$id`. Applicant-facing events
@@ -353,25 +301,12 @@ type SebApplicationQuery {
   ): TimelineConnectionResult!
 
   """
-  What an award has actually paid out.
-
-  **Use case:** `/applications/$id/funding`, once an award exists.
-
-  **Refuses:** an application with no award yet, which is an ordinary state
-  rather than an error.
-  """
-  funding(
-    """The application to read the money on. Needs an award to exist."""
-    applicationId: ID!
-  ): ApplicantFundingResult!
-
-  """
   The form one of this applicant's applications is filled against.
 
   **Use case:** `/applications/$id/form`, to render the questions.
 
   Its own field rather than a member of `ApplicationDetail`, for two reasons:
-  the detail is invalidated on every autosave and the form is not, and hanging
+  the detail is invalidated on every save and the form is not, and hanging
   it off `ProgrammeCycle` — which is returned in lists — would mean twenty
   cycles' worth of fields in one response.
   """
@@ -417,6 +352,24 @@ type SebApplicationQuery {
     """Which programme cycle."""
     cycleId: ID!
   ): DocumentDownloadResult!
+
+  """
+  Every kind of application the cycle accepts, and whether this enterprise may
+  start each — with every reason it may not.
+
+  **Use case:** `/applications/new`, which offers the kinds that are open and
+  explains the ones that are not.
+
+  **Refuses:** an enterprise the applicant does not own, and a cycle that is not
+  open.
+  """
+  applicationKinds(
+    """Which enterprise is asking."""
+    enterpriseId: ID!
+
+    """Which cycle it would apply into — the kinds and their rules are the cycle's."""
+    programmeCycleId: ID!
+  ): ApplicationKindEligibilityResult!
 }
 
 """Where one page sits in a longer list."""
@@ -684,10 +637,10 @@ type ApplicationSummary {
   """Which programme cycle this application belongs to."""
   programmeCycleId: ID!
 
-  """Whether this is a first application or a later phase."""
-  applicationType: ApplicationType!
+  """Which of its cycle's kinds this application is, such as `INITIAL`."""
+  applicationKind: String!
 
-  """Which phase this is: 1 for the first, 2 for the first expansion."""
+  """1 plus the enterprise's applications of the kinds its cycle declares before this one."""
   phaseNumber: Int!
 
   """
@@ -728,6 +681,15 @@ type ApplicationSummary {
 
   """The cycle's policy year."""
   cycleYear: Int!
+
+  """Where the application is in its pipeline, for the applicant. Null while it is a draft."""
+  journey: ApplicationJourney
+
+  """
+  Whether the office has asked for corrections that are still open — so it is
+  the applicant's turn. The detail view's `editableStageKeys` names the stages.
+  """
+  awaitingCorrection: Boolean!
 }
 
 """One page of the applicant's applications."""
@@ -769,10 +731,10 @@ type ApplicationSnapshot {
   """
   programmeCycleVersion: Int!
 
-  """Whether this is a first application or a later phase."""
-  applicationType: ApplicationType!
+  """Which of its cycle's kinds this application is, such as `INITIAL`."""
+  applicationKind: String!
 
-  """1 for a first application, 2 for the first expansion, and so on."""
+  """1 plus the enterprise's applications of the kinds its cycle declares before this one."""
   phaseNumber: Int!
 
   """Why this version exists — a save, a submission, a resubmission."""
@@ -792,27 +754,6 @@ type ApplicationSnapshot {
   set no threshold.
   """
   applicationCategory: ApplicationCategory
-
-  """
-  The earlier award's sanction order, on a later-phase application. Null on a
-  first application.
-  """
-  priorSanctionOrderNumber: String
-
-  """The earlier award's sanction date. Null on a first application."""
-  priorSanctionDate: Date
-
-  """
-  What the earlier award actually paid out after reversals, in paise. Null on
-  a first application.
-  """
-  priorNetDisbursedAmountPaise: Money
-
-  """
-  How long the business has traded continuously, in months. Decides the
-  application category, and the expansion waiting period.
-  """
-  continuousOperationMonths: Int
 }
 
 """One piece of evidence attached to an application."""
@@ -888,10 +829,10 @@ type Application {
   """Which programme cycle this belongs to."""
   programmeCycleId: ID!
 
-  """Whether this is a first application or a later phase."""
-  applicationType: ApplicationType!
+  """Which of its cycle's kinds this application is, such as `INITIAL`."""
+  applicationKind: String!
 
-  """1 for a first application, 2 for the first expansion, and so on."""
+  """1 plus the enterprise's applications of the kinds its cycle declares before this one."""
   phaseNumber: Int!
 
   """The programme's reference. Null until first submitted."""
@@ -920,6 +861,12 @@ type Application {
 
   """The current state of the form."""
   snapshot: ApplicationSnapshot!
+
+  """
+  Where the application is in its pipeline, in the words written for the
+  applicant. Null while it is a draft.
+  """
+  journey: ApplicationJourney
 
   """
   Every answer on the current version, keyed by `FormField.key`.
@@ -1080,6 +1027,9 @@ enum ValidationIssueCode {
   """A document this cycle asks for, given these answers, is not attached."""
   DOCUMENT_REQUIRED
 
+  """A rule about several answers at once does not hold — such as asking for neither a grant nor a loan. The message is the rule's own."""
+  FORM_RULE_VIOLATED
+
   """Outside the ages this programme is open to."""
   AGE_INELIGIBLE
 
@@ -1129,48 +1079,6 @@ type ValidationReport {
   issues: [ValidationIssue!]!
 }
 
-"""
-One unmet expansion rule.
-
-Stated separately so an applicant blocked by three things sees three things
-rather than only the first.
-"""
-type ExpansionReason {
-  """Stable machine-readable code, safe to branch on."""
-  code: String!
-
-  """What to show the applicant."""
-  message: String!
-
-  """
-  The release obligation this reason is about, for utilization results. Null
-  for reasons that apply to the award as a whole.
-  """
-  obligationId: ID
-}
-
-"""Whether a later-phase application may be started, and if not, why."""
-type ExpansionEligibility {
-  """True when an expansion application may be started now."""
-  eligible: Boolean!
-
-  """Which phase it would be. Null when no expansion is possible."""
-  nextPhaseNumber: Int
-
-  """Which earlier award qualifies it. Null when none does."""
-  qualifyingAwardId: ID
-
-  """
-  The first instant the operating-period rule is satisfied. Null when the
-  block is something waiting cannot fix — worth showing, because "come back
-  in March" is a different message from "this cannot happen".
-  """
-  eligibleAt: DateTime
-
-  """Everything currently standing in the way. Empty when `eligible`."""
-  reasons: [ExpansionReason!]!
-}
-
 """One thing that happened to an application, as the applicant sees it."""
 type TimelineEvent {
   """Stable identifier."""
@@ -1179,7 +1087,7 @@ type TimelineEvent {
   """
   What happened, as a stable code safe to branch on.
 
-  **Example:** `"SUBMITTED"`, `"REVISION_REQUESTED"`
+  **Example:** `"APPLICATION_SUBMITTED"`, `"APPLICATION_RESUBMITTED"`
   """
   eventType: String!
 
@@ -1211,117 +1119,6 @@ type TimelineConnection {
   pageInfo: PageInfo!
 }
 
-"""
-What an award has been given and what it has actually paid out.
-
-Every amount is derived from the append-only ledger, so it cannot drift from
-the releases and reversals behind it.
-"""
-type ApplicantAward {
-  """The programme's sanction order number."""
-  sanctionOrderNumber: String!
-
-  """The date of the sanction order."""
-  sanctionDate: Date!
-
-  """What was sanctioned, in paise. The ceiling, not what has been paid."""
-  sanctionedAmountPaise: Money!
-
-  """Conditions the applicant must meet, in the office's words."""
-  applicantConditions: String
-
-  """Where the award is in its own life."""
-  status: AwardStatus!
-
-  """How a closed award ended. Null while it is still open."""
-  closureDisposition: AwardClosureDisposition
-
-  """Everything ever paid out, before reversals, in paise."""
-  grossReleasedPaise: Money!
-
-  """Everything reversed, in paise."""
-  reversedPaise: Money!
-
-  """
-  What the applicant has actually received: gross minus reversed, in paise.
-  **This is the figure to show as "received".**
-  """
-  netReleasedPaise: Money!
-
-  """What is sanctioned but not yet released, in paise."""
-  remainingPlannedPaise: Money!
-}
-
-"""
-One payment.
-
-A correction is folded in as `reversedAmountPaise` rather than listed as its
-own entry, so the list reads as payments made rather than as accounting.
-"""
-type ApplicantRelease {
-  """Which payment this is, counting from 1."""
-  sequenceNumber: Int!
-
-  """When the payment was made."""
-  occurredAt: DateTime!
-
-  """What was paid, in paise, before any reversal."""
-  amountPaise: Money!
-
-  """
-  The bank's reference for the payment, for an applicant reconciling against
-  their statement. Null where the office has not recorded one.
-  """
-  paymentReference: String
-
-  """
-  How much of this payment was later reversed, in paise. Zero is the ordinary
-  case.
-  """
-  reversedAmountPaise: Money!
-}
-
-"""
-One assessment of how an award is being used.
-
-Reviewer-only evidence references and internal notes are deliberately absent.
-"""
-type ApplicantAssessment {
-  """What was assessed."""
-  assessmentType: AssessmentType!
-
-  """Which assessment of this type this is, counting from 1."""
-  assessmentNumber: Int!
-
-  """What was concluded."""
-  outcome: AssessmentOutcome!
-
-  """When it was concluded."""
-  assessedAt: DateTime!
-
-  """What to show the applicant, in the office's words."""
-  summary: String!
-
-  """
-  True when this is the current result rather than a superseded one.
-  Utilization is assessed per release, so several can be current at once —
-  filter on this rather than taking the last entry.
-  """
-  latest: Boolean!
-}
-
-"""The applicant's whole view of the money on one application."""
-type ApplicantFunding {
-  """What was sanctioned, and what has been paid."""
-  award: ApplicantAward!
-
-  """Every payment, oldest first."""
-  releases: [ApplicantRelease!]!
-
-  """Every assessment, oldest first."""
-  assessments: [ApplicantAssessment!]!
-}
-
 """A short-lived link to one file."""
 type DocumentDownloadResponse {
   """
@@ -1349,9 +1146,6 @@ type EnterpriseDeletionBlocker {
 
   """Where that application is in the workflow."""
   status: ApplicationStatus!
-
-  """Whether money has been awarded on it, which is the hardest blocker."""
-  hasAward: Boolean!
 }
 
 """
@@ -1488,21 +1282,6 @@ type ApplicationConnectionResult implements BaseResponse {
   response: ApplicationConnection
 }
 
-"""The money on one application, or the reason there is none to show."""
-type ApplicantFundingResult implements BaseResponse {
-  """Whether the funding position was returned."""
-  success: Boolean!
-
-  """
-  What to show when `success` is false. An application with no award yet is
-  the ordinary case, not an error.
-  """
-  message: String
-
-  """The funding position. Null whenever `success` is false."""
-  response: ApplicantFunding
-}
-
 """Whether an application may be sent, or the reason it could not be checked."""
 type ApplicationValidationResult implements BaseResponse {
   """
@@ -1531,6 +1310,45 @@ type SubmittedCopyResult implements BaseResponse {
   response: SubmittedCopy
 }
 
+"""Whether an enterprise may start one kind of application."""
+type ApplicationKindEligibility {
+  """How the kind is addressed; send it to `start`."""
+  kindKey: String!
+
+  """What the kind is offered as."""
+  label: String!
+
+  """A sentence more about it."""
+  description: String
+
+  """Whether it may be started now."""
+  eligible: Boolean!
+
+  """Every reason it may not, each a sentence. Empty when `eligible`."""
+  reasons: [String!]!
+}
+
+"""The kinds a cycle accepts, judged for one enterprise."""
+type ApplicationKindEligibilityList {
+  """In the order the cycle offers them."""
+  kinds: [ApplicationKindEligibility!]!
+}
+
+"""The kinds and their verdicts, or why they could not be worked out."""
+type ApplicationKindEligibilityResult implements BaseResponse {
+  """
+  Whether the **question was answered** — not whether any kind is open. Read
+  each kind's `eligible` for that.
+  """
+  success: Boolean!
+
+  """What to show when the question could not be answered."""
+  message: String
+
+  """The kinds. Null whenever `success` is false."""
+  response: ApplicationKindEligibilityList
+}
+
 """Where the PDF copy of a submitted application can be fetched."""
 type SubmittedCopy {
   """
@@ -1538,21 +1356,6 @@ type SubmittedCopy {
   session, so treat it like the document itself.
   """
   url: String!
-}
-
-"""Whether an expansion may start, or the reason it could not be worked out."""
-type ExpansionEligibilityResult implements BaseResponse {
-  """
-  Whether the **question was answered** — not whether the applicant is
-  eligible. Read `response.eligible` for that.
-  """
-  success: Boolean!
-
-  """What to show when the question could not be answered."""
-  message: String
-
-  """The answer. Null whenever `success` is false."""
-  response: ExpansionEligibility
 }
 
 """One page of an application's history, or the reason there is none."""
@@ -1580,4 +1383,49 @@ type DocumentDownloadResult implements BaseResponse {
 
   """The link. Null whenever `success` is false."""
   response: DocumentDownloadResponse
+}
+
+"""Where an application is, as its applicant is told."""
+type ApplicationJourney {
+  """What the applicant is told about the stage their file is at; null once its journey has ended."""
+  stageLabel: String
+
+  """A sentence more about that stage, when the pipeline gives one."""
+  stageExplanation: String
+
+  """How the journey ended, such as "Completed" or "Not approved"; null while it is still being worked."""
+  ended: String
+
+  """The statuses the applicant may see that the file holds now."""
+  flags: [ApplicationJourneyFlag!]!
+
+  """What the office recorded that the applicant may see, such as the grant approved."""
+  recordedValues: [ApplicationJourneyValue!]!
+}
+
+"""A status the applicant's file holds."""
+type ApplicationJourneyFlag {
+  """The status's key, stable for a client to branch on."""
+  key: String!
+
+  """What the applicant is shown."""
+  label: String!
+
+  """A sentence more, when the pipeline gives one."""
+  explanation: String
+}
+
+"""A value the office recorded on the applicant's file."""
+type ApplicationJourneyValue {
+  """The recorded value's key."""
+  key: String!
+
+  """What the pipeline calls it."""
+  label: String!
+
+  """How to read `value`: `MONEY_PAISE` is a number of paise, `DATE` a calendar date, otherwise text."""
+  type: String!
+
+  """The value as text."""
+  value: String!
 }

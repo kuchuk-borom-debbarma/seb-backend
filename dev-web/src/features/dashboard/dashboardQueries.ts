@@ -13,11 +13,11 @@ export const applicantDashboardQuery = queryOptions({
     const data = await gql(ApplicantDashboardDocument)
     const applications = unwrap(data.seb.application.allApplications)
     const enterprises = unwrap(data.seb.enterprise.mine)
-    const revisions = unwrap(data.seb.application.revisions)
+    const submitted = unwrap(data.seb.application.submitted)
     const drafts = unwrap(data.seb.application.drafts)
     const cycles = unwrap(data.seb.application.availableProgrammeCycles).cycles
     const guide = unwrap(data.seb.application.statusGuide).statuses
-    return { applications, enterprises, revisions, drafts, cycles, guide }
+    return { applications, enterprises, submitted, drafts, cycles, guide }
   },
 })
 
@@ -25,9 +25,7 @@ export const officeDashboardQuery = queryOptions({
   queryKey: ['office-dashboard'],
   queryFn: async () => {
     const data = await gql(OfficeDashboardDocument)
-    return {
-      queues: unwrap(data.admin.intake.queues).queues,
-      decisionQueue: unwrap(data.admin.intake.decisionQueue),
-    }
+    // The five submitted files that have waited longest, office-wide.
+    return { waiting: unwrap(data.admin.intake.waiting) }
   },
 })

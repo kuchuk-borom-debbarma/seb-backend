@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { signIn, signUpApplicant, uniqueEmail } from './support'
+import { fillSettled, signIn, signUpApplicant, uniqueEmail } from './support'
 
 const asNewApplicant = async (page: Page) => {
   const email = uniqueEmail('applicant')
@@ -10,7 +10,7 @@ const asNewApplicant = async (page: Page) => {
 
 const registerEnterprise = async (page: Page, name: string) => {
   await page.goto('/enterprises/new')
-  await page.getByLabel('Registered or trading name').fill(name)
+  await fillSettled(page.getByLabel('Registered or trading name'), name)
   // The form is a four-step wizard now; a name plus defaults carries through.
   for (let step = 0; step < 3; step += 1) {
     await page.getByRole('button', { name: 'Next' }).click()

@@ -43,19 +43,21 @@ import { Route as ShellAdminAccessIndexRouteImport } from './routes/_shell/admin
 import { Route as ShellAdminCyclesIndexRouteImport } from './routes/_shell/admin/cycles/index'
 import { Route as ShellAdminCyclesIdRouteImport } from './routes/_shell/admin/cycles/$id'
 import { Route as ShellAdminCyclesNewRouteImport } from './routes/_shell/admin/cycles/new'
+import { Route as ShellAdminPipelinesIndexRouteImport } from './routes/_shell/admin/pipelines/index'
+import { Route as ShellAdminPipelinesKeyRouteImport } from './routes/_shell/admin/pipelines/$key'
 import { Route as ShellAdminRolesIndexRouteImport } from './routes/_shell/admin/roles/index'
 import { Route as ShellAdminRolesKeyRouteImport } from './routes/_shell/admin/roles/$key'
 import { Route as ShellAdminRolesNewRouteImport } from './routes/_shell/admin/roles/new'
+import { Route as ShellAdminStagesIndexRouteImport } from './routes/_shell/admin/stages/index'
 import { Route as ShellApplicantApplicationsIdIndexRouteImport } from './routes/_shell/_applicant/applications/$id.index'
 import { Route as ShellApplicantApplicationsIdDocumentsRouteImport } from './routes/_shell/_applicant/applications/$id.documents'
 import { Route as ShellApplicantApplicationsIdFormRouteImport } from './routes/_shell/_applicant/applications/$id.form'
-import { Route as ShellApplicantApplicationsIdFundingRouteImport } from './routes/_shell/_applicant/applications/$id.funding'
 import { Route as ShellApplicantApplicationsIdReviewRouteImport } from './routes/_shell/_applicant/applications/$id.review'
 import { Route as ShellApplicantApplicationsIdSubmittedRouteImport } from './routes/_shell/_applicant/applications/$id.submitted'
 import { Route as ShellAdminApplicationsIdIndexRouteImport } from './routes/_shell/admin/applications/$id.index'
-import { Route as ShellAdminApplicationsIdFundingRouteImport } from './routes/_shell/admin/applications/$id.funding'
 import { Route as ShellAdminCyclesIdFormRouteImport } from './routes/_shell/admin/cycles/$id_.form'
 import { Route as ShellAdminCyclesIdPreviewRouteImport } from './routes/_shell/admin/cycles/$id_.preview'
+import { Route as ShellAdminStagesPipelineIdStageKeyRouteImport } from './routes/_shell/admin/stages/$pipelineId.$stageKey'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -230,6 +232,17 @@ const ShellAdminCyclesNewRoute = ShellAdminCyclesNewRouteImport.update({
   path: '/cycles/new',
   getParentRoute: () => ShellAdminRouteRoute,
 } as any)
+const ShellAdminPipelinesIndexRoute =
+  ShellAdminPipelinesIndexRouteImport.update({
+    id: '/pipelines/',
+    path: '/pipelines/',
+    getParentRoute: () => ShellAdminRouteRoute,
+  } as any)
+const ShellAdminPipelinesKeyRoute = ShellAdminPipelinesKeyRouteImport.update({
+  id: '/pipelines/$key',
+  path: '/pipelines/$key',
+  getParentRoute: () => ShellAdminRouteRoute,
+} as any)
 const ShellAdminRolesIndexRoute = ShellAdminRolesIndexRouteImport.update({
   id: '/roles/',
   path: '/roles/',
@@ -243,6 +256,11 @@ const ShellAdminRolesKeyRoute = ShellAdminRolesKeyRouteImport.update({
 const ShellAdminRolesNewRoute = ShellAdminRolesNewRouteImport.update({
   id: '/roles/new',
   path: '/roles/new',
+  getParentRoute: () => ShellAdminRouteRoute,
+} as any)
+const ShellAdminStagesIndexRoute = ShellAdminStagesIndexRouteImport.update({
+  id: '/stages/',
+  path: '/stages/',
   getParentRoute: () => ShellAdminRouteRoute,
 } as any)
 const ShellApplicantApplicationsIdIndexRoute =
@@ -263,12 +281,6 @@ const ShellApplicantApplicationsIdFormRoute =
     path: '/applications/$id/form',
     getParentRoute: () => ShellApplicantRoute,
   } as any)
-const ShellApplicantApplicationsIdFundingRoute =
-  ShellApplicantApplicationsIdFundingRouteImport.update({
-    id: '/applications/$id/funding',
-    path: '/applications/$id/funding',
-    getParentRoute: () => ShellApplicantRoute,
-  } as any)
 const ShellApplicantApplicationsIdReviewRoute =
   ShellApplicantApplicationsIdReviewRouteImport.update({
     id: '/applications/$id/review',
@@ -287,12 +299,6 @@ const ShellAdminApplicationsIdIndexRoute =
     path: '/applications/$id/',
     getParentRoute: () => ShellAdminRouteRoute,
   } as any)
-const ShellAdminApplicationsIdFundingRoute =
-  ShellAdminApplicationsIdFundingRouteImport.update({
-    id: '/applications/$id/funding',
-    path: '/applications/$id/funding',
-    getParentRoute: () => ShellAdminRouteRoute,
-  } as any)
 const ShellAdminCyclesIdFormRoute = ShellAdminCyclesIdFormRouteImport.update({
   id: '/cycles/$id_/form',
   path: '/cycles/$id/form',
@@ -302,6 +308,12 @@ const ShellAdminCyclesIdPreviewRoute =
   ShellAdminCyclesIdPreviewRouteImport.update({
     id: '/cycles/$id_/preview',
     path: '/cycles/$id/preview',
+    getParentRoute: () => ShellAdminRouteRoute,
+  } as any)
+const ShellAdminStagesPipelineIdStageKeyRoute =
+  ShellAdminStagesPipelineIdStageKeyRouteImport.update({
+    id: '/stages/$pipelineId/$stageKey',
+    path: '/stages/$pipelineId/$stageKey',
     getParentRoute: () => ShellAdminRouteRoute,
   } as any)
 
@@ -334,21 +346,23 @@ export interface FileRoutesByFullPath {
   '/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
   '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
+  '/admin/pipelines/$key': typeof ShellAdminPipelinesKeyRoute
   '/admin/roles/$key': typeof ShellAdminRolesKeyRoute
   '/admin/roles/new': typeof ShellAdminRolesNewRoute
   '/applications/': typeof ShellApplicantApplicationsIndexRoute
   '/enterprises/': typeof ShellApplicantEnterprisesIndexRoute
   '/admin/access/': typeof ShellAdminAccessIndexRoute
   '/admin/cycles/': typeof ShellAdminCyclesIndexRoute
+  '/admin/pipelines/': typeof ShellAdminPipelinesIndexRoute
   '/admin/roles/': typeof ShellAdminRolesIndexRoute
+  '/admin/stages/': typeof ShellAdminStagesIndexRoute
   '/applications/$id/documents': typeof ShellApplicantApplicationsIdDocumentsRoute
   '/applications/$id/form': typeof ShellApplicantApplicationsIdFormRoute
-  '/applications/$id/funding': typeof ShellApplicantApplicationsIdFundingRoute
   '/applications/$id/review': typeof ShellApplicantApplicationsIdReviewRoute
   '/applications/$id/submitted': typeof ShellApplicantApplicationsIdSubmittedRoute
-  '/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
   '/admin/cycles/$id/form': typeof ShellAdminCyclesIdFormRoute
   '/admin/cycles/$id/preview': typeof ShellAdminCyclesIdPreviewRoute
+  '/admin/stages/$pipelineId/$stageKey': typeof ShellAdminStagesPipelineIdStageKeyRoute
   '/applications/$id/': typeof ShellApplicantApplicationsIdIndexRoute
   '/admin/applications/$id/': typeof ShellAdminApplicationsIdIndexRoute
 }
@@ -379,21 +393,23 @@ export interface FileRoutesByTo {
   '/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
   '/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/admin/cycles/new': typeof ShellAdminCyclesNewRoute
+  '/admin/pipelines/$key': typeof ShellAdminPipelinesKeyRoute
   '/admin/roles/$key': typeof ShellAdminRolesKeyRoute
   '/admin/roles/new': typeof ShellAdminRolesNewRoute
   '/applications': typeof ShellApplicantApplicationsIndexRoute
   '/enterprises': typeof ShellApplicantEnterprisesIndexRoute
   '/admin/access': typeof ShellAdminAccessIndexRoute
   '/admin/cycles': typeof ShellAdminCyclesIndexRoute
+  '/admin/pipelines': typeof ShellAdminPipelinesIndexRoute
   '/admin/roles': typeof ShellAdminRolesIndexRoute
+  '/admin/stages': typeof ShellAdminStagesIndexRoute
   '/applications/$id/documents': typeof ShellApplicantApplicationsIdDocumentsRoute
   '/applications/$id/form': typeof ShellApplicantApplicationsIdFormRoute
-  '/applications/$id/funding': typeof ShellApplicantApplicationsIdFundingRoute
   '/applications/$id/review': typeof ShellApplicantApplicationsIdReviewRoute
   '/applications/$id/submitted': typeof ShellApplicantApplicationsIdSubmittedRoute
-  '/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
   '/admin/cycles/$id/form': typeof ShellAdminCyclesIdFormRoute
   '/admin/cycles/$id/preview': typeof ShellAdminCyclesIdPreviewRoute
+  '/admin/stages/$pipelineId/$stageKey': typeof ShellAdminStagesPipelineIdStageKeyRoute
   '/applications/$id': typeof ShellApplicantApplicationsIdIndexRoute
   '/admin/applications/$id': typeof ShellAdminApplicationsIdIndexRoute
 }
@@ -429,21 +445,23 @@ export interface FileRoutesById {
   '/_shell/_applicant/enterprises/new': typeof ShellApplicantEnterprisesNewRoute
   '/_shell/admin/cycles/$id': typeof ShellAdminCyclesIdRoute
   '/_shell/admin/cycles/new': typeof ShellAdminCyclesNewRoute
+  '/_shell/admin/pipelines/$key': typeof ShellAdminPipelinesKeyRoute
   '/_shell/admin/roles/$key': typeof ShellAdminRolesKeyRoute
   '/_shell/admin/roles/new': typeof ShellAdminRolesNewRoute
   '/_shell/_applicant/applications/': typeof ShellApplicantApplicationsIndexRoute
   '/_shell/_applicant/enterprises/': typeof ShellApplicantEnterprisesIndexRoute
   '/_shell/admin/access/': typeof ShellAdminAccessIndexRoute
   '/_shell/admin/cycles/': typeof ShellAdminCyclesIndexRoute
+  '/_shell/admin/pipelines/': typeof ShellAdminPipelinesIndexRoute
   '/_shell/admin/roles/': typeof ShellAdminRolesIndexRoute
+  '/_shell/admin/stages/': typeof ShellAdminStagesIndexRoute
   '/_shell/_applicant/applications/$id/documents': typeof ShellApplicantApplicationsIdDocumentsRoute
   '/_shell/_applicant/applications/$id/form': typeof ShellApplicantApplicationsIdFormRoute
-  '/_shell/_applicant/applications/$id/funding': typeof ShellApplicantApplicationsIdFundingRoute
   '/_shell/_applicant/applications/$id/review': typeof ShellApplicantApplicationsIdReviewRoute
   '/_shell/_applicant/applications/$id/submitted': typeof ShellApplicantApplicationsIdSubmittedRoute
-  '/_shell/admin/applications/$id/funding': typeof ShellAdminApplicationsIdFundingRoute
   '/_shell/admin/cycles/$id_/form': typeof ShellAdminCyclesIdFormRoute
   '/_shell/admin/cycles/$id_/preview': typeof ShellAdminCyclesIdPreviewRoute
+  '/_shell/admin/stages/$pipelineId/$stageKey': typeof ShellAdminStagesPipelineIdStageKeyRoute
   '/_shell/_applicant/applications/$id/': typeof ShellApplicantApplicationsIdIndexRoute
   '/_shell/admin/applications/$id/': typeof ShellAdminApplicationsIdIndexRoute
 }
@@ -478,21 +496,23 @@ export interface FileRouteTypes {
     | '/enterprises/new'
     | '/admin/cycles/$id'
     | '/admin/cycles/new'
+    | '/admin/pipelines/$key'
     | '/admin/roles/$key'
     | '/admin/roles/new'
     | '/applications/'
     | '/enterprises/'
     | '/admin/access/'
     | '/admin/cycles/'
+    | '/admin/pipelines/'
     | '/admin/roles/'
+    | '/admin/stages/'
     | '/applications/$id/documents'
     | '/applications/$id/form'
-    | '/applications/$id/funding'
     | '/applications/$id/review'
     | '/applications/$id/submitted'
-    | '/admin/applications/$id/funding'
     | '/admin/cycles/$id/form'
     | '/admin/cycles/$id/preview'
+    | '/admin/stages/$pipelineId/$stageKey'
     | '/applications/$id/'
     | '/admin/applications/$id/'
   fileRoutesByTo: FileRoutesByTo
@@ -523,21 +543,23 @@ export interface FileRouteTypes {
     | '/enterprises/new'
     | '/admin/cycles/$id'
     | '/admin/cycles/new'
+    | '/admin/pipelines/$key'
     | '/admin/roles/$key'
     | '/admin/roles/new'
     | '/applications'
     | '/enterprises'
     | '/admin/access'
     | '/admin/cycles'
+    | '/admin/pipelines'
     | '/admin/roles'
+    | '/admin/stages'
     | '/applications/$id/documents'
     | '/applications/$id/form'
-    | '/applications/$id/funding'
     | '/applications/$id/review'
     | '/applications/$id/submitted'
-    | '/admin/applications/$id/funding'
     | '/admin/cycles/$id/form'
     | '/admin/cycles/$id/preview'
+    | '/admin/stages/$pipelineId/$stageKey'
     | '/applications/$id'
     | '/admin/applications/$id'
   id:
@@ -572,21 +594,23 @@ export interface FileRouteTypes {
     | '/_shell/_applicant/enterprises/new'
     | '/_shell/admin/cycles/$id'
     | '/_shell/admin/cycles/new'
+    | '/_shell/admin/pipelines/$key'
     | '/_shell/admin/roles/$key'
     | '/_shell/admin/roles/new'
     | '/_shell/_applicant/applications/'
     | '/_shell/_applicant/enterprises/'
     | '/_shell/admin/access/'
     | '/_shell/admin/cycles/'
+    | '/_shell/admin/pipelines/'
     | '/_shell/admin/roles/'
+    | '/_shell/admin/stages/'
     | '/_shell/_applicant/applications/$id/documents'
     | '/_shell/_applicant/applications/$id/form'
-    | '/_shell/_applicant/applications/$id/funding'
     | '/_shell/_applicant/applications/$id/review'
     | '/_shell/_applicant/applications/$id/submitted'
-    | '/_shell/admin/applications/$id/funding'
     | '/_shell/admin/cycles/$id_/form'
     | '/_shell/admin/cycles/$id_/preview'
+    | '/_shell/admin/stages/$pipelineId/$stageKey'
     | '/_shell/_applicant/applications/$id/'
     | '/_shell/admin/applications/$id/'
   fileRoutesById: FileRoutesById
@@ -842,6 +866,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAdminCyclesNewRouteImport
       parentRoute: typeof ShellAdminRouteRoute
     }
+    '/_shell/admin/pipelines/': {
+      id: '/_shell/admin/pipelines/'
+      path: '/pipelines'
+      fullPath: '/admin/pipelines/'
+      preLoaderRoute: typeof ShellAdminPipelinesIndexRouteImport
+      parentRoute: typeof ShellAdminRouteRoute
+    }
+    '/_shell/admin/pipelines/$key': {
+      id: '/_shell/admin/pipelines/$key'
+      path: '/pipelines/$key'
+      fullPath: '/admin/pipelines/$key'
+      preLoaderRoute: typeof ShellAdminPipelinesKeyRouteImport
+      parentRoute: typeof ShellAdminRouteRoute
+    }
     '/_shell/admin/roles/': {
       id: '/_shell/admin/roles/'
       path: '/roles'
@@ -861,6 +899,13 @@ declare module '@tanstack/react-router' {
       path: '/roles/new'
       fullPath: '/admin/roles/new'
       preLoaderRoute: typeof ShellAdminRolesNewRouteImport
+      parentRoute: typeof ShellAdminRouteRoute
+    }
+    '/_shell/admin/stages/': {
+      id: '/_shell/admin/stages/'
+      path: '/stages'
+      fullPath: '/admin/stages/'
+      preLoaderRoute: typeof ShellAdminStagesIndexRouteImport
       parentRoute: typeof ShellAdminRouteRoute
     }
     '/_shell/_applicant/applications/$id/': {
@@ -884,13 +929,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellApplicantApplicationsIdFormRouteImport
       parentRoute: typeof ShellApplicantRoute
     }
-    '/_shell/_applicant/applications/$id/funding': {
-      id: '/_shell/_applicant/applications/$id/funding'
-      path: '/applications/$id/funding'
-      fullPath: '/applications/$id/funding'
-      preLoaderRoute: typeof ShellApplicantApplicationsIdFundingRouteImport
-      parentRoute: typeof ShellApplicantRoute
-    }
     '/_shell/_applicant/applications/$id/review': {
       id: '/_shell/_applicant/applications/$id/review'
       path: '/applications/$id/review'
@@ -912,13 +950,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAdminApplicationsIdIndexRouteImport
       parentRoute: typeof ShellAdminRouteRoute
     }
-    '/_shell/admin/applications/$id/funding': {
-      id: '/_shell/admin/applications/$id/funding'
-      path: '/applications/$id/funding'
-      fullPath: '/admin/applications/$id/funding'
-      preLoaderRoute: typeof ShellAdminApplicationsIdFundingRouteImport
-      parentRoute: typeof ShellAdminRouteRoute
-    }
     '/_shell/admin/cycles/$id_/form': {
       id: '/_shell/admin/cycles/$id_/form'
       path: '/cycles/$id/form'
@@ -933,6 +964,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAdminCyclesIdPreviewRouteImport
       parentRoute: typeof ShellAdminRouteRoute
     }
+    '/_shell/admin/stages/$pipelineId/$stageKey': {
+      id: '/_shell/admin/stages/$pipelineId/$stageKey'
+      path: '/stages/$pipelineId/$stageKey'
+      fullPath: '/admin/stages/$pipelineId/$stageKey'
+      preLoaderRoute: typeof ShellAdminStagesPipelineIdStageKeyRouteImport
+      parentRoute: typeof ShellAdminRouteRoute
+    }
   }
 }
 
@@ -944,14 +982,17 @@ interface ShellAdminRouteRouteChildren {
   ShellAdminIndexRoute: typeof ShellAdminIndexRoute
   ShellAdminCyclesIdRoute: typeof ShellAdminCyclesIdRoute
   ShellAdminCyclesNewRoute: typeof ShellAdminCyclesNewRoute
+  ShellAdminPipelinesKeyRoute: typeof ShellAdminPipelinesKeyRoute
   ShellAdminRolesKeyRoute: typeof ShellAdminRolesKeyRoute
   ShellAdminRolesNewRoute: typeof ShellAdminRolesNewRoute
   ShellAdminAccessIndexRoute: typeof ShellAdminAccessIndexRoute
   ShellAdminCyclesIndexRoute: typeof ShellAdminCyclesIndexRoute
+  ShellAdminPipelinesIndexRoute: typeof ShellAdminPipelinesIndexRoute
   ShellAdminRolesIndexRoute: typeof ShellAdminRolesIndexRoute
-  ShellAdminApplicationsIdFundingRoute: typeof ShellAdminApplicationsIdFundingRoute
+  ShellAdminStagesIndexRoute: typeof ShellAdminStagesIndexRoute
   ShellAdminCyclesIdFormRoute: typeof ShellAdminCyclesIdFormRoute
   ShellAdminCyclesIdPreviewRoute: typeof ShellAdminCyclesIdPreviewRoute
+  ShellAdminStagesPipelineIdStageKeyRoute: typeof ShellAdminStagesPipelineIdStageKeyRoute
   ShellAdminApplicationsIdIndexRoute: typeof ShellAdminApplicationsIdIndexRoute
 }
 
@@ -963,14 +1004,18 @@ const ShellAdminRouteRouteChildren: ShellAdminRouteRouteChildren = {
   ShellAdminIndexRoute: ShellAdminIndexRoute,
   ShellAdminCyclesIdRoute: ShellAdminCyclesIdRoute,
   ShellAdminCyclesNewRoute: ShellAdminCyclesNewRoute,
+  ShellAdminPipelinesKeyRoute: ShellAdminPipelinesKeyRoute,
   ShellAdminRolesKeyRoute: ShellAdminRolesKeyRoute,
   ShellAdminRolesNewRoute: ShellAdminRolesNewRoute,
   ShellAdminAccessIndexRoute: ShellAdminAccessIndexRoute,
   ShellAdminCyclesIndexRoute: ShellAdminCyclesIndexRoute,
+  ShellAdminPipelinesIndexRoute: ShellAdminPipelinesIndexRoute,
   ShellAdminRolesIndexRoute: ShellAdminRolesIndexRoute,
-  ShellAdminApplicationsIdFundingRoute: ShellAdminApplicationsIdFundingRoute,
+  ShellAdminStagesIndexRoute: ShellAdminStagesIndexRoute,
   ShellAdminCyclesIdFormRoute: ShellAdminCyclesIdFormRoute,
   ShellAdminCyclesIdPreviewRoute: ShellAdminCyclesIdPreviewRoute,
+  ShellAdminStagesPipelineIdStageKeyRoute:
+    ShellAdminStagesPipelineIdStageKeyRoute,
   ShellAdminApplicationsIdIndexRoute: ShellAdminApplicationsIdIndexRoute,
 }
 
@@ -1003,7 +1048,6 @@ interface ShellApplicantRouteChildren {
   ShellApplicantEnterprisesIndexRoute: typeof ShellApplicantEnterprisesIndexRoute
   ShellApplicantApplicationsIdDocumentsRoute: typeof ShellApplicantApplicationsIdDocumentsRoute
   ShellApplicantApplicationsIdFormRoute: typeof ShellApplicantApplicationsIdFormRoute
-  ShellApplicantApplicationsIdFundingRoute: typeof ShellApplicantApplicationsIdFundingRoute
   ShellApplicantApplicationsIdReviewRoute: typeof ShellApplicantApplicationsIdReviewRoute
   ShellApplicantApplicationsIdSubmittedRoute: typeof ShellApplicantApplicationsIdSubmittedRoute
   ShellApplicantApplicationsIdIndexRoute: typeof ShellApplicantApplicationsIdIndexRoute
@@ -1020,8 +1064,6 @@ const ShellApplicantRouteChildren: ShellApplicantRouteChildren = {
   ShellApplicantApplicationsIdDocumentsRoute:
     ShellApplicantApplicationsIdDocumentsRoute,
   ShellApplicantApplicationsIdFormRoute: ShellApplicantApplicationsIdFormRoute,
-  ShellApplicantApplicationsIdFundingRoute:
-    ShellApplicantApplicationsIdFundingRoute,
   ShellApplicantApplicationsIdReviewRoute:
     ShellApplicantApplicationsIdReviewRoute,
   ShellApplicantApplicationsIdSubmittedRoute:

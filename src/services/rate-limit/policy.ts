@@ -252,6 +252,41 @@ const RATE_LIMIT_POLICY = {
       periodSeconds: 60,
     },
   ],
+
+  /**
+   * Taking an action on an application at a pipeline stage.
+   *
+   * The first staff write with an allowance besides the export, because stage
+   * owners are not the office's most trusted authority: a bank's officers work
+   * a stage, and a looping client there writes a history row per call. Counted
+   * per session; sixty a minute is a file a second, far above a person reading
+   * each file before acting on it.
+   */
+  'admin.stage.takeAction': [
+    {
+      binding: 'RL_STAGE_ACTION_SESSION',
+      dimension: 'SESSION',
+      limit: 60,
+      periodSeconds: 60,
+    },
+  ],
+
+  /**
+   * Saving a pipeline draft.
+   *
+   * The one authoring write whose cost is the caller's to choose: each save
+   * parses and validates a definition of up to 256 KB. Thirty a minute is far
+   * above an author pressing save; publishing, retiring and owners stay
+   * unlimited like the rest of the office's programme authority.
+   */
+  'admin.pipeline.saveDraft': [
+    {
+      binding: 'RL_PIPELINE_DRAFT_SESSION',
+      dimension: 'SESSION',
+      limit: 30,
+      periodSeconds: 60,
+    },
+  ],
 } as const satisfies Record<string, readonly RateLimitBucket[]>
 
 /**

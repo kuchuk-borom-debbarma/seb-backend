@@ -10,10 +10,12 @@ import { test as setup, expect } from '@playwright/test'
 import {
   OFFICE_ROLES,
   PASSWORD,
+  STAGE_ROLES,
   SUPER_ADMIN_EMAIL,
   bootstrapSuperAdmin,
   composeRole,
   navigationSections,
+  seedPipeline,
   signIn,
   signUpApplicant,
 } from './support'
@@ -50,8 +52,16 @@ setup(
      * Every later spec grants one of these, so composing them here is part of
      * bringing the database up to a state the product can actually reach.
      */
-    for (const role of OFFICE_ROLES) {
+    for (const role of [...OFFICE_ROLES, ...STAGE_ROLES]) {
       await composeRole(page, role)
     }
+
+    /*
+     * The route every cycle is worked in. A cycle cannot be created without
+     * naming a published pipeline, so — like the roles — this is part of
+     * bringing the database up to a state the product can reach, and the
+     * stage roles above are handed its stages.
+     */
+    await seedPipeline(page)
   },
 )

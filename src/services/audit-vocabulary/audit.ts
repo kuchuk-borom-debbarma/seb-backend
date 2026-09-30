@@ -32,6 +32,6 @@ export const exportVocabulary = {
       format: { label: 'Format', kind: 'ENUM' },
     },
     summary: (p) => `Exported ${p.rowCount} ${p.rowCount === 1 ? 'entry' : 'entries'} of the activity history`,
-    example: { purpose: 'Quarterly review', filters: { categories: ['DECISION'] }, rowCount: 12, truncated: false, format: 'CSV' },
+    example: { purpose: 'Quarterly review', filters: { categories: ['REVIEW'] }, rowCount: 12, truncated: false, format: 'CSV' },
   }),
 } as const

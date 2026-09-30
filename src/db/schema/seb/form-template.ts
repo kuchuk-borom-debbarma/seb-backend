@@ -51,22 +51,9 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
-import { dateOnly, instant } from '../shared'
+import { dateOnly, instant, TEMPLATE_KEY_PATTERN } from '../shared'
 import { sebProgrammeCycleVersion } from './programme'
 
-/**
- * The one spelling of a template key.
- *
- * Stage keys, field keys and choice values share a vocabulary because they are
- * the same identifier in several places: these tables, the answer rows, the
- * document slot, and the `id` the client puts on the control so a validation
- * issue can link straight to the answer that is wrong. One spelling means there
- * is no mapping anywhere that can drift.
- *
- * This CHECK is what stops "the enum is gone" becoming "the column is a free
- * string".
- */
-export const TEMPLATE_KEY_PATTERN = '^[A-Z][A-Z0-9_]{1,63}$'
 
 export const formFieldTypes = [
   'TEXT',
@@ -129,11 +116,15 @@ export const formFieldSources = ['APPLICANT', 'SERVER_DERIVED'] as const
  * key so the path is a literal in SQL.
  *
  * The cost, stated plainly: **a role-bound field cannot be renamed** where a
- * canonical key pins it. There are two roles now, down from six: the business
- * name, sector, establishment date and category stopped being answers at all —
- * they are read live from the enterprise entity, and the category is computed
- * by the server at submission — so the questions that duplicated them left the
- * template, and their roles left with them.
+ * canonical key pins it. The business name, sector, establishment date and
+ * category stopped being answers at all — they are read live from the
+ * enterprise entity, and the category is computed by the server at submission
+ * — so the questions that duplicated them left the template, and their roles
+ * left with them.
+ *
+ * **Roles are optional per cycle.** A cycle binds the ones it asks: a
+ * loan-only cycle has no grant amount, and a role-bound question hidden by its
+ * conditions is simply unanswered, not an error.
  */
 export const formFieldRoles = [
   /*
@@ -142,19 +133,25 @@ export const formFieldRoles = [
    * it per template. No SQL path reads it, which is what a pin is for.
    */
   'APPLICANT_DATE_OF_BIRTH',
+  /** The grant the applicant asks for. The key predates grants and loans being separate. */
   'SEED_FUND_REQUESTED_PAISE',
+  /** The bank loan the applicant asks for. */
+  'LOAN_REQUESTED_PAISE',
 ] as const
 export type FormFieldRole = (typeof formFieldRoles)[number]
 
 /**
- * The canonical key a role must use, for the roles SQL reads literally.
- * Only the requested amount is left: the queue's cross-cycle filter and the
- * decision's bound name it as a string in a query.
+ * The canonical key a role must use, for the roles SQL reads literally: the
+ * queue's cross-cycle amount filters name them as strings in a query.
  */
 export const ROLE_CANONICAL_KEY: Readonly<
-  Partial<Record<FormFieldRole, string>> & { SEED_FUND_REQUESTED_PAISE: string }
+  Partial<Record<FormFieldRole, string>> & {
+    SEED_FUND_REQUESTED_PAISE: string
+    LOAN_REQUESTED_PAISE: string
+  }
 > = {
   SEED_FUND_REQUESTED_PAISE: 'SEED_FUND_REQUESTED_PAISE',
+  LOAN_REQUESTED_PAISE: 'LOAN_AMOUNT_REQUESTED_PAISE',
 }
 
 export const formFieldDateBounds = ['NOT_FUTURE', 'NOT_PAST'] as const
@@ -455,7 +452,8 @@ export const sebProgrammeCycleFormField = pgTable(
       'seb_programme_cycle_form_field_role_check',
       sql`${table.role} IS NULL
         OR (${table.role} = 'APPLICANT_DATE_OF_BIRTH' AND ${table.fieldType} = 'DATE')
-        OR (${table.role} = 'SEED_FUND_REQUESTED_PAISE' AND ${table.fieldKey} = 'SEED_FUND_REQUESTED_PAISE' AND ${table.fieldType} = 'MONEY_PAISE')`,
+        OR (${table.role} = 'SEED_FUND_REQUESTED_PAISE' AND ${table.fieldKey} = 'SEED_FUND_REQUESTED_PAISE' AND ${table.fieldType} = 'MONEY_PAISE')
+        OR (${table.role} = 'LOAN_REQUESTED_PAISE' AND ${table.fieldKey} = 'LOAN_AMOUNT_REQUESTED_PAISE' AND ${table.fieldType} = 'MONEY_PAISE')`,
     ),
     /*
      * A parent reference is a complete pair or absent, and the pair only ever
@@ -1077,5 +1075,135 @@ export const sebProgrammeCycleFormGroupDefinitionMemberOption = pgTable(
       'seb_programme_cycle_form_group_definition_member_option_value_check',
       sql`${table.optionValue} ~ ${sql.raw(`'${TEMPLATE_KEY_PATTERN}'`)}`,
     ),
+  ],
+)
+
+/**
+ * The cross-field rule types a template may use. The vocabulary is
+ * `services/catalogue/workflow.json`'s `formRules`; this list is its database
+ * twin, because a CHECK cannot read a JSON file. `check:workflow-catalog` holds
+ * the two to each other.
+ */
+export const formRuleTypes = [
+  'AT_LEAST_ONE_TRUE',
+  'DIFFERENT_VALUES',
+  'SUM_AT_MOST',
+  'AT_MOST_FIELD',
+] as const
+
+/**
+ * A rule about several answers at once — "a grant, a loan, or both", "two
+ * different banks".
+ *
+ * Every other rule on a field reads that field alone. A rule across fields is
+ * its own row, pinned to the cycle version like every template row, and shown
+ * against one form stage so the applicant sees it where they can fix it. Its
+ * operands are rows too, so an operand naming a missing field — or a field of
+ * the wrong type — is a foreign-key refusal rather than a rule that silently
+ * never fires.
+ */
+export const sebProgrammeCycleFormRule = pgTable(
+  'seb_programme_cycle_form_rule',
+  {
+    id: text('id').primaryKey(),
+    programmeCycleId: text('programme_cycle_id').notNull(),
+    programmeCycleVersion: integer('programme_cycle_version').notNull(),
+    ruleKey: text('rule_key').notNull(),
+    ruleType: text('rule_type', { enum: formRuleTypes }).notNull(),
+    stageKey: text('stage_key').notNull(),
+    /** What the applicant is told when the rule does not hold. */
+    message: text('message').notNull(),
+    /** The fixed limit, for the one rule type that has one. */
+    limitValue: bigint('limit_value', { mode: 'number' }),
+    createdAt: instant('created_at').notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.programmeCycleId, table.programmeCycleVersion, table.stageKey],
+      foreignColumns: [
+        sebProgrammeCycleFormStage.programmeCycleId,
+        sebProgrammeCycleFormStage.programmeCycleVersion,
+        sebProgrammeCycleFormStage.stageKey,
+      ],
+      name: 'seb_programme_cycle_form_rule_stage_fk',
+    }).onDelete('restrict'),
+    unique('seb_programme_cycle_form_rule_key_uq').on(
+      table.programmeCycleId,
+      table.programmeCycleVersion,
+      table.ruleKey,
+    ),
+    check(
+      'seb_programme_cycle_form_rule_key_check',
+      sql`${table.ruleKey} ~ ${sql.raw(`'${TEMPLATE_KEY_PATTERN}'`)}`,
+    ),
+    check(
+      'seb_programme_cycle_form_rule_type_check',
+      sql`${table.ruleType} IN ('AT_LEAST_ONE_TRUE', 'DIFFERENT_VALUES', 'SUM_AT_MOST', 'AT_MOST_FIELD')`,
+    ),
+    check(
+      'seb_programme_cycle_form_rule_message_check',
+      sql`char_length(${table.message}) BETWEEN 1 AND 300`,
+    ),
+    // Only a sum has a limit, and a sum always has one. Both NULL arms are
+    // spelled out, because a CHECK that evaluates to NULL passes.
+    check(
+      'seb_programme_cycle_form_rule_limit_check',
+      sql`(${table.ruleType} = 'SUM_AT_MOST' AND ${table.limitValue} IS NOT NULL AND ${table.limitValue} >= 0)
+        OR (${table.ruleType} <> 'SUM_AT_MOST' AND ${table.limitValue} IS NULL)`,
+    ),
+  ],
+)
+
+/** One answer a cross-field rule reads, in order — order matters for AT_MOST_FIELD. */
+export const sebProgrammeCycleFormRuleOperand = pgTable(
+  'seb_programme_cycle_form_rule_operand',
+  {
+    id: text('id').primaryKey(),
+    programmeCycleId: text('programme_cycle_id').notNull(),
+    programmeCycleVersion: integer('programme_cycle_version').notNull(),
+    ruleKey: text('rule_key').notNull(),
+    position: integer('position').notNull(),
+    fieldKey: text('field_key').notNull(),
+    fieldType: text('field_type', { enum: formFieldTypes }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.programmeCycleId, table.programmeCycleVersion, table.ruleKey],
+      foreignColumns: [
+        sebProgrammeCycleFormRule.programmeCycleId,
+        sebProgrammeCycleFormRule.programmeCycleVersion,
+        sebProgrammeCycleFormRule.ruleKey,
+      ],
+      name: 'seb_programme_cycle_form_rule_operand_rule_fk',
+    }).onDelete('restrict'),
+    // Typed: the operand's type is proven against the field it names.
+    foreignKey({
+      columns: [
+        table.programmeCycleId,
+        table.programmeCycleVersion,
+        table.fieldKey,
+        table.fieldType,
+      ],
+      foreignColumns: [
+        sebProgrammeCycleFormField.programmeCycleId,
+        sebProgrammeCycleFormField.programmeCycleVersion,
+        sebProgrammeCycleFormField.fieldKey,
+        sebProgrammeCycleFormField.fieldType,
+      ],
+      name: 'seb_programme_cycle_form_rule_operand_field_fk',
+    }).onDelete('restrict'),
+    uniqueIndex('seb_programme_cycle_form_rule_operand_position_uq').on(
+      table.programmeCycleId,
+      table.programmeCycleVersion,
+      table.ruleKey,
+      table.position,
+    ),
+    uniqueIndex('seb_programme_cycle_form_rule_operand_field_uq').on(
+      table.programmeCycleId,
+      table.programmeCycleVersion,
+      table.ruleKey,
+      table.fieldKey,
+    ),
+    check('seb_programme_cycle_form_rule_operand_position_check', sql`${table.position} >= 1`),
   ],
 )

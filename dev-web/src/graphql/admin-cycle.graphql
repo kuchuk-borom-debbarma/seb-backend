@@ -4,7 +4,6 @@ fragment AdminCycleHead on AdminProgrammeCycle {
   displayName
   cycleYear
   applicantGuidance
-  partnerBankGuidance
   status
   opensAt
   closesAt
@@ -57,14 +56,30 @@ query AdminCycleById($id: ID!) {
             minimumApplicantAge
             maximumApplicantAge
             categoryAMaximumMonths
-            expansionWaitMonths
             majorityOwnershipRequired
             jurisdiction
             fundingCeilingState
             fundingCeilingAmountPaise
             fundingCeilingScope
+            pipelineId
+            pipelineVersion
           }
-          identifierRules { kind requirement duplicatePolicy checkType }
+          # The kinds of application the cycle accepts, each with its rules.
+          applicationKinds {
+            kindKey
+            label
+            description
+            rules { ruleType paramsJson }
+          }
+          # Rules about several answers at once — a grant, a loan, or both.
+          formRules {
+            ruleKey
+            ruleType
+            stageKey
+            message
+            limitValue
+            operands { fieldKey fieldType }
+          }
           # What this cycle actually asks. An administrator cannot change a form
           # they cannot see, and until this existed the only way to look at one
           # was to start an application against the cycle.
@@ -73,8 +88,6 @@ query AdminCycleById($id: ID!) {
           # members — needed here so editing a draft can send the authoring
           # form back rather than its own expansion.
           groupDefinitions { ...GroupDefinitionFields }
-          assessmentRules { id assessmentType requiredOutcome }
-          reasons { id context code label applicantMessageTemplate }
           policyDocument {
             id
             currentVersion

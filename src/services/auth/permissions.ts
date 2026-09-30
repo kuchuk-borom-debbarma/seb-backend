@@ -82,7 +82,39 @@ export type Authority = {
   applicant: boolean
   /** Effective pairs, with the wildcard already expanded. */
   permissions: Permission[]
+  /**
+   * The pipeline stages this person's roles own, as `pipelineId/stageKey`.
+   * Ownership is the data half of stage authority: two bank officers hold the
+   * same permissions and differ only in which stage they work. Empty for a
+   * super administrator, who owns every stage through {@link ownsStage}.
+   */
+  ownedStages: ReadonlySet<string>
 }
+
+/**
+ * Whether a person works a stage. A super administrator works every stage,
+ * for the same reason they hold every permission: authority that could be
+ * edited away could lock the programme out of its own casework.
+ */
+export const ownsStage = (
+  authority: Pick<Authority, 'superAdministrator' | 'ownedStages'>,
+  pipelineId: string,
+  stageKey: string,
+): boolean => authority.superAdministrator || authority.ownedStages.has(`${pipelineId}/${stageKey}`)
+
+/**
+ * Whether a person works every stage in `stages`, each as `pipelineId/stageKey`.
+ *
+ * The stage half of the invitation ceiling. Two bank officers hold the same
+ * permissions, so `withinAuthority` alone would let the State Bank's officer
+ * invite somebody to the Tripura Gramin Bank's role — offering work at a stage
+ * they do not work themselves. A role is offered only by somebody who owns
+ * every stage it owns; a super administrator owns them all.
+ */
+export const ownsEveryStage = (
+  authority: Pick<Authority, 'superAdministrator' | 'ownedStages'>,
+  stages: readonly string[],
+): boolean => authority.superAdministrator || stages.every((stage) => authority.ownedStages.has(stage))
 
 /**
  * The pairs a person actually holds.

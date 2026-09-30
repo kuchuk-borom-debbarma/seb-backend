@@ -6,7 +6,7 @@
  * directly: if a test needs an account, it signs one up.
  */
 import { readFile } from 'node:fs/promises'
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 
 
 /**
@@ -43,6 +43,25 @@ export const uploadPolicyDocument = async (page: Page): Promise<void> => {
     }, { timeout: 30_000 })
     .toBe('ACCEPTED')
   await page.reload()
+}
+
+/**
+ * Types into a field until the value holds.
+ *
+ * A server-rendered page is interactive before React takes it over, and a fill
+ * that lands in between is wiped when it does. Under a loaded machine that
+ * window is long enough to lose the first field of a form, and the failure
+ * then surfaces steps later — a sign-in that never leaves the login page, an
+ * enterprise with no name — nowhere near its cause. So the value is typed,
+ * and checked to still be there a moment later, until it is.
+ */
+export const fillSettled = async (field: Locator, value: string): Promise<void> => {
+  await expect(async () => {
+    await field.fill(value)
+    await expect(field).toHaveValue(value, { timeout: 500 })
+    await field.page().waitForTimeout(200)
+    await expect(field).toHaveValue(value, { timeout: 500 })
+  }).toPass({ timeout: 15_000 })
 }
 
 export const WORKER_URL =
@@ -140,7 +159,7 @@ const readDevEmail = (
 /** Registers a real applicant through the signup screens and returns the email. */
 export const signUpApplicant = async (page: Page, email: string): Promise<void> => {
   await page.goto('/sign-up')
-  await page.getByLabel('Email address').fill(email)
+  await fillSettled(page.getByLabel('Email address'), email)
   await page.getByRole('button', { name: 'Send verification code' }).click()
 
   const code = await latestOtp(email)
@@ -164,7 +183,7 @@ export const signIn = async (
    * because "Remembered it? Sign in" also contains the words.
    */
   await page.goto('/login')
-  await page.getByLabel('Email address').fill(email)
+  await fillSettled(page.getByLabel('Email address'), email)
   await page.getByLabel('Password', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Sign In', exact: true }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/login'))
@@ -249,6 +268,7 @@ export const openProgrammeCycle = async (
     .fill('Attach a detailed project report.')
   const local = (value: Date) => value.toISOString().slice(0, 16)
   await page.getByLabel('Applications open').fill(local(new Date(Date.now() - 3_600_000)))
+  await choosePipeline(page)
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
   await uploadPolicyDocument(page)
@@ -259,6 +279,22 @@ export const openProgrammeCycle = async (
     page.getByRole('button', { name: 'Close to new applications' }),
   ).toBeVisible()
   return code
+}
+
+/**
+ * Chooses the seeded pipeline on the cycle form's "Pipeline & kinds" step.
+ *
+ * By its key, never by position: the pipeline spec publishes routes of its own
+ * into the same database, and a cycle pinned to one of those would be worked
+ * by nobody. The kinds are left as the form offers them — one first
+ * application per enterprise.
+ */
+export const choosePipeline = async (page: Page, key: string = SEEDED_PIPELINE.key): Promise<void> => {
+  await page.getByRole('button', { name: /Pipeline & kinds/u }).click()
+  const select = page.getByLabel('Pipeline', { exact: true })
+  const option = select.locator('option').filter({ hasText: `(${key})` })
+  await expect(option).toHaveCount(1)
+  await select.selectOption(await option.getAttribute('value') as string)
 }
 
 /**
@@ -274,7 +310,7 @@ export const registerEnterprise = async (
   businessName: string,
 ): Promise<void> => {
   await page.goto('/enterprises/new')
-  await page.getByLabel('Registered or trading name').fill(businessName)
+  await fillSettled(page.getByLabel('Registered or trading name'), businessName)
   /*
    * The date matters even though the wizard lets it stay blank: an open
    * cycle sorts enterprises by trading age at submission, and an enterprise
@@ -362,8 +398,8 @@ export const startApplication = async (
   // Why that matters is on `chooseProgrammeCycle`.
   await chooseProgrammeCycle(page, cycleCode)
   await page.getByRole('button', { name: 'Next' }).click()
-  await page.getByRole('radio', { name: 'Initial application' }).check()
-  await page.getByRole('button', { name: 'Start an initial application' }).click()
+  await page.getByRole('radio', { name: 'First application' }).check()
+  await page.getByRole('button', { name: 'Start: First application' }).click()
   await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
   return page.url().split('/').pop() as string
 }
@@ -386,23 +422,13 @@ export const submitApplication = async (
   {
     prefix = 'journey',
     businessName = 'Journey Works',
-    configureIdentifiers,
   }: {
     prefix?: string
     businessName?: string
-    /**
-     * Runs on the cycle form before it is created, so a test can set the
-     * identifier rules this application will be judged by. The rules freeze
-     * with the submission, which is the only way to reach a desk review that
-     * demands something other than the default.
-     */
-    configureIdentifiers?: (page: Page) => Promise<void>
   } = {},
 ): Promise<{ email: string; id: string }> => {
   await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-  const cycleCode = await openCycleWithoutDocuments(
-    page, prefix.toUpperCase(), configureIdentifiers,
-  )
+  const cycleCode = await openCycleWithoutDocuments(page, prefix.toUpperCase())
   await page.context().clearCookies()
 
   const email = uniqueEmail(prefix)
@@ -420,16 +446,18 @@ export const submitApplication = async (
   }
   await chooseProgrammeCycle(page, cycleCode)
   await page.getByRole('button', { name: 'Next' }).click()
-  await page.getByRole('radio', { name: 'Initial application' }).check()
-  await page.getByRole('button', { name: 'Start an initial application' }).click()
+  await page.getByRole('radio', { name: 'First application' }).check()
+  await page.getByRole('button', { name: 'Start: First application' }).click()
   await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
   const id = page.url().split('/').pop() as string
 
   await fillEveryAnswer(page, id, businessName)
 
   await page.goto(`/applications/${id}/review`)
-  await expect(page.getByText('Everything needed is present')).toBeVisible()
+  await expect(page.getByText('Ready to submit')).toBeVisible()
   await page.getByRole('button', { name: 'Submit application' }).click()
+  // Submitting asks once more, in a dialog whose button has the same name.
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Submit application' }).click()
   await expect(page).toHaveURL(new RegExp(`/applications/${id}/submitted$`, 'u'))
 
   return { email, id }
@@ -442,7 +470,9 @@ export const submitApplication = async (
  * on: a save replaces the whole answer set, so every question is present and
  * an unanswered one is an explicit null; and the owners are members of a
  * reusable group, so their keys are qualified by the group (`OWNERS__NAME`).
- * Every conditional question is answered "no".
+ * The applicant asks for a grant and a bank loan, so the whole route — TTC,
+ * Industries & Commerce and a bank — is reachable; every other conditional
+ * question is answered "no".
  */
 const COMPLETE_ANSWERS = {
   OWNERS: [
@@ -455,18 +485,17 @@ const COMPLETE_ANSWERS = {
       OWNERS__RELATED_PERSON_NAME: 'Maya Debbarma',
     },
   ],
-  TOTAL_PROJECT_COST_PAISE: 50_000_000,
+  // A grant of ₹1,00,000 and a loan of ₹5,00,000, State Bank of India first.
+  WANTS_GRANT: true,
   SEED_FUND_REQUESTED_PAISE: 10_000_000,
-  BANK_LOAN_PROPOSED_PAISE: 0,
-  PROMOTER_CONTRIBUTION_PAISE: 1_000_000,
+  WANTS_BANK_LOAN: true,
+  LOAN_BANK_FIRST_CHOICE: 'SBI',
+  LOAN_BANK_SECOND_CHOICE: 'TGB',
+  LOAN_AMOUNT_REQUESTED_PAISE: 50_000_000,
   RECEIVED_GOVERNMENT_FUNDING: false,
   GOVERNMENT_SCHEME_NAME: null,
   GOVERNMENT_FUNDING_AMOUNT_PAISE: null,
   GOVERNMENT_FUNDING_SANCTION_YEAR: null,
-  HAS_EXISTING_BANK_CREDIT: false,
-  EXISTING_BANK_NAME: null,
-  EXISTING_CREDIT_AMOUNT_PAISE: null,
-  EXISTING_CREDIT_STATUS: null,
   NOC_REQUIRED: false,
 }
 
@@ -482,7 +511,16 @@ const COMPLETE_ANSWERS = {
  */
 export const submittedThroughApi = async (
   page: Page,
-  { prefix = 'submitted', businessName = 'Submitted Works' }: { prefix?: string; businessName?: string } = {},
+  {
+    prefix = 'submitted',
+    businessName = 'Submitted Works',
+    answers = {},
+  }: {
+    prefix?: string
+    businessName?: string
+    /** Answers to change from the complete set, such as asking for no loan. */
+    answers?: Record<string, unknown>
+  } = {},
 ): Promise<{ email: string; id: string }> => {
   await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
   const cycleCode = await openCycleWithoutDocuments(page, prefix.toUpperCase())
@@ -507,7 +545,7 @@ export const submittedThroughApi = async (
   const saved = (await call(
     `mutation($input: SaveApplicationDraftInput!) { seb { application { saveDraft(input: $input) {
       success message response { currentVersion statusVersion } } } } }`,
-    { input: { applicationId: id, expectedVersion: 1, expectedStatusVersion: 1, answers: COMPLETE_ANSWERS } },
+    { input: { applicationId: id, expectedVersion: 1, expectedStatusVersion: 1, answers: { ...COMPLETE_ANSWERS, ...answers } } },
   )).seb.application.saveDraft
   expect(saved.success, saved.message).toBe(true)
   const submitted = (await call(
@@ -526,10 +564,9 @@ export const submittedThroughApi = async (
 }
 
 /** A cycle whose policy names no required documents. */
-const openCycleWithoutDocuments = async (
+export const openCycleWithoutDocuments = async (
   page: Page,
   prefix: string,
-  configureIdentifiers?: (page: Page) => Promise<void>,
 ): Promise<string> => {
   // Random suffix as well as the clock: two workers opening a cycle in the
   // same millisecond with the same prefix would otherwise collide.
@@ -546,11 +583,7 @@ const openCycleWithoutDocuments = async (
   const local = (value: Date) => value.toISOString().slice(0, 16)
   await page.getByLabel('Applications open').fill(local(new Date(Date.now() - 3_600_000)))
 
-  if (configureIdentifiers) {
-    // The identifier rules live on the wizard's last step.
-    await page.getByRole('button', { name: /Desk review & Reasons/u }).click()
-    await configureIdentifiers(page)
-  }
+  await choosePipeline(page)
 
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
@@ -711,7 +744,7 @@ const makeDocumentsOptional = async (page: Page, cycleId: string): Promise<void>
  */
 export const fillOwnersStage = async (page: Page): Promise<void> => {
   // One entry, added explicitly — a fresh group starts empty.
-  await page.getByRole('button', { name: 'Add owners' }).click()
+  await page.getByRole('button', { name: 'Add owner', exact: true }).click()
   await page.getByLabel('Full name').fill('Bethel Debbarma')
   await page.getByLabel('Role in the enterprise').selectOption({ index: 1 })
   await page.getByLabel('Date of birth').fill('1996-07-14')
@@ -719,6 +752,27 @@ export const fillOwnersStage = async (page: Page): Promise<void> => {
   await page.getByLabel('Relationship').selectOption({ index: 1 })
   await page.getByLabel('Of (name)').fill('Sanjoy Debbarma')
   await page.getByRole('button', { name: 'Save & next' }).click()
+}
+
+/**
+ * The funding stage: a grant and a bank loan, State Bank of India first.
+ *
+ * The amounts and banks appear only once their yes/no is answered, so each is
+ * filled after the question that reveals it. Matched by the start of the label:
+ * the renderer adds the unit and any "(optional)" after the cycle's words.
+ */
+export const fillFundingStage = async (
+  page: Page,
+  { grant = true, loan = true }: { grant?: boolean; loan?: boolean } = {},
+): Promise<void> => {
+  await page.getByRole('group', { name: 'Do you want a grant?' }).getByLabel(grant ? 'Yes' : 'No').check()
+  if (grant) await page.getByLabel(/^Desired grant amount/u).fill('250000')
+  await page.getByRole('group', { name: 'Do you want a bank loan?' }).getByLabel(loan ? 'Yes' : 'No').check()
+  if (loan) {
+    await page.getByLabel(/^First choice of bank/u).selectOption('SBI')
+    await page.getByLabel(/^Second choice of bank/u).selectOption('TGB')
+    await page.getByLabel(/^Loan amount requested/u).fill('500000')
+  }
 }
 
 /** Every question the form asks, answered. */
@@ -744,25 +798,14 @@ export const fillEveryAnswer = async (
 
   await fillOwnersStage(page)
 
-  // Project cost and funding. Exact, because the "Why … is asked" opener
-  // beside a label contains the label's own words.
-  await page.getByLabel('Total project cost (₹)', { exact: true }).fill('1000000')
-  await page.getByLabel('Seed fund requested (₹)', { exact: true }).fill('250000')
-  // Both are `OPTIONAL` in the cycle's own template, so the renderer marks
-  // them — the label is the cycle's words plus what the software adds.
-  await page.getByLabel('Bank loan proposed (₹) (optional)').fill('600000')
-  await page.getByLabel('Your own contribution (₹) (optional)').fill('150000')
+  await fillFundingStage(page)
   await saveAndNext()
 
-  // Previous support and credit: both "no", so nothing else appears.
+  // Previous support: "no", so nothing else appears.
   await page
     .getByRole('group', {
       name: 'Has this enterprise received government funding before?',
     })
-    .getByLabel('No')
-    .check()
-  await page
-    .getByRole('group', { name: 'Does this enterprise have existing bank credit?' })
     .getByLabel('No')
     .check()
   await saveAndNext()
@@ -779,7 +822,9 @@ export const fillEveryAnswer = async (
    * The indicator is the signal that the server holds the last answer, and the
    * reload is what makes a silent save failure land *here* rather than on a
    * review screen listing two dozen questions and saying nothing about why.
+   * Nothing saves itself, so the last answer is saved by hand, as a person would.
    */
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 20_000 })
   await page.reload()
   await expect(
@@ -835,49 +880,32 @@ export const OFFICE_ROLES = [
   {
     key: 'CASEWORK_READER',
     name: 'Casework reader',
-    description: 'Reads every casework screen and changes nothing.',
+    description: 'Reads every submitted file and changes nothing.',
     /*
      * Reads only. Reading a file and working it are different jobs, and
      * somebody preparing a case needs the first without the second — so this
-     * role holds no `note` and no `review`, and the screens draw no control it
-     * cannot use.
+     * role holds no `note` and no stage act, and the screens draw no control
+     * it cannot use.
      *
      * Deliberately nothing that draws the Administration section of the
      * navigation either: the cycle rules they judge against arrive inside the
-     * workspace, so they need no separate way in, and a heading leading only to
-     * screens somebody has no business on is noise.
+     * workspace, so they need no separate way in.
      */
-    permissions: [
-      ['application', 'read'], ['policy_document', 'read'],
-      ['funding', 'read'], ['recovery', 'read'],
-    ],
+    permissions: [['application', 'read'], ['policy_document', 'read']],
   },
   {
     key: 'PROGRAMME_OFFICER',
     name: 'Programme officer',
-    description: 'The whole operational workflow, short of shaping the programme.',
-    permissions: [
-      ['application', 'read'], ['application', 'note'], ['application', 'review'],
-      ['application', 'refer'], ['decision', 'record'], ['decision', 'correct'],
-      ['funding', 'read'], ['funding', 'award'], ['funding', 'release'],
-      ['funding', 'reverse'], ['funding', 'assess'],
-      ['recovery', 'read'], ['recovery', 'open'], ['recovery', 'record'],
-      ['recovery', 'cancel'], ['recovery', 'close'],
-      ['programme_cycle', 'read'], ['policy_document', 'read'],
-      ['analytics', 'read'], ['user', 'read'], ['role', 'read'], ['role', 'invite'],
-    ],
-  },
-  {
-    key: 'DECISION_APPROVER',
-    name: 'Decision approver',
-    description: 'Reads casework and records the programme decision.',
+    description: 'Reads and annotates every file, and runs the office, short of shaping the programme.',
     /*
-     * Casework and the verdict, and nothing that governs the office itself —
-     * the point of the role is that deciding and administering are separable.
+     * Office-wide reading and notes, but no stage acts: which files somebody
+     * may move is decided by the stages their roles own, and this role owns
+     * none. The stage roles below are how a file is worked.
      */
     permissions: [
-      ['application', 'read'], ['policy_document', 'read'],
-      ['decision', 'record'], ['decision', 'correct'],
+      ['application', 'read'], ['application', 'note'],
+      ['programme_cycle', 'read'], ['policy_document', 'read'], ['pipeline', 'read'],
+      ['analytics', 'read'], ['user', 'read'], ['role', 'read'], ['role', 'invite'],
     ],
   },
   {
@@ -890,6 +918,88 @@ export const OFFICE_ROLES = [
     ],
   },
 ] as const
+
+/**
+ * Every act a stage can ask for, and the note a send-back or a rejection
+ * keeps. The four stage roles hold the same permissions and differ only in the
+ * stage each owns — which is exactly what stage ownership exists to express.
+ */
+const STAGE_WORK = [
+  ['stage', 'read'], ['stage', 'advance'], ['stage', 'return'],
+  ['stage', 'request_revision'], ['stage', 'decide'], ['stage', 'close'],
+  ['application', 'note'],
+] as const
+
+/**
+ * The roles that work the Mission SEP route, one per stage of the example
+ * pipeline, keyed like the stages they own.
+ */
+export const STAGE_ROLES = [
+  { key: 'TTC', name: 'TTC', description: 'Works the TTC stage.', permissions: STAGE_WORK },
+  {
+    key: 'INDUSTRIES_COMMERCE',
+    name: 'Industries & Commerce',
+    description: 'Works the Industries & Commerce stage.',
+    permissions: STAGE_WORK,
+  },
+  { key: 'SBI_BANK', name: 'SBI Bank', description: 'Works the State Bank of India stage.', permissions: STAGE_WORK },
+  { key: 'TGB_BANK', name: 'TGB Bank', description: 'Works the Tripura Gramin Bank stage.', permissions: STAGE_WORK },
+] as const
+
+/** The pipeline every spec's cycle is worked in: the example, published. */
+export const SEEDED_PIPELINE = { key: 'MISSION_SEP', name: 'Mission SEP' } as const
+
+/**
+ * Publishes the worked example as the pipeline every cycle chooses, and hands
+ * each of its stages to the stage role of the same key.
+ *
+ * Through the API rather than the editor: the editor has its own spec, and
+ * every other spec only needs a published route to exist. It is the same set
+ * of mutations the editor sends.
+ */
+export const seedPipeline = async (page: Page): Promise<void> => {
+  const call = graphqlAs(page)
+  const detail = `success message response { id draft { revision } stages { stageKey ownersVersion } }`
+  const created = (await call(
+    `mutation($input: CreatePipelineInput!) { admin { pipeline { create(input: $input) { ${detail} } } } }`,
+    { input: { ...SEEDED_PIPELINE, description: 'The TTC, Industries & Commerce and bank route.', startFromExample: true } },
+  )).admin.pipeline.create
+  expect(created.success, created.message).toBe(true)
+  const published = (await call(
+    `mutation($input: PublishPipelineInput!) { admin { pipeline { publish(input: $input) { ${detail} } } } }`,
+    { input: { pipelineId: created.response.id, expectedRevision: created.response.draft.revision, changeNote: 'The first route.' } },
+  )).admin.pipeline.publish
+  expect(published.success, published.message).toBe(true)
+  for (const stage of published.response.stages as { stageKey: string; ownersVersion: number }[]) {
+    const owned = (await call(
+      `mutation($input: SetPipelineStageOwnersInput!) { admin { pipeline { setStageOwners(input: $input) { success message } } } }`,
+      { input: {
+        pipelineId: created.response.id,
+        stageKey: stage.stageKey,
+        expectedOwnersVersion: stage.ownersVersion,
+        roleKeys: [stage.stageKey],
+        reason: 'The office that works this stage.',
+      } },
+    )).admin.pipeline.setStageOwners
+    expect(owned.success, owned.message).toBe(true)
+  }
+}
+
+/**
+ * A GraphQL call in the browser's own session, failing the test on a
+ * transport-level error. Business refusals come back in the envelope for the
+ * caller to assert on.
+ */
+export const graphqlAs = (page: Page) =>
+  async (query: string, variables: Record<string, unknown> = {}) => {
+    const response = await page.request.post(`${WORKER_URL}/graphql`, {
+      data: { query, variables },
+      headers: { 'content-type': 'application/json' },
+    })
+    const body = await response.json()
+    expect(body.errors, JSON.stringify(body.errors)).toBeUndefined()
+    return body.data
+  }
 
 /**
  * Composes one role through the screens that compose one.
@@ -948,7 +1058,7 @@ export const inviteSomebodyTo = async (page: Page, role: string) => {
 
   await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
   await page.goto('/admin/invite')
-  await page.getByLabel('Their email address').fill(email)
+  await fillSettled(page.getByLabel('Their email address'), email)
   await page.getByRole('button', { name: 'Look them up' }).click()
   await expect(page.getByRole('heading', { name: email })).toBeVisible()
   // Selected by value rather than label, because the labels carry a

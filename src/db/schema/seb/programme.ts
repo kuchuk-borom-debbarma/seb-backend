@@ -15,13 +15,13 @@
  * would then be the only thing that knows what a template is.
  */
 import { sql } from 'drizzle-orm'
-import { deskReviewIdentifierKinds } from '../shared'
 import {
   boolean,
   check,
   foreignKey,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   unique,
@@ -29,6 +29,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { coreUser } from '../core/auth'
 import { instant, paise, versionedSoftDeleteColumns } from '../shared'
+import { sebPipeline, sebPipelineVersion } from './pipeline'
 
 export const programmeCycleStatuses = ['DRAFT', 'OPEN', 'CLOSED', 'ARCHIVED'] as const
 export const programmeCycleChangeTypes = [
@@ -48,27 +49,6 @@ export const fundingCeilingScopes = [
   'ENTERPRISE',
   'FUNDING_CASE',
 ] as const
-/*
- * ASSIGNMENT_RELEASE and ASSIGNMENT_REASSIGN are gone: assignment release and
- * reassignment left the product, so a cycle can neither cite nor be required
- * to catalogue reasons for them. Nothing is deployed, so no stored rows carry
- * the retired values.
- */
-export const programmeReasonContexts = [
-  'CYCLE_CLOSE',
-  'REVISION',
-  'REJECTION',
-  'BANK_REFERRAL_CANCEL',
-  'BANK_OUTCOME_CORRECTION',
-  'DECISION_CORRECTION',
-  'AWARD_AMENDMENT',
-  'AWARD_SUSPENSION',
-  'AWARD_CANCELLATION',
-  'AWARD_CLOSURE',
-  'RELEASE_REVERSAL',
-  'RECOVERY',
-  'RECOVERY_WAIVER',
-] as const
 export const programmeCycleEventTypes = [
   'OPENED',
   'GUIDANCE_CHANGED',
@@ -87,7 +67,6 @@ export const sebProgrammeCycle = pgTable(
     cycleYear: integer('cycle_year').notNull(),
     policyReference: text('policy_reference'),
     applicantGuidance: text('applicant_guidance'),
-    partnerBankGuidance: text('partner_bank_guidance'),
     status: text('status', { enum: programmeCycleStatuses }).notNull().default('DRAFT'),
     opensAt: instant('opens_at'),
     closesAt: instant('closes_at'),
@@ -140,7 +119,6 @@ export const sebProgrammeCycleVersion = pgTable(
     cycleYear: integer('cycle_year').notNull(),
     policyReference: text('policy_reference'),
     applicantGuidance: text('applicant_guidance'),
-    partnerBankGuidance: text('partner_bank_guidance'),
     status: text('status', { enum: programmeCycleStatuses }).notNull(),
     opensAt: instant('opens_at'),
     closesAt: instant('closes_at'),
@@ -150,7 +128,6 @@ export const sebProgrammeCycleVersion = pgTable(
     minimumApplicantAge: integer('minimum_applicant_age'),
     maximumApplicantAge: integer('maximum_applicant_age'),
     categoryAMaximumMonths: integer('category_a_maximum_months'),
-    expansionWaitMonths: integer('expansion_wait_months'),
     majorityOwnershipRequired: boolean('majority_ownership_required'),
     jurisdiction: text('jurisdiction', { enum: programmeJurisdictions }),
     fundingCeilingState: text('funding_ceiling_state', {
@@ -160,6 +137,17 @@ export const sebProgrammeCycleVersion = pgTable(
     fundingCeilingScope: text('funding_ceiling_scope', {
       enum: fundingCeilingScopes,
     }),
+
+    /*
+     * The pipeline this cycle's applications are worked in. Chosen while the
+     * cycle is a draft; the version is stamped by the write that opens the
+     * cycle, from the pipeline's current published version, so a cycle never
+     * opens on an unpublished shape and never follows a later edit.
+     */
+    pipelineId: text('pipeline_id')
+      .notNull()
+      .references(() => sebPipeline.id, { onDelete: 'restrict' }),
+    pipelineVersion: integer('pipeline_version'),
 
     changeType: text('change_type', { enum: programmeCycleChangeTypes }).notNull(),
     changeReason: text('change_reason'),
@@ -176,6 +164,18 @@ export const sebProgrammeCycleVersion = pgTable(
       table.version,
     ),
     check('seb_programme_cycle_version_number_check', sql`${table.version} >= 1`),
+    foreignKey({
+      columns: [table.pipelineId, table.pipelineVersion],
+      foreignColumns: [sebPipelineVersion.pipelineId, sebPipelineVersion.version],
+      name: 'seb_programme_cycle_version_pipeline_version_fk',
+    }).onDelete('restrict'),
+    // An open, closed or archived cycle has a pinned version; a draft does not
+    // yet, because none is chosen until it opens.
+    check(
+      'seb_programme_cycle_version_pipeline_pin_check',
+      sql`(${table.status} = 'DRAFT' AND ${table.pipelineVersion} IS NULL)
+        OR (${table.status} <> 'DRAFT' AND ${table.pipelineVersion} IS NOT NULL)`,
+    ),
     check('seb_programme_cycle_version_year_check', sql`${table.cycleYear} >= 1`),
     check(
       'seb_programme_cycle_version_status_check',
@@ -197,8 +197,7 @@ export const sebProgrammeCycleVersion = pgTable(
     ),
     check(
       'seb_programme_cycle_version_months_check',
-      sql`(${table.categoryAMaximumMonths} IS NULL OR ${table.categoryAMaximumMonths} >= 0)
-        AND (${table.expansionWaitMonths} IS NULL OR ${table.expansionWaitMonths} >= 1)`,
+      sql`${table.categoryAMaximumMonths} IS NULL OR ${table.categoryAMaximumMonths} >= 0`,
     ),
     check(
       'seb_programme_cycle_version_jurisdiction_check',
@@ -222,135 +221,37 @@ export const sebProgrammeCycleVersion = pgTable(
 
 
 /**
- * What a reviewer must transcribe, and what is compared against other files.
- *
- * These two are deliberately independent settings rather than one.
- *
- * A bank account can be worth recording without being worth refusing on: joint
- * accounts and family businesses are real, and a shared account is a question
- * rather than a finding. An ST certificate can be worth comparing across files
- * without being demanded on a check the reviewer marked not applicable.
- *
- * Frozen into the cycle version like every other rule here, so an application
- * is judged by the policy in force when it was submitted. Tightening the rules
- * next year cannot retroactively invalidate a review completed under the old
- * ones.
- *
- * **A cycle with no rows demands nothing and compares nothing.** That is the
- * honest default for a table that did not exist yesterday, and it is what
- * leaves already-open cycles working exactly as they did.
+ * The eligibility rule types a kind may use. The vocabulary is
+ * `services/catalogue/workflow.json`'s `eligibilityRules`; this is its database
+ * twin, held to it by `check:workflow-catalog`.
  */
-export const identifierRequirements = ['REQUIRED_ON_PASS', 'OPTIONAL', 'OFF'] as const
-export const identifierDuplicatePolicies = ['CHECKED', 'NOT_CHECKED'] as const
+export const eligibilityRuleTypes = [
+  'PRIOR_APPLICATION_HAS_FLAG',
+  'PRIOR_RECORDED_VALUE_AT_LEAST',
+  'NO_OPEN_APPLICATION_OF_KIND',
+  'MAX_APPLICATIONS_OF_KIND',
+  'ENTERPRISE_AGE_AT_LEAST',
+] as const
 
-export const sebProgrammeCycleIdentifierRule = pgTable(
-  'seb_programme_cycle_identifier_rule',
+/**
+ * A kind of application a cycle accepts — a first application, a second phase,
+ * whatever the programme calls them.
+ *
+ * Nothing about "initial" or "expansion" is known to the code any more: a cycle
+ * declares its kinds, and each kind's rules (below) decide who may start one.
+ * Frozen into the cycle version like every other rule, so an applicant is
+ * judged by the rules in force when they started.
+ */
+export const sebProgrammeCycleApplicationKind = pgTable(
+  'seb_programme_cycle_application_kind',
   {
     id: text('id').primaryKey(),
     programmeCycleId: text('programme_cycle_id').notNull(),
     programmeCycleVersion: integer('programme_cycle_version').notNull(),
-    kind: text('kind', { enum: deskReviewIdentifierKinds }).notNull(),
-    /*
-     * `REQUIRED_ON_PASS` rather than `REQUIRED`: an identifier is the evidence
-     * behind a check, and a check that was failed or marked not applicable is
-     * attesting to nothing, so there is nothing to have read.
-     */
-    requirement: text('requirement', { enum: identifierRequirements }).notNull(),
-    duplicatePolicy: text('duplicate_policy', { enum: identifierDuplicatePolicies })
-      .notNull(),
-    /** The desk-review check this is evidence for. Null means it stands alone. */
-    checkType: text('check_type'),
-    createdAt: instant('created_at').notNull(),
-  },
-  (table) => [
-    foreignKey({
-      columns: [table.programmeCycleId, table.programmeCycleVersion],
-      foreignColumns: [
-        sebProgrammeCycleVersion.programmeCycleId,
-        sebProgrammeCycleVersion.version,
-      ],
-      name: 'seb_programme_cycle_identifier_rule_version_fk',
-    }).onDelete('restrict'),
-    uniqueIndex('seb_programme_cycle_identifier_rule_kind_uq').on(
-      table.programmeCycleId,
-      table.programmeCycleVersion,
-      table.kind,
-    ),
-    check(
-      'seb_programme_cycle_identifier_rule_kind_check',
-      sql`${table.kind} IN ('ST_CERTIFICATE', 'IDENTITY_DOCUMENT', 'BANK_ACCOUNT', 'BUSINESS_REGISTRATION')`,
-    ),
-    check(
-      'seb_programme_cycle_identifier_rule_requirement_check',
-      sql`${table.requirement} IN ('REQUIRED_ON_PASS', 'OPTIONAL', 'OFF')`,
-    ),
-    check(
-      'seb_programme_cycle_identifier_rule_duplicate_check',
-      sql`${table.duplicatePolicy} IN ('CHECKED', 'NOT_CHECKED')`,
-    ),
-    /*
-     * A rule that demands an identifier on a passing check must say which
-     * check. Without one there is no moment at which it becomes required, so
-     * the requirement would be unreachable rather than merely unused.
-     */
-    check(
-      'seb_programme_cycle_identifier_rule_check_type_check',
-      sql`(${table.requirement} <> 'REQUIRED_ON_PASS' AND ${table.checkType} IS NULL)
-        OR (${table.requirement} = 'REQUIRED_ON_PASS' AND ${table.checkType} IN (
-          'IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION',
-          'FORM_COMPLETENESS', 'DOCUMENT_COMPLETENESS', 'ANSWER_DOCUMENT_CONSISTENCY',
-          'DPR_FEASIBILITY', 'EXPANSION_EVIDENCE'))`,
-    ),
-  ],
-)
-
-/** Assessment outcome required before a later expansion may start. */
-export const sebProgrammeCycleAssessmentRule = pgTable(
-  'seb_programme_cycle_assessment_rule',
-  {
-    id: text('id').primaryKey(),
-    programmeCycleId: text('programme_cycle_id').notNull(),
-    programmeCycleVersion: integer('programme_cycle_version').notNull(),
-    assessmentType: text('assessment_type').notNull(),
-    requiredOutcome: text('required_outcome').notNull().default('PASSED'),
-    createdAt: instant('created_at').notNull(),
-  },
-  (table) => [
-    foreignKey({
-      columns: [table.programmeCycleId, table.programmeCycleVersion],
-      foreignColumns: [
-        sebProgrammeCycleVersion.programmeCycleId,
-        sebProgrammeCycleVersion.version,
-      ],
-      name: 'seb_programme_cycle_assessment_rule_version_fk',
-    }).onDelete('restrict'),
-    uniqueIndex('seb_programme_cycle_assessment_rule_type_uq').on(
-      table.programmeCycleId,
-      table.programmeCycleVersion,
-      table.assessmentType,
-    ),
-    check(
-      'seb_programme_cycle_assessment_rule_type_check',
-      sql`${table.assessmentType} IN ('UTILIZATION', 'PERFORMANCE', 'FINANCIAL_AUDIT')`,
-    ),
-    check(
-      'seb_programme_cycle_assessment_rule_outcome_check',
-      sql`${table.requiredOutcome} = 'PASSED'`,
-    ),
-  ],
-)
-
-/** Approved reason code and safe message template for one policy version. */
-export const sebProgrammeCycleReason = pgTable(
-  'seb_programme_cycle_reason',
-  {
-    id: text('id').primaryKey(),
-    programmeCycleId: text('programme_cycle_id').notNull(),
-    programmeCycleVersion: integer('programme_cycle_version').notNull(),
-    context: text('context', { enum: programmeReasonContexts }).notNull(),
-    code: text('code').notNull(),
+    kindKey: text('kind_key').notNull(),
     label: text('label').notNull(),
-    applicantMessageTemplate: text('applicant_message_template'),
+    description: text('description'),
+    sortOrder: integer('sort_order').notNull(),
     createdAt: instant('created_at').notNull(),
   },
   (table) => [
@@ -360,21 +261,73 @@ export const sebProgrammeCycleReason = pgTable(
         sebProgrammeCycleVersion.programmeCycleId,
         sebProgrammeCycleVersion.version,
       ],
-      name: 'seb_programme_cycle_reason_version_fk',
+      name: 'seb_programme_cycle_application_kind_version_fk',
     }).onDelete('restrict'),
-    uniqueIndex('seb_programme_cycle_reason_code_uq').on(
+    // A constraint rather than an index: the rule rows' foreign key targets it.
+    unique('seb_programme_cycle_application_kind_key_uq').on(
       table.programmeCycleId,
       table.programmeCycleVersion,
-      table.context,
-      table.code,
+      table.kindKey,
     ),
-    uniqueIndex('seb_programme_cycle_reason_cycle_id_uq').on(
+    uniqueIndex('seb_programme_cycle_application_kind_order_uq').on(
       table.programmeCycleId,
-      table.id,
+      table.programmeCycleVersion,
+      table.sortOrder,
     ),
     check(
-      'seb_programme_cycle_reason_context_check',
-      sql`${table.context} IN ('CYCLE_CLOSE', 'REVISION', 'REJECTION', 'BANK_REFERRAL_CANCEL', 'BANK_OUTCOME_CORRECTION', 'DECISION_CORRECTION', 'AWARD_AMENDMENT', 'AWARD_SUSPENSION', 'AWARD_CANCELLATION', 'AWARD_CLOSURE', 'RELEASE_REVERSAL', 'RECOVERY', 'RECOVERY_WAIVER')`,
+      'seb_programme_cycle_application_kind_key_check',
+      sql`${table.kindKey} ~ '^[A-Z][A-Z0-9_]{1,63}$'`,
+    ),
+    check(
+      'seb_programme_cycle_application_kind_label_check',
+      sql`char_length(${table.label}) BETWEEN 1 AND 80
+        AND (${table.description} IS NULL OR char_length(${table.description}) <= 500)`,
+    ),
+    check('seb_programme_cycle_application_kind_order_check', sql`${table.sortOrder} >= 1`),
+  ],
+)
+
+/**
+ * One condition an enterprise must meet to start an application of a kind.
+ * All of a kind's rules must hold. `params` is validated against the rule type's
+ * declared parameters when the cycle is saved; the database only proves it is
+ * an object.
+ */
+export const sebProgrammeCycleApplicationKindRule = pgTable(
+  'seb_programme_cycle_application_kind_rule',
+  {
+    id: text('id').primaryKey(),
+    programmeCycleId: text('programme_cycle_id').notNull(),
+    programmeCycleVersion: integer('programme_cycle_version').notNull(),
+    kindKey: text('kind_key').notNull(),
+    position: integer('position').notNull(),
+    ruleType: text('rule_type', { enum: eligibilityRuleTypes }).notNull(),
+    params: jsonb('params').notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.programmeCycleId, table.programmeCycleVersion, table.kindKey],
+      foreignColumns: [
+        sebProgrammeCycleApplicationKind.programmeCycleId,
+        sebProgrammeCycleApplicationKind.programmeCycleVersion,
+        sebProgrammeCycleApplicationKind.kindKey,
+      ],
+      name: 'seb_programme_cycle_application_kind_rule_kind_fk',
+    }).onDelete('restrict'),
+    uniqueIndex('seb_programme_cycle_application_kind_rule_position_uq').on(
+      table.programmeCycleId,
+      table.programmeCycleVersion,
+      table.kindKey,
+      table.position,
+    ),
+    check('seb_programme_cycle_application_kind_rule_position_check', sql`${table.position} >= 1`),
+    check(
+      'seb_programme_cycle_application_kind_rule_type_check',
+      sql`${table.ruleType} IN ('PRIOR_APPLICATION_HAS_FLAG', 'PRIOR_RECORDED_VALUE_AT_LEAST', 'NO_OPEN_APPLICATION_OF_KIND', 'MAX_APPLICATIONS_OF_KIND', 'ENTERPRISE_AGE_AT_LEAST')`,
+    ),
+    check(
+      'seb_programme_cycle_application_kind_rule_params_check',
+      sql`jsonb_typeof(${table.params}) = 'object' AND octet_length(${table.params}::text) <= 4096`,
     ),
   ],
 )

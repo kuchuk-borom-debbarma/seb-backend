@@ -93,6 +93,8 @@ export function ApplicationJourney({
   template,
   activeStep,
   issues,
+  shownCounts,
+  correctionStageKeys,
   editableStageKeys,
   children,
   footer,
@@ -104,6 +106,14 @@ export function ApplicationJourney({
   template: ResolvedTemplate
   activeStep: ApplicationJourneyStep
   issues: readonly Issue[]
+  /**
+   * How many problems each step has on show, where that differs from the
+   * report: none on a step not yet tried, and fewer on one whose answers have
+   * changed since. The rail counts these; progress still follows the report.
+   */
+  shownCounts?: ReadonlyMap<ApplicationJourneyStep, number>
+  /** The form stages the office has asked the applicant to correct. */
+  correctionStageKeys?: readonly string[]
   editableStageKeys: readonly string[]
   children: React.ReactNode
   footer?: React.ReactNode
@@ -117,6 +127,8 @@ export function ApplicationJourney({
     template,
     activeStep,
     issues,
+    shownCounts,
+    correctionStageKeys,
     editableStageKeys,
     readOnly,
   })
@@ -158,12 +170,16 @@ function applicationSteps({
   template,
   activeStep,
   issues,
+  shownCounts,
+  correctionStageKeys,
   editableStageKeys,
   readOnly,
 }: {
   template: ResolvedTemplate
   activeStep: ApplicationJourneyStep
   issues: readonly Issue[]
+  shownCounts?: ReadonlyMap<ApplicationJourneyStep, number>
+  correctionStageKeys?: readonly string[]
   editableStageKeys: readonly string[]
   readOnly: boolean
 }): Array<JourneyStep<ApplicationJourneyStep>> {
@@ -174,7 +190,7 @@ function applicationSteps({
   )
 
   return order.map((step, index) => {
-    const issueCount = issueCountForStep(template, issues, step)
+    const issueCount = shownCounts?.get(step) ?? issueCountForStep(template, issues, step)
     const stage = template.stages.find((each) => each.key === step)
     const locked = stage !== undefined && !editable.has(stage.key)
 
@@ -203,6 +219,7 @@ function applicationSteps({
       ),
       status,
       issueCount: issueCount || undefined,
+      flag: correctionStageKeys?.includes(step) ? 'Correction asked' : undefined,
     }
   })
 }
@@ -216,7 +233,6 @@ function withMinutes(description: string, minutes?: number | null): string {
 function stepLabel(step: ApplicationJourneyStep, stageTitle?: string): string {
   if (step === ATTACH_EVIDENCE) return 'Attach documents'
   if (step === REVIEW) return 'Review and submit'
-  if (stageTitle?.toUpperCase() === 'EVIDENCE' || step === 'DOCUMENTS') return 'NOC'
   return stageTitle ?? humanize(step)
 }
 
@@ -230,13 +246,6 @@ function stepDescription(
   }
   if (step === REVIEW) {
     return 'Check every answer and document before creating the formal submission.'
-  }
-  if (
-    stageTitle?.toUpperCase() === 'EVIDENCE' ||
-    stageTitle?.toUpperCase() === 'NOC' ||
-    step === 'DOCUMENTS'
-  ) {
-    return stageDescription ?? 'Answer the NOC questions for this application.'
   }
   return (
     stageDescription ??

@@ -30,6 +30,7 @@ export {
   bootstrapFirstSuperAdmin,
   cleanupExpiredAuthentication,
   currentSession,
+  getCurrentSession,
   revokeAllSessions,
   revokeOtherSessions,
   revokeSession,

@@ -1,0 +1,128 @@
+extend type AdminMutation {
+  """Authoring pipelines: drafts, publishing, retiring, and who works each stage."""
+  pipeline: AdminPipelineMutation!
+}
+
+"""
+Changing pipelines. Each returns the pipeline as it stands after the change.
+
+A published version never changes; edits go into the one draft, which is
+replaced as a whole and guarded by its revision.
+"""
+type AdminPipelineMutation {
+  """
+  Creates a pipeline with its first draft — blank, or the shipped example.
+
+  **Refuses:** a caller without the authority to create pipelines, a key that
+  is malformed or taken, and a missing name.
+  """
+  create("""The new pipeline.""" input: CreatePipelineInput!): AdminPipelineDetailResult!
+
+  """
+  Replaces the draft document, or starts the next draft when
+  `expectedRevision` is 0 and there is none. A document with problems is
+  saved and its problems returned with it; one that does not parse is refused.
+
+  **Refuses:** a caller without the authority to update pipelines, a retired
+  pipeline, a document that is not a pipeline, and a stale revision.
+  """
+  saveDraft("""The document and the revision it replaces.""" input: SavePipelineDraftInput!): AdminPipelineDetailResult!
+
+  """
+  Publishes the draft at the revision quoted, for the cycles that open next.
+  Cycles already open keep the version they pinned.
+
+  **Refuses:** a caller without the authority to publish pipelines, a stale
+  revision, a retired pipeline, and a draft with problems — every one listed.
+  """
+  publish("""The draft revision to publish.""" input: PublishPipelineInput!): AdminPipelineDetailResult!
+
+  """
+  Throws the draft away. The published version is untouched.
+
+  **Refuses:** a caller without the authority to update pipelines, and a
+  stale revision.
+  """
+  discardDraft("""The draft revision to throw away.""" input: DiscardPipelineDraftInput!): AdminPipelineDetailResult!
+
+  """
+  Retires a pipeline: no new cycle may choose it and no draft may change.
+  Cycles already pinned to it keep working their files.
+
+  **Refuses:** a caller without the authority to retire pipelines, a pipeline
+  already retired, and a missing reason.
+  """
+  retire("""The pipeline and why.""" input: RetirePipelineInput!): AdminPipelineDetailResult!
+
+  """
+  Replaces the roles that work one stage. Takes effect at once, without
+  publishing.
+
+  **Refuses:** a caller without the authority to assign stages; a caller who
+  does not work the stage themselves, or who could not offer every role added
+  or removed; an unknown role; a stale owner list; and a missing reason.
+  """
+  setStageOwners("""The stage and its new owner list.""" input: SetPipelineStageOwnersInput!): AdminPipelineDetailResult!
+}
+
+"""A new pipeline."""
+input CreatePipelineInput {
+  """Its unique key: 2–64 capital letters, digits or underscores, starting with a letter."""
+  key: String!
+  """Its name for the office, at most 120 characters."""
+  name: String!
+  """What it is for, at most 1000 characters."""
+  description: String
+  """Start the draft from the shipped example rather than a blank stage."""
+  startFromExample: Boolean
+}
+
+"""The whole draft document."""
+input SavePipelineDraftInput {
+  """The identifier of the pipeline to change."""
+  pipelineId: ID!
+  """The draft's revision as last read, or 0 to start a new draft when there is none."""
+  expectedRevision: Int!
+  """The whole pipeline document, as JSON text of at most 48 KB."""
+  definition: String!
+}
+
+"""Publishing the draft."""
+input PublishPipelineInput {
+  """The identifier of the pipeline to change."""
+  pipelineId: ID!
+  """The draft's revision as last checked."""
+  expectedRevision: Int!
+  """What changed, at most 500 characters, for whoever reads the history."""
+  changeNote: String
+}
+
+"""Throwing the draft away."""
+input DiscardPipelineDraftInput {
+  """The identifier of the pipeline to change."""
+  pipelineId: ID!
+  """The draft's revision as last read."""
+  expectedRevision: Int!
+}
+
+"""Retiring a pipeline."""
+input RetirePipelineInput {
+  """The identifier of the pipeline to change."""
+  pipelineId: ID!
+  """Why, for whoever reads the history."""
+  reason: String!
+}
+
+"""The whole list of roles that should work a stage."""
+input SetPipelineStageOwnersInput {
+  """The identifier of the pipeline to change."""
+  pipelineId: ID!
+  """The stage's key."""
+  stageKey: String!
+  """The owner list's version as last read."""
+  expectedOwnersVersion: Int!
+  """Every role that should work the stage, by key; an empty list leaves it unworked."""
+  roleKeys: [String!]!
+  """Why, for whoever reads the history."""
+  reason: String!
+}

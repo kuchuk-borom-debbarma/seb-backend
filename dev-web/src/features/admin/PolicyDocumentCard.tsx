@@ -22,6 +22,7 @@ import {
 import { formatDate } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
+import styles from './PolicyDocumentCard.module.css'
 
 type PolicyDocument = {
   currentVersion: number
@@ -168,15 +169,22 @@ export function PolicyDocumentCard({
         </p>
       ) : null}
       {canManage ? (
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <span className="button" aria-hidden="true">
+        /*
+         * The input is hidden visually, not removed: `display: none` took it
+         * out of the tab order and the accessibility tree, and the button-look
+         * text was aria-hidden, so neither a keyboard nor a screen reader
+         * could reach the upload. Kept in both, the label names it and the
+         * styled text shows focus through `:focus-within`.
+         */
+        <label className={styles.fileButton}>
+          <span className="button">
             {busy ? 'Uploading…' : document ? 'Replace (PDF)' : 'Upload the policy (PDF)'}
           </span>
           <input
             type="file"
             accept="application/pdf"
             disabled={busy}
-            style={{ display: 'none' }}
+            className="visually-hidden"
             onChange={(event) => {
               const file = event.target.files?.[0]
               // Cleared so choosing the same corrected file again re-fires.

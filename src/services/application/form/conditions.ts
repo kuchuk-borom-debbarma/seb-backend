@@ -42,17 +42,21 @@ export const isAnswered = (value: AnswerValue | readonly AnswerEntry[] | undefin
 }
 
 /**
- * Compares one answer against a template value.
+ * Compares one value against a configured comparison value.
  *
- * The template stores every comparison value as text, because the column is one
- * column. The field's declared type is what says how to read it back, which is
- * why the source field is passed rather than just its answer.
+ * Configuration stores every comparison value as text, because the column is
+ * one column. The value's declared type is what says how to read it back, which
+ * is why it is passed rather than guessed from the value.
+ *
+ * Exported because a pipeline's conditions compare answers, recorded values and
+ * an action's inputs with exactly these semantics; a second comparison would be
+ * a second answer to "does this hold", and the two would drift.
  */
-const compare = (
+export const compareValue = (
   operator: FieldCondition['operator'],
   answer: AnswerValue | readonly AnswerEntry[] | undefined,
   expected: string | null,
-  source: FormField,
+  source: Pick<FormField, 'type'>,
 ): boolean => {
   if (operator === 'IS_PRESENT') return isAnswered(answer)
   if (operator === 'IS_ABSENT') return !isAnswered(answer)
@@ -87,6 +91,21 @@ const compare = (
   }
 }
 
+/**
+ * Rule 1 on its own: conditions sharing a group must all hold, and any group
+ * holding is enough. Shared by form visibility and by pipeline conditions.
+ */
+export const holdsGroups = <C extends { readonly groupNumber: number }>(
+  conditions: readonly C[],
+  test: (condition: C) => boolean,
+): boolean => {
+  const groups = new Map<number, C[]>()
+  for (const condition of conditions) {
+    groups.set(condition.groupNumber, [...(groups.get(condition.groupNumber) ?? []), condition])
+  }
+  return [...groups.values()].some((group) => group.every(test))
+}
+
 /** Ands within a group, ors between groups. Empty means the effect never fires. */
 const holds = (
   conditions: readonly FieldCondition[],
@@ -95,18 +114,11 @@ const holds = (
 ): boolean | 'NONE' => {
   const applicable = conditions.filter((condition) => condition.effect === effect)
   if (applicable.length === 0) return 'NONE'
-
-  const groups = new Map<number, FieldCondition[]>()
-  for (const condition of applicable) {
-    groups.set(condition.groupNumber, [...(groups.get(condition.groupNumber) ?? []), condition])
-  }
-  return [...groups.values()].some((group) =>
-    group.every((condition) => {
-      const source = read(condition.sourceFieldKey)
-      if (!source) return false
-      return compare(condition.operator, source.answer, condition.comparisonValue, source.field)
-    }),
-  )
+  return holdsGroups(applicable, (condition) => {
+    const source = read(condition.sourceFieldKey)
+    if (!source) return false
+    return compareValue(condition.operator, source.answer, condition.comparisonValue, source.field)
+  })
 }
 
 /**

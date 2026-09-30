@@ -56,7 +56,7 @@ test.describe('evidence', () => {
       'Bank account details',
       'No-objection certificate',
     ]) {
-      await expect(page.getByRole('heading', { name: title })).toBeVisible()
+      await expect(page.getByText(title, { exact: true })).toBeVisible()
     }
   })
 
@@ -79,6 +79,10 @@ test.describe('evidence', () => {
      * calls its documents, and the validation report needs the name because it
      * is shown away from the card that carries it.
      */
+    // Not a fault until the applicant tries to move on: said plainly first,
+    // then in the API's words once "Check and submit" is pressed.
+    await expect(page.getByText('Required. Not attached yet.').first()).toBeVisible()
+    await page.getByRole('button', { name: 'Check and submit' }).click()
     await expect(
       page.getByText('Detailed project report has not been uploaded.'),
     ).toBeVisible()
@@ -169,14 +173,13 @@ test.describe('evidence', () => {
     await page.goto(`/applications/${id}/documents`)
 
     /*
-     * Scoped to one card rather than `choose`, which takes the first picker on
-     * the page. Which card receives the file only started mattering once the
-     * upload could actually succeed.
+     * Scoped to one document's row rather than `choose`, which takes the first
+     * picker on the page. Which row receives the file only started mattering
+     * once the upload could actually succeed. The row carries the question's
+     * key as its id — the same address a review issue links to.
      */
-    const card = page
-      .locator('.card')
-      .filter({ has: page.getByRole('heading', { name: 'Detailed project report' }) })
-    await expect(card.getByText('Detailed project report has not been uploaded.')).toBeVisible()
+    const card = page.locator('#DPR')
+    await expect(card.getByText('Required. Not attached yet.')).toBeVisible()
 
     await card.locator('input[type="file"]').setInputFiles({
       name: 'dpr.pdf',
@@ -191,7 +194,7 @@ test.describe('evidence', () => {
      * sent, and this is what would notice.
      */
     await expect(card.getByText('dpr.pdf')).toBeVisible({ timeout: 15_000 })
-    await expect(card.getByText('Detailed project report has not been uploaded.')).toBeHidden()
+    await expect(card.getByText('Required. Not attached yet.')).toBeHidden()
   })
 
   test('each issue in the report links to the screen that fixes it', async ({ page }) => {
@@ -274,7 +277,7 @@ test.describe('evidence', () => {
     })
 
     await page.goto(`/applications/${id}`)
-    await page.getByRole('link', { name: 'Evidence' }).click()
+    await page.getByRole('link', { name: 'Attach documents' }).click()
     await expect(page).toHaveURL(new RegExp(`/applications/${id}/documents$`, 'u'))
 
     /*
@@ -284,7 +287,9 @@ test.describe('evidence', () => {
      * saying where it lives, not a shortcut past incomplete stages.
      */
     await page.goto(`/applications/${id}/form`)
-    const evidenceStep = page.getByRole('button', { name: /Attach evidence/u })
+    const evidenceStep = page
+      .getByRole('navigation', { name: 'Form categories' })
+      .getByRole('button', { name: /Attach documents/u })
     await expect(evidenceStep).toBeVisible()
     await expect(evidenceStep).toBeDisabled()
   })

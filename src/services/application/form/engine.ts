@@ -17,6 +17,7 @@ import { pruneHidden } from './answers'
 import { isRequiredWhenVisible, isAnswered, visibleFields } from './conditions'
 import { issue, issuePath, type ValidationIssue } from './codes'
 import { coerceAnswer } from './coerce'
+import { formRuleEvaluators } from './cross-field'
 import { checkFieldRules, checkRepeatBounds, checkSelectionMinimum } from './rules'
 import { groupMembers } from './template'
 import type {
@@ -403,14 +404,13 @@ export const validateAnswersForSubmission = (
     }
 
     /*
-     * A role-bound field is required whatever the template says, and a
-     * role-bound amount must be positive.
+     * A role-bound field is required whenever it is visible, whatever the
+     * template says, and a role-bound amount must be positive.
      *
-     * This is not a nicety. The programme's decision is bounded by the
-     * requested amount, read straight off the submission; if a cycle could
-     * publish a template leaving that field optional, an approval could be
-     * compared against nothing at all. Making the requirement follow the role
-     * rather than the flag is what keeps that impossible.
+     * Visible, not always: the grant amount sits behind "do you want a grant",
+     * and an applicant asking only for a loan is never asked it. But when it
+     * is asked, a stage action may bound an approved amount by it, and an
+     * approval compared against nothing would be no bound at all.
      */
     const roleBound = field.role !== null
     const required =
@@ -469,9 +469,36 @@ export const validateAnswersForSubmission = (
   }
 
   issues.push(...policyIssues(template, answers, now, policy, facts ?? null))
+  issues.push(...formRuleIssues(template, answers, visible))
 
   return { valid: issues.length === 0, issues }
 }
+
+/**
+ * The cross-field rules that do not hold, each reported once, on its own stage
+ * and against its first question, with the message its author wrote.
+ *
+ * An operand the applicant was not asked reads as unanswered, whatever is
+ * stored under it: a rule about a loan says nothing to somebody who asked for
+ * no loan, which is the form's rule 3 applied to rules. Submission only, like
+ * completeness: a rule such as "a grant, a loan, or both" cannot hold part way
+ * through a form, and a save must still keep the rest.
+ */
+const formRuleIssues = (
+  template: ResolvedFormTemplate,
+  answers: AnswerMap,
+  visible: ReadonlySet<string>,
+): ValidationIssue[] =>
+  template.rules.flatMap((rule) => {
+    const operands = rule.operandKeys.map((key) => ({
+      key,
+      type: template.byKey.get(key)!.type,
+      value: visible.has(key) ? (answers[key] as AnswerValue | undefined) : undefined,
+    }))
+    return formRuleEvaluators[rule.type].holds(operands, rule.limit)
+      ? []
+      : [issue(rule.stageKey, rule.operandKeys[0]!, 'FORM_RULE_VIOLATED', rule.message)]
+  })
 
 /**
  * The documents this application must carry.
@@ -553,8 +580,9 @@ const policyIssues = (
    */
   const min = policy.minimumApplicantAge
   const max = policy.maximumApplicantAge
-  // Total on a resolved template: resolve refuses an unbound role.
-  const dobField = template.byKey.get(template.roles.APPLICANT_DATE_OF_BIRTH)
+  // Roles are partial: a cycle that asks no date of birth has no age rule to run.
+  const dobKey = template.roles.APPLICANT_DATE_OF_BIRTH
+  const dobField = dobKey === undefined ? undefined : template.byKey.get(dobKey)
   if (dobField && (min !== null || max !== null)) {
     const inBand = (value: unknown): boolean | null => {
       if (typeof value !== 'string') return null
@@ -606,26 +634,32 @@ const policyIssues = (
     )
   }
 
-  const requested = template.byKey.get(template.roles.SEED_FUND_REQUESTED_PAISE)
+  const requestedKey = template.roles.SEED_FUND_REQUESTED_PAISE
+  const requested = requestedKey === undefined ? undefined : template.byKey.get(requestedKey)
   const requestedValue = requested === undefined ? undefined : answers[requested.key]
-  if (
-    requested &&
-    typeof requestedValue === 'number' &&
-    policy.fundingCeilingState === 'RESOLVED' &&
-    policy.fundingCeilingScope === 'APPLICATION' &&
-    policy.fundingCeilingAmountPaise !== null &&
-    requestedValue > policy.fundingCeilingAmountPaise
-  ) {
+  const ceiling = applicationGrantCeiling(policy)
+  if (requested && typeof requestedValue === 'number' && ceiling !== null && requestedValue > ceiling) {
     issues.push(
       issue(requested.stageKey, requested.key, 'FUNDING_CEILING_EXCEEDED',
         `The most this programme awards for one application is ₹${(
-          policy.fundingCeilingAmountPaise / 100
+          ceiling / 100
         ).toLocaleString('en-IN')}.`),
     )
   }
 
   return issues
 }
+
+/**
+ * The most one application may ask for as a grant, in paise, or null when the
+ * cycle sets no per-application ceiling (none resolved yet, or one that caps
+ * the whole cycle instead). The one reading of the policy, shared by the
+ * refusal above and the form that states the limit before it is reached.
+ */
+export const applicationGrantCeiling = (policy: CyclePolicy): number | null =>
+  policy.fundingCeilingState === 'RESOLVED' && policy.fundingCeilingScope === 'APPLICATION'
+    ? policy.fundingCeilingAmountPaise
+    : null
 
 const fullYearsBetween = (from: Date, to: Date): number => {
   let years = to.getUTCFullYear() - from.getUTCFullYear()

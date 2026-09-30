@@ -17,6 +17,7 @@ import { env, SELF } from './worker'
 import { hashPassword, sessionTokenDigest } from '../../src/services/auth/crypto'
 import { catalogue } from '../../src/services/auth/permissions'
 import { completeAnswers, defaultTemplate, requiredDocuments } from './form'
+import { ensureTestPipeline, TEST_PIPELINE_ID } from './pipeline'
 
 export type GraphQLBody<T> = { data?: T; errors?: Array<{ message: string }> }
 
@@ -153,6 +154,7 @@ export const signIn = async (
       now + 86_400_000, now, now,
     ),
   ])
+  await ensureTestPipeline(userId)
   return { userId, roleId, cookie: `seb_session=${token}` }
 }
 
@@ -167,29 +169,27 @@ export const testPolicy = (): Record<string, unknown> => ({
   minimumApplicantAge: 18,
   maximumApplicantAge: 60,
   categoryAMaximumMonths: 24,
-  expansionWaitMonths: 12,
   majorityOwnershipRequired: true,
   jurisdiction: 'TTAADC',
   fundingCeilingState: 'UNRESOLVED',
   fundingCeilingAmountPaise: null,
   fundingCeilingScope: null,
-  requiredAssessmentTypes: ['UTILIZATION', 'PERFORMANCE', 'FINANCIAL_AUDIT'],
   formTemplate: defaultTemplate(),
-  identifierRules: [
-    { kind: 'ST_CERTIFICATE', requirement: 'REQUIRED_ON_PASS',
-      duplicatePolicy: 'CHECKED', checkType: 'ST_ELIGIBILITY' },
-    { kind: 'IDENTITY_DOCUMENT', requirement: 'REQUIRED_ON_PASS',
-      duplicatePolicy: 'CHECKED', checkType: 'IDENTITY_KYC' },
-    { kind: 'BANK_ACCOUNT', requirement: 'REQUIRED_ON_PASS',
-      duplicatePolicy: 'CHECKED', checkType: 'DOCUMENT_COMPLETENESS' },
+  pipelineId: TEST_PIPELINE_ID,
+  applicationKinds: [
+    /*
+     * One open first application per enterprise at a time — the rule the
+     * hard-coded workflow used to enforce, now configured like any other.
+     */
+    {
+      kindKey: 'INITIAL', label: 'First application', description: null,
+      // As the wire carries it: parameters are JSON text in the GraphQL input.
+      rules: [{
+        ruleType: 'NO_OPEN_APPLICATION_OF_KIND',
+        paramsJson: JSON.stringify({ kind: 'INITIAL' }),
+      }],
+    },
   ],
-  reasons: [
-    'CYCLE_CLOSE', 'REVISION',
-    'REJECTION', 'BANK_REFERRAL_CANCEL', 'BANK_OUTCOME_CORRECTION',
-    'DECISION_CORRECTION', 'AWARD_AMENDMENT', 'AWARD_SUSPENSION',
-    'AWARD_CANCELLATION', 'AWARD_CLOSURE', 'RELEASE_REVERSAL', 'RECOVERY',
-    'RECOVERY_WAIVER',
-  ].map((context) => ({ context, code: `${context}_TEST`, label: `${context} reason` })),
 })
 
 /** The minimum a role-gate probe needs: enough to pass GraphQL validation. */
@@ -239,7 +239,6 @@ export const openCycle = async (
     displayName: 'Mission SEP Test Cycle',
     cycleYear: 2026,
     applicantGuidance: 'Applicant guide.',
-    partnerBankGuidance: 'Published partner-bank roster.',
     opensAt: new Date(Date.now() - 1_000).toISOString(),
     closesAt: new Date(Date.now() + 86_400_000).toISOString(),
     policy: { ...testPolicy(), ...policyOverride },
@@ -290,15 +289,15 @@ export const createEnterprise = async (
   return result.response.id as string
 }
 
-/** A fresh draft against an open cycle. */
+/** A fresh draft against an open cycle, of the fixture policy's one kind by default. */
 export const startApplication = async (
-  cookie: string, enterpriseId: string, programmeCycleId: string,
+  cookie: string, enterpriseId: string, programmeCycleId: string, applicationKind = 'INITIAL',
 ): Promise<string> => {
   const body = await graphql<any>(`mutation($input: StartApplicationInput!) {
-    seb { application { startInitial(input: $input) { success message response { id } } } }
-  }`, { input: { enterpriseId, programmeCycleId } }, cookie)
-  const result = expectSuccess(body, 'startInitial').seb.application.startInitial
-  if (!result.success) throw new Error(`startInitial refused: ${result.message}`)
+    seb { application { start(input: $input) { success message response { id } } } }
+  }`, { input: { enterpriseId, programmeCycleId, applicationKind } }, cookie)
+  const result = expectSuccess(body, 'start').seb.application.start
+  if (!result.success) throw new Error(`start refused: ${result.message}`)
   return result.response.id as string
 }
 
@@ -332,7 +331,7 @@ export const saveAnswers = async (
  * row, and one that wants the gate shut needs `PENDING` — which is what
  * finalization leaves behind, not an absence.
  */
-export const recordScan = async (
+const recordScan = async (
   versionId: string,
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'FAILED',
   reference: string | null = 'TEST',
@@ -395,6 +394,35 @@ export const attachEvidence = async (
     if (scan !== 'NONE') await recordScan(versionId, scan)
   }
   return seeded
+}
+
+/**
+ * A new version of one attached document, as a finished replacement leaves
+ * it: the next version row, scanned clean, and the document pointing at it.
+ */
+export const replaceEvidence = async (applicationId: string, fieldKey: string, userId: string) => {
+  const document = await env.DB.prepare(
+    `SELECT id, current_version FROM seb_application_document WHERE application_id = ? AND field_key = ?`,
+  ).bind(applicationId, fieldKey).first<{ id: string; current_version: number }>()
+  if (!document) throw new Error(`no ${fieldKey} document to replace`)
+  const version = document.current_version + 1
+  const versionId = crypto.randomUUID()
+  const now = Date.now()
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO seb_application_document_version (
+        id, document_id, version, operation, r2_object_key, original_filename,
+        content_type, size_bytes, checksum, uploaded_by_user_id, created_at
+      ) VALUES (?, ?, ?, 'UPLOAD', ?, ?, 'application/pdf', 10, ?, ?, ?)`,
+    ).bind(
+      versionId, document.id, version, `test/${versionId}`,
+      `${fieldKey}-v${version}.pdf`, 'B'.repeat(43) + '=', userId, now,
+    ),
+    env.DB.prepare(
+      `UPDATE seb_application_document SET current_version = ?, updated_at = ? WHERE id = ?`,
+    ).bind(version, now, document.id),
+  ])
+  await recordScan(versionId, 'ACCEPTED')
 }
 
 /** Submits, and refuses to return quietly if the product said no. */

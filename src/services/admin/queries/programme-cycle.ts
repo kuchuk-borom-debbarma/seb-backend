@@ -2,21 +2,21 @@
  * Guarded persistence for programme cycles and their pinned policy versions.
  *
  * A policy snapshot is inserted only after the guarded head reached the version
- * it belongs to, and the dependent document, assessment, and reason rows stay
- * in the same D1 batch — if the head update loses a race their version foreign
- * key fails and the whole batch rolls back.
- *
- * Normalized rows are written one prepared statement at a time because D1 has a
- * low bind-variable ceiling that a single large multi-row INSERT can exceed.
+ * it belongs to, and the dependent form, rule and application-kind rows stay in
+ * the same batch — if the head update loses a race their version foreign key
+ * fails and the whole batch rolls back.
  */
-import { and, asc, count, desc, eq, gt, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
 import {
   sebApplication,
+  sebPipeline,
+  sebPipelineVersion,
   sebProgrammeCycle,
-  sebProgrammeCycleAssessmentRule,
-  sebProgrammeCycleIdentifierRule,
+  sebProgrammeCycleApplicationKind,
+  sebProgrammeCycleApplicationKindRule,
   sebProgrammeCycleEvent,
-  sebProgrammeCycleReason,
+  sebProgrammeCycleFormRule,
+  sebProgrammeCycleFormRuleOperand,
   sebProgrammeCycleFormStage,
   sebProgrammeCycleFormField,
   sebProgrammeCycleFormGroupDefinition,
@@ -55,9 +55,10 @@ export type ProgrammeCycleAggregate = {
   groupDefinitionMemberOptions: Array<
     typeof sebProgrammeCycleFormGroupDefinitionMemberOption.$inferSelect
   >
-  identifierRules: Array<typeof sebProgrammeCycleIdentifierRule.$inferSelect>
-  assessmentRules: Array<typeof sebProgrammeCycleAssessmentRule.$inferSelect>
-  reasons: Array<typeof sebProgrammeCycleReason.$inferSelect>
+  formRules: Array<typeof sebProgrammeCycleFormRule.$inferSelect>
+  formRuleOperands: Array<typeof sebProgrammeCycleFormRuleOperand.$inferSelect>
+  applicationKinds: Array<typeof sebProgrammeCycleApplicationKind.$inferSelect>
+  applicationKindRules: Array<typeof sebProgrammeCycleApplicationKindRule.$inferSelect>
 }
 
 export const loadProgrammeCycle = async (
@@ -84,7 +85,7 @@ export const loadProgrammeCycle = async (
    */
   const [formStages, formFields, formFieldOptions, formFieldConditions,
     groupDefinitions, groupDefinitionMembers, groupDefinitionMemberOptions,
-    identifierRules, assessmentRules, reasons] = await batch(db, (tx) => [
+    formRules, formRuleOperands, applicationKinds, applicationKindRules] = await batch(db, (tx) => [
     /*
      * Ordered, and that is not cosmetic.
      *
@@ -135,43 +136,35 @@ export const loadProgrammeCycle = async (
         row.head.currentVersion,
       ),
     )).orderBy(asc(sebProgrammeCycleFormGroupDefinitionMemberOption.sortOrder)),
-    // Joins the batch rather than costing its own call: single-table, so the
-    // by-name mapping a batch does is safe here. Built from `tx` like the rest
-    // — see `Transaction`: with one client per request the outer handle would
-    // work too, and that is exactly why it must not be relied on here.
-    tx
-      .select()
-      .from(sebProgrammeCycleIdentifierRule)
-      .where(
-        and(
-          eq(sebProgrammeCycleIdentifierRule.programmeCycleId, id),
-          eq(sebProgrammeCycleIdentifierRule.programmeCycleVersion, row.head.currentVersion),
-        ),
-      ),
-    tx
-      .select()
-      .from(sebProgrammeCycleAssessmentRule)
-      .where(
-        and(
-          eq(sebProgrammeCycleAssessmentRule.programmeCycleId, id),
-          eq(sebProgrammeCycleAssessmentRule.programmeCycleVersion, row.head.currentVersion),
-        ),
-      ),
-    tx
-      .select()
-      .from(sebProgrammeCycleReason)
-      .where(
-        and(
-          eq(sebProgrammeCycleReason.programmeCycleId, id),
-          eq(sebProgrammeCycleReason.programmeCycleVersion, row.head.currentVersion),
-        ),
-      ),
+    tx.select().from(sebProgrammeCycleFormRule).where(and(
+      eq(sebProgrammeCycleFormRule.programmeCycleId, id),
+      eq(sebProgrammeCycleFormRule.programmeCycleVersion, row.head.currentVersion),
+    )).orderBy(asc(sebProgrammeCycleFormRule.ruleKey)),
+    // Operand order is the rule's meaning for AT_MOST_FIELD, so it is kept.
+    tx.select().from(sebProgrammeCycleFormRuleOperand).where(and(
+      eq(sebProgrammeCycleFormRuleOperand.programmeCycleId, id),
+      eq(sebProgrammeCycleFormRuleOperand.programmeCycleVersion, row.head.currentVersion),
+    )).orderBy(
+      asc(sebProgrammeCycleFormRuleOperand.ruleKey),
+      asc(sebProgrammeCycleFormRuleOperand.position),
+    ),
+    tx.select().from(sebProgrammeCycleApplicationKind).where(and(
+      eq(sebProgrammeCycleApplicationKind.programmeCycleId, id),
+      eq(sebProgrammeCycleApplicationKind.programmeCycleVersion, row.head.currentVersion),
+    )).orderBy(asc(sebProgrammeCycleApplicationKind.sortOrder)),
+    tx.select().from(sebProgrammeCycleApplicationKindRule).where(and(
+      eq(sebProgrammeCycleApplicationKindRule.programmeCycleId, id),
+      eq(sebProgrammeCycleApplicationKindRule.programmeCycleVersion, row.head.currentVersion),
+    )).orderBy(
+      asc(sebProgrammeCycleApplicationKindRule.kindKey),
+      asc(sebProgrammeCycleApplicationKindRule.position),
+    ),
   ])
   return {
     ...row,
     formStages, formFields, formFieldOptions, formFieldConditions,
     groupDefinitions, groupDefinitionMembers, groupDefinitionMemberOptions,
-    identifierRules, assessmentRules, reasons,
+    formRules, formRuleOperands, applicationKinds, applicationKindRules,
   }
 }
 
@@ -234,6 +227,49 @@ export const programmeCycleCounts = async (db: Database, id: string) => {
   return rows.map(({ status, count }) => ({ status, count: Number(count) }))
 }
 
+/**
+ * Applications of a cycle nobody has finished with: drafts, and files still at
+ * a stage of their pipeline. A cycle with any is not archived, because
+ * archiving hides the cycle from the office while its files are still being
+ * worked.
+ */
+export const unfinishedApplicationCount = async (db: Database, id: string): Promise<number> => {
+  const [row] = await db
+    .select({ value: count() })
+    .from(sebApplication)
+    .where(and(
+      eq(sebApplication.programmeCycleId, id),
+      isNull(sebApplication.deletedAt),
+      or(eq(sebApplication.status, 'DRAFT'), sql`${sebApplication.currentStageKey} IS NOT NULL`),
+    ))
+  return requireInvariant(row, COUNT_MISSING).value
+}
+
+/**
+ * The published version a cycle choosing or opening on this pipeline would
+ * pin now, with its document — or null when the pipeline does not exist, is
+ * retired, or has never been published.
+ *
+ * The document comes with the number because opening checks the cycle's form
+ * against it, and the version pinned must be the version checked.
+ */
+export const findPipelinePublishedDefinition = async (
+  db: Database,
+  pipelineId: string,
+): Promise<{ version: number; definition: unknown } | null> => {
+  const [row] = await db
+    .select({ version: sebPipelineVersion.version, definition: sebPipelineVersion.definition })
+    .from(sebPipeline)
+    .innerJoin(sebPipelineVersion, and(
+      eq(sebPipelineVersion.pipelineId, sebPipeline.id),
+      eq(sebPipelineVersion.version, sebPipeline.currentPublishedVersion),
+      eq(sebPipelineVersion.status, 'PUBLISHED'),
+    ))
+    .where(and(eq(sebPipeline.id, pipelineId), isNull(sebPipeline.retiredAt)))
+    .limit(1)
+  return row ?? null
+}
+
 export const listProgrammeCycleEvents = async (
   db: Database,
   id: string,
@@ -273,19 +309,20 @@ const versionValues = (
   // drops it, so the guarded insert's positional SELECT keeps its arity.
   policyReference: null,
   applicantGuidance: input.applicantGuidance ?? null,
-  partnerBankGuidance: input.partnerBankGuidance ?? null,
   status,
   opensAt: input.opensAt ?? null,
   closesAt: input.closesAt ?? null,
   minimumApplicantAge: input.policy.minimumApplicantAge,
   maximumApplicantAge: input.policy.maximumApplicantAge,
   categoryAMaximumMonths: input.policy.categoryAMaximumMonths,
-  expansionWaitMonths: input.policy.expansionWaitMonths,
   majorityOwnershipRequired: input.policy.majorityOwnershipRequired,
   jurisdiction: input.policy.jurisdiction,
   fundingCeilingState: input.policy.fundingCeilingState,
   fundingCeilingAmountPaise: input.policy.fundingCeilingAmountPaise,
   fundingCeilingScope: input.policy.fundingCeilingScope,
+  pipelineId: input.policy.pipelineId,
+  // Stamped when the cycle opens, never before: a draft pins nothing.
+  pipelineVersion: null,
   changeType,
   changeReason: reason,
   changedByUserId: actorUserId,
@@ -478,58 +515,208 @@ const policyRows = (
     comparisonValue: condition.comparisonValue ?? null,
     createdAt: now,
   })),
-  /*
-   * Absent means the cycle configures none, which demands nothing and compares
-   * nothing. That is what leaves cycles created before these rules existed
-   * working exactly as they did.
-   */
-  identifierRules: (input.policy.identifierRules ?? []).map((rule) => ({
+  formRules: (input.policy.formTemplate.rules ?? []).map((rule) => ({
     id: crypto.randomUUID(),
     programmeCycleId: cycleId,
     programmeCycleVersion: version,
-    kind: rule.kind,
-    requirement: rule.requirement,
-    duplicatePolicy: rule.duplicatePolicy,
-    // Only a rule that demands something needs to name the check it belongs
-    // to; the CHECK constraint enforces the same pairing in the database.
-    checkType: rule.requirement === 'REQUIRED_ON_PASS' ? rule.checkType : null,
+    ruleKey: rule.ruleKey,
+    ruleType: rule.ruleType,
+    stageKey: rule.stageKey,
+    message: rule.message,
+    limitValue: rule.limitValue ?? null,
     createdAt: now,
   })),
-  assessmentRules: input.policy.requiredAssessmentTypes.map((assessmentType) => ({
+  formRuleOperands: (input.policy.formTemplate.rules ?? []).flatMap((rule) =>
+    rule.operands.map((operand, index) => ({
+      id: crypto.randomUUID(),
+      programmeCycleId: cycleId,
+      programmeCycleVersion: version,
+      ruleKey: rule.ruleKey,
+      position: index + 1,
+      fieldKey: operand.fieldKey,
+      fieldType: operand.fieldType,
+    })),
+  ),
+  applicationKinds: input.policy.applicationKinds.map((kind, index) => ({
     id: crypto.randomUUID(),
     programmeCycleId: cycleId,
     programmeCycleVersion: version,
-    assessmentType,
-    requiredOutcome: 'PASSED' as const,
+    kindKey: kind.kindKey,
+    label: kind.label,
+    description: kind.description ?? null,
+    sortOrder: index + 1,
     createdAt: now,
   })),
-  reasons: input.policy.reasons.map((reason) => ({
-    id: crypto.randomUUID(),
-    programmeCycleId: cycleId,
-    programmeCycleVersion: version,
-    context: reason.context,
-    code: reason.code,
-    label: reason.label,
-    applicantMessageTemplate: reason.applicantMessageTemplate ?? null,
-    createdAt: now,
-  })),
+  applicationKindRules: input.policy.applicationKinds.flatMap((kind) =>
+    kind.rules.map((rule, index) => ({
+      id: crypto.randomUUID(),
+      programmeCycleId: cycleId,
+      programmeCycleVersion: version,
+      kindKey: kind.kindKey,
+      position: index + 1,
+      ruleType: rule.ruleType,
+      params: rule.params,
+    })),
+  ),
 })
+
+/**
+ * Every rule table's rows for a new version, one multi-row insert per table.
+ *
+ * Each statement in a batch is its own round trip, and a real template is over
+ * a hundred rows — per-row inserts once made creating a cycle a twenty-second
+ * wait from a deployed Worker. Parents before children, because every child row
+ * names its parent by key. Empty tables are skipped: drizzle refuses
+ * `.values([])`.
+ */
+const policyInserts = (tx: Transaction, policy: ReturnType<typeof policyRows>) => [
+  policy.formStages.length
+    ? tx.insert(sebProgrammeCycleFormStage).values(policy.formStages) : null,
+  policy.formFields.length
+    ? tx.insert(sebProgrammeCycleFormField).values(policy.formFields) : null,
+  policy.formFieldOptions.length
+    ? tx.insert(sebProgrammeCycleFormFieldOption).values(policy.formFieldOptions) : null,
+  policy.formFieldConditions.length
+    ? tx.insert(sebProgrammeCycleFormFieldCondition).values(policy.formFieldConditions)
+    : null,
+  policy.groupDefinitions.length
+    ? tx.insert(sebProgrammeCycleFormGroupDefinition).values(policy.groupDefinitions)
+    : null,
+  policy.groupDefinitionMembers.length
+    ? tx.insert(sebProgrammeCycleFormGroupDefinitionMember)
+        .values(policy.groupDefinitionMembers)
+    : null,
+  policy.groupDefinitionMemberOptions.length
+    ? tx.insert(sebProgrammeCycleFormGroupDefinitionMemberOption)
+        .values(policy.groupDefinitionMemberOptions)
+    : null,
+  policy.formRules.length
+    ? tx.insert(sebProgrammeCycleFormRule).values(policy.formRules) : null,
+  policy.formRuleOperands.length
+    ? tx.insert(sebProgrammeCycleFormRuleOperand).values(policy.formRuleOperands) : null,
+  policy.applicationKinds.length
+    ? tx.insert(sebProgrammeCycleApplicationKind).values(policy.applicationKinds) : null,
+  policy.applicationKindRules.length
+    ? tx.insert(sebProgrammeCycleApplicationKindRule).values(policy.applicationKindRules)
+    : null,
+].filter((statement) => statement !== null)
+
+/**
+ * The whole policy, carried forward from one version to the next.
+ *
+ * **Every rule table must be here.** A table that is not copied empties itself
+ * the first time a cycle changes version — and for the form that loses *the
+ * entire application form for every draft in the cycle*, at the moment it is
+ * opened or its guidance is edited. Worse, stages emptying makes fields fail
+ * their stage key on the *next* bump, so the damage surfaces one version after
+ * its cause. One helper for both callers, so a new rule table is added once.
+ *
+ * Parents before children, for the same reason as `policyInserts`.
+ * `gen_random_uuid()` gives every copied row a fresh id.
+ */
+const copyPolicyForward = (
+  tx: Transaction,
+  cycleId: string,
+  fromVersion: number,
+  toVersion: number,
+  now: Date,
+) => {
+  const from = (table: SQL) => sql`FROM ${table}
+      WHERE programme_cycle_id = ${cycleId}
+        AND programme_cycle_version = ${fromVersion}`
+  return [
+    tx.insert(sebProgrammeCycleFormStage).select(sql`
+      SELECT gen_random_uuid()::text, programme_cycle_id, ${toVersion},
+        stage_key, title, description, icon_name, estimated_minutes,
+        sort_order, ${now}
+      ${from(sql`${sebProgrammeCycleFormStage}`)}
+    `),
+    tx.insert(sebProgrammeCycleFormField).select(sql`
+      SELECT gen_random_uuid()::text, programme_cycle_id, ${toVersion},
+        stage_key, field_key, field_type, role, parent_field_key, parent_field_type,
+        group_definition_key,
+        sort_order, label, help_text,
+        placeholder, note, tone, width_hint, prefix_text, suffix_text,
+        autocomplete_hint, show_char_count, textarea_rows, choice_style,
+        requirement, source, repeat_min, repeat_max,
+        min_length, max_length, pattern, pattern_message, min_value, max_value,
+        min_date, max_date, relative_date_bound, max_file_bytes, ${now}
+      ${from(sql`${sebProgrammeCycleFormField}`)}
+    `),
+    tx.insert(sebProgrammeCycleFormFieldOption).select(sql`
+      SELECT gen_random_uuid()::text, programme_cycle_id, ${toVersion},
+        field_key, field_type, option_value, option_label,
+        option_description, icon_name, sort_order, ${now}
+      ${from(sql`${sebProgrammeCycleFormFieldOption}`)}
+    `),
+    tx.insert(sebProgrammeCycleFormFieldCondition).select(sql`
+      SELECT gen_random_uuid()::text, programme_cycle_id, ${toVersion},
+        field_key, effect, group_number, sequence_number, source_field_key,
+        source_field_type, operator, comparison_value, ${now}
+      ${from(sql`${sebProgrammeCycleFormFieldCondition}`)}
+    `),
+    tx.insert(sebProgrammeCycleFormGroupDefinition).select(sql`
+      SELECT gen_random_uuid()::text, programme_cycle_id, ${toVersion},
+        definition_key, label, ${now}
+      ${from(sql`${sebProgrammeCycleFormGroupDefinition}`)}
+    `),
+    tx.insert(sebProgrammeCycleFormGroupDefinitionMember).select(sql`
+      SELECT gen_random_uuid()::text, programme_cycle_id, ${toVersion},
+        definition_key, member_key, field_type, role, sort_order, label,
+        help_text, placeholder, note, tone, width_hint, prefix_text,
+        suffix_text, autocomplete_hint, show_char_count, textarea_rows,
+        choice_style, requirement, min_length, max_length, pattern,
+        pattern_message, min_value, max_value, min_date, max_date,
+        relative_date_bound, ${now}
+      ${from(sql`${sebProgrammeCycleFormGroupDefinitionMember}`)}
+    `),
+    tx.insert(sebProgrammeCycleFormGroupDefinitionMemberOption).select(sql`
+      SELECT gen_random_uuid()::text, programme_cycle_id, ${toVersion},
+        definition_key, member_key, option_value, option_label,
+        option_description, icon_name, sort_order, ${now}
+      ${from(sql`${sebProgrammeCycleFormGroupDefinitionMemberOption}`)}
+    `),
+    tx.insert(sebProgrammeCycleFormRule).select(sql`
+      SELECT gen_random_uuid()::text, programme_cycle_id, ${toVersion},
+        rule_key, rule_type, stage_key, message, limit_value, ${now}
+      ${from(sql`${sebProgrammeCycleFormRule}`)}
+    `),
+    tx.insert(sebProgrammeCycleFormRuleOperand).select(sql`
+      SELECT gen_random_uuid()::text, programme_cycle_id, ${toVersion},
+        rule_key, position, field_key, field_type
+      ${from(sql`${sebProgrammeCycleFormRuleOperand}`)}
+    `),
+    tx.insert(sebProgrammeCycleApplicationKind).select(sql`
+      SELECT gen_random_uuid()::text, programme_cycle_id, ${toVersion},
+        kind_key, label, description, sort_order, ${now}
+      ${from(sql`${sebProgrammeCycleApplicationKind}`)}
+    `),
+    tx.insert(sebProgrammeCycleApplicationKindRule).select(sql`
+      SELECT gen_random_uuid()::text, programme_cycle_id, ${toVersion},
+        kind_key, position, rule_type, params
+      ${from(sql`${sebProgrammeCycleApplicationKindRule}`)}
+    `),
+  ]
+}
 
 /** Inserts a policy snapshot only after the guarded head reached that version. */
 const insertGuardedCycleVersion = (
   context: AdminOperationContext,
   value: typeof sebProgrammeCycleVersion.$inferInsert,
+  /** Replaces the stored pin; the opening write stamps it this way. */
+  pipelineVersion: SQL | number | null = value.pipelineVersion ?? null,
 ) => context.db.insert(sebProgrammeCycleVersion).select(sql`
   SELECT ${value.id}, ${value.programmeCycleId}, ${value.version}, ${value.cycleCode},
     ${value.displayName}, ${value.cycleYear}, ${value.policyReference},
-    ${value.applicantGuidance}, ${value.partnerBankGuidance}, ${value.status},
+    ${value.applicantGuidance}, ${value.status},
     ${value.opensAt ? value.opensAt : null},
     ${value.closesAt ? value.closesAt : null},
     ${value.minimumApplicantAge}, ${value.maximumApplicantAge},
-    ${value.categoryAMaximumMonths}, ${value.expansionWaitMonths},
+    ${value.categoryAMaximumMonths},
     ${value.majorityOwnershipRequired}, ${value.jurisdiction},
     ${value.fundingCeilingState}, ${value.fundingCeilingAmountPaise},
-    ${value.fundingCeilingScope}, ${value.changeType}, ${value.changeReason},
+    ${value.fundingCeilingScope}, ${value.pipelineId}, ${pipelineVersion},
+    ${value.changeType}, ${value.changeReason},
     ${value.changedByUserId},
     ${value.createdAt}
   WHERE EXISTS (
@@ -565,7 +752,6 @@ export const insertProgrammeCycle = async (
       // Dead column — see `versionValues`. The policy PDF replaced it.
       policyReference: null,
       applicantGuidance: input.applicantGuidance ?? null,
-      partnerBankGuidance: input.partnerBankGuidance ?? null,
       status: 'DRAFT',
       opensAt: input.opensAt ?? null,
       closesAt: input.closesAt ?? null,
@@ -579,45 +765,7 @@ export const insertProgrammeCycle = async (
     tx.insert(sebProgrammeCycleVersion).values(
       versionValues(id, 1, input, 'DRAFT', 'CREATED', null, actorUserId, now),
     ),
-    /*
-     * One multi-row insert per table, not one statement per row.
-     *
-     * Each statement in the batch is its own round trip to Postgres, and a
-     * real template is over a hundred rows — per-row inserts made creating a
-     * cycle a twenty-second wait from a deployed Worker to a remote database.
-     * Postgres takes 65535 bind parameters, far above any guarded template.
-     * Empty tables are skipped: drizzle refuses `.values([])`.
-     */
-    ...[
-      policy.formStages.length
-        ? tx.insert(sebProgrammeCycleFormStage).values(policy.formStages) : null,
-      policy.formFields.length
-        ? tx.insert(sebProgrammeCycleFormField).values(policy.formFields) : null,
-      policy.formFieldOptions.length
-        ? tx.insert(sebProgrammeCycleFormFieldOption).values(policy.formFieldOptions) : null,
-      policy.formFieldConditions.length
-        ? tx.insert(sebProgrammeCycleFormFieldCondition).values(policy.formFieldConditions)
-        : null,
-      // Definitions after their derived rows exist is fine either way — nothing
-      // references across; they are copied forward with the seven rule tables.
-      policy.groupDefinitions.length
-        ? tx.insert(sebProgrammeCycleFormGroupDefinition).values(policy.groupDefinitions)
-        : null,
-      policy.groupDefinitionMembers.length
-        ? tx.insert(sebProgrammeCycleFormGroupDefinitionMember)
-            .values(policy.groupDefinitionMembers)
-        : null,
-      policy.groupDefinitionMemberOptions.length
-        ? tx.insert(sebProgrammeCycleFormGroupDefinitionMemberOption)
-            .values(policy.groupDefinitionMemberOptions)
-        : null,
-      policy.identifierRules.length
-        ? tx.insert(sebProgrammeCycleIdentifierRule).values(policy.identifierRules) : null,
-      policy.assessmentRules.length
-        ? tx.insert(sebProgrammeCycleAssessmentRule).values(policy.assessmentRules) : null,
-      policy.reasons.length
-        ? tx.insert(sebProgrammeCycleReason).values(policy.reasons) : null,
-    ].filter((statement) => statement !== null),
+    ...policyInserts(tx, policy),
     // Unconditional: creation has no guard to lose — the cycle's own insert
     // failing fails the whole batch, audit row included.
     insertAuditEventWhere(tx, audit, sql`TRUE`),
@@ -643,7 +791,6 @@ export const updateDraftProgrammeCycle = async (
       // Dead column — see `versionValues`. The policy PDF replaced it.
       policyReference: null,
       applicantGuidance: input.applicantGuidance ?? null,
-      partnerBankGuidance: input.partnerBankGuidance ?? null,
       opensAt: input.opensAt ?? null,
       closesAt: input.closesAt ?? null,
       currentVersion: nextVersion,
@@ -676,36 +823,7 @@ export const updateDraftProgrammeCycle = async (
         now,
       ),
     ),
-    // One multi-row insert per table — see the same shape at creation; each
-    // statement is a round trip, and a draft revision rewrites every table.
-    ...[
-      policy.formStages.length
-        ? tx.insert(sebProgrammeCycleFormStage).values(policy.formStages) : null,
-      policy.formFields.length
-        ? tx.insert(sebProgrammeCycleFormField).values(policy.formFields) : null,
-      policy.formFieldOptions.length
-        ? tx.insert(sebProgrammeCycleFormFieldOption).values(policy.formFieldOptions) : null,
-      policy.formFieldConditions.length
-        ? tx.insert(sebProgrammeCycleFormFieldCondition).values(policy.formFieldConditions)
-        : null,
-      policy.groupDefinitions.length
-        ? tx.insert(sebProgrammeCycleFormGroupDefinition).values(policy.groupDefinitions)
-        : null,
-      policy.groupDefinitionMembers.length
-        ? tx.insert(sebProgrammeCycleFormGroupDefinitionMember)
-            .values(policy.groupDefinitionMembers)
-        : null,
-      policy.groupDefinitionMemberOptions.length
-        ? tx.insert(sebProgrammeCycleFormGroupDefinitionMemberOption)
-            .values(policy.groupDefinitionMemberOptions)
-        : null,
-      policy.identifierRules.length
-        ? tx.insert(sebProgrammeCycleIdentifierRule).values(policy.identifierRules) : null,
-      policy.assessmentRules.length
-        ? tx.insert(sebProgrammeCycleAssessmentRule).values(policy.assessmentRules) : null,
-      policy.reasons.length
-        ? tx.insert(sebProgrammeCycleReason).values(policy.reasons) : null,
-    ].filter((statement) => statement !== null),
+    ...policyInserts(tx, policy),
     insertAuditEventWhere(tx, adminAudit(context, {
       actorUserId,
       action: 'SEB.CYCLE_UPDATED',
@@ -735,6 +853,13 @@ export const transitionProgrammeCycle = async (
     action: 'SEB.CYCLE_OPENED' | 'SEB.CYCLE_CLOSED' | 'SEB.CYCLE_ARCHIVED'
     actorUserId: string | null
     now: Date
+    /**
+     * Opening only: the published pipeline version the caller checked the
+     * cycle's form against. Pinned as given rather than re-read, so the
+     * version pinned is the version checked even if a newer one is published
+     * in between — a published version never changes, so it is still valid.
+     */
+    pinnedPipelineVersion?: number
   },
 ): Promise<boolean> => {
   const nextVersion = input.expectedVersion + 1
@@ -753,126 +878,31 @@ export const transitionProgrammeCycle = async (
   const base = input.aggregate.version
   const [changed] = await batch(context.db, (tx) => [
     updated,
-    insertGuardedCycleVersion(context, {
-      ...base,
-      id: crypto.randomUUID(),
-      version: nextVersion,
-      status: input.toStatus,
-      changeType: input.changeType,
-      changeReason: input.reason,
-      changedByUserId: input.actorUserId,
-      createdAt: input.now,
-    }),
-    /*
-     * The form, carried forward whole.
-     *
-     * **Four statements, and every one of them matters.** A rule table that is
-     * not copied here empties itself the first time a cycle changes version —
-     * and for these that does not lose a document rule, it loses *the entire
-     * application form for every draft in that cycle*, at the moment a cycle is
-     * opened or its guidance is edited. Worse, stages emptying makes fields
-     * fail their stage key on the *next* bump, so the damage surfaces one
-     * version after its cause.
-     *
-     * Stages before fields, because a field's key points at one; options and
-     * conditions after fields for the same reason.
-     *
-     * `gen_random_uuid()` rather than a minted prefix throughout, the three
-     * older rule tables included: the old scheme grew ids by 37 characters on
-     * every version bump and existed only because the previous engine had no
-     * UUID function. It also gave every row copied in one statement the same
-     * prefix, so the ids of a version were only unique across versions by
-     * construction rather than by being random.
-     */
-    tx.insert(sebProgrammeCycleFormStage).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        stage_key, title, description, icon_name, estimated_minutes,
-        sort_order, ${input.now}
-      FROM ${sebProgrammeCycleFormStage}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormField).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        stage_key, field_key, field_type, role, parent_field_key, parent_field_type,
-        group_definition_key,
-        sort_order, label, help_text,
-        placeholder, note, tone, width_hint, prefix_text, suffix_text,
-        autocomplete_hint, show_char_count, textarea_rows, choice_style,
-        requirement, source, repeat_min, repeat_max,
-        min_length, max_length, pattern, pattern_message, min_value, max_value,
-        min_date, max_date, relative_date_bound, max_file_bytes, ${input.now}
-      FROM ${sebProgrammeCycleFormField}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormFieldOption).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        field_key, field_type, option_value, option_label,
-        option_description, icon_name, sort_order, ${input.now}
-      FROM ${sebProgrammeCycleFormFieldOption}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormFieldCondition).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        field_key, effect, group_number, sequence_number, source_field_key,
-        source_field_type, operator, comparison_value, ${input.now}
-      FROM ${sebProgrammeCycleFormFieldCondition}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormGroupDefinition).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        definition_key, label, ${input.now}
-      FROM ${sebProgrammeCycleFormGroupDefinition}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormGroupDefinitionMember).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        definition_key, member_key, field_type, role, sort_order, label,
-        help_text, placeholder, note, tone, width_hint, prefix_text,
-        suffix_text, autocomplete_hint, show_char_count, textarea_rows,
-        choice_style, requirement, min_length, max_length, pattern,
-        pattern_message, min_value, max_value, min_date, max_date,
-        relative_date_bound, ${input.now}
-      FROM ${sebProgrammeCycleFormGroupDefinitionMember}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormGroupDefinitionMemberOption).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        definition_key, member_key, option_value, option_label,
-        option_description, icon_name, sort_order, ${input.now}
-      FROM ${sebProgrammeCycleFormGroupDefinitionMemberOption}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    // Carried forward with the others. A rule table that is not copied here
-    // silently empties itself the first time a cycle changes version, which is
-    // the moment it is least likely to be noticed.
-    tx.insert(sebProgrammeCycleIdentifierRule).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        kind, requirement, duplicate_policy, check_type, ${input.now}
-      FROM ${sebProgrammeCycleIdentifierRule}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleAssessmentRule).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        assessment_type, required_outcome, ${input.now}
-      FROM ${sebProgrammeCycleAssessmentRule}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleReason).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        context, code, label, applicant_message_template, ${input.now}
-      FROM ${sebProgrammeCycleReason}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
+    insertGuardedCycleVersion(
+      context,
+      {
+        ...base,
+        id: crypto.randomUUID(),
+        version: nextVersion,
+        status: input.toStatus,
+        changeType: input.changeType,
+        changeReason: input.reason,
+        changedByUserId: input.actorUserId,
+        createdAt: input.now,
+      },
+      /*
+       * Opening pins the version the caller checked, but only while the
+       * pipeline is still live: retired in between, this yields NULL, the
+       * version's pin CHECK refuses the row, and the whole transition rolls
+       * back to the stale answer. Closing and archiving keep the pin they
+       * already have.
+       */
+      input.toStatus === 'OPEN'
+        ? sql`(SELECT ${input.pinnedPipelineVersion ?? null}::integer FROM ${sebPipeline}
+            WHERE ${sebPipeline.id} = ${base.pipelineId} AND ${sebPipeline.retiredAt} IS NULL)`
+        : base.pipelineVersion,
+    ),
+    ...copyPolicyForward(tx, input.aggregate.head.id, input.expectedVersion, nextVersion, input.now),
     /*
      * The `created_at` term ties the guard to *this* writer's snapshot, not
      * merely to the version number: two racing writers compute the same
@@ -918,7 +948,6 @@ export const reviseOpenProgrammeCycle = async (
     aggregate: ProgrammeCycleAggregate
     expectedVersion: number
     applicantGuidance?: string
-    partnerBankGuidance?: string
     /** Undefined keeps the stored time; null removes it. */
     closesAt?: Date | null
     changeType: 'GUIDANCE_CHANGED' | 'CLOSING_CHANGED'
@@ -931,13 +960,11 @@ export const reviseOpenProgrammeCycle = async (
 ): Promise<boolean> => {
   const nextVersion = input.expectedVersion + 1
   const guidance = input.applicantGuidance ?? input.aggregate.head.applicantGuidance
-  const bankGuidance = input.partnerBankGuidance ?? input.aggregate.head.partnerBankGuidance
   const closesAt = input.closesAt === undefined ? input.aggregate.head.closesAt : input.closesAt
   const update = context.db
     .update(sebProgrammeCycle)
     .set({
       applicantGuidance: guidance,
-      partnerBankGuidance: bankGuidance,
       closesAt,
       currentVersion: nextVersion,
       updatedAt: input.now,
@@ -958,123 +985,13 @@ export const reviseOpenProgrammeCycle = async (
       id: crypto.randomUUID(),
       version: nextVersion,
       applicantGuidance: guidance,
-      partnerBankGuidance: bankGuidance,
       closesAt,
       changeType: input.changeType,
       changeReason: input.reason,
       changedByUserId: input.actorUserId,
       createdAt: input.now,
     }),
-    /*
-     * The form, carried forward whole.
-     *
-     * **Four statements, and every one of them matters.** A rule table that is
-     * not copied here empties itself the first time a cycle changes version —
-     * and for these that does not lose a document rule, it loses *the entire
-     * application form for every draft in that cycle*, at the moment a cycle is
-     * opened or its guidance is edited. Worse, stages emptying makes fields
-     * fail their stage key on the *next* bump, so the damage surfaces one
-     * version after its cause.
-     *
-     * Stages before fields, because a field's key points at one; options and
-     * conditions after fields for the same reason.
-     *
-     * `gen_random_uuid()` rather than a minted prefix throughout, the three
-     * older rule tables included: the old scheme grew ids by 37 characters on
-     * every version bump and existed only because the previous engine had no
-     * UUID function. It also gave every row copied in one statement the same
-     * prefix, so the ids of a version were only unique across versions by
-     * construction rather than by being random.
-     */
-    tx.insert(sebProgrammeCycleFormStage).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        stage_key, title, description, icon_name, estimated_minutes,
-        sort_order, ${input.now}
-      FROM ${sebProgrammeCycleFormStage}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormField).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        stage_key, field_key, field_type, role, parent_field_key, parent_field_type,
-        group_definition_key,
-        sort_order, label, help_text,
-        placeholder, note, tone, width_hint, prefix_text, suffix_text,
-        autocomplete_hint, show_char_count, textarea_rows, choice_style,
-        requirement, source, repeat_min, repeat_max,
-        min_length, max_length, pattern, pattern_message, min_value, max_value,
-        min_date, max_date, relative_date_bound, max_file_bytes, ${input.now}
-      FROM ${sebProgrammeCycleFormField}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormFieldOption).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        field_key, field_type, option_value, option_label,
-        option_description, icon_name, sort_order, ${input.now}
-      FROM ${sebProgrammeCycleFormFieldOption}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormFieldCondition).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        field_key, effect, group_number, sequence_number, source_field_key,
-        source_field_type, operator, comparison_value, ${input.now}
-      FROM ${sebProgrammeCycleFormFieldCondition}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormGroupDefinition).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        definition_key, label, ${input.now}
-      FROM ${sebProgrammeCycleFormGroupDefinition}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormGroupDefinitionMember).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        definition_key, member_key, field_type, role, sort_order, label,
-        help_text, placeholder, note, tone, width_hint, prefix_text,
-        suffix_text, autocomplete_hint, show_char_count, textarea_rows,
-        choice_style, requirement, min_length, max_length, pattern,
-        pattern_message, min_value, max_value, min_date, max_date,
-        relative_date_bound, ${input.now}
-      FROM ${sebProgrammeCycleFormGroupDefinitionMember}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleFormGroupDefinitionMemberOption).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        definition_key, member_key, option_value, option_label,
-        option_description, icon_name, sort_order, ${input.now}
-      FROM ${sebProgrammeCycleFormGroupDefinitionMemberOption}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    // Carried forward with the others. A rule table that is not copied here
-    // silently empties itself the first time a cycle changes version, which is
-    // the moment it is least likely to be noticed.
-    tx.insert(sebProgrammeCycleIdentifierRule).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        kind, requirement, duplicate_policy, check_type, ${input.now}
-      FROM ${sebProgrammeCycleIdentifierRule}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleAssessmentRule).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        assessment_type, required_outcome, ${input.now}
-      FROM ${sebProgrammeCycleAssessmentRule}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
-    tx.insert(sebProgrammeCycleReason).select(sql`
-      SELECT gen_random_uuid()::text, programme_cycle_id, ${nextVersion},
-        context, code, label, applicant_message_template, ${input.now}
-      FROM ${sebProgrammeCycleReason}
-      WHERE programme_cycle_id = ${input.aggregate.head.id}
-        AND programme_cycle_version = ${input.expectedVersion}
-    `),
+    ...copyPolicyForward(tx, input.aggregate.head.id, input.expectedVersion, nextVersion, input.now),
     tx.insert(sebProgrammeCycleEvent).select(sql`
       SELECT ${crypto.randomUUID()}, ${input.aggregate.head.id}, ${input.changeType},
         ${input.actorUserId}, ${input.message}, ${input.now}

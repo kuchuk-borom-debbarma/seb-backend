@@ -101,6 +101,12 @@ export default defineConfig({
         'src/services/application/uploads.ts',
         'src/services/application/validation.ts',
         'src/services/application/form/**/*.ts',
+        'src/services/application/eligibility/**/*.ts',
+        'src/services/application/journey.ts',
+        // The pipeline service: the engine, its registries and both its
+        // families of operation. The example and the generated catalogue are
+        // data, exercised by every journey test through the fixture pipeline.
+        'src/services/pipeline/**/*.ts',
         'src/services/admin/form-template-input.ts',
         'src/services/constraints.ts',
         // The audit row every service writes. Which request headers become the

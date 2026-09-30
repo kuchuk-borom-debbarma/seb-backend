@@ -13,6 +13,7 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 import {
+  fillSettled,
   PASSWORD,
   SUPER_ADMIN_EMAIL,
   openProgrammeCycle,
@@ -24,7 +25,7 @@ import {
 /** Registers an enterprise through its own screen. */
 const registerEnterprise = async (page: Page, name: string) => {
   await page.goto('/enterprises/new')
-  await page.getByLabel('Registered or trading name').fill(name)
+  await fillSettled(page.getByLabel('Registered or trading name'), name)
   // The form is a four-step wizard now; a name plus defaults carries through.
   for (let step = 0; step < 3; step += 1) {
     await page.getByRole('button', { name: 'Next' }).click()
@@ -119,14 +120,16 @@ test.describe('the intake queue', () => {
     await expect(page).toHaveURL(/search=nothing-like-this/u)
   })
 
-  test('a search survives switching queues', async ({ page }) => {
+  test('a search survives choosing a pipeline', async ({ page }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
     await page.goto('/admin/queue')
     await page.getByLabel('Reference or enterprise starts with').fill('sep')
     await expect(page).toHaveURL(/search=sep/u)
 
-    await page.getByRole('tab', { name: /Desk review/u }).click()
-    await expect(page).toHaveURL(/queue=DESK_REVIEW/u)
+    const pipeline = page.getByLabel('Pipeline', { exact: true })
+    const seeded = pipeline.locator('option').filter({ hasText: 'Mission SEP' }).first()
+    await pipeline.selectOption((await seeded.getAttribute('value')) as string)
+    await expect(page).toHaveURL(/pipelineId=/u)
     await expect(page).toHaveURL(/search=sep/u)
   })
 })

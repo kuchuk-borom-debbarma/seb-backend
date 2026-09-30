@@ -92,7 +92,7 @@ mutation SoftDeleteEnterprise($input: EnterpriseDeletionInput!) {
         success
         message
         response { ...EnterpriseFields }
-        blockers { applicationId referenceNumber status hasAward }
+        blockers { applicationId referenceNumber status }
       }
     }
   }
@@ -105,7 +105,7 @@ mutation RestoreEnterprise($id: ID!, $expectedVersion: Int!) {
         success
         message
         response { ...EnterpriseFields }
-        blockers { applicationId referenceNumber status hasAward }
+        blockers { applicationId referenceNumber status }
       }
     }
   }
