@@ -218,6 +218,16 @@ export function StagePanel({
             <p className="muted">
               Nothing is offered at this stage for this file right now.
             </p>
+          ) : !file.worksStage ? (
+            /*
+             * Somebody reading a file at a stage they do not work: a row of
+             * disabled buttons, each saying it is not theirs, said one thing
+             * several times. Once is enough, and it names who acts.
+             */
+            <p className="muted">
+              {file.stage?.name ?? 'This stage'} takes it from here. You can read the file;
+              its actions are for the roles that work that stage.
+            </p>
           ) : (
             <div className={styles.actionGrid}>
               {orderedActions(file.actions).map((action) => (
