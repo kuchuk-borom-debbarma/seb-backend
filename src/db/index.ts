@@ -1,4 +1,4 @@
-import { sql, type SQL } from 'drizzle-orm'
+import { getTableColumns, sql, type SQL, type Table } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { PgTransaction } from 'drizzle-orm/pg-core'
 import type { ExtractTablesWithRelations } from 'drizzle-orm'
@@ -28,6 +28,29 @@ export type Transaction = PgTransaction<
   typeof schema,
   ExtractTablesWithRelations<typeof schema>
 >
+
+/**
+ * A table's row as `to_jsonb` rendered it, back as the record drizzle would
+ * have returned: property names for column names, and a `Date` for every
+ * timestamp, which JSON carries as a string.
+ *
+ * For a read that folds several of an aggregate's collections into one
+ * statement (docs/rules/performance.md, rule 1) without listing every column
+ * of every table by hand, where a column added later would be silently
+ * missing. Everything else — numbers, text, arrays, jsonb, a `date` in string
+ * mode — reads the same from JSON as from the driver.
+ */
+export const recordFromJsonb = <T extends Table>(
+  table: T,
+  row: Record<string, unknown>,
+): T['$inferSelect'] => {
+  const record: Record<string, unknown> = {}
+  for (const [property, column] of Object.entries(getTableColumns(table))) {
+    const value = row[column.name]
+    record[property] = column.dataType === 'date' && typeof value === 'string' ? new Date(value) : value ?? null
+  }
+  return record as T['$inferSelect']
+}
 
 /**
  * One guarded transition as one statement: a data-modifying `WITH` whose first

@@ -104,6 +104,19 @@ describe.skipIf(Boolean(process.env.TEST_DATABASE_URL))('round trips', () => {
     expect(queue.data.admin.stage.queue.response.nodes).toHaveLength(1)
     expect(trips.count(), trips.statements().join('\n---\n')).toBe(4)
   })
+
+  it('opens an officer\'s file in four', async () => {
+    const { admin, id } = await fileAtBank()
+    const trips = countRoundTrips(activeDriverHandle() as never)
+    trips.reset()
+    const workspace = await graphql<any>(`query($id: ID!) {
+      admin { intake { workspace(applicationId: $id) { success message } } } }`, { id }, admin.cookie)
+    expect(workspace.data.admin.intake.workspace.success, workspace.data.admin.intake.workspace.message).toBe(true)
+    // The session; the head, which decides whether this reader may see it;
+    // everything else about the file in one statement; the pinned form. It
+    // was twelve, one collection at a time.
+    expect(trips.count(), trips.statements().join('\n---\n')).toBe(4)
+  })
 })
 
 describe('the stage queue at scale', () => {
