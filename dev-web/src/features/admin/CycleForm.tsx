@@ -180,7 +180,7 @@ export function CycleForm({
       {/* Milestone Stepper Navigation */}
       <nav className={styles.stepperNav} aria-label="Cycle creation steps">
         {MILESTONES.map((step, index) => (
-          <div key={step.id} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+          <div key={step.id} className={styles.stepSlot}>
             <button
               type="button"
               className={styles.stepButton}

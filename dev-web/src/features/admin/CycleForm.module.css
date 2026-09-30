@@ -109,8 +109,21 @@
   gap: 8px;
 }
 
+/* One step and the divider after it. Shrinkable, like the step inside it:
+   without min-width a flex item never narrows below its content, and five
+   steps pushed the last out of the bar. */
+.stepSlot {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .stepButton {
-  flex: 1;
+  flex: 1 1 0;
+  /* Lets a step shrink below its text, so the title and subtitle ellipsize. */
+  min-width: 0;
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -160,6 +173,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
 }
 
 .stepTitle {
