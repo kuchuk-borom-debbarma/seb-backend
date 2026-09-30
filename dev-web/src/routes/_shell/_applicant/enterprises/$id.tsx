@@ -8,10 +8,12 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import {
   ArrowLeft,
+  ArrowRight,
   Building2,
   Calendar,
   Clock,
   FileText,
+  Hash,
   IdCard,
   Mail,
   Map,
@@ -409,7 +411,7 @@ function EnterprisePage() {
               <div className={styles.detailsRow}>
                 <div className={styles.itemCol}>
                   <div className={styles.itemIconBadge}>
-                    <Mail size={18} aria-hidden="true" />
+                    <Hash size={18} aria-hidden="true" />
                   </div>
                   <div className={styles.itemContent}>
                     <span className={styles.itemLabel}>PIN code</span>
@@ -461,6 +463,32 @@ function EnterprisePage() {
             </div>
           </div>
         )}
+
+        {/*
+         * What comes next. Registering an enterprise is only ever a step
+         * towards applying, and the page used to end at the details with no
+         * way on but the sidebar.
+         */}
+        {!removed ? (
+          <section className={styles.nextStep} aria-label="Next step">
+            <div>
+              <h2 className={styles.nextStepTitle}>Ready to apply?</h2>
+              <p className={styles.nextStepText}>
+                Start a Mission SEP application for {enterprise.name}. You can save it and
+                come back before you submit.
+              </p>
+            </div>
+            <Link
+              to="/applications/new"
+              search={{ enterpriseId: enterprise.id }}
+              className="button"
+              data-variant="primary"
+            >
+              Start an application
+              <ArrowRight size={15} aria-hidden="true" />
+            </Link>
+          </section>
+        ) : null}
 
         {/* Bottom back button */}
         <div className={styles.bottomNav}>
