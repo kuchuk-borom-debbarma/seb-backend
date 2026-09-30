@@ -134,6 +134,16 @@ export const toKey = (text: string): string =>
 export const typeLabel = (type: string): string =>
   type === 'MONEY_PAISE' ? 'Money (₹)' : humanize(type)
 
+/**
+ * Whether a flag may be added automatically — on submission, or as a stage's
+ * presence flag. Only an ordinary flag may: one that ends the journey is added
+ * by a completing or closing effect, and one that hands the applicant the pen
+ * only by a revision request. The server refuses the rest; offering them would
+ * offer a refusal.
+ */
+export const isOrdinaryFlag = (flag: { terminal: boolean; applicantEdit: string }): boolean =>
+  !flag.terminal && flag.applicantEdit === 'NONE'
+
 export const freshKey = (base: string, taken: readonly string[]): string => {
   if (!taken.includes(base)) return base
   for (let n = 2; ; n += 1) {

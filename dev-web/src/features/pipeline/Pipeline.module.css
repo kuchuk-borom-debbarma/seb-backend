@@ -18,6 +18,11 @@
   box-shadow: var(--shadow-card);
 }
 
+/* Anything the page scrolls to lands below the sticky toolbar, not under it. */
+.underToolbar {
+  scroll-margin-top: 5.5rem;
+}
+
 .toolbarState {
   display: flex;
   flex-wrap: wrap;

@@ -3,7 +3,7 @@
  * file is there, and which flags mark a file as being there.
  */
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import { blankStage, freshKey, KEY_PATTERN, toKey } from './definition'
+import { blankStage, freshKey, KEY_PATTERN, toKey, isOrdinaryFlag } from './definition'
 import { moveAt, removeAt, renameStage, updateStage } from './editorState'
 import type { TabProps } from './names'
 import styles from './Pipeline.module.css'
@@ -61,7 +61,7 @@ export function StagesTab({
       </div>
 
       {stage ? (
-        <section className="card card-body stack" aria-label={`Stage ${stage.name}`}>
+        <section className={`card card-body stack ${styles.underToolbar}`} aria-label={`Stage ${stage.name}`}>
           <div className={styles.itemHeader}>
             <h2 className="section-title" style={{ margin: 0 }}>{stage.name || 'Untitled stage'}</h2>
             {readOnly ? null : (
@@ -148,6 +148,9 @@ export function StagesTab({
               <div className={styles.chips}>
                 {definition.statusFlags.map((flag) => {
                   const held = stage.presenceFlags.includes(flag.key)
+                  // A held flag stays offered even if it stopped being
+                  // ordinary, so it can be taken off again.
+                  if (!held && !isOrdinaryFlag(flag)) return null
                   return (
                     <button key={flag.key} type="button" className={styles.chipToggle} aria-pressed={held}
                       disabled={readOnly || (!held && stage.presenceFlags.length >= 4)}

@@ -17,7 +17,7 @@ import {
   RECORDED_VALUE_TYPES,
   toKey,
   type PipelineRecordedValue,
-  type PipelineStatusFlag, typeLabel } from './definition'
+  type PipelineStatusFlag, typeLabel, isOrdinaryFlag } from './definition'
 import { removeAt, renameFlag, renameRecordedValue, replaceAt } from './editorState'
 import type { TabProps } from './names'
 import styles from './Pipeline.module.css'
@@ -66,6 +66,7 @@ export function FlagsTab({ definition, edit, readOnly, focus }: TabProps & { foc
           <div className={styles.chips}>
             {definition.statusFlags.map((flag) => {
               const held = definition.onSubmit.addFlags.includes(flag.key)
+              if (!held && !isOrdinaryFlag(flag)) return null
               return (
                 <button key={flag.key} type="button" className={styles.chipToggle} aria-pressed={held}
                   disabled={readOnly}
