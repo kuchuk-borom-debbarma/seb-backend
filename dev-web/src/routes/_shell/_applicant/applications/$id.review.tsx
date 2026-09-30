@@ -266,14 +266,16 @@ function ReviewPage() {
                 const fields = template
                   .fieldsOfStage(stage.key)
                   .filter((field) => visible.has(field.key) && field.type !== 'FILE')
-                const isEvidenceStage =
-                  stage.key.toUpperCase().includes('EVIDENCE') ||
-                  stage.key.toUpperCase().includes('DOCUMENT') ||
-                  stage.key.toUpperCase().includes('NOC')
-                const stageTitleText =
-                  stage.title?.toUpperCase() === 'EVIDENCE' || stage.key === 'DOCUMENTS'
-                    ? 'NOC'
-                    : stage.title
+                // A stage with a file question lists the documents attached
+                // to it, read from the template rather than guessed from the
+                // stage's key, which is the cycle author's to choose.
+                const isEvidenceStage = template
+                  .fieldsOfStage(stage.key)
+                  .some((field) => field.type === 'FILE' && visible.has(field.key))
+                const stageDocuments = documents.filter(
+                  (document) => template.byKey.get(document.fieldKey)?.stageKey === stage.key,
+                )
+                const stageTitleText = stage.title
 
                 if (fields.length === 0 && !isEvidenceStage) return null
 
@@ -361,7 +363,7 @@ function ReviewPage() {
                           </span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>
-                              {documents.length} {documents.length === 1 ? 'document' : 'documents'}
+                              {stageDocuments.length} {stageDocuments.length === 1 ? 'document' : 'documents'}
                             </span>
                             <Link
                               to="/applications/$id/documents"
@@ -382,7 +384,7 @@ function ReviewPage() {
                           </div>
                         </div>
 
-                        {documents.length === 0 ? (
+                        {stageDocuments.length === 0 ? (
                           <p style={{ fontSize: '12.5px', color: 'var(--ink-muted)', margin: 0 }}>
                             No documents are attached.
                           </p>
@@ -392,10 +394,10 @@ function ReviewPage() {
                               <thead>
                                 <tr style={{ borderBottom: '1px solid #E2E8F0', textAlign: 'left' }}>
                                   <th style={{ padding: '6px 8px 6px 0', fontSize: '11px', fontWeight: 600, color: 'var(--ink-muted)' }}>
-                                    Documents attached
+                                    For
                                   </th>
                                   <th style={{ padding: '6px 8px', fontSize: '11px', fontWeight: 600, color: 'var(--ink-muted)' }}>
-                                    Document
+                                    File
                                   </th>
                                   <th style={{ padding: '6px 0 6px 8px', fontSize: '11px', fontWeight: 600, color: 'var(--ink-muted)', textAlign: 'right' }}>
                                     File size
@@ -403,7 +405,7 @@ function ReviewPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {documents.map((doc) => (
+                                {stageDocuments.map((doc) => (
                                   <tr key={doc.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
                                     <td style={{ padding: '8px 8px 8px 0', fontWeight: 500, color: 'var(--ink)' }}>
                                       {template.byKey.get(doc.fieldKey)?.label ?? doc.fieldKey}

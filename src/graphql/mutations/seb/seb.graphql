@@ -457,7 +457,7 @@ type SebApplicationMutation {
   """
   Saves the whole form.
 
-  **Use case:** the autosave on `/applications/$id/form`. Incomplete answers
+  **Use case:** the Save and "Save & next" buttons on `/applications/$id/form`. Incomplete answers
   are accepted — completeness is judged at `submit`.
 
   **Refuses:** a stale `expectedVersion` or `expectedStatusVersion`; an

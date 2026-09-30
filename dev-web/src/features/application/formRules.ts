@@ -5,7 +5,7 @@
  * **A second implementation of rules the server also holds**, for the same
  * reason as the visibility rules in `formTemplate.ts`: the applicant should see
  * "choose a grant, a loan or both" when they untick the second box, not after
- * the next autosave. The server's verdict is still the one that counts —
+ * the next save. The server's verdict is still the one that counts —
  * submission re-evaluates every rule — so a disagreement here costs a message
  * shown late or early, never a wrong submission.
  *

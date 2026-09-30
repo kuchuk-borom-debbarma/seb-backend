@@ -306,7 +306,7 @@ type SebApplicationQuery {
   **Use case:** `/applications/$id/form`, to render the questions.
 
   Its own field rather than a member of `ApplicationDetail`, for two reasons:
-  the detail is invalidated on every autosave and the form is not, and hanging
+  the detail is invalidated on every save and the form is not, and hanging
   it off `ProgrammeCycle` — which is returned in lists — would mean twenty
   cycles' worth of fields in one response.
   """

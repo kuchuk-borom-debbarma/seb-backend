@@ -156,7 +156,7 @@ export function FormJourney<TId extends string>({
               <option key={step.id} value={step.id} disabled={!canOpen(step)}>
                 {index + 1}. {step.label}
                 {step.status === 'blocked'
-                  ? ' — Complete earlier categories first'
+                  ? ' — Not open yet'
                   : step.status === 'complete'
                     ? ' — Complete'
                     : step.status === 'locked'
@@ -224,7 +224,7 @@ export function FormJourney<TId extends string>({
                               ? styles.stepSubCurrent
                               : step.status === 'complete'
                                 ? styles.stepSubComplete
-                                : step.issueCount
+                                : step.issueCount && step.status !== 'blocked'
                                   ? styles.stepIssues
                                   : styles.stepSub
                           }
@@ -248,7 +248,7 @@ export function FormJourney<TId extends string>({
             })}
           </ol>
           <div className={styles.railFooter}>
-            Category {activeIndex + 1} of {steps.length}
+            Step {activeIndex + 1} of {steps.length}
           </div>
         </nav>
 
@@ -285,12 +285,13 @@ function stateLabel<TId extends string>(
   step: JourneyStep<TId>,
   current: boolean,
 ): string {
-  if (current) return 'Current category'
-  if (step.status === 'blocked') return 'Complete earlier categories first'
+  if (current) return 'You are here'
+  // Not a fault, so never in red: it simply is not reachable yet.
+  if (step.status === 'blocked') return 'Not open yet'
   if (step.status === 'locked') return 'Read only'
   if (step.issueCount) {
     return `${step.issueCount} ${step.issueCount === 1 ? 'item' : 'items'} to fix`
   }
   if (step.status === 'complete') return 'Complete'
-  return 'Available'
+  return 'Not started'
 }

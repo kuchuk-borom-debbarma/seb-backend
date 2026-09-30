@@ -18,7 +18,6 @@ import {
   AlertCircle,
   Calendar,
   Check,
-  ChevronUp,
   Trash2,
   UserPlus,
 } from 'lucide-react'
@@ -79,6 +78,8 @@ const entryNoun = (label: string): string => {
   const lower = label.toLowerCase()
   return lower.endsWith('s') ? lower.slice(0, -1) : lower
 }
+
+const capitalise = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1)
 
 /**
  * The browser input each single-line field type is drawn with.
@@ -805,34 +806,37 @@ function RepeatGroup({
               padding: '2px 8px',
             }}
           >
-            {entries.length} {entries.length === 1 ? (field.label.toLowerCase().endsWith('s') ? field.label.toLowerCase().slice(0, -1) : field.label.toLowerCase()) : field.label.toLowerCase()}
+            {entries.length} {entries.length === 1 ? entryNoun(field.label) : field.label.toLowerCase()}
           </span>
         </div>
-        {!disabled && (atMost === null || entries.length < atMost) ? (
-          <button
-            type="button"
-            className="button"
-            title={`Add another ${entryNoun(field.label)}`}
-            style={{
-              width: '32px',
-              height: '32px',
-              padding: 0,
-              borderRadius: '6px',
-              border: '1px solid var(--border)',
-              background: 'var(--surface)',
-              color: 'var(--ink)',
-            }}
-            onClick={() => onChange([...entries, {}])}
-          >
-            <UserPlus size={16} />
-          </button>
-        ) : null}
       </div>
 
-      {issues[field.key] ? (
-        <p className="notice" data-tone="error" id={`${field.key}-error`} style={{ margin: 0 }}>
-          <span className="notice-title">Action Required</span>
+      {/* With nothing added, the empty box below says what is missing. */}
+      {issues[field.key] && entries.length > 0 ? (
+        <p className="notice" data-tone="error" id={`${field.key}-error`} role="alert" style={{ margin: 0 }}>
           {issues[field.key]}
+        </p>
+      ) : null}
+
+      {entries.length === 0 ? (
+        <p
+          id={issues[field.key] ? `${field.key}-error` : undefined}
+          role={issues[field.key] ? 'alert' : undefined}
+          style={{
+            margin: 0,
+            padding: 'var(--space-5) var(--space-4)',
+            border: `1px dashed ${issues[field.key] ? 'var(--danger)' : 'var(--border)'}`,
+            borderRadius: '12px',
+            background: issues[field.key] ? 'var(--danger-tint)' : 'var(--surface-sunken)',
+            color: issues[field.key] ? 'var(--danger)' : 'var(--ink-muted)',
+            textAlign: 'center',
+          }}
+        >
+          {disabled
+            ? `No ${field.label.toLowerCase()} were given.`
+            : atLeast > 0
+              ? `Add at least ${atLeast} ${atLeast === 1 ? entryNoun(field.label) : field.label.toLowerCase()} to continue.`
+              : `No ${field.label.toLowerCase()} added yet.`}
         </p>
       ) : null}
 
@@ -886,13 +890,8 @@ function RepeatGroup({
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--ink)' }}>
-                      {nameValue || `${field.label} ${index + 1}`}
+                      {nameValue || `${capitalise(entryNoun(field.label))} ${index + 1}`}
                     </span>
-                    {index === 0 ? (
-                      <span className="badge" data-tone="ok" style={{ fontSize: '0.6875rem' }}>
-                        Primary / Founder
-                      </span>
-                    ) : null}
                     {designationValue ? (
                       <span className="badge" style={{ fontSize: '0.6875rem', textTransform: 'uppercase' }}>
                         {designationValue.replace(/_/g, ' ')}
@@ -918,9 +917,7 @@ function RepeatGroup({
                       <Trash2 size={13} />
                       <span>Remove</span>
                     </button>
-                  ) : (
-                    <ChevronUp size={16} color="var(--ink-muted)" aria-hidden="true" />
-                  )}
+                  ) : null}
                 </div>
               </div>
 
@@ -978,7 +975,9 @@ function RepeatGroup({
             onClick={() => onChange([...entries, {}])}
           >
             <UserPlus size={16} />
-            <span>Add another {entryNoun(field.label)}</span>
+            <span>
+              {entries.length === 0 ? 'Add' : 'Add another'} {entryNoun(field.label)}
+            </span>
           </button>
           <div style={{ textAlign: 'left', fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
             {entries.length} of {atMost} {field.label.toLowerCase()} added

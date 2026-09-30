@@ -163,7 +163,8 @@ Built:
 - **The applicant portal**, at `/dashboard` — enterprises, starting an
   application of any kind the cycle offers (with every reason a kind is closed),
   the template-driven form rendered stage by stage as a `FormJourney` stepper
-  with autosave and its rules about several answers checked as they are typed,
+  saved by hand (Save, "Save & next", Cmd/Ctrl+S, with a prompt before leaving
+  unsaved answers) and its rules about several answers checked as they are typed,
   the review step that shows the whole application before submission, the
   evidence screen, the validation report and submission or resubmission, the
   timeline, and the cycles an applicant can apply in. After submission an

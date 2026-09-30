@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, createFileRoute, useLocation, useRouter } from '@tanstack/react-router'
-import { ArrowLeft, ArrowRight, LogOut } from 'lucide-react'
+import { Link, createFileRoute, useBlocker, useLocation, useRouter } from '@tanstack/react-router'
+import { ArrowLeft, ArrowRight, LogOut, Save } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CategoryHint } from '#/features/application/CategoryHint'
 import { ClosingNotice } from '#/features/application/ClosingNotice'
 import {
   ATTACH_EVIDENCE,
   ApplicationJourney,
+  isDocumentIssue,
   issuesForStep,
   journeySteps,
   stageForField,
@@ -29,9 +30,6 @@ import { messageFor, unwrap } from '#/lib/result'
 import styles from './DraftForm.module.css'
 import { awaitingCorrection } from '#/features/application/revision'
 
-/** Long enough that typing a sentence is one save, short enough to feel safe. */
-const AUTOSAVE_DELAY_MS = 900
-
 /*
  * One object, so a stage with no issues gets the identical reference every
  * render and its memo comparison holds. A fresh `{}` would defeat it.
@@ -43,7 +41,7 @@ const EMPTY_ISSUES: FieldIssues = {}
  *
  * A structural compare rather than `JSON.stringify`, whose result depends on
  * key insertion order — two identical answer sets built by different code paths
- * would compare unequal and autosave a version that changed nothing.
+ * would compare unequal and read as unsaved changes that change nothing.
  */
 const sameAnswers = (previous: AnswerMap, next: AnswerMap): boolean => {
   const keys = new Set([...Object.keys(previous), ...Object.keys(next)])
@@ -87,7 +85,14 @@ export const Route = createFileRoute('/_shell/_applicant/applications/$id/form')
   component: DraftFormPage,
 })
 
-type SaveState = 'idle' | 'saving' | 'saved' | 'failed'
+/*
+ * Where the answers on screen stand against the server.
+ *
+ * Saving is the applicant's own act — a Save button, and "Save & next" —
+ * never a timer. `unsaved` is the one state with something to lose, and what
+ * arms the leave-the-page guards.
+ */
+type SaveState = 'idle' | 'unsaved' | 'saving' | 'saved' | 'failed'
 
 function DraftFormPage() {
   const { id } = Route.useParams()
@@ -105,20 +110,37 @@ function DraftFormPage() {
 
   const [answers, setAnswers] = useState<AnswerMap | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
-  /** Whether a save is in flight, readable from inside a stale closure. */
-  const inFlight = useRef(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [advanceIssueCount, setAdvanceIssueCount] = useState<number | null>(null)
+  /*
+   * The stages whose problems are on show.
+   *
+   * A stage nobody has tried to finish yet is not wrong, only unfinished, so
+   * it opens without a single red mark. Its problems appear once the applicant
+   * presses "Save & next" there, or arrives from the review page to fix one.
+   */
+  const [revealed, setRevealed] = useState<ReadonlySet<string>>(() => new Set())
+  /*
+   * The questions changed since the server last checked the answers.
+   *
+   * The server's report is only as fresh as the last save, so its complaint
+   * about a question the applicant has since answered would still be on show —
+   * "add at least one owner" under the owner just added. Its issues for these
+   * questions are set aside until the next report; the cross-field rules are
+   * checked live and are unaffected.
+   */
+  const [edited, setEdited] = useState<ReadonlySet<string>>(() => new Set())
+  const reveal = (stageKey: string) =>
+    setRevealed((shown) => (shown.has(stageKey) ? shown : new Set([...shown, stageKey])))
   const latest = useRef<AnswerMap | null>(null)
 
   /*
-   * What was last agreed with the server. Autosave compares against this rather
-   * than against the query data, because the query is refetched after a save
-   * and would otherwise race the comparison.
+   * What was last agreed with the server. "Unsaved" compares against this
+   * rather than against the query data, because the query is refetched after a
+   * save and would otherwise race the comparison.
    */
   const persisted = useRef<AnswerMap | null>(null)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Seeded once from the server, then owned locally. Re-seeding on every
   // refetch would overwrite whatever is being typed.
@@ -151,28 +173,29 @@ function DraftFormPage() {
       return unwrap(data.seb.application.saveDraft)
     },
     onMutate: () => {
-      /*
-       * `saving` already, from the keystroke; this clears a previous failure so
-       * a retry is not shown as still broken.
-       *
-       * `inFlight` is a ref rather than `save.isPending` because the scheduler
-       * below reads it from inside a timer it created — see the note there.
-       */
-      inFlight.current = true
+      // Clears a previous failure, so a retry is not shown as still broken.
       setSaveState('saving')
       setSaveError(null)
     },
-    onSettled: () => {
-      inFlight.current = false
-    },
-    onSuccess: async (saved, next) => {
+    onSuccess: (saved, next) => {
       persisted.current = next
       setSavedAt(saved.updatedAt)
-      // The version moved, so the next save needs the new one. Validation is
-      // now stale too.
-      await queryClient.invalidateQueries({ queryKey: ['application', id] })
-      await queryClient.invalidateQueries({ queryKey: ['validation', id] })
-      setSaveState('saved')
+      /*
+       * The versions the save moved to are written into the cache at once, so
+       * the next save quotes them without waiting for a refetch — and so the
+       * applicant sees "Saved" when the server said so, not two round trips
+       * later. The rest of the record and the validation report refresh
+       * behind it; "Save & next" waits for the report itself.
+       */
+      queryClient.setQueryData(applicationQuery(id).queryKey, (current) =>
+        current
+          ? { ...current, currentVersion: saved.currentVersion, statusVersion: saved.statusVersion }
+          : current,
+      )
+      void queryClient.invalidateQueries({ queryKey: ['application', id] })
+      void queryClient.invalidateQueries({ queryKey: ['validation', id] })
+      // An answer changed while the save was in flight is still unsaved.
+      setSaveState(latest.current && !sameAnswers(next, latest.current) ? 'unsaved' : 'saved')
     },
     onError: (error) => {
       setSaveState('failed')
@@ -181,49 +204,25 @@ function DraftFormPage() {
   })
 
   /**
-   * Schedules a save.
+   * Saves what is on screen, if it differs from what the server holds.
    *
-   * Debounced, never overlapping an in-flight save, and skipped entirely when
-   * nothing changed — the API already treats an unchanged draft as a no-op, and
-   * there is no reason to spend a round trip discovering that.
+   * The applicant's Save button, "Save & next", Cmd/Ctrl+S and "Save and
+   * leave" all come here, so there is one save and one set of rules for it.
+   * Resolves to whether the answers on screen are now safe.
    */
-  const scheduleSave = useCallback(
-    (next: AnswerMap) => {
-      if (timer.current) clearTimeout(timer.current)
-      timer.current = setTimeout(() => {
-        if (persisted.current && sameAnswers(persisted.current, next)) {
-          setSaveState('idle')
-          return
-        }
-        if (inFlight.current) {
-          /*
-           * Try again once the in-flight save settles, rather than stacking.
-           *
-           * Read from a ref, and it has to be. This runs inside a timer created
-           * during some earlier render, and the recursion below re-enters *that*
-           * render's `scheduleSave` — so `save.isPending` would be the boolean
-           * as it stood when the timer was made, frozen. A closure created
-           * while a save was in flight would see `true` for ever, reschedule
-           * itself every debounce interval, and never save: the applicant's
-           * last edit lost, the indicator stuck on "Saving", and the
-           * leave-the-page warning armed with nothing behind it.
-           */
-          scheduleSave(next)
-          return
-        }
-        save.mutate(next)
-      }, AUTOSAVE_DELAY_MS)
-    },
-    // `mutate` is stable; nothing else here is read from the render.
-    [save.mutate],
-  )
-
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current)
-    },
-    [],
-  )
+  const saveNow = async (): Promise<boolean> => {
+    const next = latest.current
+    if (!next || (persisted.current && sameAnswers(persisted.current, next))) {
+      if (saveState === 'unsaved') setSaveState('idle')
+      return true
+    }
+    try {
+      await save.mutateAsync(next)
+      return true
+    } catch {
+      return false
+    }
+  }
 
   /*
    * Arriving from the validation report with a field named in the address.
@@ -245,18 +244,32 @@ function DraftFormPage() {
   }, [hash, answers])
 
   /*
-   * Autosave is debounced, so there is a window in which the last keystroke is
-   * not yet on the server. Leaving during it would lose the edit silently, and
-   * the browser's own prompt is the only thing that can interrupt a navigation
-   * it does not control. Registered only while there is something to lose.
+   * Unsaved answers are never lost silently. Closing or reloading the tab gets
+   * the browser's own prompt — the only thing that can interrupt a navigation
+   * it does not control — and leaving for another page of the portal gets the
+   * dialog below, which offers to save first. Moving between this form's own
+   * stages is not leaving: the answers stay on screen.
    */
-  const unsaved = saveState === 'saving' || saveState === 'failed'
+  const unsaved = saveState === 'unsaved' || saveState === 'saving' || saveState === 'failed'
+  const leaving = useBlocker({
+    shouldBlockFn: ({ current, next }) => unsaved && next.pathname !== current.pathname,
+    enableBeforeUnload: () => unsaved,
+    withResolver: true,
+  })
+
+  // Cmd/Ctrl+S saves, as it does everywhere else a person writes.
+  const saveNowRef = useRef(saveNow)
+  saveNowRef.current = saveNow
   useEffect(() => {
-    if (!unsaved) return
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [unsaved])
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault()
+        void saveNowRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const update = useCallback(
     (fieldKey: string, value: AnswerValue | readonly AnswerEntry[]) => {
@@ -276,23 +289,22 @@ function DraftFormPage() {
        *
        * The server prunes too, and that is what makes it correct — but if the
        * client did not, the applicant would watch an answer vanish on the next
-       * refetch without having done anything, and the autosave comparison would
-       * see a change the applicant did not make.
+       * refetch without having done anything, and the unsaved-changes check
+       * would see a change the applicant did not make.
        */
       const next = template ? pruneHidden(template, raw) : raw
       latest.current = next
       setAnswers(next)
       setAdvanceIssueCount(null)
-      /*
-       * "Saving" from the keystroke, not from the request. Autosave is
-       * debounced, and leaving the indicator on "Saved" through that window
-       * claims the newest answer is safe when it is still only in the browser.
-       * It is also what makes the leave-the-page warning cover the window.
-       */
-      setSaveState('saving')
-      scheduleSave(next)
+      setEdited((keys) => (keys.has(fieldKey) ? keys : new Set([...keys, fieldKey])))
+      // Unsaved from the keystroke: nothing is on the server until Save.
+      setSaveState((state) =>
+        state === 'saving'
+          ? state
+          : persisted.current && sameAnswers(persisted.current, next) ? 'idle' : 'unsaved',
+      )
     },
-    [scheduleSave, template],
+    [template],
   )
 
   /**
@@ -304,7 +316,7 @@ function DraftFormPage() {
    */
   /*
    * The cross-field rules broken by the answers on screen, checked here as
-   * the applicant types rather than after the next autosave. Reduced to a
+   * the applicant types rather than after the next save. Reduced to a
    * string of their keys, which compares by value, so the grouping below is
    * rebuilt only when the verdict changes and not on every keystroke.
    */
@@ -318,9 +330,14 @@ function DraftFormPage() {
     [template, rawTemplate, answers],
   )
 
+  // A fresh report speaks for every question again.
+  useEffect(() => setEdited(new Set()), [validation])
+
   const issuesByStage = useMemo(() => {
     const grouped: Record<string, FieldIssues> = {}
     for (const issue of validation?.issues ?? []) {
+      // `OWNERS[0].NAME` and `OWNERS` are both about the question `OWNERS`.
+      if (edited.has(issue.field.replace(/[[.].*$/, ''))) continue
       const stage = grouped[issue.stageKey] ?? {}
       stage[issue.field] = issue.message
       grouped[issue.stageKey] = stage
@@ -336,13 +353,17 @@ function DraftFormPage() {
       grouped[rule.stageKey] = stage
     }
     return grouped
-  }, [validation, brokenRuleKeys, rawTemplate])
+  }, [validation, edited, brokenRuleKeys, rawTemplate])
 
   const issues = validation?.issues ?? []
   const editable = new Set(application?.editableStageKeys ?? [])
   const readOnly = Boolean(application) && editable.size === 0
   const stageKeys = template ? template.stages.map((stage) => stage.key) : []
   const hashStage = hash && template ? stageForField(template, hash) : null
+  // Arriving to fix a named field is arriving to see what is wrong with it.
+  useEffect(() => {
+    if (hashStage) reveal(hashStage)
+  }, [hashStage])
   const firstEditableStage = stageKeys.find((key) => editable.has(key))
   const firstIncompleteFormIndex = template
     ? stageKeys.findIndex((key) => issuesForStep(template, issues, key).length > 0)
@@ -382,6 +403,17 @@ function DraftFormPage() {
   }
 
   const steps = journeySteps(template)
+  const shownCounts = new Map(
+    stageKeys.map((key) => [
+      key,
+      // Files are counted on the evidence step, as the report counts them.
+      revealed.has(key)
+        ? Object.keys(issuesByStage[key] ?? EMPTY_ISSUES).filter(
+            (field) => !isDocumentIssue(template, field),
+          ).length
+        : 0,
+    ]),
+  )
   const activeIndex = steps.indexOf(currentStage)
   const locked = !editable.has(currentStage)
 
@@ -399,25 +431,14 @@ function DraftFormPage() {
   }
 
   const advance = async () => {
-    // The footer's save is not a different save from autosave — it flushes the
-    // same debounced write before moving, so "Save & next" is literally true.
-    if (timer.current) clearTimeout(timer.current)
-    if (
-      !locked &&
-      persisted.current &&
-      latest.current &&
-      !sameAnswers(persisted.current, latest.current)
-    ) {
-      try {
-        await save.mutateAsync(latest.current)
-      } catch {
-        return
-      }
-    }
+    // "Save & next" is literally true: the same save as the Save button, then
+    // the stage is checked before moving on.
+    if (!locked && !(await saveNow())) return
 
     const currentValidation = await queryClient.fetchQuery(validationQuery(id))
     const outstanding = issuesForStep(template, currentValidation.issues, currentStage)
     if (outstanding.length > 0) {
+      reveal(currentStage)
       setAdvanceIssueCount(outstanding.length)
       const field = document.getElementById(outstanding[0]?.field ?? '')
       field?.focus()
@@ -440,7 +461,7 @@ function DraftFormPage() {
               ? 'This application can no longer be edited.'
               : awaitingCorrection(application)
                 ? 'Only the stages the programme office asked you to correct can be changed.'
-                : 'Your answers are saved as you type.'}
+                : 'Your answers are kept when you press Save, or Save & next. Nothing is saved automatically.'}
           </p>
         </div>
         <FormArtwork />
@@ -475,6 +496,7 @@ function DraftFormPage() {
         template={template}
         activeStep={currentStage}
         issues={issues}
+        shownCounts={shownCounts}
         editableStageKeys={application.editableStageKeys}
         footerLeft={
           <div className={styles.footerLeftGroup}>
@@ -498,15 +520,29 @@ function DraftFormPage() {
           </div>
         }
         footerRight={
-          <button
-            type="button"
-            className={styles.nextButton}
-            disabled={save.isPending}
-            onClick={advance}
-          >
-            <span>{save.isPending ? 'Saving…' : 'Save & next'}</span>
-            <ArrowRight size={16} aria-hidden="true" />
-          </button>
+          <div className={styles.footerRightGroup}>
+            {readOnly ? null : (
+              <button
+                type="button"
+                className={styles.saveButton}
+                disabled={save.isPending || saveState !== 'unsaved' && saveState !== 'failed'}
+                onClick={() => void saveNow()}
+                title="Save your answers (Ctrl+S / ⌘S)"
+              >
+                <Save size={15} aria-hidden="true" />
+                <span>{save.isPending ? 'Saving…' : 'Save'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className={styles.nextButton}
+              disabled={save.isPending}
+              onClick={advance}
+            >
+              <span>{readOnly || locked ? 'Next' : 'Save & next'}</span>
+              <ArrowRight size={16} aria-hidden="true" />
+            </button>
+          </div>
         }
       >
         {locked && awaitingCorrection(application) ? (
@@ -536,13 +572,89 @@ function DraftFormPage() {
             template={template}
             stageKey={currentStage}
             answers={answers}
-            issues={issuesByStage[currentStage] ?? EMPTY_ISSUES}
+            issues={
+              revealed.has(currentStage)
+                ? (issuesByStage[currentStage] ?? EMPTY_ISSUES)
+                : EMPTY_ISSUES
+            }
             disabled={locked}
             onChange={update}
           />
         </fieldset>
       </ApplicationJourney>
+
+      {leaving.status === 'blocked' ? (
+        <LeaveDialog
+          saving={save.isPending}
+          error={saveError}
+          onSave={async () => {
+            if (await saveNow()) leaving.proceed()
+          }}
+          onDiscard={() => leaving.proceed()}
+          onStay={() => leaving.reset()}
+        />
+      ) : null}
     </main>
+  )
+}
+
+/**
+ * Asked when the applicant leaves the form with answers not yet saved.
+ *
+ * Saving is the first choice and the default focus, because it is almost
+ * always what somebody who typed something wants; leaving without it is
+ * offered plainly rather than hidden, because sometimes it is.
+ */
+function LeaveDialog({
+  saving,
+  error,
+  onSave,
+  onDiscard,
+  onStay,
+}: {
+  saving: boolean
+  error: string | null
+  onSave: () => void
+  onDiscard: () => void
+  onStay: () => void
+}) {
+  return (
+    <div className={styles.leaveBackdrop} role="presentation">
+      <div
+        className={styles.leaveDialog}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="leave-title"
+        aria-describedby="leave-body"
+      >
+        <h2 id="leave-title" className={styles.leaveTitle}>Save your changes?</h2>
+        <p id="leave-body" className={styles.leaveBody}>
+          You have answers on this page that are not saved yet. They will be lost if you
+          leave without saving.
+        </p>
+        {error ? (
+          <p className="notice" data-tone="error" role="alert">{error}</p>
+        ) : null}
+        <div className={styles.leaveActions}>
+          <button type="button" className={styles.discardButton} onClick={onDiscard} disabled={saving}>
+            Leave without saving
+          </button>
+          <button type="button" className={styles.backButton} onClick={onStay} disabled={saving}>
+            Stay
+          </button>
+          <button
+            type="button"
+            className={styles.nextButton}
+            onClick={onSave}
+            disabled={saving}
+            // The dialog's first choice, focused so Enter saves.
+            autoFocus
+          >
+            {saving ? 'Saving…' : 'Save and leave'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -553,6 +665,14 @@ function DraftFormPage() {
  * sent, so it can never claim work is safe that is not.
  */
 function SaveIndicator({ state, savedAt }: { state: SaveState; savedAt: string | null }) {
+  if (state === 'unsaved') {
+    return (
+      <span className={styles.saveStatus} data-tone="unsaved" aria-live="polite">
+        <span className={styles.statusDot} aria-hidden="true" />
+        <span>Unsaved changes</span>
+      </span>
+    )
+  }
   if (state === 'saving') {
     return (
       <span className={styles.saveStatus} data-tone="saving" aria-live="polite">

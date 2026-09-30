@@ -298,11 +298,13 @@ A cycle gives each kind its own rules. The full vocabulary is in the
 - [x] The applicant can view only applications belonging to their account.
 - [x] The application list is paginated and supports stable continuation through
   large histories.
-- [x] Add user-facing autosave status with the unambiguous states “Saving”,
-  “Saved”, and “Could not save”.
-- [x] Add a recovery prompt when the browser has unsaved edits and the applicant
-  tries to leave the page. Registered only while a save is in flight or has
-  failed, so it never interrupts somebody with nothing to lose.
+- [x] Save by hand — Save, "Save & next" and Cmd/Ctrl+S; nothing is saved on a
+  timer — with the unambiguous states “Unsaved changes”, “Saving”, “Saved” and
+  “Could not save”.
+- [x] Ask before losing unsaved answers: the browser's prompt when the tab is
+  closed or reloaded, and a dialog offering to save first when the applicant
+  leaves for another page of the portal. Moving between the form's own stages
+  keeps the answers on screen and is not leaving.
 - [ ] Show “last saved” time and the current draft version without implying that
   a saved draft has been submitted. The saved time is shown, taken from the
   server's own record rather than the moment the request was sent. The draft
