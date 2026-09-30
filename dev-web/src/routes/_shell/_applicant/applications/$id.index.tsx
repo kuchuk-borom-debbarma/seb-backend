@@ -371,6 +371,8 @@ function ApplicationPage() {
   // A correction request holds the file with the applicant; it is not on track
   // until they resubmit.
   const correcting = awaitingCorrection(application)
+  // A finished journey is told in the past tense: nothing is "so far" or "next".
+  const finished = Boolean(application.journey?.ended)
   /*
    * Named for the enterprise, which is what the applicant knows it by; the
    * reference number follows once submission issues one.
@@ -767,7 +769,9 @@ function ApplicationPage() {
                 <div className={styles.cardHeader}>
                   <div className={styles.cardTitleGroup}>
                     <Landmark className={styles.cardIcon} aria-hidden="true" />
-                    <h3 className={styles.cardTitle}>Decided so far</h3>
+                    <h3 className={styles.cardTitle}>
+                      {finished ? 'What was decided' : 'Decided so far'}
+                    </h3>
                   </div>
                 </div>
                 <div className={styles.detailList}>
@@ -790,7 +794,9 @@ function ApplicationPage() {
                   <Sprout size={16} aria-hidden="true" />
                 </div>
                 <p className={styles.noticeText}>
-                  {correcting
+                  {finished
+                    ? 'Your application’s journey is finished. Keep the reference number for anything you write to the programme office about it.'
+                    : correcting
                     ? 'Once you submit your corrections, the application goes back to the reviewers who asked for them, and this page shows where it is.'
                     : 'We’ll keep you updated as your application moves to the next stage. You can check this page anytime for the latest status.'}
                 </p>
@@ -804,10 +810,14 @@ function ApplicationPage() {
                 <div className={styles.timelineHeaderIcon}>
                   <Megaphone size={18} aria-hidden="true" />
                 </div>
-                <h3 className={styles.timelineHeaderTitle}>What happens next?</h3>
+                <h3 className={styles.timelineHeaderTitle}>
+                  {finished ? 'How it went' : 'What happens next?'}
+                </h3>
               </div>
               <p className={styles.timelineSub}>
-                Your application will progress through the following stages:
+                {finished
+                  ? 'The stages your application went through:'
+                  : 'Your application will progress through the following stages:'}
               </p>
 
               <div className={styles.timelineTrack}>
