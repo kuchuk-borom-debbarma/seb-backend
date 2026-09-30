@@ -65,8 +65,9 @@ export type PinnedCycleRules = {
  * Where a function below the controller gets a cycle version's form from.
  *
  * A request passes one backed by its `pinnedForm` loader, so the form is read
- * once however many steps need it; a caller with no request — the
- * confirmation PDF route — passes `readPinnedFormDirectly`.
+ * once however many steps need it. A caller with no loaders and one read to
+ * make — the confirmation PDF route — calls `findPinnedCycleRules` itself;
+ * `readPinnedFormDirectly` is for code that takes a reader but has no request.
  */
 export type PinnedFormReader = (
   programmeCycleId: string,
