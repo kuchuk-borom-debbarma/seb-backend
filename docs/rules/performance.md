@@ -109,6 +109,31 @@ describes for transitions.
 statement takes its own snapshot anyway, so it buys no consistency and costs
 two round trips. If several reads must agree, they must be one statement.
 
+### Folding a write without losing its guard
+
+Folding changes what each part of the write can see, and the ways it goes
+wrong are silent: the statement succeeds and does the wrong thing.
+
+- **Every member sees the database as it was before the statement.** A member
+  cannot learn that another wrote by looking at the table — a guard such as
+  "the head is now at version n+1" matches nothing. A dependent learns only
+  from the row the member it depends on returned, so it selects `FROM` that
+  member. `writeFolded` in `src/db` is the shape: the guarded write is `head`,
+  and the answer is whatever `head` returned.
+- **The guard lives on the first write, and only there.** A condition on a
+  dependent protects nothing once the head has written. Every term the old
+  statements checked moves into the head's `WHERE`, and a test pins that a
+  refused head writes nothing at all.
+- **Qualify outer columns by hand in a correlated subquery.** With one table in
+  `FROM` and no join, drizzle renders `${table.column}` inside a selected `sql`
+  field bare, and a bare name inside a subquery binds to the subquery's own
+  table. The read returns empty, not an error. Pass the value as a parameter or
+  write `${table}.column`.
+- **A response built from a write goes through the read's own shaping** — the
+  same assembly, the same round trip of answers through their stored rows —
+  and a test compares it field for field with a read made straight after. The
+  read is the definition; the in-hand response is an optimisation of it.
+
 ## Rule 6 — Latency we do not own stays off the response path
 
 An email provider, an object store or a scanner is not ours to make fast. It
@@ -223,24 +248,30 @@ rows. Opt out per link where the target is heavy and the hover is incidental.
 
 ## Where the code stands
 
-Measured on 30 September 2026, round trips per operation against the local
-database:
+Measured on 1 October 2026, round trips per operation against the local
+database, counting `BEGIN` and `COMMIT` (they are real round trips). Before is
+30 September, when the counter did not count them, so the old figures are if
+anything low.
 
-| Operation | Round trips | Default budget |
-| --- | --- | --- |
-| Submit an application | 53 | ~5 |
-| Resubmit | 50 | ~5 |
-| Save a draft | 36–39 | 3–4 |
-| Start an application | 29 | 3–4 |
-| Read an officer's file (workspace) | 23 | 3 |
-| Validate an application | 21 | 3 |
-| Take a stage action | 3 | 3 — meets its budget |
+| Operation | Before | Now | Budget |
+| --- | --- | --- | --- |
+| Submit an application | 53 | 5 | 5 |
+| Resubmit | 50 | 4 | 4 |
+| Save a draft (and a correction) | 36–39 | 4 | 4 |
+| Start an application | 29 | 5 | 5 |
+| Validate an application | 21 | 3 | 3 |
+| Read an application | 12 | 3 | 3 |
+| Put a draft away / bring it back | 18 / 28 | 4 / 5 | 4 / 5 |
+| Issue an upload, remove a document | 14–20 | 4 | 4 |
+| Take a stage action | 3 | 3 | 3 |
+| Read an officer's file (workspace) | 23 | 12 | 3 |
 
-The causes are the ones these rules name: the pinned form read up to three times
-per request (Rules 2, 3), the aggregate reloaded after every write (Rule 4),
-writes grouped in transactions instead of folded (Rule 5), and emails awaited
-before the response (Rule 6). Stage actions are the reference implementation of
-every rule here. Closing this gap is tracked in the
+Every applicant operation now meets its budget, and
+`test/service/application-performance.test.ts` holds it there. The causes were
+the ones these rules name: the pinned form read up to three times per request
+(Rules 2, 3), the aggregate reloaded after every write (Rule 4), writes grouped
+in transactions instead of folded (Rule 5), and emails awaited before the
+response (Rule 6). The workspace and the client remain; both are tracked in the
 [roadmap](../ROADMAP.md#192-every-operation-within-its-round-trip-budget).
 
 ## Related

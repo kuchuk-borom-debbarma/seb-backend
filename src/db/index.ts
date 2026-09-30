@@ -167,8 +167,8 @@ export const changedExactlyOne = (returned: WriteResult): boolean =>
  *
  * Per request rather than per isolate, for the reason `src/index.ts` gives about
  * its own configuration: a cached instance is shared by every request the
- * isolate serves, and the test suite runs `singleWorker: true`, so a singleton
- * here would be one connection shared across every test in a run.
+ * isolate serves, and every test in a service-suite file shares its modules,
+ * so a singleton here would be one connection shared across all of them.
  *
  * Hyperdrive holds the pool at the edge, so opening a client costs one hop
  * rather than a TLS and authentication handshake to Neon. The caller owns

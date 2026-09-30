@@ -85,7 +85,9 @@ The clearest worked example is the last-super-administrator guard
 
 ### The guarded-write shape
 
-Every mutation is one statement, and it always looks like this:
+Every applicant and stage transition is one statement, and it always looks
+like this (`writeFolded` in `src/db`; some administrative writes are still a
+`batch`, which the roadmap tracks):
 
 1. An `UPDATE … WHERE current_version = :expected` on the head row, plus every
    term that must still hold — the owner, the status, the lifecycle — returning

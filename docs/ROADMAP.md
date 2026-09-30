@@ -1087,23 +1087,29 @@ administrator — writes cards the public reads without signing in.
 ### 19.2 Every operation within its round-trip budget
 
 The [performance rules](rules/performance.md) set a budget per operation shape.
-Taking a stage action meets its budget; most of the applicant's operations do
-not yet.
+Taking a stage action and every applicant operation meet theirs; the officer's
+workspace, the administrative writes and the client do not yet.
 
 - [x] Take a stage action in three round trips whatever its effects, asserted by
   a budget test.
-- [ ] Read a cycle version's pinned form in one statement, once per request.
-  Today it is six statements, read up to three times in a save or a submit.
-- [ ] Build a write's response from the write itself rather than reloading the
-  application (11 statements) or an officer's workspace (22) afterwards.
-- [ ] Fold every applicant write — save, submit, resubmit, start, the document
-  writes — into one data-modifying statement with its audit row, and pin a
-  submission's documents with one `INSERT … SELECT`.
-- [ ] Read the kinds an enterprise may start in one statement rather than two
-  read transactions (nine round trips).
-- [ ] Send the submission confirmation and stage notifications after the
-  response, through the queue or `waitUntil`.
-- [ ] Give every mutation and every screen's read a budget test.
+- [x] Read a cycle version's pinned form in one statement, once per request. It
+  was six statements, read up to three times in a save or a submit.
+- [x] Build an applicant write's response from the write itself rather than
+  reloading the application. Each write's response is tested field for field
+  against a read made straight after it.
+- [x] Fold every applicant write — save, submit, resubmit, start, delete and
+  restore, the document writes — into one data-modifying statement with its
+  audit row, and pin a submission's documents with one `INSERT … SELECT`.
+- [x] Read the kinds an enterprise may start, with the open cycle, in one
+  statement rather than two read transactions (nine round trips).
+- [x] Send the submission confirmation and stage notifications after the
+  response (`src/deferred.ts`, through `waitUntil`).
+- [x] Give every applicant operation a budget test
+  (`test/service/application-performance.test.ts`).
+- [ ] Fold the officer's workspace read (12 round trips) to its budget of three,
+  and stop reloading it after an intake write.
+- [ ] Give the administrative writes (cycles, forms, roles, enterprises) and
+  every screen's read a budget test, and fold what exceeds it.
 - [ ] In the client, stop fetching loader-fed queries twice on entry, update the
   cache from mutation responses instead of refetching, and give the
   applications list the progress each row shows so it makes no request per row.

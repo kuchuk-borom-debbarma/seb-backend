@@ -100,8 +100,9 @@ service/
 Transports, storage backends, scanners and loaders are built when they are
 needed. `src/index.ts` states the reason for the Worker's own configuration:
 parsed on demand *"so tests and local Wrangler overrides can supply different
-bindings without global mutable configuration"*. The suite also runs
-`singleWorker: true`, so a cached instance is shared by every test in the run.
+bindings without global mutable configuration"*. In the service suite every
+test in a file shares its modules, so a cached instance would be shared by all
+of them.
 
 **A request waits for a database connection before it starts database work.** A
 rejected connection becomes the one safe unavailable-service response instead

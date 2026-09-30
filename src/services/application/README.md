@@ -66,7 +66,7 @@ the code implements it.
 | **Entry** | `seb.application.saveDraft` |
 | **Guard** | applicant, and owns this application |
 | **Refuses** | a stale `expectedVersion` or `expectedStatusVersion`; a submitted application with no open revision request; an answer the form does not ask, or one it does ask left out; after submission, any stage no open revision request names |
-| **Writes** | a new immutable form version plus the audit row, one batch |
+| **Writes** | a new immutable form version, its answers, the timeline entry and the audit row, in one statement |
 | **Guarded by** | both versions, the status, and the revision scope |
 | **Fails** | `The record changed. Reload and try again.` |
 
@@ -214,6 +214,26 @@ wrong column.
 timeline events, notes, revision requests. They are bounded by real work rather
 than by anything a caller sends, but "bounded by real work" is not bounded, and
 a file worked on for years should not make one request read ten thousand rows.
+
+## Performance
+
+Every operation reads what it decides on once and writes in one statement. The
+budgets, in round trips, are held by `test/service/application-performance.test.ts`,
+and each write's response is tested against a read made straight after it:
+
+| Operation | Round trips | What they are |
+| --- | --- | --- |
+| Read, validate, the form | 3 | session; the application (with what a write needs); the pinned form |
+| Save, a correction, resubmit | 4 | as a read, plus one guarded write |
+| Submit | 5 | as a save, plus eligibility with the open cycle |
+| Start | 5 | session; the enterprise; eligibility with the open cycle; the form; the write |
+| Put away / bring back | 4 / 5 | as a save; bringing back also re-asks eligibility |
+| Issue an upload, remove a document | 4 | session; the application with its documents; the form; the write |
+
+The form is read through the request's `pinnedForm` loader, so a second read
+in the same request costs nothing. Emails go after the response
+(`src/deferred.ts`). Why each of these is shaped as it is:
+[the performance rules](../../../docs/rules/performance.md).
 
 ## Exports
 

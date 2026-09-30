@@ -658,7 +658,8 @@ export const findDraftChanges = async (
   /*
    * The files the submission froze against the ones attached now, so a
    * replaced document shows as a change here exactly as it will to the office.
-   * Read together with the answers: one round trip for all three.
+   * Three statements: `Promise.all` sends them one after another on the
+   * request's one connection, so this costs three round trips, not one.
    */
   const [rows, pinned, live] = await Promise.all([
     findAnswerRows(db, [submitted.id, current.id]),

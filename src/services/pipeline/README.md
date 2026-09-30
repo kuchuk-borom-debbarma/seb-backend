@@ -149,7 +149,7 @@ figures.
 | Office-wide list by flags | 3 | < 50 ms | GIN on `status_flags` |
 | One file's pipeline state | 3 | < 8 ms | one folded read; the definition from the per-request loader |
 | Taking an action | **3, whatever the number of effects** | < 10 ms, engine < 2 ms | one folded context read, one data-modifying `WITH` |
-| Eligibility at start | +0 | < 5 ms | folded into the start read |
+| Eligibility at start or submit | 1 | < 5 ms | one statement: the open cycle, its kinds and rules, and the enterprise's history |
 
 A page naming applications from several pipeline versions resolves every
 definition in **one** statement, through the `pipelineDefinition` loader in
