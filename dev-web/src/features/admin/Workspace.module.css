@@ -148,15 +148,21 @@
    2-Column Layout Grid
    ========================================================================== */
 
+/*
+ * The file on the left, wide, because the answers and documents are what a
+ * decision is read from; what to do about it on the right, narrow, with the
+ * stage and its actions at the top so they sit beside the first answers.
+ */
 .mainGrid {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 20px;
   align-items: start;
   min-width: 0;
 }
 
-.colStack {
+.mainColumn,
+.sideColumn {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -357,14 +363,18 @@
 
 .topNotesHeader {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
 }
 
+/* Lock and title on one line, "Never shown to applicant" under them. */
 .topNotesHeaderLeft {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
+  min-width: 0;
 }
 
 .notesLockBadge {
@@ -453,24 +463,26 @@
   text-decoration: underline;
 }
 
+/* Secondary: beside the stage's own primary action it must not compete. */
 .addNoteTriggerButton {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  padding: 6px 12px;
   border-radius: 8px;
-  background: #0f172a;
-  color: #ffffff;
+  background: var(--surface, #ffffff);
+  color: #0f172a;
   font-size: 12.5px;
   font-weight: 600;
-  border: none;
+  white-space: nowrap;
+  border: 1px solid var(--border);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease;
 }
 
 .addNoteTriggerButton:hover {
-  background: #1e293b;
-  transform: translateY(-1px);
+  background: var(--surface-sunken);
 }
 
 /* Note Modal Popup Animations */
@@ -621,6 +633,11 @@
   .mainGrid {
     grid-template-columns: 1fr;
   }
+
+  /* One column: the actions first, then the file, never the reverse. */
+  .sideColumn {
+    order: -1;
+  }
 }
 
 @media (max-width: 40rem) {
@@ -636,4 +653,11 @@
   .card {
     padding: 16px 14px;
   }
+}
+
+/* Its own line under the title, so the header never squeezes it into a column. */
+.confidentialTag {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--ink-muted);
 }

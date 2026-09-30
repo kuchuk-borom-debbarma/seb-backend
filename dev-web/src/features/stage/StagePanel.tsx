@@ -100,7 +100,11 @@ export function StagePanel({
         </span>
       </div>
 
-      <div className={styles.standing} data-ended={file.ended ? 'true' : undefined}>
+      <div
+        className={styles.standing}
+        data-ended={file.ended ? 'true' : undefined}
+        data-waiting={file.awaitingApplicant ? 'true' : undefined}
+      >
         {file.ended ? (
           <>
             <CircleCheck size={20} aria-hidden="true" className={styles.standingIcon} />
@@ -108,6 +112,25 @@ export function StagePanel({
               <p className={styles.standingTitle}>Ended as {file.ended.label}</p>
               <p className={styles.standingText}>
                 No stage holds this file any more, and no action is offered.
+              </p>
+            </div>
+          </>
+        ) : file.stage && file.awaitingApplicant ? (
+          /*
+           * The file is still held by its stage, but nobody in the office can
+           * move it: that is what the officer needs to read first, not the
+           * stage's usual description.
+           */
+          <>
+            <Undo2 size={20} aria-hidden="true" className={styles.standingIcon} />
+            <div>
+              <p className={styles.standingTitle}>With the applicant for corrections</p>
+              <p className={styles.standingText}>
+                {askedAt(openRevisions)
+                  ? `Asked ${formatDateTime(askedAt(openRevisions))}. `
+                  : ''}
+                It comes back to {file.stage.name} when they resubmit; until then no action
+                is offered.
               </p>
             </div>
           </>
@@ -155,30 +178,27 @@ export function StagePanel({
 
       {file.awaitingApplicant ? (
         <div className={styles.panelBlock}>
-          <h3 className={styles.blockTitle}>Waiting on the applicant</h3>
-          <p className="field-hint">
-            No action is offered while the applicant is correcting the file. It comes back
-            to {file.stage?.name ?? 'this stage'} when they resubmit.
-          </p>
+          <h3 className={styles.blockTitle}>Corrections asked for</h3>
           <ul className={styles.revisionList}>
             {openRevisions.map((revision) => (
               <li key={revision.id} className={styles.revisionItem}>
-                <div>
-                  <strong>{sectionTitle(revision.stageKey)}</strong>
-                  <p>{revision.note}</p>
+                <strong>{sectionTitle(revision.stageKey)}</strong>
+                <p>{revision.note}</p>
+                {/* Under the note, so the note keeps the card's full width. */}
+                <div className={styles.revisionFoot}>
                   <span className="field-hint">
                     Requested {formatDateTime(revision.requestedAt)}
                   </span>
+                  {file.canWithdrawRevision ? (
+                    <button
+                      type="button"
+                      className={styles.revisionWithdraw}
+                      onClick={() => setWithdrawing(revision)}
+                    >
+                      <Undo2 size={13} aria-hidden="true" /> Withdraw
+                    </button>
+                  ) : null}
                 </div>
-                {file.canWithdrawRevision ? (
-                  <button
-                    type="button"
-                    className="button"
-                    onClick={() => setWithdrawing(revision)}
-                  >
-                    <Undo2 size={14} aria-hidden="true" /> Withdraw
-                  </button>
-                ) : null}
               </li>
             ))}
           </ul>
@@ -200,13 +220,20 @@ export function StagePanel({
             </p>
           ) : (
             <div className={styles.actionGrid}>
-              {file.actions.map((action) => (
-                <div key={action.key} className={styles.actionCard}>
+              {orderedActions(file.actions).map((action) => (
+                <div
+                  key={action.key}
+                  className={styles.actionCard}
+                  data-weight={actionWeight(action)}
+                >
                   <button
                     type="button"
                     className={
-                      action.permitted ? workspace.primaryActionButton : 'button'
+                      action.permitted && actionWeight(action) === 'forward'
+                        ? workspace.primaryActionButton
+                        : 'button'
                     }
+                    data-variant={actionWeight(action) === 'closing' ? 'danger' : undefined}
                     disabled={!action.permitted}
                     aria-describedby={action.permitted ? undefined : `why-${action.key}`}
                     onClick={() => {
@@ -448,3 +475,36 @@ function WithdrawDialog({
     </Dialog>
   )
 }
+
+type OfferedAction = { closesApplication: boolean; requestsRevision: boolean }
+
+/**
+ * How much an action should draw the eye. Carrying the file on is the usual
+ * next step and is drawn as the primary button; handing it back for
+ * corrections is secondary; closing it without support is drawn in the
+ * danger style and set apart, so it is never the button a hurried officer
+ * hits by habit. Read from the action's effects, never from its label.
+ */
+const actionWeight = (action: OfferedAction): 'forward' | 'revision' | 'closing' =>
+  action.closesApplication ? 'closing' : action.requestsRevision ? 'revision' : 'forward'
+
+const WEIGHT_ORDER = { forward: 0, revision: 1, closing: 2 } as const
+
+/** The pipeline's own order within each weight; closing always last. */
+const orderedActions = <T extends OfferedAction>(actions: readonly T[]): T[] =>
+  actions
+    .map((action, index) => ({ action, index }))
+    .sort(
+      (a, b) =>
+        WEIGHT_ORDER[actionWeight(a.action)] - WEIGHT_ORDER[actionWeight(b.action)] ||
+        a.index - b.index,
+    )
+    .map(({ action }) => action)
+
+/** When the office asked for the corrections still open: the earliest request. */
+const askedAt = (revisions: readonly { requestedAt: string }[]): string | null =>
+  revisions.reduce<string | null>(
+    (earliest, revision) =>
+      earliest === null || revision.requestedAt < earliest ? revision.requestedAt : earliest,
+    null,
+  )

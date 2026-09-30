@@ -84,6 +84,17 @@ function WorkspacePage() {
     key: stage.key,
     title: stage.title,
   }))
+  /*
+   * Names from the pinned form, not from a table of keys in this client: a
+   * cycle's author chooses them, and "ST certificate" for a question the form
+   * calls "Scheduled Tribe certificate" makes the officer translate.
+   */
+  const fieldLabels = new Map(
+    (workspace.formTemplate?.fields ?? []).map((field) => [field.key, field.label]),
+  )
+  const documentLabel = (fieldKey: string) => fieldLabels.get(fieldKey) ?? fieldLabel(fieldKey)
+  const sectionTitle = (stageKey: string) =>
+    sections.find((section) => section.key === stageKey)?.title ?? stageTitle(stageKey)
   // A stage officer may work files without reading the office-wide list.
   const mayReadList = can(viewer, 'application', 'read')
 
@@ -98,10 +109,19 @@ function WorkspacePage() {
     )
     if (!snapshot) return null
     const resolved = resolveTemplate(workspace.formTemplate)
+    // The sections sent back to the applicant, marked where they are read.
+    const reopened = new Set(openRevisions.map((revision) => revision.stageKey))
     return (
       <AnswerSummary
         template={resolved}
         answers={snapshot.answers as AnswerMap}
+        stageAction={(stageKey) =>
+          reopened.has(stageKey) ? (
+            <span className="badge" data-tone="warn">
+              Correction asked
+            </span>
+          ) : null
+        }
       />
     )
   })()
@@ -141,22 +161,53 @@ function WorkspacePage() {
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-          <span className={styles.statusPill} data-tone={statusTone(application.status)}>
-            {humanize(application.status)}
-          </span>
+          {/* Where a submitted file stands is the stage panel's to say, in the
+              pipeline's own words; "In pipeline" here only repeated it. */}
+          {application.status === 'DRAFT' ? (
+            <span className={styles.statusPill} data-tone={statusTone(application.status)}>
+              Draft
+            </span>
+          ) : null}
           <span className={styles.statusPill}>
             {humanize(application.applicationKind)}
           </span>
         </div>
       </div>
 
-      {/* Redesigned Top Internal Notes Card */}
-      <InternalNotes applicationId={id} notes={workspace.notes} onChanged={refresh} />
-
-      {/* Main 2-Column Grid */}
+      {/*
+        Two columns, ordered by what an officer does. The wide one is the file
+        itself — the answers and the documents, which are what a decision is
+        made on. The narrow one is what to do about it: the stage and its
+        actions, the office's notes, and the file's history. Below the
+        breakpoint the side column comes first, so the actions are not buried
+        under the whole form.
+      */}
       <div className={styles.mainGrid}>
-        {/* Left Column: Who is on this + Next Step + Stages */}
-        <div className={styles.colStack}>
+        <div className={styles.mainColumn}>
+          {submittedView ? (
+            <section className={styles.card}>
+              <div className={styles.cardHeader}>
+                <h2 className={styles.cardTitle}>What was submitted</h2>
+                {latestSubmission ? (
+                  <span className={styles.headerMeta}>
+                    Submission {latestSubmission.submissionNumber} ·{' '}
+                    {formatDateTime(latestSubmission.submittedAt)}
+                  </span>
+                ) : null}
+              </div>
+              {submittedView}
+            </section>
+          ) : null}
+
+          <Documents
+            applicationId={id}
+            documents={workspace.documents}
+            latestSubmissionId={latestSubmission?.id}
+            labelOf={documentLabel}
+          />
+        </div>
+
+        <div className={styles.sideColumn}>
           {/*
             Where the file stands in its pipeline and what may be done next:
             its stage, flags, recorded values, the corrections it waits on,
@@ -173,18 +224,8 @@ function WorkspacePage() {
             </div>
           )}
 
-          {submittedView ? (
-            <section className={styles.card}>
-              <div className={styles.cardHeader}>
-                <h2 className={styles.cardTitle}>What was submitted</h2>
-              </div>
-              {submittedView}
-            </section>
-          ) : null}
-        </div>
+          <InternalNotes applicationId={id} notes={workspace.notes} onChanged={refresh} />
 
-        {/* Right Column: Submissions + Documents + Desk Reviews */}
-        <div className={styles.colStack}>
           {/*
             Where this attempt sits in the enterprise's journey. The programme
             funds an enterprise one phase at a time, and a reviewer placing a
@@ -255,9 +296,7 @@ function WorkspacePage() {
                     <th scope="col" style={{ width: '56px' }}>
                       No.
                     </th>
-                    <th scope="col" style={{ width: '220px' }}>
-                      Submitted
-                    </th>
+                    <th scope="col">Submitted</th>
                     <th scope="col">What changed</th>
                   </tr>
                 </thead>
@@ -280,7 +319,7 @@ function WorkspacePage() {
                         <td>
                           {change ? (
                             change.stageKeys
-                              .map((stageKey) => stageTitle(stageKey))
+                              .map((stageKey) => sectionTitle(stageKey))
                               .join(', ')
                           ) : (
                             // The first submission changed everything by
@@ -295,12 +334,6 @@ function WorkspacePage() {
               </table>
             </div>
           </section>
-
-          <Documents
-            applicationId={id}
-            documents={workspace.documents}
-            latestSubmissionId={latestSubmission?.id}
-          />
 
         </div>
       </div>
@@ -329,6 +362,7 @@ function Documents({
   applicationId,
   documents,
   latestSubmissionId,
+  labelOf,
 }: {
   applicationId: string
   documents: {
@@ -340,6 +374,8 @@ function Documents({
     sizeBytes: number
   }[]
   latestSubmissionId: string | undefined
+  /** The form's own name for the question a document answers. */
+  labelOf: (fieldKey: string) => string
 }) {
   const [error, setError] = useState<string | null>(null)
 
@@ -401,7 +437,7 @@ function Documents({
                   <td>
                     <div className={styles.docTitleCell}>
                       <FileText size={16} className={styles.docIcon} aria-hidden="true" />
-                      <span>{fieldLabel(document.fieldKey)}</span>
+                      <span>{labelOf(document.fieldKey)}</span>
                       {document.documentVersion > 1 ? (
                         <span className="field-hint">v{document.documentVersion}</span>
                       ) : null}

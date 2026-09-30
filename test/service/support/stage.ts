@@ -64,7 +64,7 @@ const STAGE_APPLICATION_FIELDS = `
   awaitingApplicant worksStage canWithdrawRevision
   openRevisions { id stageKey }
   revisionStageKeys
-  actions { key label requestsRevision permitted defaults inputForm { fields { key type } } }
+  actions { key label requestsRevision closesApplication permitted defaults inputForm { fields { key type } } }
   history {
     actionKey actionLabel stageKey toStageKey actor { id email }
     flagsAdded flagsRemoved recorded { key value } inputs { key label value }

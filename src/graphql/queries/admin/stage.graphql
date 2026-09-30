@@ -248,6 +248,12 @@ type AdminStageAvailableAction {
   """
   requestsRevision: Boolean!
 
+  """
+  Whether taking it closes the application without support, which a screen
+  shows apart from the actions that carry the file on.
+  """
+  closesApplication: Boolean!
+
   """Whether this caller may take it: they work the stage and hold every permission its effects need."""
   permitted: Boolean!
 }

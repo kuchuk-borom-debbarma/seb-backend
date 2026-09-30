@@ -31,6 +31,16 @@
   color: var(--green);
 }
 
+/* With the applicant: the office is waiting, so the card says so in amber. */
+.standing[data-waiting='true'] {
+  background: var(--yellow-tint);
+  border-color: var(--yellow);
+}
+
+.standing[data-waiting='true'] .standingIcon {
+  color: var(--yellow-hover);
+}
+
 .standingTitle {
   margin: 0;
   font-size: 15px;
@@ -169,6 +179,13 @@
   align-self: stretch;
 }
 
+/* Closing a file sits apart from the actions that carry it on. */
+.actionCard[data-weight='closing'] {
+  margin-top: 8px;
+  border-style: dashed;
+  background: transparent;
+}
+
 .actionDialog {
   max-width: 640px;
   max-height: calc(100vh - 40px);
@@ -235,13 +252,40 @@
 
 .revisionItem {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  gap: 2px;
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid #e6dff0;
   background: var(--purple-tint);
+}
+
+.revisionFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* A quiet control: withdrawing is rare, and the note is what is read. */
+.revisionWithdraw {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.revisionWithdraw:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--ink);
 }
 
 .revisionItem p {

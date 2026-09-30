@@ -83,6 +83,7 @@ query StageApplication($applicationId: ID!) {
             inputForm { ...FormTemplateFields }
             defaults
             requestsRevision
+            closesApplication
             permitted
           }
           history {

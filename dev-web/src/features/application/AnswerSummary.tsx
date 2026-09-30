@@ -132,7 +132,7 @@ export function AnswerSummary({
                 : { borderTop: '1px solid var(--hairline)', paddingTop: 'var(--space-4)' }
             }
           >
-            <div className="label-row" style={{ marginBottom: 'var(--space-3)' }}>
+            <div className="label-row" style={{ marginBottom: 'var(--space-3)', gap: 'var(--space-2)' }}>
               <h3 className="eyebrow">{stage.title}</h3>
               {stageAction?.(stage.key)}
             </div>

@@ -64,8 +64,13 @@ export function ActionDialog({
   /** Called after a successful action, with a sentence saying what happened. */
   onDone: (message: string) => Promise<unknown>
 }) {
+  // No form at all for an action that asks nothing: an empty one still took
+  // up the space of its margins, a gap above whatever came next.
   const template = useMemo(
-    () => (action.inputForm ? resolveTemplate(action.inputForm) : null),
+    () =>
+      action.inputForm && action.inputForm.fields.length > 0
+        ? resolveTemplate(action.inputForm)
+        : null,
     [action.inputForm],
   )
   const [answers, setAnswers] = useState<AnswerMap>(() => ({
