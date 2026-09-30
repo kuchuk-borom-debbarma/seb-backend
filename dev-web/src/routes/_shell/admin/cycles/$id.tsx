@@ -1066,6 +1066,7 @@ function AdminCyclePage() {
               <button
                 type="button"
                 className={styles.modalCloseButton}
+                aria-label="Close"
                 onClick={() => setClosesAt(null)}
               >
                 <X size={16} aria-hidden="true" />
@@ -1144,6 +1145,7 @@ function AdminCyclePage() {
               <button
                 type="button"
                 className={styles.modalCloseButton}
+                aria-label="Close"
                 onClick={() => setShowGuidanceModal(false)}
               >
                 <X size={16} aria-hidden="true" />
@@ -1218,6 +1220,7 @@ function AdminCyclePage() {
               <button
                 type="button"
                 className={styles.modalCloseButton}
+                aria-label="Close"
                 onClick={() => setTransitionAction(null)}
               >
                 <X size={16} aria-hidden="true" />

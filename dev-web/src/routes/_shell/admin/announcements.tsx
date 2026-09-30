@@ -428,6 +428,7 @@ function AnnouncementsPage() {
               <button
                 type="button"
                 className={styles.modalCloseButton}
+                aria-label="Close"
                 onClick={() => setRemoving(null)}
               >
                 <X size={16} aria-hidden="true" />
@@ -535,7 +536,7 @@ function AnnouncementEditor({
           <h3 className={styles.modalTitle}>
             {mode === 'create' ? 'New announcement' : 'Edit announcement'}
           </h3>
-          <button type="button" className={styles.modalCloseButton} onClick={onCancel}>
+          <button type="button" className={styles.modalCloseButton} aria-label="Close" onClick={onCancel}>
             <X size={16} aria-hidden="true" />
           </button>
         </div>
