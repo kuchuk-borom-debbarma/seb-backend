@@ -24,6 +24,7 @@ import { messageFor, unwrap } from '#/lib/result'
 import type { PipelineDefinition } from './definition'
 import type { PipelineDetail } from './pipelineQueries'
 import styles from './Pipeline.module.css'
+import { definitionFromJson } from './definition'
 
 type StageRow = PipelineDetail['stages'][number]
 
@@ -39,11 +40,19 @@ export function OwnersTab({
   const [editing, setEditing] = useState<{ stage: StageRow; name: string } | null>(null)
   const saved = new Map(detail.stages.map((stage) => [stage.stageKey, stage]))
   const named = new Map(definition.stages.map((stage) => [stage.key, stage.name]))
-  // The document's stages first, in its order; then any stage a published
-  // version still has that the working copy no longer names.
+  // The document's stages first, in its order; then any stage the published
+  // version still has that the working copy no longer names, or that still
+  // has owners to take away. A stage named only by an earlier draft — the
+  // placeholder a new pipeline starts with, renamed — has neither, and a row
+  // for it would only offer owners to a stage no file can reach.
+  const published = new Set(
+    detail.published ? definitionFromJson(detail.published.definitionJson).stages.map((stage) => stage.key) : [],
+  )
   const keys = [
     ...definition.stages.map((stage) => stage.key),
-    ...detail.stages.map((stage) => stage.stageKey).filter((key) => !named.has(key)),
+    ...detail.stages
+      .filter((stage) => !named.has(stage.stageKey) && (published.has(stage.stageKey) || stage.owners.length > 0))
+      .map((stage) => stage.stageKey),
   ]
 
   return (
