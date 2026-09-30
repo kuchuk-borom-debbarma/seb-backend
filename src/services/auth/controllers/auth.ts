@@ -167,7 +167,32 @@ const toAuthSession = (
   current: value.id === currentSessionId,
 })
 
-export const getCurrentSession = async (
+/*
+ * One read of the session per request, however many operations it carries.
+ *
+ * A batched request runs several operations over one connection, each of which
+ * asks who is calling; reading the session once per operation would spend a
+ * round trip per operation on the same answer. Keyed by the request's loaders —
+ * the one object built per request and shared by its operations — so it can
+ * never answer a different request (docs/rules/performance.md, rule 3: the
+ * session is per-request authority).
+ *
+ * Safe because a request that changes the session — signing in or out,
+ * revoking — is a mutation, sent alone, and reads the session before it writes.
+ */
+const sessionPerRequest = new WeakMap<object, Promise<AuthenticatedUserRequest | null>>()
+
+export const getCurrentSession = (
+  context: AuthOperationContext,
+): Promise<AuthenticatedUserRequest | null> => {
+  const known = sessionPerRequest.get(context.loaders)
+  if (known) return known
+  const reading = readCurrentSession(context)
+  sessionPerRequest.set(context.loaders, reading)
+  return reading
+}
+
+const readCurrentSession = async (
   context: AuthOperationContext,
 ): Promise<AuthenticatedUserRequest | null> => {
   const token = readSessionToken(context.requestHeaders)

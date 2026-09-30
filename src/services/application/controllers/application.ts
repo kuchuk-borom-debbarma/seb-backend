@@ -327,7 +327,8 @@ export const startApplication = async (
   // Built from what was written rather than read back: a new draft has no
   // documents, requests or answers yet (rule 4).
   return success(assembleApplication({
-    ...inserted, template: rules.template, answerRows: [], documents: [], revisionRequests: [],
+    ...inserted, kindLabel: kind.label, template: rules.template,
+    answerRows: [], documents: [], revisionRequests: [],
   }))
 }
 

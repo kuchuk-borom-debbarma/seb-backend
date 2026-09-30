@@ -387,6 +387,13 @@ const findOwnedApplicationAggregate = async (
       )`,
       cycleCode: sebProgrammeCycle.cycleCode,
       cycleDisplayName: sebProgrammeCycle.displayName,
+      // The kind as the pinned version names it; the key if the row were gone.
+      kindLabel: sql<string>`COALESCE((
+        SELECT k.label FROM ${sebProgrammeCycleApplicationKind} k
+        WHERE k.programme_cycle_id = ${sebApplicationVersion.programmeCycleId}
+          AND k.programme_cycle_version = ${sebApplicationVersion.programmeCycleVersion}
+          AND k.kind_key = ${sebApplication.applicationKind}
+      ), ${sebApplication.applicationKind})`,
     })
     .from(sebApplication)
     .innerJoin(sebProgrammeCycle, eq(sebProgrammeCycle.id, sebApplication.programmeCycleId))
@@ -415,6 +422,7 @@ const findOwnedApplicationAggregate = async (
  */
 export const assembleApplication = (parts: {
   head: ApplicationHeadRecord
+  kindLabel: string
   version: ApplicationVersionRecord
   template: PinnedCycleRules['template']
   answerRows: readonly StoredAnswerRow[]
@@ -424,6 +432,7 @@ export const assembleApplication = (parts: {
   const answers = answersFromRows(parts.template, parts.version.id, [...parts.answerRows])
   return {
     ...applicationBase(parts.head),
+    applicationKindLabel: parts.kindLabel,
     // Derived from the revision requests already read rather than another
     // query, and from the same rule `saveApplicationDraft` enforces, so the
     // field can never invite an edit the write path would refuse.
@@ -468,6 +477,7 @@ export const loadOwnedApplicationContext = async (
   )
   const application = assembleApplication({
     head: row.head,
+    kindLabel: row.kindLabel,
     version: current,
     template: rules.template,
     answerRows: row.answerRows,

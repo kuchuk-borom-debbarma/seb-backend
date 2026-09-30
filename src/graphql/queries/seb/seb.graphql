@@ -832,6 +832,12 @@ type Application {
   """Which of its cycle's kinds this application is, such as `INITIAL`."""
   applicationKind: String!
 
+  """
+  That kind as the cycle version this application is pinned to names it, such
+  as "First application" — so a screen need not ask the cycle for its kinds.
+  """
+  applicationKindLabel: String!
+
   """1 plus the enterprise's applications of the kinds its cycle declares before this one."""
   phaseNumber: Int!
 

@@ -202,38 +202,6 @@ export const findPinnedCycleRules = async (
 }
 
 /**
- * The rules one application is pinned to, found from the application itself.
- *
- * The cycle *version* lives on the snapshot rather than on the application
- * head, so it cannot be read from the head alone — and reading the cycle's
- * current rules instead would be one call cheaper and wrong, because editing a
- * cycle would retroactively change what an in-flight application is judged by.
- * That is the property the freezing exists to provide.
- */
-export const findPinnedRulesForApplication = async (
-  db: Database,
-  readForm: PinnedFormReader,
-  applicationId: string,
-  version: number,
-): Promise<PinnedCycleRules | null> => {
-  const [pin] = await db
-    .select({
-      programmeCycleId: sebApplicationVersion.programmeCycleId,
-      programmeCycleVersion: sebApplicationVersion.programmeCycleVersion,
-    })
-    .from(sebApplicationVersion)
-    .where(
-      and(
-        eq(sebApplicationVersion.applicationId, applicationId),
-        eq(sebApplicationVersion.version, version),
-      ),
-    )
-    .limit(1)
-  if (!pin) return null
-  return readForm(pin.programmeCycleId, pin.programmeCycleVersion)
-}
-
-/**
  * Turning answer rows back into the map the engine and the client work in.
  *
  * The rows are the storage shape; nothing outside this module should have to

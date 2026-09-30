@@ -178,6 +178,8 @@ export type Application = {
   programmeCycleId: string
   /** One of the kinds the pinned cycle version declares. */
   applicationKind: string
+  /** How the pinned cycle version names that kind to an applicant. */
+  applicationKindLabel: string
   phaseNumber: number
   referenceNumber: string | null
   currentVersion: number
@@ -224,7 +226,7 @@ export type Application = {
 // neither of which a paginated list may read per row.
 export type ApplicationSummary = Omit<
   Application,
-  'snapshot' | 'answers' | 'documents' | 'revisionRequests' | 'editableStageKeys'
+  'snapshot' | 'answers' | 'documents' | 'revisionRequests' | 'editableStageKeys' | 'applicationKindLabel'
 > & {
   businessName: string | null
   cycleCode: string

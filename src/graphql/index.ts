@@ -340,11 +340,24 @@ const schema = createSchema<GraphQLContext>({
   ],
 })
 
+/** The most operations one request may carry; a screen's entry needs at most five. */
+const MAX_BATCHED_OPERATIONS = 10
+
 // CORS is disabled in Yoga because Hono owns origin validation and cookie headers.
 const graphqlServer = createYoga<GraphQLContext>({
   schema,
   graphqlEndpoint: '/graphql',
   cors: false,
+  /*
+   * Several queries in one request: what a screen asks for at once arrives as
+   * one HTTP request, over one connection, reading the session once — the
+   * client coalesces the queries it issues together (dev-web/src/lib/graphql.ts).
+   *
+   * Every operation is still validated, costed and rate-limited on its own;
+   * only the per-request budget counts a batch once, which is what the limit
+   * bounds.
+   */
+  batching: { limit: MAX_BATCHED_OPERATIONS },
   plugins: [
     /*
      * Before the per-operation rule, because a document that asks for too much

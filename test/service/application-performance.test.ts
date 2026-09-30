@@ -29,7 +29,7 @@ import {
 import { activeDriverHandle, closeDatabase, freshDatabase, resetDatabase } from '../support/harness'
 import { countRoundTrips, type RoundTripCounter } from '../support/round-trips'
 import { advance, loanAnswers } from './support/stage'
-import { env } from '../support/worker'
+import { env, SELF } from '../support/worker'
 
 const onRealPostgres = Boolean(process.env.TEST_DATABASE_URL)
 
@@ -196,6 +196,29 @@ describe.skipIf(onRealPostgres)('an applicant operation costs its budget in roun
     // Session; the head with its pin, open revision stages and documents;
     // the form; one write.
     expect(count, statements).toBe(4)
+  })
+
+  it('answers a screen\'s queries sent together in one request, reading the session and the form once', async () => {
+    const { applicant, id } = await draft()
+    const { result, count, statements } = await counted(async () => {
+      const response = await SELF.fetch('https://api.example.test/graphql', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'https://app.example.test', cookie: applicant.cookie },
+        body: JSON.stringify([
+          { query: byIdQuery, variables: { id } },
+          { query: `query($id: ID!) { seb { application { formTemplate(applicationId: $id) { success } } } }`, variables: { id } },
+          { query: `query($id: ID!) { seb { application { validate(applicationId: $id) { success } } } }`, variables: { id } },
+        ]),
+      })
+      return (await response.json()) as any[]
+    })
+    expect(result.map((each) => Object.values(each.data.seb.application)[0])).toEqual([
+      expect.objectContaining({ success: true }), { success: true }, { success: true },
+    ])
+    // Sent one at a time these are nine. Together: the session once; the
+    // application for the read; the form once, through the request's loader;
+    // the head and pin for the form query; the application for validation.
+    expect(count, statements).toBe(5)
   })
 
   /*
