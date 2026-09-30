@@ -17,7 +17,7 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm'
-import { batch, changedExactlyOne, type Database, type Executor } from '../../../db'
+import { type Database } from '../../../db'
 import {
   coreAuditEvent,
   coreUser,
@@ -48,7 +48,7 @@ import {
 } from '../../../db/schema'
 import type { EligibilityHistory, EligibilityRule } from '../eligibility'
 import type { EligibilityRuleType } from '../../catalogue/workflow.generated'
-import { auditEventCteMember, insertAuditEventWhere } from '../../audit-event'
+import { auditEventCteMember } from '../../audit-event'
 import { MAX_COLLECTION_ROWS } from '../pagination'
 import { changedStageKeys, pinnedFilesOf } from '../form/answers'
 import {
@@ -1275,88 +1275,6 @@ const versionValues = (input: {
   applicationCategory: input.applicationCategory,
 })
 
-/**
- * Inserts the version, but only where the guard still holds.
- *
- * This used to list fifty-one values positionally, with no column list, so the
- * order of the Drizzle table definition was load-bearing and a mis-ordered
- * entry was a wrong value rather than an error. With the answers in their own
- * rows there are twelve columns, listed in the table's order below.
- *
- * Still an `INSERT … SELECT … WHERE`, because the predicate is what makes the
- * write lose cleanly to a concurrent one.
- */
-const insertVersionWhere = (
-  db: Executor,
-  value: typeof sebApplicationVersion.$inferInsert,
-  predicate: SQL,
-) => db.insert(sebApplicationVersion).select(sql`
-  SELECT ${value.id}, ${value.applicationId}, ${value.version},
-    ${value.programmeCycleId}, ${value.programmeCycleVersion},
-    ${value.applicationKind}, ${value.phaseNumber}, ${value.changeType},
-    ${sqlNullable(value.changeReason)}, ${value.changedByUserId},
-    ${value.createdAt},
-    ${sqlNullable(value.declarationAcceptedAt as Date | null | undefined)},
-    ${sqlNullable(value.applicationCategory)}
-  FROM ${sebApplication}
-  WHERE ${predicate}
-`)
-
-/**
- * The answer rows for one version, written in a single statement.
- *
- * Sparse — a cleared or unanswered question produces no row — so absence is the
- * one representation of "unanswered" in storage as well as in the engine.
- */
-/**
- * The answers, written only if the version they belong to was written.
- *
- * **Guarded, like every other statement in these transactions.** It was a
- * plain multi-row `VALUES`, and that made it the one statement that fired
- * whatever the guarded `INSERT` ahead of it decided. When a start or a save is
- * legitimately refused — a stale version, an application that moved on — the
- * version row is not written, and these rows then had no parent: the composite
- * key aborted the transaction, so a refusal the caller was meant to receive as
- * `false` arrived as a thrown error and reached the applicant as a failure
- * rather than "reload and try again".
- *
- * One statement whatever the template asks, so a save costs one round trip
- * regardless of how many questions the cycle declares.
- */
-const insertAnswerRows = (
-  db: Executor,
-  input: {
-    applicationVersionId: string
-    programmeCycleId: string
-    programmeCycleVersion: number
-    rows: readonly AnswerRow[]
-    createdAt: Date
-  },
-) => {
-  if (input.rows.length === 0) return null
-  /*
-   * The first row carries the casts. Inside a bare `VALUES` list Postgres has
-   * nothing to infer a parameter's type from, and would resolve every column
-   * as `text` — which the two ordinals are not.
-   */
-  const values = input.rows.map((row, index) => index === 0
-    ? sql`(${row.fieldKey}::text, ${row.entryIndex}::int,
-        ${row.valueOrdinal}::int, ${row.valueText}::text)`
-    : sql`(${row.fieldKey}, ${row.entryIndex}, ${row.valueOrdinal}, ${row.valueText})`)
-  return db.insert(sebApplicationVersionAnswer).select(sql`
-    SELECT gen_random_uuid()::text, ${input.applicationVersionId},
-      ${input.programmeCycleId}, ${input.programmeCycleVersion},
-      answer.field_key, answer.entry_index, answer.value_ordinal, answer.value_text,
-      ${input.createdAt}
-    FROM (VALUES ${sql.join(values, sql`, `)})
-      AS answer(field_key, entry_index, value_ordinal, value_text)
-    WHERE EXISTS (
-      SELECT 1 FROM ${sebApplicationVersion}
-      WHERE ${sebApplicationVersion.id} = ${input.applicationVersionId}
-    )
-  `)
-}
-
 /*
  * The members an application write is folded from.
  *
@@ -1742,7 +1660,8 @@ export const saveApplicationSnapshot = async (
 export const setApplicationDeleted = async (
   db: Database,
   input: {
-    head: ApplicationHeadRecord
+    head: Pick<ApplicationHeadRecord,
+      'id' | 'enterpriseId' | 'fundingCaseId' | 'currentVersion' | 'statusVersion'>
     userId: string
     deleted: boolean
     reason: string | null
@@ -1774,71 +1693,45 @@ export const setApplicationDeleted = async (
           AND ${sebFundingCase.deletedAt} IS NULL
       )`
     : undefined
+  const guard = and(
+    eq(sebApplication.id, input.head.id),
+    eq(sebApplication.applicantUserId, input.userId),
+    eq(sebApplication.currentVersion, input.head.currentVersion),
+    eq(sebApplication.statusVersion, input.head.statusVersion),
+    eq(sebApplication.status, 'DRAFT'),
+    statePredicate,
+    restoreRootEligibilityPredicate,
+  )
   /*
-   * This append-only audit row is the transition's unique claim: it carries the
-   * whole predicate, and every other statement here requires its exact id.
-   *
-   * Stronger than correlating on `updated_at`, which independent requests may
-   * legitimately share to the millisecond — and the reason this transition,
-   * unlike the others, is ordered audit-first rather than head-first.
+   * Head first, with the timeline entry and the audit row selected from what
+   * it returned. This transition used to be ordered audit-first, with the
+   * audit row as its claim, because correlating the later statements on
+   * `updated_at` could match a different request's write to the millisecond;
+   * a member selecting FROM the update's own returned row has no such gap.
    */
-  const audit = insertAuditEventWhere(db, input.audit, sql`EXISTS (
-      SELECT 1 FROM ${sebApplication}
-      WHERE ${sebApplication.id} = ${input.head.id}
-        AND ${sebApplication.applicantUserId} = ${input.userId}
-        AND ${sebApplication.currentVersion} = ${input.head.currentVersion}
-        AND ${sebApplication.statusVersion} = ${input.head.statusVersion}
-        AND ${sebApplication.status} = 'DRAFT'
-        AND ${statePredicate}
-        AND ${restoreRootEligibilityPredicate ?? sql`1 = 1`}
-    )
-  `).returning({ id: coreAuditEvent.id })
-  const updateHead = db
-    .update(sebApplication)
-    .set(
-      input.deleted
-        ? {
-            deletedAt: input.now,
-            deletedByUserId: input.userId,
-            deleteReason: input.reason,
-            updatedAt: input.now,
-          }
-        : {
-            deletedAt: null,
-            deletedByUserId: null,
-            deleteReason: null,
-            updatedAt: input.now,
-          },
-    )
-    .where(
-      and(
-        eq(sebApplication.id, input.head.id),
-        eq(sebApplication.applicantUserId, input.userId),
-        eq(sebApplication.currentVersion, input.head.currentVersion),
-        eq(sebApplication.statusVersion, input.head.statusVersion),
-        eq(sebApplication.status, 'DRAFT'),
-        statePredicate,
-        restoreRootEligibilityPredicate,
-        sql`EXISTS (
-          SELECT 1 FROM ${coreAuditEvent}
-          WHERE ${coreAuditEvent.id} = ${input.audit.id}
-        )`,
-      ),
-    )
-  const eventId = crypto.randomUUID()
-  const event = db.insert(sebApplicationEvent).select(sql`
-    SELECT ${eventId}, ${input.head.id},
-      ${input.deleted ? 'APPLICATION_DELETED' : 'APPLICATION_RESTORED'},
-      ${input.userId}, ${input.head.currentVersion}, NULL, NULL, 'DRAFT', 'DRAFT',
-      NULL, ${input.deleted ? 'Application draft removed.' : 'Application draft restored.'},
-      NULL, ${input.now}, NULL
-    WHERE EXISTS (
-      SELECT 1 FROM ${coreAuditEvent}
-      WHERE ${coreAuditEvent.id} = ${input.audit.id}
-    )
-  `)
-  const [updated] = await batch(db, () => [audit, updateHead, event] as const)
-  return changedExactlyOne(updated)
+  const written = await writeFolded(db, [
+    sql`head AS (
+      UPDATE ${sebApplication} SET
+        deleted_at = ${input.deleted ? input.now : null},
+        deleted_by_user_id = ${input.deleted ? input.userId : null},
+        delete_reason = ${input.deleted ? input.reason : null},
+        updated_at = ${input.now}
+      WHERE ${guard}
+      RETURNING id
+    )`,
+    sql`event AS (${applicationEventMember(eventValues({
+      applicationId: input.head.id,
+      eventType: input.deleted ? 'APPLICATION_DELETED' : 'APPLICATION_RESTORED',
+      actorUserId: input.userId,
+      applicationVersion: input.head.currentVersion,
+      fromStatus: 'DRAFT',
+      toStatus: 'DRAFT',
+      message: input.deleted ? 'Application draft removed.' : 'Application draft restored.',
+      createdAt: input.now,
+    }), sql`head`)})`,
+    sql`audit AS (${auditEventCteMember(input.audit, sql`head`)})`,
+  ])
+  return written !== null
 }
 
 /*

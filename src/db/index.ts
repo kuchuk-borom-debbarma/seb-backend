@@ -29,9 +29,6 @@ export type Transaction = PgTransaction<
   ExtractTablesWithRelations<typeof schema>
 >
 
-/** Either handle, for a read that does not care which it is on. */
-export type Executor = Database | Transaction
-
 /**
  * Runs several statements as one transition, in order, and returns each result.
  *

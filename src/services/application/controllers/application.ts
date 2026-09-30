@@ -31,7 +31,6 @@ import {
 import {
   AUTH_REQUIRED_MESSAGE,
   auditRecord,
-  completeGuardedOperation,
   currentApplicant,
   firstValidationIssueMessage,
   requireInvariant,
@@ -472,8 +471,11 @@ const changeApplicationDeletion = async (
   const applicant = { id: authorized.applicantId }
   // Soft-deleted heads are included: restoring one is a write on a row that is
   // deliberately still there.
-  const head = await findOwnedApplicationHead(context.db, applicant.id, input.applicationId, true)
-  if (!head) return failure(APPLICATION_NOT_FOUND_MESSAGE)
+  const loaded = await loadOwnedApplicationContext(
+    context.db, pinnedFormReader(context.loaders), applicant.id, input.applicationId, true,
+  )
+  if (!loaded) return failure(APPLICATION_NOT_FOUND_MESSAGE)
+  const head = loaded.application
   if (
     head.currentVersion !== input.expectedVersion ||
     head.statusVersion !== input.expectedStatusVersion ||
@@ -501,12 +503,10 @@ const changeApplicationDeletion = async (
         now,
       }),
     }))
-  return completeGuardedOperation(
-    changed,
-    'The application state changed. Refresh it and try again.',
-    () => loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, head.id, true),
-    'Changed application could not be read.',
-  )
+  if (!changed) return failure('The application state changed. Refresh it and try again.')
+  return success(applicationAfterWrite(loaded, {
+    head: { deletedAt: deleted ? now : null, updatedAt: now },
+  }))
 }
 
 export const softDeleteApplicationDraft = (

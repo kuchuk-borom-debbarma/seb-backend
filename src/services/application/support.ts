@@ -127,17 +127,6 @@ export const appendWhenChanged = <T>(
   if (changedExactlyOne(result)) target.push(value)
 }
 
-/** Completes a guarded write without repeating the race-result branch in controllers. */
-export const completeGuardedOperation = async <T>(
-  changed: boolean,
-  failureMessage: string,
-  read: () => Promise<T | null>,
-  invariantMessage: string,
-): Promise<SebResult<T>> => {
-  if (!changed) return failure(failureMessage)
-  return success(requireInvariant(await read(), invariantMessage))
-}
-
 /** Normalization functions normally provide a reason; retain a safe fallback defensively. */
 export const validationFailureMessage = (
   message: string | null,
