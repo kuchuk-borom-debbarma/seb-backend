@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react'
 import { AuditTimeline } from '#/features/audit/AuditTimeline'
+import { auditEventsQuery } from '#/features/audit/auditEvents'
 import { statusTone } from '#/features/admin/queues'
 import { workspaceQuery } from '#/features/admin/workspaceQueries'
 import { formatBytes } from '#/features/application/documents'
@@ -56,6 +57,18 @@ export const Route = createFileRoute('/_shell/admin/applications/$id/')({
     await Promise.all([
       context.queryClient.ensureQueryData(workspaceQuery(params.id)),
       context.queryClient.prefetchQuery(stageApplicationQuery(params.id)),
+      // The activity slice, for the reader of the history it is drawn for,
+      // with the same arguments the timeline asks with.
+      can(context.user, 'audit', 'read')
+        ? context.queryClient.prefetchQuery(
+            auditEventsQuery({
+              first: 10,
+              after: null,
+              oldest: false,
+              filter: { applicationId: params.id },
+            }),
+          )
+        : undefined,
     ])
   },
   component: WorkspacePage,

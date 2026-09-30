@@ -47,6 +47,7 @@ import { messageFor, unwrap } from '#/lib/result'
 import { can } from '#/lib/session'
 import { CycleForm } from '#/features/admin/CycleForm'
 import { CyclePipelineSummary } from '#/features/pipeline/CyclePipelineStep'
+import { pipelinesQuery } from '#/features/pipeline/pipelineQueries'
 import { PolicyDocumentCard } from '#/features/admin/PolicyDocumentCard'
 import { toTemplateInput } from '#/features/admin/formAuthoring'
 import { Explain } from '#/features/guide/Explain'
@@ -75,7 +76,14 @@ const cycleQuery = (id: string) =>
 
 export const Route = createFileRoute('/_shell/admin/cycles/$id')({
   loader: ({ context, params }) =>
-    context.queryClient.ensureQueryData(cycleQuery(params.id)),
+    Promise.all([
+      context.queryClient.ensureQueryData(cycleQuery(params.id)),
+      // Read by the pipeline summary as the page mounts, for whoever may read
+      // pipelines; asked for here so it travels in the same request.
+      can(context.user, 'pipeline', 'read')
+        ? context.queryClient.prefetchQuery(pipelinesQuery)
+        : undefined,
+    ]),
   component: AdminCyclePage,
 })
 

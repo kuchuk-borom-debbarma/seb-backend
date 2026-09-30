@@ -15,6 +15,7 @@ import {
   stageForField,
 } from '#/features/application/ApplicationJourney'
 import { ClosingNotice } from '#/features/application/ClosingNotice'
+import { cyclesQuery } from '#/features/application/queries'
 import {
   applicationQuery,
   draftChangesQuery,
@@ -55,6 +56,9 @@ export const Route = createFileRoute('/_shell/_applicant/applications/$id/review
     Promise.all([
       loadApplication(context.queryClient, params.id),
       context.queryClient.fetchQuery(draftChangesQuery(params.id)),
+      // Read by the closing notice as the page mounts; asked for here so it
+      // travels in the same request as the rest.
+      context.queryClient.prefetchQuery(cyclesQuery),
     ]),
   component: ReviewPage,
 })

@@ -36,9 +36,16 @@ export const Route = createFileRoute('/_shell/admin/access/')({
   }),
   loaderDeps: ({ search }) => search,
   loader: ({ context, deps }) =>
-    deps.email
-      ? context.queryClient.ensureQueryData(managedUserQuery(deps.email))
-      : undefined,
+    Promise.all([
+      deps.email
+        ? context.queryClient.ensureQueryData(managedUserQuery(deps.email))
+        : undefined,
+      // Read by the page as it mounts, for the only operator it serves; asked
+      // for here so it travels in the same request as the lookup.
+      isSuperAdministrator(context.user)
+        ? context.queryClient.prefetchQuery(rolesQuery)
+        : undefined,
+    ]),
   component: AccessPage,
 })
 

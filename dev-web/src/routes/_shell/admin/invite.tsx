@@ -25,6 +25,12 @@ import { can } from '#/lib/session'
 import { invitableRolesQuery } from '#/features/roles/roleQueries'
 
 export const Route = createFileRoute('/_shell/admin/invite')({
+  // Read by the page as it mounts, for whoever the gate below admits; asked
+  // for here so the screen opens in one request.
+  loader: ({ context }) =>
+    can(context.user, 'role', 'invite') && can(context.user, 'user', 'read')
+      ? context.queryClient.prefetchQuery(invitableRolesQuery)
+      : undefined,
   component: InviteGate,
 })
 

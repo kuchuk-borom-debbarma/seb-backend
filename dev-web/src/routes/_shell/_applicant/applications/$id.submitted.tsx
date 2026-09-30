@@ -34,6 +34,8 @@ export const Route = createFileRoute('/_shell/_applicant/applications/$id/submit
       context.queryClient.ensureQueryData(applicationQuery(params.id)),
       context.queryClient.ensureQueryData(draftChangesQuery(params.id)),
       context.queryClient.ensureQueryData(formTemplateQuery(params.id)),
+      // Read by the page as it mounts; asked for here so it travels with the rest.
+      context.queryClient.prefetchQuery(submittedCopyQuery(params.id)),
     ])
   },
   component: SubmittedPage,

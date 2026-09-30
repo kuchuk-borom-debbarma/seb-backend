@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, LogOut, Save } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CategoryHint } from '#/features/application/CategoryHint'
 import { ClosingNotice } from '#/features/application/ClosingNotice'
+import { cyclesQuery } from '#/features/application/queries'
 import {
   ATTACH_EVIDENCE,
   ApplicationJourney,
@@ -81,7 +82,13 @@ export const Route = createFileRoute('/_shell/_applicant/applications/$id/form')
   validateSearch: (search: Record<string, unknown>): { stage?: string } => ({
     stage: typeof search.stage === 'string' ? search.stage : undefined,
   }),
-  loader: ({ context, params }) => loadApplication(context.queryClient, params.id),
+  loader: ({ context, params }) =>
+    Promise.all([
+      loadApplication(context.queryClient, params.id),
+      // Read by the closing notice as the page mounts; asked for here so it
+      // travels in the same request as the application rather than after it.
+      context.queryClient.prefetchQuery(cyclesQuery),
+    ]),
   component: DraftFormPage,
 })
 

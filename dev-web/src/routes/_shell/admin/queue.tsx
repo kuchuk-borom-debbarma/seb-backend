@@ -167,7 +167,19 @@ export const Route = createFileRoute('/_shell/admin/queue')({
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
-    await context.queryClient.ensureQueryData(queueQuery(inputFor(deps)))
+    await Promise.all([
+      context.queryClient.ensureQueryData(queueQuery(inputFor(deps))),
+      // Read by the page and its pipeline filter as they mount; asked for here
+      // so they travel in the same request as the queue, under the same
+      // permissions the filter asks them with.
+      context.queryClient.prefetchQuery(cycleOptionsQuery),
+      can(context.user, 'pipeline', 'read')
+        ? context.queryClient.prefetchQuery(pipelineChoicesQuery)
+        : undefined,
+      can(context.user, 'stage', 'read')
+        ? context.queryClient.prefetchQuery(myStagesQuery)
+        : undefined,
+    ])
   },
   component: QueuePage,
 })

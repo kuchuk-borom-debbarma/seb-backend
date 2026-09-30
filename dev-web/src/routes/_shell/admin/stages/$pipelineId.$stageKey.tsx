@@ -7,7 +7,7 @@
  * the list to files holding every flag chosen, and lives in the URL so a
  * narrowed queue can be bookmarked or sent to a colleague.
  */
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { infiniteQueryOptions, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
@@ -29,6 +29,23 @@ import { can } from '#/lib/session'
 
 type Search = { flags?: string[] }
 
+/** One stage's queue, a page at a time; the loader and the page share it. */
+const stageQueueQuery = (pipelineId: string, stageKey: string, flags: string[]) =>
+  infiniteQueryOptions({
+    queryKey: ['stage-queue', { pipelineId, stageKey, flags }],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      fetchStageQueue({
+        pipelineId,
+        stageKey,
+        flags: flags.length > 0 ? flags : null,
+        first: STAGE_QUEUE_PAGE_SIZE,
+        after: pageParam,
+      }),
+    getNextPageParam: (last) =>
+      last.pageInfo.hasNextPage ? last.pageInfo.endCursor : null,
+  })
+
 export const Route = createFileRoute('/_shell/admin/stages/$pipelineId/$stageKey')({
   validateSearch: (search: Record<string, unknown>): Search => {
     const raw = search.flags
@@ -39,6 +56,19 @@ export const Route = createFileRoute('/_shell/admin/stages/$pipelineId/$stageKey
         typeof flag === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/u.test(flag),
     )
     return { flags: flags.length > 0 ? flags : undefined }
+  },
+  loaderDeps: ({ search }) => search,
+  // Read by the page as it mounts, under the same permissions the gate and the
+  // page ask with; asked for here so the screen opens in one request.
+  loader: async ({ context, params, deps }) => {
+    const mayReadStage = can(context.user, 'stage', 'read')
+    if (!mayReadStage && !can(context.user, 'application', 'read')) return
+    await Promise.all([
+      mayReadStage ? context.queryClient.prefetchQuery(myStagesQuery) : undefined,
+      context.queryClient.prefetchInfiniteQuery(
+        stageQueueQuery(params.pipelineId, params.stageKey, deps.flags ?? []),
+      ),
+    ])
   },
   component: StageQueueGate,
 })
@@ -78,20 +108,7 @@ function StageQueuePage() {
     shape?.stages.find((each) => each.key === stageKey)?.name ??
     humanize(stageKey)
 
-  const pages = useInfiniteQuery({
-    queryKey: ['stage-queue', { pipelineId, stageKey, flags }],
-    initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) =>
-      fetchStageQueue({
-        pipelineId,
-        stageKey,
-        flags: flags.length > 0 ? flags : null,
-        first: STAGE_QUEUE_PAGE_SIZE,
-        after: pageParam,
-      }),
-    getNextPageParam: (last) =>
-      last.pageInfo.hasNextPage ? last.pageInfo.endCursor : null,
-  })
+  const pages = useInfiniteQuery(stageQueueQuery(pipelineId, stageKey, flags))
 
   const rows = pages.data?.pages.flatMap((page) => page.nodes) ?? []
   const total = pages.data?.pages[0]?.pageInfo.totalCount ?? rows.length

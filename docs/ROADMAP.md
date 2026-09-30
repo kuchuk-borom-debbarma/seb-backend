@@ -1110,9 +1110,21 @@ workspace, the administrative writes and the client do not yet.
   and stop reloading it after an intake write.
 - [ ] Give the administrative writes (cycles, forms, roles, enterprises) and
   every screen's read a budget test, and fold what exceeds it.
-- [ ] In the client, stop fetching loader-fed queries twice on entry, update the
-  cache from mutation responses instead of refetching, and give the
-  applications list the progress each row shows so it makes no request per row.
+- [x] In the client, a screen opens in one request (`docs/rules/frontend.md`):
+  queries issued together travel as one batch, loaders ask for everything a
+  screen reads on mount, loader-fed queries are not fetched again on mount, and
+  submit, resubmit and save write their response into the cache.
+- [ ] Remove the client's remaining dependent queries, each still a second
+  request after the screen's first, by serving what they derive on the record
+  they depend on:
+  - the applications list asks each draft row for its form and validation to
+    show its progress (`draftProgress` on the list node);
+  - the form's category hint asks for the enterprise once the application has
+    loaded (the hint, or the enterprise facts it needs, on the application);
+  - the office queue and a stage's queue ask for a pipeline's shape by key,
+    which they learn from another list (the shape by pipeline id);
+  - starting an application asks for the kinds only after a sole enterprise or
+    cycle has been filled in (resolve the sole choice on the server).
 
 ---
 

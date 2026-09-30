@@ -35,10 +35,20 @@ export const Route = createFileRoute('/_shell/_applicant/applications/new')({
       typeof search.enterpriseId === 'string' ? search.enterpriseId : undefined,
     cycleId: typeof search.cycleId === 'string' ? search.cycleId : undefined,
   }),
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => search,
+  loader: async ({ context, deps }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(liveEnterprisesQuery),
       context.queryClient.ensureQueryData(cyclesQuery),
+      // Read by the page as it mounts; asked for here so they travel in the
+      // same request as the rest. The kinds only when the URL already names
+      // both halves of the choice, as the page's own query requires.
+      context.queryClient.prefetchQuery(applicantDashboardQuery),
+      deps.enterpriseId && deps.cycleId
+        ? context.queryClient.prefetchQuery(
+            applicationKindsQuery(deps.enterpriseId, deps.cycleId),
+          )
+        : undefined,
     ])
   },
   component: StartApplicationPage,
