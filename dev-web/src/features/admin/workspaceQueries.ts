@@ -9,6 +9,7 @@ import { queryOptions } from '@tanstack/react-query'
 import { IntakeWorkspaceDocument } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
+import { JUST_LOADED } from '#/lib/freshness'
 
 export const workspaceQuery = (applicationId: string) =>
   queryOptions({
@@ -17,7 +18,7 @@ export const workspaceQuery = (applicationId: string) =>
       const data = await gql(IntakeWorkspaceDocument, { applicationId })
       return unwrap(data.admin.intake.workspace)
     },
-    // Never served stale: another officer may have acted on it a moment ago,
+    // Served only just after it loads: another officer may have acted on it a moment ago,
     // and every write here is checked against a version read from this data.
-    staleTime: 0,
+    staleTime: JUST_LOADED,
   })

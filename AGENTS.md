@@ -93,7 +93,8 @@ Before handing off any change:
   without it.
 - Confirm any new or changed operation is within its round-trip budget in
   [`docs/rules/performance.md`](docs/rules/performance.md), with a budget test,
-  and that a new screen fetches what it paints in its loader, once.
+  and that a screen opens in one request and keeps its cache current from
+  mutation responses, per [`docs/rules/frontend.md`](docs/rules/frontend.md).
 - Confirm the change obeys [`docs/rules/code.md`](docs/rules/code.md) and
   [`docs/rules/security.md`](docs/rules/security.md), and that any new standing
   decision was added to one of them rather than left in the file that embodies

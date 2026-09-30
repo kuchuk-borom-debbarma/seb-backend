@@ -61,7 +61,12 @@ const fileAtBank = async () => {
   return { admin, id: file.applicationId, sbi: await officer(['SBI_BANK']) }
 }
 
-describe('round trips', () => {
+/*
+ * Against a real Postgres (`npm run test:neon`) each request takes its own pool
+ * connection, which the counter — patched onto the harness's driver handle —
+ * cannot see, so every HTTP-driven count reads zero there.
+ */
+describe.skipIf(Boolean(process.env.TEST_DATABASE_URL))('round trips', () => {
   it('takes an action in three statements, whatever it does', async () => {
     const { id, sbi } = await fileAtBank()
     const panel = await readStage(sbi.cookie, id)
@@ -97,6 +102,19 @@ describe('round trips', () => {
       admin { stage { queue(input: $input) { success response { nodes { id flags { label } } } } } }
     }`, { input: { pipelineId: TEST_PIPELINE_ID, stageKey: 'SBI_BANK' } }, sbi.cookie)
     expect(queue.data.admin.stage.queue.response.nodes).toHaveLength(1)
+    expect(trips.count(), trips.statements().join('\n---\n')).toBe(4)
+  })
+
+  it('opens an officer\'s file in four', async () => {
+    const { admin, id } = await fileAtBank()
+    const trips = countRoundTrips(activeDriverHandle() as never)
+    trips.reset()
+    const workspace = await graphql<any>(`query($id: ID!) {
+      admin { intake { workspace(applicationId: $id) { success message } } } }`, { id }, admin.cookie)
+    expect(workspace.data.admin.intake.workspace.success, workspace.data.admin.intake.workspace.message).toBe(true)
+    // The session; the head, which decides whether this reader may see it;
+    // everything else about the file in one statement; the pinned form. It
+    // was twelve, one collection at a time.
     expect(trips.count(), trips.statements().join('\n---\n')).toBe(4)
   })
 })

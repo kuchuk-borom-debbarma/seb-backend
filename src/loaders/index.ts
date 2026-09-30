@@ -30,6 +30,11 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Database } from '../db'
 import { coreRole, coreUser, coreUserRoleGrant, sebPipelineVersion } from '../db/schema'
 import { parseDefinition, type PipelineDefinition } from '../services/pipeline/definition'
+import {
+  findPinnedCycleRules,
+  type PinnedCycleRules,
+  type PinnedFormReader,
+} from '../services/application/queries/form-template'
 import type { StaffMember } from './staff'
 
 export type { StaffMember } from './staff'
@@ -43,12 +48,50 @@ export type Loaders = {
    * as "this pipeline cannot be worked", never as an empty one.
    */
   pipelineDefinition: DataLoader<string, PipelineDefinition | null>
+  /**
+   * A cycle version's frozen form and policy, by `cycleId:version`, read and
+   * resolved once per request. A save reads it before its write and a submit
+   * reads it for validation and for the response; without this each read was a
+   * statement of its own. `null` for a version that does not exist or no longer
+   * resolves.
+   *
+   * Per request like every loader here, though the form is immutable by key:
+   * a form repaired by hand in the database is then seen on the next request,
+   * and tests that corrupt a form after reading it see the corruption.
+   */
+  pinnedForm: DataLoader<string, PinnedCycleRules | null>
 }
+
+/** The loader key for one cycle version's form. */
+const pinnedFormKey = (programmeCycleId: string, programmeCycleVersion: number): string =>
+  `${programmeCycleId}:${programmeCycleVersion}`
+
+/**
+ * The form reader a request hands to the query layer, so a function below the
+ * controller reads the form without knowing it is memoised or where it lives.
+ */
+export const pinnedFormReader = (loaders: Pick<Loaders, 'pinnedForm'>): PinnedFormReader =>
+  (programmeCycleId, programmeCycleVersion) =>
+    loaders.pinnedForm.load(pinnedFormKey(programmeCycleId, programmeCycleVersion))
 
 /** The loader key for one pipeline version. */
 export const pipelineVersionKey = (pipelineId: string, version: number): string => `${pipelineId}:${version}`
 
 export const createLoaders = (db: Database): Loaders => ({
+  /*
+   * One statement per version asked for. A request names one version in all
+   * but the rarest case — an officer's workspace can name a second, when the
+   * latest submission was made against an older one — so a combined read of
+   * several would buy nothing it could measure.
+   */
+  pinnedForm: new DataLoader<string, PinnedCycleRules | null>(async (keys) => {
+    const forms: (PinnedCycleRules | null)[] = []
+    for (const key of keys) {
+      const split = key.lastIndexOf(':')
+      forms.push(await findPinnedCycleRules(db, key.slice(0, split), Number(key.slice(split + 1))))
+    }
+    return forms
+  }),
   /*
    * A page of applications from several cycles names a few pipeline versions
    * at most; this reads all of them in one statement, and parses each document

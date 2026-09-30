@@ -14,6 +14,7 @@ import {
   issuesForStep,
 } from '#/features/application/ApplicationJourney'
 import { ClosingNotice } from '#/features/application/ClosingNotice'
+import { cyclesQuery } from '#/features/application/queries'
 import {
   applicationQuery,
   formTemplateQuery,
@@ -45,7 +46,13 @@ type Application = NonNullable<
 type Document = Application['documents'][number]
 
 export const Route = createFileRoute('/_shell/_applicant/applications/$id/documents')({
-  loader: ({ context, params }) => loadApplication(context.queryClient, params.id),
+  loader: ({ context, params }) =>
+    Promise.all([
+      loadApplication(context.queryClient, params.id),
+      // Read by the closing notice as the page mounts; asked for here so it
+      // travels in the same request as the application rather than after it.
+      context.queryClient.prefetchQuery(cyclesQuery),
+    ]),
   component: DocumentsPage,
 })
 

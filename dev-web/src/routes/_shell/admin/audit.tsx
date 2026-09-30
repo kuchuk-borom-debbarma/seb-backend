@@ -24,6 +24,8 @@ import { AuditFilters } from '#/features/audit/AuditFilters'
 import { AuditTable } from '#/features/audit/AuditTable'
 import {
   AUDIT_PAGE_SIZE,
+  auditActionsQuery,
+  auditPeopleQuery,
   filterFor,
   isFiltered,
   pageQueryFor,
@@ -34,6 +36,7 @@ import { ExportDialog } from '#/features/audit/ExportDialog'
 import { PermissionRefusal } from '#/features/portal/PermissionRefusal'
 import { messageFor } from '#/lib/result'
 import { can } from '#/lib/session'
+import { rolesQuery } from '#/features/roles/roleQueries'
 
 export const Route = createFileRoute('/_shell/admin/audit')({
   validateSearch: validateAuditSearch,
@@ -42,7 +45,22 @@ export const Route = createFileRoute('/_shell/admin/audit')({
   loader: async ({ context, deps }) => {
     // Nothing is read for somebody who may not read it; the component says so.
     if (!can(context.user, 'audit', 'read')) return
-    await context.queryClient.ensureQueryData(pageQueryFor(deps))
+    const people = [
+      ...(deps.actor ?? []),
+      ...(deps.subject ?? []),
+      ...(deps.involving ? [deps.involving] : []),
+    ]
+    await Promise.all([
+      context.queryClient.ensureQueryData(pageQueryFor(deps)),
+      // Read by the filters as they mount; asked for here so they travel in
+      // the same request as the page of history.
+      context.queryClient.prefetchQuery(auditActionsQuery),
+      context.queryClient.prefetchQuery(rolesQuery),
+      // The people the URL names, as the filters gather them; none, no read.
+      people.length > 0
+        ? context.queryClient.prefetchQuery(auditPeopleQuery(people))
+        : undefined,
+    ])
   },
   component: AuditPage,
 })

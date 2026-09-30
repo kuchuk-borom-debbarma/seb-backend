@@ -10,9 +10,11 @@
  * Lives outside `support.ts` because it needs the query layer, and `support.ts`
  * is what the query layer itself imports.
  */
+import { pinnedFormReader } from '../../loaders'
 import {
-  findOwnedApplicationHead,
-  loadOwnedApplication,
+  findOwnedApplicationHeadAndPin,
+  loadOwnedApplicationContext,
+  type LoadedApplication,
   type ApplicationHeadRecord,
 } from './queries/application'
 import { AUTH_REQUIRED_MESSAGE, currentApplicant } from './support'
@@ -23,18 +25,27 @@ export const APPLICATION_NOT_FOUND_MESSAGE = 'The application was not found.'
 const STALE_APPLICATION_MESSAGE = 'The application changed. Refresh it and try again.'
 
 export type OwnedApplication<T> =
-  | { application: ApplicationHeadRecord }
+  | {
+    application: ApplicationHeadRecord
+    /** The cycle version the current version is pinned to; null only if that version is missing. */
+    pinnedCycleVersion: number | null
+  }
   | { refusal: SebResult<T> }
 
+/**
+ * The caller's application head, with the pin its form is read by — one
+ * statement, so a read that needs only the form costs the session, this and
+ * the form.
+ */
 export const ownedApplication = async <T>(
   applicationId: string,
   context: ApplicationOperationContext,
 ): Promise<OwnedApplication<T>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return { refusal: failure(AUTH_REQUIRED_MESSAGE) }
-  const application = await findOwnedApplicationHead(context.db, applicant.id, applicationId)
-  if (!application) return { refusal: failure(APPLICATION_NOT_FOUND_MESSAGE) }
-  return { application }
+  const found = await findOwnedApplicationHeadAndPin(context.db, applicant.id, applicationId)
+  if (!found) return { refusal: failure(APPLICATION_NOT_FOUND_MESSAGE) }
+  return { application: found.head, pinnedCycleVersion: found.pinnedCycleVersion }
 }
 
 /**
@@ -47,13 +58,13 @@ export const ownedApplication = async <T>(
 export const applicantForVersionedWrite = async <T>(
   input: { expectedVersion: number; expectedStatusVersion: number },
   context: ApplicationOperationContext,
-): Promise<{ applicantId: string } | { refusal: SebResult<T> }> => {
+): Promise<{ applicantId: string; applicantEmail: string } | { refusal: SebResult<T> }> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return { refusal: failure(AUTH_REQUIRED_MESSAGE) }
   if (!validExpectedVersions(input.expectedVersion, input.expectedStatusVersion)) {
     return { refusal: failure('Expected versions must be positive integers.') }
   }
-  return { applicantId: applicant.id }
+  return { applicantId: applicant.id, applicantEmail: applicant.email }
 }
 
 /** Both versions are positive integers, the contract every guarded write uses. */
@@ -75,18 +86,21 @@ export const ownedApplicationAtVersion = async (
   input: { applicationId: string; expectedVersion: number; expectedStatusVersion: number },
   context: ApplicationOperationContext,
 ): Promise<
-  | { applicantId: string; application: Application }
+  | { applicantId: string; applicantEmail: string; application: Application; loaded: LoadedApplication }
   | { refusal: SebResult<Application> }
 > => {
   const authorized = await applicantForVersionedWrite<Application>(input, context)
   if ('refusal' in authorized) return authorized
-  const application = await loadOwnedApplication(
-    context.db, authorized.applicantId, input.applicationId,
+  const loaded = await loadOwnedApplicationContext(
+    context.db, pinnedFormReader(context.loaders), authorized.applicantId, input.applicationId,
   )
-  if (!application) return { refusal: failure(APPLICATION_NOT_FOUND_MESSAGE) }
+  if (!loaded) return { refusal: failure(APPLICATION_NOT_FOUND_MESSAGE) }
+  const application = loaded.application
   if (
     application.currentVersion !== input.expectedVersion ||
     application.statusVersion !== input.expectedStatusVersion
   ) return { refusal: failure(STALE_APPLICATION_MESSAGE) }
-  return { applicantId: authorized.applicantId, application }
+  // What was read travels with the refusal check, so the write below it
+  // reads none of it again.
+  return { ...authorized, application, loaded }
 }

@@ -10,6 +10,7 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { ChevronRight, FilePlus2, FileText, Folder, Search, UserPlus } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
 import { AnalyticsPanel } from '#/features/admin/AnalyticsPanel'
+import { analyticsSummaryQuery } from '#/features/admin/analyticsQueries'
 import { Explain } from '#/features/guide/Explain'
 import { ReferenceLookup } from '#/features/admin/ReferenceLookup'
 import { useMarker } from '#/features/guide/GuideContext'
@@ -37,6 +38,11 @@ export const Route = createFileRoute('/_shell/admin/')({
         : undefined,
       can(context.user, 'stage', 'read')
         ? context.queryClient.ensureQueryData(myStagesQuery)
+        : undefined,
+      // Read by the analytics panel as it mounts, for whoever it is drawn for;
+      // asked for here so it travels in the same request as the rest.
+      can(context.user, 'analytics', 'read')
+        ? context.queryClient.prefetchQuery(analyticsSummaryQuery)
         : undefined,
     ]),
   component: OfficeDashboard,

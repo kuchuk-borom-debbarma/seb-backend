@@ -75,12 +75,13 @@ describe('what a transition costs', () => {
     ])
 
     /*
-     * Two, not four. `BEGIN` and `COMMIT` are real hops and are deliberately
-     * not counted — see `countRoundTrips`. What this asserts is that a
-     * transition costs one hop per statement and adds nothing per statement of
-     * its own: no per-row read, no re-read to confirm.
+     * Four: the two statements, and `BEGIN` and `COMMIT` around them. A
+     * transaction adds two round trips and saves none, which is why a write
+     * with dependents is one statement rather than a batch. What this asserts
+     * is that a batch adds nothing per statement of its own: no per-row read,
+     * no re-read to confirm.
      */
-    expect(trips.count(), trips.statements().join('\n')).toBe(2)
+    expect(trips.count(), trips.statements().join('\n')).toBe(4)
   })
 
   it('reads back exactly as the same statements do outside a transition', async () => {

@@ -11,6 +11,7 @@ built. One file per subject.
 | --- | --- |
 | [Code](code.md) | The layering rule, transport services, folding, loaders, pagination, and comments |
 | [Documentation](documentation.md) | Who owns which subject, the shape each kind of document takes, and what must never be written down twice |
+| [Frontend](frontend.md) | How the client asks the API: one request per screen, each query's freshness, and mutation responses written into the cache |
 | [GraphQL](graphql.md) | Describing the schema so that the people calling it can read it |
 | [Performance](performance.md) | The round-trip cost model, reading once and passing down, treating data by how often it changes, and the budgets every operation and screen is held to |
 | [Security](security.md) | What must never reach a log, how guards fail, and what a public route must state about itself |

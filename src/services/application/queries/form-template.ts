@@ -1,35 +1,39 @@
 /**
  * Reading the form a cycle version froze, and the answers given against it.
  *
- * ## Six reads, concurrently, and why not one
+ * ## One statement, and why not a join
  *
- * The template is four tables, its cross-field rules and the cycle's scalars.
- * These are issued together on the pool rather than in sequence, so the cost is
- * one round trip's latency rather than six — but it is six connections, which is real pressure
- * on a pooled edge connection and is the first thing to revisit if that becomes
- * the bottleneck.
+ * The template is four tables, its cross-field rules and the cycle's scalars,
+ * read in **one** statement: a request's statements travel one at a time on
+ * its one connection, so six separate reads cost six round trips however they
+ * are issued (docs/rules/performance.md).
  *
- * Folding them into a single statement is the better end state and is
- * deliberately not done yet: it needs a lateral aggregate per child, because a
- * flat join across all four is *quietly wrong*. Options and conditions both
- * hang off a field, so joining both multiplies rows — a field with six options
- * and three conditions yields eighteen, and the resolver would see each option
- * three times with nothing thrown. Whichever shape this ends up, that trap is
- * the reason it cannot simply be joined.
+ * Each child is its own correlated aggregate rather than a join, because a flat
+ * join across them is *quietly wrong*. Options and conditions both hang off a
+ * field, so joining both multiplies rows — a field with six options and three
+ * conditions yields eighteen, and the resolver would see each option three
+ * times with nothing thrown.
  *
- * **This must never be called inside a transaction.** A transaction is bound to
- * one connection, so these six would serialize on it and read as parallel
- * while costing six sequential hops.
+ * Everything comes back as `jsonb`, so a `bigint` arrives as a number and a
+ * `date` as its `'YYYY-MM-DD'` text under both drivers, rather than in whichever
+ * shape each returns a bare column.
+ *
+ * ## Read once per request
+ *
+ * A cycle version's form never changes once written — every edit inserts the
+ * next version — so a request reads it once and reuses it: the `pinnedForm`
+ * loader does that, and callers below the controller take a reader function
+ * rather than reading it themselves. It is not cached across requests, so a
+ * form repaired by hand is seen on the next request.
  *
  * ## The policy comes with it
  *
  * Both paths that need the cycle's scalar policy — submission and its dry run —
  * need the template too, so they are read together. The draft-read path uses
- * only the template and carries four unread scalars, which costs less than the
- * extra hop separating them would add.
+ * only the template and carries a few unread scalars, which costs less than the
+ * extra round trip separating them would add.
  */
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
-import type { PgColumn } from 'drizzle-orm/pg-core'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { Database } from '../../../db'
 import {
   sebApplicationVersion,
@@ -48,6 +52,7 @@ import type {
   AnswerMap,
   AnswerValue,
   CyclePolicy,
+  FormTemplateRows,
   ResolvedFormTemplate,
 } from '../form/types'
 
@@ -55,6 +60,23 @@ export type PinnedCycleRules = {
   readonly policy: CyclePolicy
   readonly template: ResolvedFormTemplate
 }
+
+/**
+ * Where a function below the controller gets a cycle version's form from.
+ *
+ * A request passes one backed by its `pinnedForm` loader, so the form is read
+ * once however many steps need it. A caller with no loaders and one read to
+ * make — the confirmation PDF route — calls `findPinnedCycleRules` itself;
+ * `readPinnedFormDirectly` is for code that takes a reader but has no request.
+ */
+export type PinnedFormReader = (
+  programmeCycleId: string,
+  programmeCycleVersion: number,
+) => Promise<PinnedCycleRules | null>
+
+export const readPinnedFormDirectly = (db: Database): PinnedFormReader =>
+  (programmeCycleId, programmeCycleVersion) =>
+    findPinnedCycleRules(db, programmeCycleId, programmeCycleVersion)
 
 /**
  * Every rule frozen into one cycle version.
@@ -70,183 +92,113 @@ export const findPinnedCycleRules = async (
   programmeCycleId: string,
   programmeCycleVersion: number,
 ): Promise<PinnedCycleRules | null> => {
-  /* Every child table is scoped to the same frozen version. */
-  const pinned = (
-    cycleColumn: PgColumn,
-    versionColumn: PgColumn,
-  ) => and(eq(cycleColumn, programmeCycleId), eq(versionColumn, programmeCycleVersion))
+  /*
+   * Every child is scoped to the same frozen version as the driving row, and
+   * each is a scalar subquery, never a join (see the header). The keys are
+   * the shape `resolveFormTemplate` reads, so the rows are handed over as
+   * they arrive.
+   */
+  const pinnedTo = (alias: string) => sql.raw(
+    `${alias}.programme_cycle_id = v.programme_cycle_id AND ${alias}.programme_cycle_version = v.version`,
+  )
+  const result = await db.execute<{
+    policy: CyclePolicy
+    stages: FormTemplateRows['stages']
+    fields: FormTemplateRows['fields']
+    options: FormTemplateRows['options']
+    conditions: FormTemplateRows['conditions']
+    rules: NonNullable<FormTemplateRows['rules']>
+  }>(sql`
+    SELECT
+      jsonb_build_object(
+        'minimumApplicantAge', v.minimum_applicant_age,
+        'maximumApplicantAge', v.maximum_applicant_age,
+        'categoryAMaximumMonths', v.category_a_maximum_months,
+        'majorityOwnershipRequired', v.majority_ownership_required,
+        'fundingCeilingState', v.funding_ceiling_state,
+        'fundingCeilingAmountPaise', v.funding_ceiling_amount_paise,
+        'fundingCeilingScope', v.funding_ceiling_scope
+      ) AS policy,
+      COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'stageKey', s.stage_key, 'title', s.title, 'description', s.description,
+          'iconName', s.icon_name, 'estimatedMinutes', s.estimated_minutes, 'sortOrder', s.sort_order
+        ) ORDER BY s.sort_order)
+        FROM ${sebProgrammeCycleFormStage} s WHERE ${pinnedTo('s')}
+      ), '[]'::jsonb) AS stages,
+      COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'stageKey', f.stage_key, 'fieldKey', f.field_key, 'fieldType', f.field_type,
+          'role', f.role, 'label', f.label, 'helpText', f.help_text,
+          'requirement', f.requirement, 'source', f.source, 'sortOrder', f.sort_order,
+          'parentFieldKey', f.parent_field_key, 'groupDefinitionKey', f.group_definition_key,
+          'repeatMin', f.repeat_min, 'repeatMax', f.repeat_max,
+          'minLength', f.min_length, 'maxLength', f.max_length,
+          'pattern', f.pattern, 'patternMessage', f.pattern_message,
+          'minValue', f.min_value, 'maxValue', f.max_value,
+          'minDate', f.min_date, 'maxDate', f.max_date,
+          'relativeDateBound', f.relative_date_bound, 'maxFileBytes', f.max_file_bytes,
+          'placeholder', f.placeholder, 'note', f.note, 'tone', f.tone,
+          'widthHint', f.width_hint, 'prefixText', f.prefix_text, 'suffixText', f.suffix_text,
+          'autocompleteHint', f.autocomplete_hint, 'showCharCount', f.show_char_count,
+          'textareaRows', f.textarea_rows, 'choiceStyle', f.choice_style
+        ) ORDER BY f.sort_order)
+        FROM ${sebProgrammeCycleFormField} f WHERE ${pinnedTo('f')}
+      ), '[]'::jsonb) AS fields,
+      COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'fieldKey', o.field_key, 'optionValue', o.option_value, 'optionLabel', o.option_label,
+          'optionDescription', o.option_description, 'iconName', o.icon_name, 'sortOrder', o.sort_order
+        ) ORDER BY o.sort_order)
+        FROM ${sebProgrammeCycleFormFieldOption} o WHERE ${pinnedTo('o')}
+      ), '[]'::jsonb) AS options,
+      COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'fieldKey', c.field_key, 'effect', c.effect, 'groupNumber', c.group_number,
+          'sequenceNumber', c.sequence_number, 'sourceFieldKey', c.source_field_key,
+          'operator', c.operator, 'comparisonValue', c.comparison_value
+        ))
+        FROM ${sebProgrammeCycleFormFieldCondition} c WHERE ${pinnedTo('c')}
+      ), '[]'::jsonb) AS conditions,
+      /*
+       * A rule's operands, in position order. A rule with none is left out,
+       * as the inner join this replaces left it out: a rule over nothing is
+       * not a rule the engine can judge.
+       */
+      COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'ruleKey', r.rule_key, 'ruleType', r.rule_type, 'stageKey', r.stage_key,
+          'message', r.message, 'limitValue', r.limit_value,
+          'operandKeys', operands.keys
+        ))
+        FROM ${sebProgrammeCycleFormRule} r
+        CROSS JOIN LATERAL (
+          SELECT jsonb_agg(p.field_key ORDER BY p.position) AS keys
+          FROM ${sebProgrammeCycleFormRuleOperand} p
+          WHERE p.programme_cycle_id = r.programme_cycle_id
+            AND p.programme_cycle_version = r.programme_cycle_version
+            AND p.rule_key = r.rule_key
+        ) operands
+        WHERE ${pinnedTo('r')} AND operands.keys IS NOT NULL
+      ), '[]'::jsonb) AS rules
+    FROM ${sebProgrammeCycleVersion} v
+    WHERE v.programme_cycle_id = ${programmeCycleId}
+      AND v.version = ${programmeCycleVersion}
+  `)
 
-  const [versions, stages, fields, options, conditions, rules] = await Promise.all([
-    db
-      .select({
-        minimumApplicantAge: sebProgrammeCycleVersion.minimumApplicantAge,
-        maximumApplicantAge: sebProgrammeCycleVersion.maximumApplicantAge,
-        categoryAMaximumMonths: sebProgrammeCycleVersion.categoryAMaximumMonths,
-        majorityOwnershipRequired: sebProgrammeCycleVersion.majorityOwnershipRequired,
-        fundingCeilingState: sebProgrammeCycleVersion.fundingCeilingState,
-        fundingCeilingAmountPaise: sebProgrammeCycleVersion.fundingCeilingAmountPaise,
-        fundingCeilingScope: sebProgrammeCycleVersion.fundingCeilingScope,
-      })
-      .from(sebProgrammeCycleVersion)
-      .where(
-        and(
-          eq(sebProgrammeCycleVersion.programmeCycleId, programmeCycleId),
-          eq(sebProgrammeCycleVersion.version, programmeCycleVersion),
-        ),
-      )
-      .limit(1),
-    db
-      .select({
-        stageKey: sebProgrammeCycleFormStage.stageKey,
-        title: sebProgrammeCycleFormStage.title,
-        description: sebProgrammeCycleFormStage.description,
-        iconName: sebProgrammeCycleFormStage.iconName,
-        estimatedMinutes: sebProgrammeCycleFormStage.estimatedMinutes,
-        sortOrder: sebProgrammeCycleFormStage.sortOrder,
-      })
-      .from(sebProgrammeCycleFormStage)
-      .where(pinned(sebProgrammeCycleFormStage.programmeCycleId, sebProgrammeCycleFormStage.programmeCycleVersion))
-      .orderBy(asc(sebProgrammeCycleFormStage.sortOrder)),
-    db
-      .select()
-      .from(sebProgrammeCycleFormField)
-      .where(pinned(sebProgrammeCycleFormField.programmeCycleId, sebProgrammeCycleFormField.programmeCycleVersion))
-      .orderBy(asc(sebProgrammeCycleFormField.sortOrder)),
-    db
-      .select({
-        fieldKey: sebProgrammeCycleFormFieldOption.fieldKey,
-        optionValue: sebProgrammeCycleFormFieldOption.optionValue,
-        optionLabel: sebProgrammeCycleFormFieldOption.optionLabel,
-        optionDescription: sebProgrammeCycleFormFieldOption.optionDescription,
-        iconName: sebProgrammeCycleFormFieldOption.iconName,
-        sortOrder: sebProgrammeCycleFormFieldOption.sortOrder,
-      })
-      .from(sebProgrammeCycleFormFieldOption)
-      .where(pinned(sebProgrammeCycleFormFieldOption.programmeCycleId, sebProgrammeCycleFormFieldOption.programmeCycleVersion))
-      .orderBy(asc(sebProgrammeCycleFormFieldOption.sortOrder)),
-    db
-      .select({
-        fieldKey: sebProgrammeCycleFormFieldCondition.fieldKey,
-        effect: sebProgrammeCycleFormFieldCondition.effect,
-        groupNumber: sebProgrammeCycleFormFieldCondition.groupNumber,
-        sequenceNumber: sebProgrammeCycleFormFieldCondition.sequenceNumber,
-        sourceFieldKey: sebProgrammeCycleFormFieldCondition.sourceFieldKey,
-        operator: sebProgrammeCycleFormFieldCondition.operator,
-        comparisonValue: sebProgrammeCycleFormFieldCondition.comparisonValue,
-      })
-      .from(sebProgrammeCycleFormFieldCondition)
-      .where(pinned(sebProgrammeCycleFormFieldCondition.programmeCycleId, sebProgrammeCycleFormFieldCondition.programmeCycleVersion)),
-    /*
-     * A rule's operands are its only child, so they are aggregated in the
-     * same statement: one row per rule, the operands in position order.
-     * Joined rather than read separately because there is nothing to
-     * multiply against — the trap above needs two children.
-     */
-    db
-      .select({
-        ruleKey: sebProgrammeCycleFormRule.ruleKey,
-        ruleType: sebProgrammeCycleFormRule.ruleType,
-        stageKey: sebProgrammeCycleFormRule.stageKey,
-        message: sebProgrammeCycleFormRule.message,
-        limitValue: sebProgrammeCycleFormRule.limitValue,
-        operandKeys: sql<string[]>`array_agg(${sebProgrammeCycleFormRuleOperand.fieldKey} ORDER BY ${sebProgrammeCycleFormRuleOperand.position})`,
-      })
-      .from(sebProgrammeCycleFormRule)
-      .innerJoin(sebProgrammeCycleFormRuleOperand, and(
-        eq(sebProgrammeCycleFormRuleOperand.programmeCycleId, sebProgrammeCycleFormRule.programmeCycleId),
-        eq(sebProgrammeCycleFormRuleOperand.programmeCycleVersion, sebProgrammeCycleFormRule.programmeCycleVersion),
-        eq(sebProgrammeCycleFormRuleOperand.ruleKey, sebProgrammeCycleFormRule.ruleKey),
-      ))
-      .where(pinned(sebProgrammeCycleFormRule.programmeCycleId, sebProgrammeCycleFormRule.programmeCycleVersion))
-      .groupBy(
-        sebProgrammeCycleFormRule.ruleKey,
-        sebProgrammeCycleFormRule.ruleType,
-        sebProgrammeCycleFormRule.stageKey,
-        sebProgrammeCycleFormRule.message,
-        sebProgrammeCycleFormRule.limitValue,
-      ),
-  ])
-
-  const version = versions[0]
-  if (!version) return null
-
+  const row = result.rows[0]
+  if (!row) return null
   const template = resolveFormTemplate({
     programmeCycleId,
     programmeCycleVersion,
-    stages,
-    fields: fields.map((row) => ({
-      stageKey: row.stageKey,
-      fieldKey: row.fieldKey,
-      fieldType: row.fieldType,
-      role: row.role,
-      label: row.label,
-      helpText: row.helpText,
-      requirement: row.requirement,
-      source: row.source,
-      sortOrder: row.sortOrder,
-      parentFieldKey: row.parentFieldKey,
-      groupDefinitionKey: row.groupDefinitionKey,
-      repeatMin: row.repeatMin,
-      repeatMax: row.repeatMax,
-      minLength: row.minLength,
-      maxLength: row.maxLength,
-      pattern: row.pattern,
-      patternMessage: row.patternMessage,
-      minValue: row.minValue,
-      maxValue: row.maxValue,
-      minDate: row.minDate,
-      maxDate: row.maxDate,
-      relativeDateBound: row.relativeDateBound,
-      maxFileBytes: row.maxFileBytes,
-      placeholder: row.placeholder,
-      note: row.note,
-      tone: row.tone,
-      widthHint: row.widthHint,
-      prefixText: row.prefixText,
-      suffixText: row.suffixText,
-      autocompleteHint: row.autocompleteHint,
-      showCharCount: row.showCharCount,
-      textareaRows: row.textareaRows,
-      choiceStyle: row.choiceStyle,
-    })),
-    options,
-    conditions,
-    rules,
+    stages: row.stages,
+    fields: row.fields,
+    options: row.options,
+    conditions: row.conditions,
+    rules: row.rules,
   })
   if (!template) return null
-
-  return { policy: version, template }
-}
-
-/**
- * The rules one application is pinned to, found from the application itself.
- *
- * The cycle *version* lives on the snapshot rather than on the application
- * head, so it cannot be read from the head alone — and reading the cycle's
- * current rules instead would be one call cheaper and wrong, because editing a
- * cycle would retroactively change what an in-flight application is judged by.
- * That is the property the freezing exists to provide.
- */
-export const findPinnedRulesForApplication = async (
-  db: Database,
-  applicationId: string,
-  version: number,
-): Promise<PinnedCycleRules | null> => {
-  const [pin] = await db
-    .select({
-      programmeCycleId: sebApplicationVersion.programmeCycleId,
-      programmeCycleVersion: sebApplicationVersion.programmeCycleVersion,
-    })
-    .from(sebApplicationVersion)
-    .where(
-      and(
-        eq(sebApplicationVersion.applicationId, applicationId),
-        eq(sebApplicationVersion.version, version),
-      ),
-    )
-    .limit(1)
-  if (!pin) return null
-  return findPinnedCycleRules(db, pin.programmeCycleId, pin.programmeCycleVersion)
+  return { policy: row.policy, template }
 }
 
 /**

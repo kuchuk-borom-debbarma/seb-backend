@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, LogOut, Save } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CategoryHint } from '#/features/application/CategoryHint'
 import { ClosingNotice } from '#/features/application/ClosingNotice'
+import { cyclesQuery } from '#/features/application/queries'
 import {
   ATTACH_EVIDENCE,
   ApplicationJourney,
@@ -81,7 +82,13 @@ export const Route = createFileRoute('/_shell/_applicant/applications/$id/form')
   validateSearch: (search: Record<string, unknown>): { stage?: string } => ({
     stage: typeof search.stage === 'string' ? search.stage : undefined,
   }),
-  loader: ({ context, params }) => loadApplication(context.queryClient, params.id),
+  loader: ({ context, params }) =>
+    Promise.all([
+      loadApplication(context.queryClient, params.id),
+      // Read by the closing notice as the page mounts; asked for here so it
+      // travels in the same request as the application rather than after it.
+      context.queryClient.prefetchQuery(cyclesQuery),
+    ]),
   component: DraftFormPage,
 })
 
@@ -181,19 +188,17 @@ function DraftFormPage() {
       persisted.current = next
       setSavedAt(saved.updatedAt)
       /*
-       * The versions the save moved to are written into the cache at once, so
-       * the next save quotes them without waiting for a refetch — and so the
-       * applicant sees "Saved" when the server said so, not two round trips
-       * later. The rest of the record and the validation report refresh
-       * behind it; "Save & next" waits for the report itself.
+       * The save answers with the application as it now is, and that is what
+       * the cache holds: the next save quotes its versions, and the screen
+       * shows "Saved" when the server said so, with no refetch of the record.
+       * Only the validation report is fetched again; "Save & next" waits for
+       * it.
        */
-      queryClient.setQueryData(applicationQuery(id).queryKey, (current) =>
-        current
-          ? { ...current, currentVersion: saved.currentVersion, statusVersion: saved.statusVersion }
-          : current,
-      )
-      void queryClient.invalidateQueries({ queryKey: ['application', id] })
+      queryClient.setQueryData(applicationQuery(id).queryKey, saved)
       void queryClient.invalidateQueries({ queryKey: ['validation', id] })
+      // What changed since the last submission moved with this save; the
+      // review page must fetch it again rather than show the old list.
+      queryClient.removeQueries({ queryKey: ['draft-changes', id] })
       // An answer changed while the save was in flight is still unsaved.
       setSaveState(latest.current && !sameAnswers(next, latest.current) ? 'unsaved' : 'saved')
     },

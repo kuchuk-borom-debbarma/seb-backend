@@ -47,6 +47,7 @@ import { messageFor, unwrap } from '#/lib/result'
 import { can } from '#/lib/session'
 import { CycleForm } from '#/features/admin/CycleForm'
 import { CyclePipelineSummary } from '#/features/pipeline/CyclePipelineStep'
+import { pipelinesQuery } from '#/features/pipeline/pipelineQueries'
 import { PolicyDocumentCard } from '#/features/admin/PolicyDocumentCard'
 import { toTemplateInput } from '#/features/admin/formAuthoring'
 import { Explain } from '#/features/guide/Explain'
@@ -55,6 +56,7 @@ import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
 import styles from '#/features/admin/CycleDetails.module.css'
 import { fieldTypeWords, roleWords } from '#/features/admin/fieldWords'
+import { JUST_LOADED } from '#/lib/freshness'
 
 const cycleQuery = (id: string) =>
   queryOptions({
@@ -69,12 +71,19 @@ const cycleQuery = (id: string) =>
     },
     // Lifecycle transitions are version-guarded, so the version on screen must
     // be the current one or every action would be refused as stale.
-    staleTime: 0,
+    staleTime: JUST_LOADED,
   })
 
 export const Route = createFileRoute('/_shell/admin/cycles/$id')({
   loader: ({ context, params }) =>
-    context.queryClient.ensureQueryData(cycleQuery(params.id)),
+    Promise.all([
+      context.queryClient.ensureQueryData(cycleQuery(params.id)),
+      // Read by the pipeline summary as the page mounts, for whoever may read
+      // pipelines; asked for here so it travels in the same request.
+      can(context.user, 'pipeline', 'read')
+        ? context.queryClient.prefetchQuery(pipelinesQuery)
+        : undefined,
+    ]),
   component: AdminCyclePage,
 })
 

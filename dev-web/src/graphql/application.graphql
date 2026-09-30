@@ -145,6 +145,53 @@ mutation StartApplication($enterpriseId: ID!, $programmeCycleId: ID!, $applicati
   }
 }
 
+# Everything the application screens read, and what every write that changes
+# the application answers with, so a mutation's response replaces the cached
+# application whole instead of sending the screen back to the server for it.
+fragment ApplicationFields on Application {
+  id
+  enterpriseId
+  programmeCycleId
+  applicationKind
+  applicationKindLabel
+  phaseNumber
+  referenceNumber
+  currentVersion
+  status
+  statusVersion
+  firstSubmittedAt
+  createdAt
+  updatedAt
+  deletedAt
+  editableStageKeys
+  journey { ...ApplicationJourneyFields }
+  answers
+  snapshot {
+    version
+    programmeCycleVersion
+    declarationAcceptedAt
+    applicationCategory
+  }
+  revisionRequests {
+    id
+    stageKey
+    note
+    requestedAt
+    resolvedAt
+    cancelledAt
+  }
+  documents {
+    id
+    fieldKey
+    currentVersion
+    originalFilename
+    contentType
+    sizeBytes
+    createdAt
+    deletedAt
+  }
+}
+
 query ApplicationById($id: ID!) {
   seb {
     application {
@@ -152,46 +199,7 @@ query ApplicationById($id: ID!) {
         success
         message
         response {
-          id
-          enterpriseId
-          programmeCycleId
-          applicationKind
-          phaseNumber
-          referenceNumber
-          currentVersion
-          status
-          statusVersion
-          firstSubmittedAt
-          createdAt
-          updatedAt
-          deletedAt
-          editableStageKeys
-          journey { ...ApplicationJourneyFields }
-          answers
-          snapshot {
-            version
-            programmeCycleVersion
-            declarationAcceptedAt
-            applicationCategory
-          }
-          revisionRequests {
-            id
-            stageKey
-            note
-            requestedAt
-            resolvedAt
-            cancelledAt
-          }
-          documents {
-            id
-            fieldKey
-            currentVersion
-            originalFilename
-            contentType
-            sizeBytes
-            createdAt
-            deletedAt
-          }
+          ...ApplicationFields
         }
       }
     }
@@ -295,7 +303,7 @@ mutation SaveApplicationDraft($input: SaveApplicationDraftInput!) {
       saveDraft(input: $input) {
         success
         message
-        response { id currentVersion statusVersion updatedAt }
+        response { ...ApplicationFields }
       }
     }
   }
@@ -334,7 +342,7 @@ mutation SubmitApplication($input: ApplicationVersionInput!) {
       submit(input: $input) {
         success
         message
-        response { id referenceNumber status statusVersion currentVersion }
+        response { ...ApplicationFields }
       }
     }
   }
@@ -346,7 +354,7 @@ mutation ResubmitApplication($input: ApplicationVersionInput!) {
       resubmit(input: $input) {
         success
         message
-        response { id referenceNumber status statusVersion currentVersion }
+        response { ...ApplicationFields }
       }
     }
   }

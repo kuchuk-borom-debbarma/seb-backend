@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm'
+import { getTableColumns, sql, type SQL, type Table } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { PgTransaction } from 'drizzle-orm/pg-core'
 import type { ExtractTablesWithRelations } from 'drizzle-orm'
@@ -29,8 +29,56 @@ export type Transaction = PgTransaction<
   ExtractTablesWithRelations<typeof schema>
 >
 
-/** Either handle, for a read that does not care which it is on. */
-export type Executor = Database | Transaction
+/**
+ * A table's row as `to_jsonb` rendered it, back as the record drizzle would
+ * have returned: property names for column names, and a `Date` for every
+ * timestamp, which JSON carries as a string.
+ *
+ * For a read that folds several of an aggregate's collections into one
+ * statement (docs/rules/performance.md, rule 1) without listing every column
+ * of every table by hand, where a column added later would be silently
+ * missing. Everything else — numbers, text, arrays, jsonb, a `date` in string
+ * mode — reads the same from JSON as from the driver.
+ */
+export const recordFromJsonb = <T extends Table>(
+  table: T,
+  row: Record<string, unknown>,
+): T['$inferSelect'] => {
+  const record: Record<string, unknown> = {}
+  for (const [property, column] of Object.entries(getTableColumns(table))) {
+    const value = row[column.name]
+    record[property] = column.dataType === 'date' && typeof value === 'string' ? new Date(value) : value ?? null
+  }
+  return record as T['$inferSelect']
+}
+
+/**
+ * One guarded transition as one statement: a data-modifying `WITH` whose first
+ * member, `head`, is the guarded write and whose every other member selects
+ * FROM it (or from a member that did).
+ *
+ * The shape `docs/rules/performance.md` (rule 5) asks for, and cheaper than
+ * `batch` below by the transaction's two round trips and one per statement.
+ * Members of one statement all see the database as it was before it, so a
+ * member cannot learn that another wrote by re-reading the table — only from
+ * the row that member returned. A losing `head` returns no row, and nothing
+ * built on it writes.
+ *
+ * Returns what `head` returned (its `RETURNING`, in the database's column
+ * names), or null when its guard lost. A null member is left out, for a
+ * member that has nothing to write this time.
+ */
+export const writeFolded = async <Head extends Record<string, unknown>>(
+  db: Database,
+  members: readonly (SQL | null)[],
+): Promise<Head | null> => {
+  const present = members.filter((member): member is SQL => member !== null)
+  const result = await db.execute(sql`
+    WITH ${sql.join(present, sql`, `)}
+    SELECT * FROM head
+  `)
+  return (result.rows[0] as Head | undefined) ?? null
+}
 
 /**
  * Runs several statements as one transition, in order, and returns each result.
@@ -142,8 +190,8 @@ export const changedExactlyOne = (returned: WriteResult): boolean =>
  *
  * Per request rather than per isolate, for the reason `src/index.ts` gives about
  * its own configuration: a cached instance is shared by every request the
- * isolate serves, and the test suite runs `singleWorker: true`, so a singleton
- * here would be one connection shared across every test in a run.
+ * isolate serves, and every test in a service-suite file shares its modules,
+ * so a singleton here would be one connection shared across all of them.
  *
  * Hyperdrive holds the pool at the edge, so opening a client costs one hop
  * rather than a TLS and authentication handshake to Neon. The caller owns

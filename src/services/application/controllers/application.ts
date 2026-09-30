@@ -1,27 +1,29 @@
 /** Applicant application, validation, eligibility, and submission use cases. */
+import { afterResponse, type DatabaseAccess } from '../../../deferred'
+import { pinnedFormReader } from '../../../loaders'
 import { auditActions, applicationStatuses } from '../../../db/schema'
 import { decodeCursor, pageSize } from '../pagination'
 import {
-  findEnterpriseFacts,
-  findApplicationVersion,
-  findCycleApplicationKinds,
-  findEligibilityHistory,
   findEnterpriseApplicationSource,
+  findOpenCycleEligibility,
+  type OpenCycleEligibility,
   findLatestSubmittedVersion,
-  findOpenProgrammeCycle,
-  findProgrammeCycleIdentity,
   findDownloadablePolicyDocument,
-  findUserEmailById,
   findDraftChanges,
   findOwnedApplicationHead,
   insertApplicationAggregate,
-  listActiveDocumentFieldKeys,
   listApplicationTimeline,
   listApplicantProgrammeCycles,
   listAvailableProgrammeCycles,
-  listOpenRevisionStageKeys,
   listOwnedApplications,
   loadOwnedApplication,
+  loadOwnedApplicationContext,
+  applicationAfterWrite,
+  assembleApplication,
+  openRevisionStageKeys,
+  activeDocumentFieldKeys,
+  type LoadedApplication,
+  type SubmittedHead,
   saveApplicationSnapshot,
   setApplicationDeleted,
   submitApplicationSnapshot,
@@ -29,10 +31,8 @@ import {
 import {
   AUTH_REQUIRED_MESSAGE,
   auditRecord,
-  completeGuardedOperation,
   currentApplicant,
   firstValidationIssueMessage,
-  requireInvariant,
   runConstraintRetry,
   runConstraintSafe,
 } from '../support'
@@ -60,7 +60,7 @@ import type { ValidationReport } from '../form/engine'
  */
 export type { ApplicationFormTemplate } from '../form/types'
 export type { ValidationReport } from '../form/engine'
-import type { AnswerMap, ApplicationFormTemplate, ResolvedFormTemplate } from '../form/types'
+import type { AnswerMap, ApplicationFormTemplate } from '../form/types'
 import type {
   Application,
   ApplicationOperationContext,
@@ -85,11 +85,7 @@ import {
   validateAnswersForSubmission,
 } from '../form/engine'
 import {
-  answersFromRows,
   answersToRows,
-  findAnswerRows,
-  findPinnedCycleRules,
-  findPinnedRulesForApplication,
 } from '../queries/form-template'
 import { confirmationPdfUrl } from '../confirmation-link'
 import { sendNotification } from '../../external-notification'
@@ -185,7 +181,7 @@ export const applicationById = async (
 ): Promise<SebResult<Application>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
-  const application = await loadOwnedApplication(context.db, applicant.id, id, true)
+  const application = await loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, id, true)
   return application ? success(application) : failure('The application was not found.')
 }
 
@@ -199,17 +195,10 @@ export const applicationById = async (
  * declared before this one, plus one — so a first application is phase 1 and
  * an application of a later kind follows the attempts before it.
  */
-const judgeKinds = async (
-  context: ApplicationOperationContext,
-  enterpriseId: string,
-  cycle: { id: string; currentVersion: number },
-  now: Date,
-  excludeApplicationId?: string,
-): Promise<Array<ApplicationKindEligibility & { phaseNumber: number }>> => {
-  const [kinds, history] = await Promise.all([
-    findCycleApplicationKinds(context.db, cycle.id, cycle.currentVersion),
-    findEligibilityHistory(context.db, enterpriseId, now, excludeApplicationId),
-  ])
+const judgeKinds = (
+  eligibility: Pick<OpenCycleEligibility, 'kinds' | 'history'>,
+): Array<ApplicationKindEligibility & { phaseNumber: number }> => {
+  const { kinds, history } = eligibility
   return kinds.map((kind, index) => {
     const earlier = new Set(kinds.slice(0, index).map((each) => each.kindKey))
     const verdict = eligibilityOf(kind.rules, history)
@@ -229,19 +218,21 @@ const judgeKinds = async (
  * again when a draft is submitted or restored, because the history it was
  * started against may have moved. The application itself is left out of the
  * history, so "no open application of this kind" does not count itself.
+ *
+ * Null when it may; otherwise the refusal, including the cycle having closed.
  */
 const kindStillEligible = async (
   context: ApplicationOperationContext,
   head: { id: string; enterpriseId: string; programmeCycleId: string; applicationKind: string },
-  cycleVersion: number,
   now: Date,
-): Promise<string | null> => {
-  const judged = await judgeKinds(
-    context, head.enterpriseId, { id: head.programmeCycleId, currentVersion: cycleVersion }, now, head.id,
-  )
-  const kind = judged.find((each) => each.kindKey === head.applicationKind)
-  if (!kind) return 'This kind of application is no longer offered by the programme cycle.'
-  return kind.eligible ? null : kind.reasons.join(' ')
+): Promise<{ refusal: string } | { cycle: OpenCycleEligibility['cycle'] }> => {
+  const eligibility = await findOpenCycleEligibility(context.db, {
+    cycleId: head.programmeCycleId, enterpriseId: head.enterpriseId, now, excludeApplicationId: head.id,
+  })
+  if (!eligibility) return { refusal: 'The programme cycle is no longer open.' }
+  const kind = judgeKinds(eligibility).find((each) => each.kindKey === head.applicationKind)
+  if (!kind) return { refusal: 'This kind of application is no longer offered by the programme cycle.' }
+  return kind.eligible ? { cycle: eligibility.cycle } : { refusal: kind.reasons.join(' ') }
 }
 
 export const applicationKindEligibility = async (
@@ -251,13 +242,13 @@ export const applicationKindEligibility = async (
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
   const now = new Date()
-  const [source, cycle] = await Promise.all([
-    findEnterpriseApplicationSource(context.db, applicant.id, input.enterpriseId),
-    findOpenProgrammeCycle(context.db, input.programmeCycleId, now),
-  ])
+  const source = await findEnterpriseApplicationSource(context.db, applicant.id, input.enterpriseId)
   if (!source) return failure('The enterprise was not found or its funding case is not open.')
-  if (!cycle) return failure('The programme cycle is not open.')
-  const judged = await judgeKinds(context, source.enterprise.id, cycle, now)
+  const eligibility = await findOpenCycleEligibility(context.db, {
+    cycleId: input.programmeCycleId, enterpriseId: source.enterprise.id, now,
+  })
+  if (!eligibility) return failure('The programme cycle is not open.')
+  const judged = judgeKinds(eligibility)
   return success({ kinds: judged.map(({ phaseNumber: _phase, ...kind }) => kind) })
 }
 
@@ -268,15 +259,15 @@ export const startApplication = async (
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
   const now = new Date()
-  const [source, cycle] = await Promise.all([
-    findEnterpriseApplicationSource(context.db, applicant.id, input.enterpriseId),
-    findOpenProgrammeCycle(context.db, input.programmeCycleId, now),
-  ])
+  const source = await findEnterpriseApplicationSource(context.db, applicant.id, input.enterpriseId)
   if (!source) return failure('The enterprise was not found or its funding case is not open.')
-  if (!cycle) return failure('The programme cycle is not open.')
+  const eligibility = await findOpenCycleEligibility(context.db, {
+    cycleId: input.programmeCycleId, enterpriseId: source.enterprise.id, now,
+  })
+  if (!eligibility) return failure('The programme cycle is not open.')
+  const { cycle } = eligibility
 
-  const kind = (await judgeKinds(context, source.enterprise.id, cycle, now))
-    .find((each) => each.kindKey === input.applicationKind)
+  const kind = judgeKinds(eligibility).find((each) => each.kindKey === input.applicationKind)
   if (!kind) return failure('Select a kind of application this programme cycle offers.')
   if (!kind.eligible) return failure(kind.reasons.join(' '))
 
@@ -287,7 +278,7 @@ export const startApplication = async (
    * the draft would exist with no questions, and the applicant would be told
    * nothing about why. Refused here rather than at the first save.
    */
-  const rules = await findPinnedCycleRules(context.db, cycle.id, cycle.currentVersion)
+  const rules = await pinnedFormReader(context.loaders)(cycle.id, cycle.currentVersion)
   if (!rules) return failure('This programme cycle has no application form yet.')
 
   const applicationId = crypto.randomUUID()
@@ -333,10 +324,12 @@ export const startApplication = async (
       + 'cycle changed while it was being started. Reload and try again.',
     )
   }
-  return success(requireInvariant(
-    await loadOwnedApplication(context.db, applicant.id, applicationId),
-    'Created application could not be read.',
-  ))
+  // Built from what was written rather than read back: a new draft has no
+  // documents, requests or answers yet (rule 4).
+  return success(assembleApplication({
+    ...inserted, kindLabel: kind.label, template: rules.template,
+    answerRows: [], documents: [], revisionRequests: [],
+  }))
 }
 
 /**
@@ -349,23 +342,13 @@ export const startApplication = async (
  * other did not have, which is exactly how two answers to "did this change"
  * come to disagree.
  */
-const revisionChangesAreAllowed = async (
-  context: ApplicationOperationContext,
-  application: Application,
-  template: ResolvedFormTemplate,
+const revisionChangesAreAllowed = (
+  loaded: LoadedApplication,
   answers: AnswerMap,
-): Promise<Set<ApplicationSection> | null> => {
-  const [submitted, openStageKeys] = await Promise.all([
-    findLatestSubmittedVersion(context.db, application.id),
-    listOpenRevisionStageKeys(context.db, application.id),
-  ])
-  if (!submitted || openStageKeys.size === 0) return null
-  const submittedAnswers = answersFromRows(
-    template,
-    submitted.id,
-    await findAnswerRows(context.db, [submitted.id]),
-  )
-  const changed = changedStageKeys(template, submittedAnswers, answers)
+): Set<ApplicationSection> | null => {
+  const openStageKeys = openRevisionStageKeys(loaded.application)
+  if (!loaded.submittedAnswers || openStageKeys.size === 0) return null
+  const changed = changedStageKeys(loaded.rules.template, loaded.submittedAnswers, answers)
   return changed.every((stageKey) => openStageKeys.has(stageKey)) ? openStageKeys : null
 }
 
@@ -382,20 +365,17 @@ export const saveApplicationDraft = async (
   const authorized = await ownedApplicationAtVersion(input, context)
   if ('refusal' in authorized) return authorized.refusal
   const applicant = { id: authorized.applicantId }
-  const application = authorized.application
+  const { application, loaded } = authorized
   if (application.status === 'IN_PIPELINE' && application.editableStageKeys.length === 0) {
     return failure('The application cannot be edited in its current status.')
   }
   /*
-   * Resolved once, and everything downstream reads this object: the normaliser,
-   * the revision-scope diff, the equality check and the rows that get written.
-   * Resolving it twice is how a save and its validation come to disagree about
-   * what the form is.
+   * The form the application was loaded against, and everything downstream
+   * reads this one object: the normaliser, the revision-scope diff, the
+   * equality check and the rows that get written. Two resolutions would be how
+   * a save and its validation come to disagree about what the form is.
    */
-  const rules = await findPinnedRulesForApplication(
-    context.db, application.id, application.currentVersion,
-  )
-  if (!rules) return failure('The form this application was filled against could not be read.')
+  const rules = loaded.rules
 
   const normalized = normalizeAnswers(rules.template, input.answers, new Date())
   if (!normalized.value || normalized.issues.length > 0) {
@@ -412,7 +392,7 @@ export const saveApplicationDraft = async (
   const answers = pruneHidden(rules.template, normalized.value)
 
   const revisionStageKeys = application.status === 'IN_PIPELINE'
-    ? await revisionChangesAreAllowed(context, application, rules.template, answers)
+    ? revisionChangesAreAllowed(loaded, answers)
     : undefined
   if (application.status === 'IN_PIPELINE' && !revisionStageKeys) {
     return failure('Only stages requested for revision may be changed.')
@@ -423,12 +403,7 @@ export const saveApplicationDraft = async (
     return success(application)
   }
   const now = new Date()
-  const currentVersionRecord = await findApplicationVersion(
-    context.db,
-    application.id,
-    application.currentVersion,
-  )
-  const readableVersion = requireInvariant(currentVersionRecord, 'Application version is missing.')
+  const readableVersion = loaded.version
   const saved = await runConstraintSafe(() => saveApplicationSnapshot(context.db, {
     head: application,
     userId: applicant.id,
@@ -446,12 +421,18 @@ export const saveApplicationDraft = async (
       now,
     }),
   }))
-  return completeGuardedOperation(
-    saved,
-    'The application changed. Refresh it and try again.',
-    () => loadOwnedApplication(context.db, applicant.id, application.id),
-    'Saved application could not be read.',
-  )
+  if (!saved) return failure('The application changed. Refresh it and try again.')
+  return success(applicationAfterWrite(loaded, {
+    head: { currentVersion: application.currentVersion + 1, updatedAt: now },
+    version: {
+      version: application.currentVersion + 1,
+      changeType: application.status === 'DRAFT' ? 'SAVE' : 'REVISION',
+      createdAt: now,
+      declarationAcceptedAt: null,
+      applicationCategory: null,
+      answers,
+    },
+  }))
 }
 
 export const validateApplication = async (
@@ -460,19 +441,17 @@ export const validateApplication = async (
 ): Promise<SebResult<ValidationReport>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
-  const application = await loadOwnedApplication(context.db, applicant.id, applicationId)
-  if (!application) return failure('The application was not found.')
-  const rules = await findPinnedRulesForApplication(
-    context.db, application.id, application.currentVersion,
+  const loaded = await loadOwnedApplicationContext(
+    context.db, pinnedFormReader(context.loaders), applicant.id, applicationId,
   )
-  if (!rules) return failure('The form this application was filled against could not be read.')
+  if (!loaded) return failure('The application was not found.')
   return success(validateAnswersForSubmission(
-    rules.template,
-    application.answers,
-    await listActiveDocumentFieldKeys(context.db, applicationId),
+    loaded.rules.template,
+    loaded.application.answers,
+    activeDocumentFieldKeys(loaded.application),
     new Date(),
-    rules.policy,
-    await findEnterpriseFacts(context.db, application.enterpriseId),
+    loaded.rules.policy,
+    { establishmentDate: loaded.establishmentDate },
   ))
 }
 
@@ -491,8 +470,11 @@ const changeApplicationDeletion = async (
   const applicant = { id: authorized.applicantId }
   // Soft-deleted heads are included: restoring one is a write on a row that is
   // deliberately still there.
-  const head = await findOwnedApplicationHead(context.db, applicant.id, input.applicationId, true)
-  if (!head) return failure(APPLICATION_NOT_FOUND_MESSAGE)
+  const loaded = await loadOwnedApplicationContext(
+    context.db, pinnedFormReader(context.loaders), applicant.id, input.applicationId, true,
+  )
+  if (!loaded) return failure(APPLICATION_NOT_FOUND_MESSAGE)
+  const head = loaded.application
   if (
     head.currentVersion !== input.expectedVersion ||
     head.statusVersion !== input.expectedStatusVersion ||
@@ -500,10 +482,8 @@ const changeApplicationDeletion = async (
   ) return failure('Only an unchanged draft can be removed or restored.')
   const now = new Date()
   if (!deleted) {
-    const cycle = await findOpenProgrammeCycle(context.db, head.programmeCycleId, now)
-    if (!cycle) return failure('The programme cycle is no longer open.')
-    const refusal = await kindStillEligible(context, head, cycle.currentVersion, now)
-    if (refusal) return failure(refusal)
+    const judged = await kindStillEligible(context, head, now)
+    if ('refusal' in judged) return failure(judged.refusal)
   }
   const reason = deleted ? (input.reason?.trim() || 'REMOVED_BY_APPLICANT') : null
   const changed = await runConstraintSafe(() => setApplicationDeleted(context.db, {
@@ -522,12 +502,10 @@ const changeApplicationDeletion = async (
         now,
       }),
     }))
-  return completeGuardedOperation(
-    changed,
-    'The application state changed. Refresh it and try again.',
-    () => loadOwnedApplication(context.db, applicant.id, head.id, true),
-    'Changed application could not be read.',
-  )
+  if (!changed) return failure('The application state changed. Refresh it and try again.')
+  return success(applicationAfterWrite(loaded, {
+    head: { deletedAt: deleted ? now : null, updatedAt: now },
+  }))
 }
 
 export const softDeleteApplicationDraft = (
@@ -562,17 +540,14 @@ const createReferenceNumber = (cycleYear: number): string => {
  * transport error can echo the recipient and these logs are public in CI.
  */
 const sendSubmissionConfirmation = async (
+  database: DatabaseAccess,
   context: ApplicationOperationContext,
-  applicantId: string,
+  recipient: { applicantId: string; email: string },
   application: Application,
-  template: ResolvedFormTemplate,
+  cycle: LoadedApplication['cycle'],
 ): Promise<void> => {
+  const { applicantId, email } = recipient
   try {
-    const [email, cycle] = await Promise.all([
-      findUserEmailById(context.db, applicantId),
-      findProgrammeCycleIdentity(context.db, application.programmeCycleId),
-    ])
-    if (!email || !cycle) throw new Error('The confirmation cannot be addressed.')
     // The provider attaches by URL: it fetches this signed link and encloses
     // the PDF the route rebuilds from the frozen submission.
     const url = await confirmationPdfUrl(
@@ -597,7 +572,7 @@ const sendSubmissionConfirmation = async (
   } catch {
     // Guarded itself: the audit write failing must not throw into the
     // submission that has already succeeded.
-    await bestEffort(insertAuditEvent(context.db, auditRecord(context, {
+    await bestEffort(database((db) => insertAuditEvent(db, auditRecord(context, {
       actorUserId: applicantId,
       action: auditActions.submissionConfirmationFailed,
       entityType: 'SEB_APPLICATION',
@@ -606,7 +581,7 @@ const sendSubmissionConfirmation = async (
       outcome: 'FAILURE',
       payload: {},
       now: new Date(),
-    })), 'A submission confirmation failed')
+    }))), 'A submission confirmation failed')
   }
 }
 
@@ -618,75 +593,59 @@ const submit = async (
   const authorized = await ownedApplicationAtVersion(input, context)
   if ('refusal' in authorized) return authorized.refusal
   const applicant = { id: authorized.applicantId }
-  const application = authorized.application
+  const { application, loaded } = authorized
   if (application.status !== (resubmission ? 'IN_PIPELINE' : 'DRAFT')) {
     return failure('The application changed or cannot be submitted in its current status.')
   }
   const now = new Date()
-  const cycle = resubmission
-    ? null
-    : await findOpenProgrammeCycle(context.db, application.programmeCycleId, now)
-  if (!resubmission && !cycle) return failure('The programme cycle is no longer open.')
-  const revisionStageKeys = resubmission
-    ? await listOpenRevisionStageKeys(context.db, application.id)
-    : undefined
+  const revisionStageKeys = resubmission ? openRevisionStageKeys(application) : undefined
   if (resubmission && revisionStageKeys?.size === 0) {
     return failure('There are no open revision requests to resolve.')
   }
-  // A first submission re-asks the kind's rules: the history the draft was
-  // started against may have moved. A resubmission is the same attempt.
-  if (cycle) {
-    const refusal = await kindStillEligible(context, application, cycle.currentVersion, now)
-    if (refusal) return failure(refusal)
+  // A first submission re-asks whether the cycle is open and the kind's rules:
+  // the history the draft was started against may have moved. A resubmission
+  // is the same attempt.
+  let cycle: OpenCycleEligibility['cycle'] | null = null
+  if (!resubmission) {
+    const judged = await kindStillEligible(context, application, now)
+    if ('refusal' in judged) return failure(judged.refusal)
+    cycle = judged.cycle
   }
   /*
-   * Resolved **once**, and handed to both the validator and the write.
-   *
-   * They have to agree about which questions exist and which documents this
-   * cycle requires, and the only way they do is by reading the same object. Two
-   * resolutions of the same cycle version would almost always agree, which is
-   * what makes the day they do not so hard to find.
+   * The form the application was loaded against, handed to both the validator
+   * and the write. They have to agree about which questions exist and which
+   * documents this cycle requires, and the only way they do is by reading the
+   * same object.
    */
-  const rules = await findPinnedRulesForApplication(
-    context.db, application.id, application.currentVersion,
-  )
-  if (!rules) return failure('The form this application was filled against could not be read.')
+  const rules = loaded.rules
   const answers = application.answers
-  const facts = await findEnterpriseFacts(context.db, application.enterpriseId)
+  const facts = { establishmentDate: loaded.establishmentDate }
   const report = validateAnswersForSubmission(
     rules.template,
     answers,
-    await listActiveDocumentFieldKeys(context.db, application.id),
+    activeDocumentFieldKeys(application),
     now,
     rules.policy,
     facts,
   )
   if (!report.valid) return failure('The application is incomplete. Run validation for details.')
-  const currentVersionRecord = await findApplicationVersion(
-    context.db,
-    application.id,
-    application.currentVersion,
+  const applicationCategory = applicationCategoryOf(
+    facts.establishmentDate,
+    rules.policy.categoryAMaximumMonths,
+    now,
   )
-  const readableVersion = requireInvariant(currentVersionRecord, 'Application version is missing.')
-
-  const submitted = await runConstraintRetry(() => {
+  const submitted = await runConstraintRetry(async () => {
     // Minted per attempt, as it always was, and named once so the snapshot and
     // its audit row carry the same reference. A resubmission keeps the one the
-    // first submission issued — `submitApplicationSnapshot` prefers the head's.
+    // first submission issued — the write keeps the head's when it has one.
     const referenceNumber = application.referenceNumber
       ?? createReferenceNumber(cycle?.cycleYear ?? new Date().getUTCFullYear())
-    const applicationCategory = applicationCategoryOf(
-      facts?.establishmentDate ?? null,
-      rules.policy.categoryAMaximumMonths,
-      now,
-    )
-    return submitApplicationSnapshot(context.db, {
+    const written = await submitApplicationSnapshot(context.db, {
       head: application,
-      currentVersion: readableVersion,
       userId: applicant.id,
       answerRows: answersToRows(rules.template, answers),
       revisionStageKeys: revisionStageKeys ? [...revisionStageKeys] : undefined,
-      programmeCycleVersion: readableVersion.programmeCycleVersion,
+      programmeCycleVersion: loaded.version.programmeCycleVersion,
       referenceNumber,
       resubmission,
       requiredDocumentFieldKeys: requiredDocumentFieldKeys(rules.template, answers),
@@ -711,20 +670,59 @@ const submit = async (
         now,
       }),
     })
+    return written && { ...written, referenceNumber }
   }, 3)
-  const result = await completeGuardedOperation(
-    submitted === true,
-    'The application changed. Refresh it and try again.',
-    () => loadOwnedApplication(context.db, applicant.id, application.id),
-    'Submitted application could not be read.',
-  )
-  if (submitted === true && result.success && result.response) {
-    await bestEffort(
-      sendSubmissionConfirmation(context, applicant.id, result.response, rules.template),
-      'A submission confirmation failed',
-    )
-  }
-  return result
+  if (!submitted) return failure('The application changed. Refresh it and try again.')
+  const response = submittedApplication(loaded, submitted, { resubmission, applicationCategory, now })
+  // After the response: the applicant is not kept waiting on a mail provider,
+  // and a failure is recorded rather than reported (rule 6).
+  await afterResponse(context, (database) => bestEffort(
+    sendSubmissionConfirmation(
+      database, context, { applicantId: applicant.id, email: authorized.applicantEmail }, response, loaded.cycle,
+    ),
+    'A submission confirmation failed',
+  ))
+  return success(response)
+}
+
+/**
+ * The application as a submission left it: the version the write froze, the
+ * stage and flags SQL chose, and — on a resubmission — the revision requests
+ * it resolved.
+ */
+const submittedApplication = (
+  loaded: LoadedApplication,
+  written: SubmittedHead & { referenceNumber: string },
+  submission: { resubmission: boolean; applicationCategory: Application['snapshot']['applicationCategory']; now: Date },
+): Application => {
+  const { application } = loaded
+  const { now } = submission
+  return applicationAfterWrite(loaded, {
+    head: {
+      currentVersion: application.currentVersion + 1,
+      statusVersion: application.statusVersion + 1,
+      status: 'IN_PIPELINE',
+      referenceNumber: application.referenceNumber ?? written.referenceNumber,
+      firstSubmittedAt: application.firstSubmittedAt ?? now,
+      currentStageKey: written.currentStageKey,
+      statusFlags: written.statusFlags,
+      updatedAt: now,
+    },
+    version: {
+      version: application.currentVersion + 1,
+      changeType: submission.resubmission ? 'RESUBMISSION' : 'SUBMISSION',
+      createdAt: now,
+      declarationAcceptedAt: now,
+      applicationCategory: submission.applicationCategory,
+      answers: application.answers,
+    },
+    revisionRequests: submission.resubmission
+      ? application.revisionRequests.map((request) =>
+        request.resolvedAt === null && request.cancelledAt === null
+          ? { ...request, resolvedAt: now }
+          : request)
+      : application.revisionRequests,
+  })
 }
 
 export const submitApplication = (
@@ -766,9 +764,9 @@ export const applicationFormTemplate = async (
 ): Promise<SebResult<ApplicationFormTemplate>> => {
   const owned = await ownedApplication<ApplicationFormTemplate>(applicationId, context)
   if ('refusal' in owned) return owned.refusal
-  const rules = await findPinnedRulesForApplication(
-    context.db, owned.application.id, owned.application.currentVersion,
-  )
+  const rules = owned.pinnedCycleVersion === null
+    ? null
+    : await pinnedFormReader(context.loaders)(owned.application.programmeCycleId, owned.pinnedCycleVersion)
   return rules
     ? success({ ...rules.template, grantCeilingPaise: applicationGrantCeiling(rules.policy) })
     : failure('The form this application was filled against could not be read.')
@@ -787,7 +785,7 @@ export const applicationDraftChanges = async (
     comparedToSubmissionNumber: number
   }>(applicationId, context)
   if ('refusal' in owned) return owned.refusal
-  const changes = await findDraftChanges(context.db, owned.application)
+  const changes = await findDraftChanges(context.db, pinnedFormReader(context.loaders), owned.application)
   return changes
     ? success(changes)
     : failure('This application has not been submitted yet, so there is nothing to compare.')

@@ -28,7 +28,7 @@ import {
 import type { PgSelect } from 'drizzle-orm/pg-core'
 import { COUNT_MISSING, requireInvariant } from '../../application/support'
 
-import { batch, type Database } from '../../../db'
+import { batch, recordFromJsonb, type Database } from '../../../db'
 import {
   sebApplication,
   sebApplicationDocumentScan,
@@ -38,19 +38,18 @@ import {
   sebApplicationSubmission,
   sebApplicationSubmissionDocument,
   sebApplicationVersion,
+  sebApplicationVersionAnswer,
   sebEnterprise,
   sebEnterpriseVersion,
   sebProgrammeCycle,
   sebRevisionRequest,
 } from '../../../db/schema'
 import { roleAnswerText } from '../../application/queries/answer-sql'
-import { findPinnedRulesForApplication } from '../../application/queries/form-template'
+import type { PinnedFormReader } from '../../application/queries/form-template'
 import { changedStageKeys, pinnedFilesOf } from '../../application/form/answers'
 import type { AnswerMap } from '../../application/form/types'
 import {
   answersByVersion,
-  findAnswerRows,
-  findPinnedCycleRules,
 } from '../../application/queries/form-template'
 import { MAX_COLLECTION_ROWS } from '../../application/pagination'
 import { encodeAdminCursor, type SortKey } from '../pagination'
@@ -408,13 +407,144 @@ export const listIntakeQueue = async (
   }
 }
 
+type JsonRow = Record<string, unknown>
+
+/**
+ * Everything the workspace shows about one application beyond its head, in one
+ * statement: submissions, the files each froze, revision requests, the
+ * timeline, internal notes, the submitted versions with their answers, the
+ * funding case's other attempts, and the cycle version the current version is
+ * pinned to.
+ *
+ * These were eleven statements, one after another, on the page an officer
+ * opens most. Each collection is its own correlated aggregate — never a join
+ * across them, which would multiply rows — and each row comes back whole as
+ * `to_jsonb`, mapped to its record by `recordFromJsonb`, so a column added to
+ * a table arrives here without this having to learn it.
+ */
+const findWorkspaceCollections = async (db: Database, applicationId: string) => {
+  const result = await db.execute<{
+    pinnedCycleVersion: number | null
+    submissions: JsonRow[]
+    documents: Array<{ pin: JsonRow; file: JsonRow }>
+    revisions: JsonRow[]
+    timeline: JsonRow[]
+    notes: JsonRow[]
+    snapshots: JsonRow[]
+    answerRows: Array<{ applicationVersionId: string; fieldKey: string; entryIndex: number; valueOrdinal: number; valueText: string }>
+    caseHistory: Array<Omit<CaseHistoryEntry, 'createdAt'> & { createdAt: string }>
+  }>(sql`
+    WITH head AS (
+      SELECT id, current_version, funding_case_id FROM ${sebApplication} WHERE id = ${applicationId}
+    ),
+    submitted AS (
+      SELECT s.* FROM ${sebApplicationSubmission} s WHERE s.application_id = ${applicationId}
+    ),
+    snapshot AS (
+      SELECT v.* FROM ${sebApplicationVersion} v
+      WHERE v.application_id = ${applicationId}
+        AND v.version IN (SELECT application_version FROM submitted)
+    )
+    SELECT
+      (SELECT v.programme_cycle_version FROM ${sebApplicationVersion} v, head
+        WHERE v.application_id = head.id AND v.version = head.current_version) AS "pinnedCycleVersion",
+      COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY s.submission_number) FROM submitted s), '[]'::jsonb)
+        AS "submissions",
+      COALESCE((
+        SELECT jsonb_agg(jsonb_build_object('pin', to_jsonb(p), 'file', to_jsonb(f)))
+        FROM ${sebApplicationSubmissionDocument} p
+        JOIN ${sebApplicationDocumentVersion} f
+          ON f.document_id = p.document_id AND f.version = p.document_version
+        WHERE p.application_id = ${applicationId}
+      ), '[]'::jsonb) AS "documents",
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(r) ORDER BY r.requested_at)
+        FROM ${sebRevisionRequest} r WHERE r.application_id = ${applicationId}
+      ), '[]'::jsonb) AS "revisions",
+      -- Newest first, so the cap keeps the recent end of a long history.
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(e) ORDER BY e.created_at DESC)
+        FROM (
+          SELECT * FROM ${sebApplicationEvent} WHERE application_id = ${applicationId}
+          ORDER BY created_at DESC LIMIT ${MAX_COLLECTION_ROWS}
+        ) e
+      ), '[]'::jsonb) AS "timeline",
+      COALESCE((
+        SELECT jsonb_agg(to_jsonb(n) ORDER BY n.created_at DESC)
+        FROM (
+          SELECT * FROM ${sebApplicationInternalNote} WHERE application_id = ${applicationId}
+          ORDER BY created_at DESC LIMIT ${MAX_COLLECTION_ROWS}
+        ) n
+      ), '[]'::jsonb) AS "notes",
+      COALESCE((SELECT jsonb_agg(to_jsonb(v) ORDER BY v.version) FROM snapshot v), '[]'::jsonb)
+        AS "snapshots",
+      COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'applicationVersionId', a.application_version_id, 'fieldKey', a.field_key,
+          'entryIndex', a.entry_index, 'valueOrdinal', a.value_ordinal, 'valueText', a.value_text
+        ))
+        FROM ${sebApplicationVersionAnswer} a
+        WHERE a.application_version_id IN (SELECT id FROM snapshot)
+      ), '[]'::jsonb) AS "answerRows",
+      -- The whole journey of this funding case, oldest first.
+      COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'id', c.id, 'referenceNumber', c.reference_number,
+          'applicationKind', c.application_kind, 'phaseNumber', c.phase_number,
+          'status', c.status, 'statusFlags', to_jsonb(c.status_flags),
+          'cycleCode', pc.cycle_code, 'createdAt', c.created_at
+        ) ORDER BY c.created_at)
+        FROM ${sebApplication} c
+        JOIN ${sebProgrammeCycle} pc ON pc.id = c.programme_cycle_id
+        WHERE c.funding_case_id = (SELECT funding_case_id FROM head)
+          AND c.deleted_at IS NULL
+      ), '[]'::jsonb) AS "caseHistory"
+  `)
+  const row = result.rows[0]!
+  return {
+    pinnedCycleVersion: row.pinnedCycleVersion,
+    submissions: row.submissions.map((each) => recordFromJsonb(sebApplicationSubmission, each)),
+    documents: row.documents.map((each) => ({
+      pin: recordFromJsonb(sebApplicationSubmissionDocument, each.pin),
+      file: recordFromJsonb(sebApplicationDocumentVersion, each.file),
+    })),
+    revisions: row.revisions.map((each) => recordFromJsonb(sebRevisionRequest, each)),
+    timeline: row.timeline.map((each) => recordFromJsonb(sebApplicationEvent, each)),
+    notes: row.notes.map((each) => recordFromJsonb(sebApplicationInternalNote, each)),
+    snapshots: row.snapshots.map((each) => recordFromJsonb(sebApplicationVersion, each)),
+    answerRows: row.answerRows,
+    caseHistory: row.caseHistory.map((each) => ({ ...each, createdAt: new Date(each.createdAt) })),
+  }
+}
+
+type CaseHistoryEntry = {
+  id: string
+  referenceNumber: string | null
+  applicationKind: string
+  phaseNumber: number
+  status: typeof sebApplication.$inferSelect['status']
+  statusFlags: string[]
+  cycleCode: string
+  createdAt: Date
+}
+
+/**
+ * An officer's file: four round trips — the session, the head (which decides
+ * whether this reader may see it at all), everything else about it in one
+ * statement, and the pinned form, which the request's reader serves twice for
+ * the price of once when the latest submission shares the head's version.
+ */
 export const loadWorkspace = async (
   db: Database,
+  readForm: PinnedFormReader,
   applicationId: string,
   scope: ReadScope,
 ) => {
   const head = await loadApplicationHead(db, applicationId, scope)
   if (!head || head.application.status === 'DRAFT') return null
+  const {
+    pinnedCycleVersion, submissions, documents, revisions, timeline, notes, snapshots, answerRows, caseHistory,
+  } = await findWorkspaceCollections(db, applicationId)
   /*
    * The form this application was filled against.
    *
@@ -424,46 +554,9 @@ export const loadWorkspace = async (
    * this application's own — the API refuses any other, so offering a fixed list
    * would offer refusals.
    */
-  const rules = await findPinnedRulesForApplication(
-    db, applicationId, head.application.currentVersion,
-  )
-  const [submissions, documents, revisions, timeline, notes] = await Promise.all([
-    db.select().from(sebApplicationSubmission)
-      .where(eq(sebApplicationSubmission.applicationId, applicationId))
-      .orderBy(asc(sebApplicationSubmission.submissionNumber)),
-    db.select({
-      pin: sebApplicationSubmissionDocument,
-      file: sebApplicationDocumentVersion,
-    }).from(sebApplicationSubmissionDocument)
-      .innerJoin(
-        sebApplicationDocumentVersion,
-        and(
-          eq(sebApplicationDocumentVersion.documentId, sebApplicationSubmissionDocument.documentId),
-          eq(sebApplicationDocumentVersion.version, sebApplicationSubmissionDocument.documentVersion),
-        ),
-      )
-      .where(eq(sebApplicationSubmissionDocument.applicationId, applicationId)),
-    db.select().from(sebRevisionRequest)
-      .where(eq(sebRevisionRequest.applicationId, applicationId))
-      .orderBy(asc(sebRevisionRequest.requestedAt)),
-    db.select().from(sebApplicationEvent)
-      .where(eq(sebApplicationEvent.applicationId, applicationId))
-      .orderBy(desc(sebApplicationEvent.createdAt))
-      .limit(MAX_COLLECTION_ROWS),
-    db.select().from(sebApplicationInternalNote)
-      .where(eq(sebApplicationInternalNote.applicationId, applicationId))
-      .orderBy(desc(sebApplicationInternalNote.createdAt))
-      .limit(MAX_COLLECTION_ROWS),
-  ])
-  // A non-draft application can only be produced by a formal submission batch,
-  // so at least one submission is a database/service invariant here.
-  const snapshots = await db.select().from(sebApplicationVersion).where(and(
-    eq(sebApplicationVersion.applicationId, applicationId),
-    inArray(
-      sebApplicationVersion.version,
-      submissions.map((submission) => submission.applicationVersion),
-    ),
-  )).orderBy(asc(sebApplicationVersion.version))
+  const rules = pinnedCycleVersion === null
+    ? null
+    : await readForm(head.application.programmeCycleId, pinnedCycleVersion)
   const snapshotsByVersion = new Map(snapshots.map((snapshot) => [snapshot.version, snapshot]))
   // A draft returned above, so anything here was submitted at least once, and
   // the snapshots were selected for exactly these submissions' versions.
@@ -471,27 +564,19 @@ export const loadWorkspace = async (
     submissions[submissions.length - 1]!.applicationVersion,
   )!
   /*
-   * The answers each submission froze, and the form they were given against.
-   *
-   * Read after the snapshots because the frozen cycle version is recorded on
-   * the snapshot, not on the application, so it is not known until they have
-   * loaded. Reading the cycle's current form instead would be one call cheaper
-   * and wrong: editing a cycle would change what an already submitted
-   * application is read against.
+   * The answers each submission froze, read against the form they were given
+   * against — recorded on the snapshot, not the application. Reading the
+   * cycle's current form instead would be wrong: editing a cycle would change
+   * what an already submitted application is read against.
    *
    * Grouped by version before anything reads them. Folding rows from several
    * submissions into one map would merge them — every value plausible, nothing
    * thrown — which is exactly what `answersByVersion` exists to make
    * impossible to express.
    */
-  const pinnedRules = await findPinnedCycleRules(
-    db, frozenSnapshot.programmeCycleId, frozenSnapshot.programmeCycleVersion,
-  )
+  const pinnedRules = await readForm(frozenSnapshot.programmeCycleId, frozenSnapshot.programmeCycleVersion)
   const answersByVersionId = pinnedRules
-    ? answersByVersion(
-        pinnedRules.template,
-        await findAnswerRows(db, snapshots.map((snapshot) => snapshot.id)),
-      )
+    ? answersByVersion(pinnedRules.template, answerRows)
     : new Map<string, AnswerMap>()
   const answersOf = (version: number): AnswerMap =>
     answersByVersionId.get(snapshotsByVersion.get(version)?.id ?? '') ?? {}
@@ -518,33 +603,6 @@ export const loadWorkspace = async (
         }
       })
     : []
-  /*
-   * The whole journey of this funding case, oldest first. Lean on purpose —
-   * a reviewer needs to place the attempt, not to open its siblings here.
-   */
-  const caseHistory = await db
-    .select({
-      id: sebApplication.id,
-      referenceNumber: sebApplication.referenceNumber,
-      applicationKind: sebApplication.applicationKind,
-      phaseNumber: sebApplication.phaseNumber,
-      status: sebApplication.status,
-      statusFlags: sebApplication.statusFlags,
-      cycleCode: sebProgrammeCycle.cycleCode,
-      createdAt: sebApplication.createdAt,
-    })
-    .from(sebApplication)
-    .innerJoin(
-      sebProgrammeCycle,
-      eq(sebProgrammeCycle.id, sebApplication.programmeCycleId),
-    )
-    .where(
-      and(
-        eq(sebApplication.fundingCaseId, head.application.fundingCaseId),
-        isNull(sebApplication.deletedAt),
-      ),
-    )
-    .orderBy(asc(sebApplication.createdAt))
 
   return {
     ...head,
@@ -562,10 +620,8 @@ export const loadWorkspace = async (
     submissionChanges,
     documents,
     revisions,
-    /*
-     * Read newest-first so the cap keeps the recent end of a long history, then
-     * reversed here because the screen reads a file from the top down.
-     */
+    // Read newest-first for the cap, and reversed because the screen reads a
+    // file from the top down.
     timeline: [...timeline].reverse(),
     internalNotes: [...notes].reverse(),
     formTemplate: rules?.template ?? null,

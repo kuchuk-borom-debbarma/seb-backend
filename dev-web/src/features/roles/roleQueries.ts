@@ -14,6 +14,7 @@ import {
   type RoleFieldsFragment,
 } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
+import { JUST_LOADED } from '#/lib/freshness'
 
 export type Role = RoleFieldsFragment
 
@@ -22,7 +23,7 @@ export const rolesQuery = queryOptions({
   queryFn: async () => (await gql(RolesDocument)).access.roles,
   // Roles decide what every other screen offers, so a stale list would draw
   // controls the API then refuses.
-  staleTime: 0,
+  staleTime: JUST_LOADED,
 })
 
 /**
@@ -36,13 +37,13 @@ export const rolesQuery = queryOptions({
 export const invitableRolesQuery = queryOptions({
   queryKey: ['roles', 'invitable'],
   queryFn: async () => (await gql(InvitableRolesDocument)).access.invitableRoles,
-  staleTime: 0,
+  staleTime: JUST_LOADED,
 })
 
 export const roleQuery = (key: string) => queryOptions({
   queryKey: ['roles', key],
   queryFn: async () => (await gql(RoleByKeyDocument, { key })).access.role,
-  staleTime: 0,
+  staleTime: JUST_LOADED,
 })
 
 /**

@@ -31,7 +31,13 @@ const openPolicyDocument = async (cycleId: string): Promise<void> => {
 }
 
 export const Route = createFileRoute('/_shell/_applicant/cycles')({
-  loader: ({ context }) => context.queryClient.ensureQueryData(cyclesQuery),
+  loader: ({ context }) =>
+    Promise.all([
+      context.queryClient.ensureQueryData(cyclesQuery),
+      // Read by the page as it mounts; asked for here so it travels in the
+      // same request as the rest.
+      context.queryClient.prefetchQuery(applicantDashboardQuery),
+    ]),
   component: CyclesPage,
 })
 

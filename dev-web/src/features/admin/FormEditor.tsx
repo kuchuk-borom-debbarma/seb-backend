@@ -58,6 +58,7 @@ import {
 } from './formAuthoring'
 import styles from './FormEditor.module.css'
 import { fieldTypeWords, roleWords } from '#/features/admin/fieldWords'
+import { JUST_LOADED } from '#/lib/freshness'
 
 export const formEditorQuery = (id: string) =>
   queryOptions({
@@ -68,7 +69,7 @@ export const formEditorQuery = (id: string) =>
     },
     // Every edit quotes the version on screen, so a stale one turns every
     // save into a refusal.
-    staleTime: 0,
+    staleTime: JUST_LOADED,
   })
 
 /** One of the nine template writes, named for the switch below. */
