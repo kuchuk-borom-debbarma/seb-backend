@@ -47,13 +47,22 @@ export const setRecordedValue = defineEffect('SET_RECORDED_VALUE', {
           return { refusal: 'The applicant did not give the amount this is bounded by.', inputKey: params.input }
         }
         if (value > answer) {
-          return { refusal: 'This is more than the applicant asked for.', inputKey: params.input }
+          return {
+            refusal: `This is more than the ${rupees(answer)} the applicant asked for.`,
+            inputKey: params.input,
+          }
         }
       }
       if (params.atMostCycleCeiling && context.cycleCeilingPaise !== null && value > context.cycleCeilingPaise) {
-        return { refusal: 'This is more than the cycle allows for one application.', inputKey: params.input }
+        return {
+          refusal: `This is more than the ${rupees(context.cycleCeilingPaise)} the cycle allows for one application.`,
+          inputKey: params.input,
+        }
       }
     }
     return { recorded: { [params.target]: value } }
   },
 })
+
+/** An amount in paise as the officer reads it: "₹1,50,000". The bound, named, is what to type instead. */
+const rupees = (paise: number): string => `₹${(paise / 100).toLocaleString('en-IN')}`

@@ -323,9 +323,18 @@ describe('a correction that replaces a file', () => {
   it('shows the file’s stage as changed, to the applicant before resubmitting and to the office after', async () => {
     const { applicant, file, ttc } = await setup(loanAnswers('SBI'))
     const id = file.applicationId
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     await advance(ttc.cookie, id, 'ASK_REVISION', {
       revisionRequests: [{ stageKey: 'DOCUMENTS', note: 'The project report is unsigned.' }],
     })
+    // The email names the section as the applicant's form does, not by its key.
+    const [email] = log.mock.calls
+      .map((call) => String(call[0]))
+      .filter((line) => line.startsWith('DEV_EMAIL '))
+      .map((line) => JSON.parse(line.slice('DEV_EMAIL '.length)) as { text: string })
+    log.mockRestore()
+    expect(email?.text).toContain('- Evidence: The project report is unsigned.')
+    expect(email?.text).not.toContain('DOCUMENTS')
 
     // A file question carries no answer: only the document it points at moved.
     await replaceEvidence(id, 'DPR', applicant.userId)

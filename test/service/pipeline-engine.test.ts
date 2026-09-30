@@ -114,9 +114,14 @@ describe('what an action does', () => {
       plan: { toStageKey: 'INDUSTRIES_COMMERCE', flagsAdded: ['GRANT_APPROVED'], recorded: { APPROVED_GRANT_PAISE: 40_000_000 } },
     })
     expect(plan('INDUSTRIES_COMMERCE', 'APPROVE_GRANT', { AMOUNT: 60_000_000 }))
-      .toMatchObject({ ok: false, inputKey: 'AMOUNT', refusal: 'This is more than the applicant asked for.' })
+      .toMatchObject({ ok: false, inputKey: 'AMOUNT', refusal: 'This is more than the ₹5,00,000 the applicant asked for.' })
+    // Each refusal names its bound, which is what the officer types instead.
     expect(plan('INDUSTRIES_COMMERCE', 'APPROVE_GRANT', { AMOUNT: 40_000_000 }, at('INDUSTRIES_COMMERCE'), 30_000_000))
-      .toMatchObject({ ok: false, inputKey: 'AMOUNT' })
+      .toMatchObject({
+        ok: false,
+        inputKey: 'AMOUNT',
+        refusal: 'This is more than the ₹3,00,000 the cycle allows for one application.',
+      })
   })
 
   it('ends the journey with its terminal flag and no stage', () => {

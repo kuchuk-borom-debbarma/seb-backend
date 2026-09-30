@@ -266,7 +266,9 @@ const notifyApplicant = async (
   const messages = input.plan.notifications.filter((each) => each.email).map((each) => each.message)
   if (messages.length === 0) return false
   try {
-    const corrections = input.revisions.map((revision) => `- ${revision.stageKey}: ${revision.note}`)
+    // Named as the applicant's form names them; the key is the cycle author's.
+    const corrections = input.revisions.map((revision) =>
+      `- ${input.file.formStageTitles.get(revision.stageKey) ?? revision.stageKey}: ${revision.note}`)
     await sendNotification({
       to: input.file.applicantEmail,
       subject: 'An update on your Mission SEP application',

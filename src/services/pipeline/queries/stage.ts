@@ -110,6 +110,8 @@ export type StageFile = {
   answers: Record<string, AnswerValue>
   /** The pinned form's stages, which are what a revision may name. */
   formStageKeys: string[]
+  /** Each form stage's title, by key: the applicant's names for them. */
+  formStageTitles: ReadonlyMap<string, string>
   /** The pinned cycle's resolved ceiling for one application, or null. */
   ceilingPaise: number | null
   openRevisions: { id: string; stageKey: string }[]
@@ -182,6 +184,13 @@ export const findStageFile = async (
           AND form_stage.programme_cycle_version = latest.cycle_version
         ORDER BY form_stage.sort_order
       ) AS form_stage_keys,
+      -- Their titles, in the same order: what the applicant is told to correct.
+      ARRAY(
+        SELECT form_stage.title FROM ${sebProgrammeCycleFormStage} AS form_stage
+        WHERE form_stage.programme_cycle_id = latest.cycle_id
+          AND form_stage.programme_cycle_version = latest.cycle_version
+        ORDER BY form_stage.sort_order
+      ) AS form_stage_titles,
       (
         SELECT cycle_version.funding_ceiling_amount_paise
         FROM ${sebProgrammeCycleVersion} AS cycle_version
@@ -240,6 +249,12 @@ export const findStageFile = async (
     latestApplicationVersion: Number(row.application_version),
     answers: answersOf(row.answers as [string, string, string][]),
     formStageKeys: row.form_stage_keys as string[],
+    formStageTitles: new Map(
+      (row.form_stage_keys as string[]).map((key, index) => [
+        key,
+        (row.form_stage_titles as string[])[index] ?? key,
+      ]),
+    ),
     ceilingPaise: Number.isSafeInteger(ceiling) ? ceiling : null,
     openRevisions: row.open_revisions as { id: string; stageKey: string }[],
     actedByCaller: row.acted_by_caller === true,

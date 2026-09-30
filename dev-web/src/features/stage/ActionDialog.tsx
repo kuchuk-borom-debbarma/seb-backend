@@ -133,9 +133,20 @@ export function ActionDialog({
       await onDone(`${action.label}: ${where}`)
     },
     onError: (cause) => {
-      if (cause instanceof InputsRefused) setIssues(cause.issues)
-      const message = messageFor(cause)
-      setError(message)
+      if (cause instanceof InputsRefused) {
+        setIssues(cause.issues)
+        /*
+         * Each refusal is already shown under the input it is about; the
+         * banner repeated it word for word. It is kept only for one the
+         * dialog has no input to show it under.
+         */
+        const shown = Object.keys(cause.issues).every((key) => template?.byKey.has(key))
+        if (shown) {
+          setError(null)
+          return
+        }
+      }
+      setError(messageFor(cause))
       setStale(cause instanceof FileChanged)
     },
   })
