@@ -130,7 +130,7 @@ const ACRONYMS = new Set([
 /**
  * Turns a screaming-snake enum into a readable phrase.
  *
- * DESK_REVIEW becomes "Desk review", and ST_CERTIFICATE becomes
+ * IN_REVIEW becomes "In review", and ST_CERTIFICATE becomes
  * "ST certificate" rather than "St certificate".
  */
 export const humanize = (value: string): string =>

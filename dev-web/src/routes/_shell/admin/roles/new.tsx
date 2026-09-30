@@ -87,7 +87,7 @@ function ComposePage() {
             required
             maxLength={80}
             value={name}
-            placeholder="Desk reviewer"
+            placeholder="SBI bank officer"
             onChange={(changed) => setName(changed.target.value)}
           />
         </div>
@@ -100,7 +100,7 @@ function ComposePage() {
             required
             maxLength={63}
             value={key}
-            placeholder="DESK_REVIEWER"
+            placeholder="SBI_BANK"
             onChange={(changed) => setKey(changed.target.value)}
           />
           <p className="field-hint">
@@ -119,7 +119,7 @@ function ComposePage() {
             rows={3}
             maxLength={500}
             value={description}
-            placeholder="Reads casework and completes the desk review checklist."
+            placeholder="Works the State Bank of India stage: sends files back and records the loan."
             onChange={(changed) => setDescription(changed.target.value)}
           />
           <p className="field-hint">

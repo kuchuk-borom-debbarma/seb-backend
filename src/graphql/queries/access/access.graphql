@@ -52,7 +52,7 @@ type AccessQuery {
   before it may change anything.
   """
   role(
-    """The role's stable key, such as `DESK_REVIEWER`."""
+    """The role's stable key, such as `SBI_BANK`."""
     key: String!
   ): RoleResult!
 
@@ -89,7 +89,7 @@ type Role {
   id: ID!
 
   """
-  The stable machine name, such as `DESK_REVIEWER`. Unique, and never reused
+  The stable machine name, such as `SBI_BANK`. Unique, and never reused
   once retired, so retained history cannot confuse two different authorities.
   """
   key: String!

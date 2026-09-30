@@ -37,3 +37,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+# Playwright MCP walkthroughs: its page snapshots, console logs and screenshots.
+.playwright-mcp/
+walkthrough/

@@ -144,7 +144,7 @@ type AcceptedRoleInvitationResult implements BaseResponse {
 """Names a new role. It starts able to do nothing."""
 input CreateRoleInput {
   """
-  The stable machine name, such as `DESK_REVIEWER`. Two to sixty-three
+  The stable machine name, such as `SBI_BANK`. Two to sixty-three
   characters of A–Z, 0–9 and underscore, starting with a letter. Never reused
   once retired, and the six names the server decides for itself are refused.
   """
