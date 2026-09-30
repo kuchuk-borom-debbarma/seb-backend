@@ -19,6 +19,7 @@ import type { Loaders } from '../../loaders'
 // Re-exported because the operation contexts below name it.
 export type { Loaders } from '../../loaders'
 import type { Database } from '../../db'
+import type { Defer } from '../../deferred'
 import type { EligibilityRuleType, FormRuleType } from '../catalogue/workflow.generated'
 import type {
   fundingCeilingScopes,
@@ -34,6 +35,8 @@ export type AdminOperationContext = {
   requestHeaders: Headers
   requestUrl: string
   responseHeaders: Headers
+  /** Runs work after the response; absent where there is none to run after. */
+  defer?: Defer
 }
 
 export type AdminResult<T> = Envelope<T>

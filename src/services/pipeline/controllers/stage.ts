@@ -35,6 +35,7 @@ import type { AuthenticatedUserRequest } from '../../auth/types'
 import { auditReason } from '../../audit-vocabulary/fields'
 import { insertAuditEvent } from '../../audit-event'
 import { bestEffort } from '../../best-effort'
+import { afterResponse, type DatabaseAccess } from '../../../deferred'
 import { sendNotification } from '../../external-notification'
 import { adminPageSize, decodeAdminCursor, encodeAdminCursor } from '../../admin/pagination'
 import { normalizeRequiredText } from '../../text'
@@ -249,11 +250,13 @@ const timelineMessage = (definition: PipelineDefinition, plan: ActionPlan): stri
 }
 
 /**
- * Tells the applicant by email, after the write has landed. A failure is
- * recorded and never surfaces: the action already happened.
+ * Tells the applicant by email, after the write has landed and after the
+ * officer has their answer: the mail provider's latency is not theirs to wait
+ * on. A failure is recorded and never surfaces: the action already happened.
  */
 const notifyApplicant = async (
   context: PipelineOperationContext,
+  database: DatabaseAccess,
   input: {
     file: StageFile
     plan: ActionPlan
@@ -262,9 +265,9 @@ const notifyApplicant = async (
     actionKey: string
     actorUserId: string
   },
-): Promise<boolean> => {
+): Promise<void> => {
   const messages = input.plan.notifications.filter((each) => each.email).map((each) => each.message)
-  if (messages.length === 0) return false
+  if (messages.length === 0) return
   try {
     // Named as the applicant's form names them; the key is the cycle author's.
     const corrections = input.revisions.map((revision) =>
@@ -278,7 +281,6 @@ const notifyApplicant = async (
         `Reference: ${input.file.referenceNumber ?? input.file.id}`,
       ].join('\n\n'),
     }, context.env)
-    return true
   } catch {
     const now = new Date()
     const record = input.revisions.length > 0
@@ -302,8 +304,7 @@ const notifyApplicant = async (
           payload: { stageActionId: input.actionId, actionKey: input.actionKey },
           now,
         })
-    await bestEffort(insertAuditEvent(context.db, record), 'A stage notification failed')
-    return false
+    await bestEffort(database((db) => insertAuditEvent(db, record)), 'A stage notification failed')
   }
 }
 
@@ -486,14 +487,14 @@ export const takeStageAction = async (
   })
   if (!landed) return refused(STALE_MESSAGE)
 
-  await notifyApplicant(context, {
+  await afterResponse(context, (database) => notifyApplicant(context, database, {
     file,
     plan,
     revisions: planned.revisions,
     actionId,
     actionKey: action.key,
     actorUserId: session.user.id,
-  })
+  }))
   return {
     ...success({
       applicationId: file.id,
