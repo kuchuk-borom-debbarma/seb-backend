@@ -57,6 +57,7 @@ import {
   type TemplateView,
 } from './formAuthoring'
 import styles from './FormEditor.module.css'
+import { fieldTypeWords, roleWords } from '#/features/admin/fieldWords'
 
 export const formEditorQuery = (id: string) =>
   queryOptions({
@@ -812,7 +813,7 @@ function StagePane({
         >
           <span>{field.label}</span>
           <span className={styles.questionKey}>
-            {field.key} · {humanize(field.type).toLowerCase()}
+            {field.key} · {fieldTypeWords(field.type)}
           </span>
           {field.role ? (
             /*
@@ -828,7 +829,7 @@ function StagePane({
                 + 'but the cycle must always carry a question bound to the role.'
               }
             >
-              read by the programme as {humanize(field.role).toLowerCase()}
+              read by the programme as {roleWords(field.role)}
             </span>
           ) : null}
           {derived ? (

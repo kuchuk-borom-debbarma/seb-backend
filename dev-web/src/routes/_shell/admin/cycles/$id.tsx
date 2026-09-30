@@ -54,6 +54,7 @@ import { OFFICE_HELP } from '#/features/admin/officeGuidance'
 import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
 import styles from '#/features/admin/CycleDetails.module.css'
+import { fieldTypeWords, roleWords } from '#/features/admin/fieldWords'
 
 const cycleQuery = (id: string) =>
   queryOptions({
@@ -969,13 +970,13 @@ function AdminCyclePage() {
                       <li key={field.key}>
                         {field.label}
                         {' — '}
-                        {humanize(field.type).toLowerCase()}
+                        {fieldTypeWords(field.type)}
                         {field.requirement === 'REQUIRED' ? ', required' : null}
                         {field.requirement === 'CONDITIONAL'
                           ? ', required in some answers'
                           : null}
                         {field.role
-                          ? `, read by the programme as ${humanize(field.role)}`
+                          ? `, read by the programme as ${roleWords(field.role)}`
                           : null}
                       </li>
                     ))}
@@ -999,7 +1000,7 @@ function AdminCyclePage() {
             <summary className="disclosure">
               <span className="eyebrow">Edit this draft’s rules</span>
               <span className="muted">
-                Dates, eligibility, ceiling, identifiers and reasons — everything but the
+                Dates, eligibility, ceiling, pipeline, kinds and reasons — everything but the
                 questions, which have their own editor above.
               </span>
             </summary>
