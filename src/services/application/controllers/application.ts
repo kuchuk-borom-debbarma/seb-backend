@@ -3,8 +3,6 @@ import { pinnedFormReader } from '../../../loaders'
 import { auditActions, applicationStatuses } from '../../../db/schema'
 import { decodeCursor, pageSize } from '../pagination'
 import {
-  findEnterpriseFacts,
-  findApplicationVersion,
   findCycleApplicationKinds,
   findEligibilityHistory,
   findEnterpriseApplicationSource,
@@ -16,13 +14,15 @@ import {
   findDraftChanges,
   findOwnedApplicationHead,
   insertApplicationAggregate,
-  listActiveDocumentFieldKeys,
   listApplicationTimeline,
   listApplicantProgrammeCycles,
   listAvailableProgrammeCycles,
-  listOpenRevisionStageKeys,
   listOwnedApplications,
   loadOwnedApplication,
+  loadOwnedApplicationContext,
+  openRevisionStageKeys,
+  activeDocumentFieldKeys,
+  type LoadedApplication,
   saveApplicationSnapshot,
   setApplicationDeleted,
   submitApplicationSnapshot,
@@ -86,10 +86,7 @@ import {
   validateAnswersForSubmission,
 } from '../form/engine'
 import {
-  answersFromRows,
   answersToRows,
-  findAnswerRows,
-  findPinnedCycleRules,
   findPinnedRulesForApplication,
 } from '../queries/form-template'
 import { confirmationPdfUrl } from '../confirmation-link'
@@ -350,23 +347,13 @@ export const startApplication = async (
  * other did not have, which is exactly how two answers to "did this change"
  * come to disagree.
  */
-const revisionChangesAreAllowed = async (
-  context: ApplicationOperationContext,
-  application: Application,
-  template: ResolvedFormTemplate,
+const revisionChangesAreAllowed = (
+  loaded: LoadedApplication,
   answers: AnswerMap,
-): Promise<Set<ApplicationSection> | null> => {
-  const [submitted, openStageKeys] = await Promise.all([
-    findLatestSubmittedVersion(context.db, application.id),
-    listOpenRevisionStageKeys(context.db, application.id),
-  ])
-  if (!submitted || openStageKeys.size === 0) return null
-  const submittedAnswers = answersFromRows(
-    template,
-    submitted.id,
-    await findAnswerRows(context.db, [submitted.id]),
-  )
-  const changed = changedStageKeys(template, submittedAnswers, answers)
+): Set<ApplicationSection> | null => {
+  const openStageKeys = openRevisionStageKeys(loaded.application)
+  if (!loaded.submittedAnswers || openStageKeys.size === 0) return null
+  const changed = changedStageKeys(loaded.rules.template, loaded.submittedAnswers, answers)
   return changed.every((stageKey) => openStageKeys.has(stageKey)) ? openStageKeys : null
 }
 
@@ -383,20 +370,17 @@ export const saveApplicationDraft = async (
   const authorized = await ownedApplicationAtVersion(input, context)
   if ('refusal' in authorized) return authorized.refusal
   const applicant = { id: authorized.applicantId }
-  const application = authorized.application
+  const { application, loaded } = authorized
   if (application.status === 'IN_PIPELINE' && application.editableStageKeys.length === 0) {
     return failure('The application cannot be edited in its current status.')
   }
   /*
-   * Resolved once, and everything downstream reads this object: the normaliser,
-   * the revision-scope diff, the equality check and the rows that get written.
-   * Resolving it twice is how a save and its validation come to disagree about
-   * what the form is.
+   * The form the application was loaded against, and everything downstream
+   * reads this one object: the normaliser, the revision-scope diff, the
+   * equality check and the rows that get written. Two resolutions would be how
+   * a save and its validation come to disagree about what the form is.
    */
-  const rules = await findPinnedRulesForApplication(
-    context.db, pinnedFormReader(context.loaders), application.id, application.currentVersion,
-  )
-  if (!rules) return failure('The form this application was filled against could not be read.')
+  const rules = loaded.rules
 
   const normalized = normalizeAnswers(rules.template, input.answers, new Date())
   if (!normalized.value || normalized.issues.length > 0) {
@@ -413,7 +397,7 @@ export const saveApplicationDraft = async (
   const answers = pruneHidden(rules.template, normalized.value)
 
   const revisionStageKeys = application.status === 'IN_PIPELINE'
-    ? await revisionChangesAreAllowed(context, application, rules.template, answers)
+    ? revisionChangesAreAllowed(loaded, answers)
     : undefined
   if (application.status === 'IN_PIPELINE' && !revisionStageKeys) {
     return failure('Only stages requested for revision may be changed.')
@@ -424,12 +408,7 @@ export const saveApplicationDraft = async (
     return success(application)
   }
   const now = new Date()
-  const currentVersionRecord = await findApplicationVersion(
-    context.db,
-    application.id,
-    application.currentVersion,
-  )
-  const readableVersion = requireInvariant(currentVersionRecord, 'Application version is missing.')
+  const readableVersion = loaded.version
   const saved = await runConstraintSafe(() => saveApplicationSnapshot(context.db, {
     head: application,
     userId: applicant.id,
@@ -461,19 +440,17 @@ export const validateApplication = async (
 ): Promise<SebResult<ValidationReport>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
-  const application = await loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, applicationId)
-  if (!application) return failure('The application was not found.')
-  const rules = await findPinnedRulesForApplication(
-    context.db, pinnedFormReader(context.loaders), application.id, application.currentVersion,
+  const loaded = await loadOwnedApplicationContext(
+    context.db, pinnedFormReader(context.loaders), applicant.id, applicationId,
   )
-  if (!rules) return failure('The form this application was filled against could not be read.')
+  if (!loaded) return failure('The application was not found.')
   return success(validateAnswersForSubmission(
-    rules.template,
-    application.answers,
-    await listActiveDocumentFieldKeys(context.db, applicationId),
+    loaded.rules.template,
+    loaded.application.answers,
+    activeDocumentFieldKeys(loaded.application),
     new Date(),
-    rules.policy,
-    await findEnterpriseFacts(context.db, application.enterpriseId),
+    loaded.rules.policy,
+    { establishmentDate: loaded.establishmentDate },
   ))
 }
 
@@ -619,7 +596,7 @@ const submit = async (
   const authorized = await ownedApplicationAtVersion(input, context)
   if ('refusal' in authorized) return authorized.refusal
   const applicant = { id: authorized.applicantId }
-  const application = authorized.application
+  const { application, loaded } = authorized
   if (application.status !== (resubmission ? 'IN_PIPELINE' : 'DRAFT')) {
     return failure('The application changed or cannot be submitted in its current status.')
   }
@@ -628,9 +605,7 @@ const submit = async (
     ? null
     : await findOpenProgrammeCycle(context.db, application.programmeCycleId, now)
   if (!resubmission && !cycle) return failure('The programme cycle is no longer open.')
-  const revisionStageKeys = resubmission
-    ? await listOpenRevisionStageKeys(context.db, application.id)
-    : undefined
+  const revisionStageKeys = resubmission ? openRevisionStageKeys(application) : undefined
   if (resubmission && revisionStageKeys?.size === 0) {
     return failure('There are no open revision requests to resolve.')
   }
@@ -641,34 +616,24 @@ const submit = async (
     if (refusal) return failure(refusal)
   }
   /*
-   * Resolved **once**, and handed to both the validator and the write.
-   *
-   * They have to agree about which questions exist and which documents this
-   * cycle requires, and the only way they do is by reading the same object. Two
-   * resolutions of the same cycle version would almost always agree, which is
-   * what makes the day they do not so hard to find.
+   * The form the application was loaded against, handed to both the validator
+   * and the write. They have to agree about which questions exist and which
+   * documents this cycle requires, and the only way they do is by reading the
+   * same object.
    */
-  const rules = await findPinnedRulesForApplication(
-    context.db, pinnedFormReader(context.loaders), application.id, application.currentVersion,
-  )
-  if (!rules) return failure('The form this application was filled against could not be read.')
+  const rules = loaded.rules
   const answers = application.answers
-  const facts = await findEnterpriseFacts(context.db, application.enterpriseId)
+  const facts = { establishmentDate: loaded.establishmentDate }
   const report = validateAnswersForSubmission(
     rules.template,
     answers,
-    await listActiveDocumentFieldKeys(context.db, application.id),
+    activeDocumentFieldKeys(application),
     now,
     rules.policy,
     facts,
   )
   if (!report.valid) return failure('The application is incomplete. Run validation for details.')
-  const currentVersionRecord = await findApplicationVersion(
-    context.db,
-    application.id,
-    application.currentVersion,
-  )
-  const readableVersion = requireInvariant(currentVersionRecord, 'Application version is missing.')
+  const readableVersion = loaded.version
 
   const submitted = await runConstraintRetry(() => {
     // Minted per attempt, as it always was, and named once so the snapshot and
@@ -677,7 +642,7 @@ const submit = async (
     const referenceNumber = application.referenceNumber
       ?? createReferenceNumber(cycle?.cycleYear ?? new Date().getUTCFullYear())
     const applicationCategory = applicationCategoryOf(
-      facts?.establishmentDate ?? null,
+      facts.establishmentDate,
       rules.policy.categoryAMaximumMonths,
       now,
     )
@@ -767,9 +732,9 @@ export const applicationFormTemplate = async (
 ): Promise<SebResult<ApplicationFormTemplate>> => {
   const owned = await ownedApplication<ApplicationFormTemplate>(applicationId, context)
   if ('refusal' in owned) return owned.refusal
-  const rules = await findPinnedRulesForApplication(
-    context.db, pinnedFormReader(context.loaders), owned.application.id, owned.application.currentVersion,
-  )
+  const rules = owned.pinnedCycleVersion === null
+    ? null
+    : await pinnedFormReader(context.loaders)(owned.application.programmeCycleId, owned.pinnedCycleVersion)
   return rules
     ? success({ ...rules.template, grantCeilingPaise: applicationGrantCeiling(rules.policy) })
     : failure('The form this application was filled against could not be read.')

@@ -56,8 +56,10 @@ import {
   answersFromRows,
   findAnswerRows,
   findPinnedCycleRules,
+  type PinnedCycleRules,
   type PinnedFormReader,
   type AnswerRow,
+  type StoredAnswerRow,
 } from './form-template'
 import { encodeCursor } from '../pagination'
 import { prefixMatch, prefixPattern } from '../../search'
@@ -210,6 +212,38 @@ export const findOwnedApplicationHead = async (
   return head ?? null
 }
 
+/**
+ * The head, with the cycle version its current version is pinned to — what a
+ * caller needs to read the pinned form, in one statement rather than the head
+ * and then the version. `null` pin only for a head whose current version is
+ * missing, which is an invariant failure the caller reports.
+ */
+export const findOwnedApplicationHeadAndPin = async (
+  db: Database,
+  userId: string,
+  applicationId: string,
+): Promise<{ head: ApplicationHeadRecord; pinnedCycleVersion: number | null } | null> => {
+  const [row] = await db
+    .select({ head: sebApplication, pinnedCycleVersion: sebApplicationVersion.programmeCycleVersion })
+    .from(sebApplication)
+    .leftJoin(
+      sebApplicationVersion,
+      and(
+        eq(sebApplicationVersion.applicationId, sebApplication.id),
+        eq(sebApplicationVersion.version, sebApplication.currentVersion),
+      ),
+    )
+    .where(
+      and(
+        eq(sebApplication.id, applicationId),
+        eq(sebApplication.applicantUserId, userId),
+        isNull(sebApplication.deletedAt),
+      ),
+    )
+    .limit(1)
+  return row ?? null
+}
+
 export const findApplicationVersion = async (
   db: Database,
   applicationId: string,
@@ -248,50 +282,6 @@ export const findLatestSubmittedVersion = async (
   return sqlNullable(record && record.version)
 }
 
-export const listActiveDocumentFieldKeys = async (
-  db: Database,
-  applicationId: string,
-): Promise<Set<DocumentType>> => {
-  const rows = await db
-    .select({ fieldKey: sebApplicationDocument.fieldKey })
-    .from(sebApplicationDocument)
-    .where(
-      and(
-        eq(sebApplicationDocument.applicationId, applicationId),
-        isNull(sebApplicationDocument.deletedAt),
-      ),
-    )
-  return new Set(rows.map((row) => row.fieldKey))
-}
-
-const listDocuments = async (
-  db: Database,
-  applicationId: string,
-): Promise<ApplicationDocument[]> => {
-  const rows = await db
-    .select({ head: sebApplicationDocument, version: sebApplicationDocumentVersion })
-    .from(sebApplicationDocument)
-    .innerJoin(
-      sebApplicationDocumentVersion,
-      and(
-        eq(sebApplicationDocumentVersion.documentId, sebApplicationDocument.id),
-        eq(sebApplicationDocumentVersion.version, sebApplicationDocument.currentVersion),
-      ),
-    )
-    .where(eq(sebApplicationDocument.applicationId, applicationId))
-    .orderBy(asc(sebApplicationDocument.fieldKey))
-  return rows.map(({ head, version }) => ({
-    id: head.id,
-    fieldKey: head.fieldKey,
-    currentVersion: head.currentVersion,
-    originalFilename: version.originalFilename,
-    contentType: version.contentType,
-    sizeBytes: version.sizeBytes,
-    createdAt: head.createdAt,
-    deletedAt: head.deletedAt,
-  }))
-}
-
 export const listOpenRevisionStageKeys = async (
   db: Database,
   applicationId: string,
@@ -309,65 +299,219 @@ export const listOpenRevisionStageKeys = async (
   return new Set(rows.map((row) => row.stageKey))
 }
 
-const listRevisionRequests = async (db: Database, applicationId: string) =>
-  db
-    .select({
-      id: sebRevisionRequest.id,
-      stageKey: sebRevisionRequest.stageKey,
-      note: sebRevisionRequest.note,
-      requestedAt: sebRevisionRequest.requestedAt,
-      resolvedAt: sebRevisionRequest.resolvedAt,
-      cancelledAt: sebRevisionRequest.cancelledAt,
-    })
-    .from(sebRevisionRequest)
-    .where(eq(sebRevisionRequest.applicationId, applicationId))
-    .orderBy(asc(sebRevisionRequest.requestedAt))
+/**
+ * One application as its owner sees it, with everything read to build it.
+ *
+ * `loadOwnedApplication` answers the screen; this answers a write. A write
+ * needs the version record, the pinned form, the answers last submitted (to
+ * hold a revision to its scope), the enterprise's establishment date (for
+ * validation and the category) and the applicant's address (for the
+ * confirmation) — and a load that read them and then returned only the public
+ * shape sent every step below it back to the database for them again. Read
+ * once, passed down (docs/rules/performance.md, rule 2).
+ */
+export type LoadedApplication = {
+  readonly application: Application
+  readonly version: ApplicationVersionRecord
+  readonly rules: PinnedCycleRules
+  /** The answers the latest submission froze; null before the first. */
+  readonly submittedAnswers: AnswerMap | null
+  readonly establishmentDate: string | null
+  readonly applicantEmail: string | null
+}
+
+type StoredDocument = Omit<ApplicationDocument, 'createdAt' | 'deletedAt'> & {
+  createdAt: string
+  deletedAt: string | null
+}
+type StoredRevisionRequest = Omit<RevisionRequest, 'requestedAt' | 'resolvedAt' | 'cancelledAt'> & {
+  requestedAt: string
+  resolvedAt: string | null
+  cancelledAt: string | null
+}
+
+/*
+ * A timestamp inside `jsonb` arrives as ISO text under both drivers; the
+ * head's own columns are mapped to `Date` by Drizzle.
+ */
+const optionalDate = (value: string | null): Date | null => (value === null ? null : new Date(value))
+
+/** The version the latest submission froze, for the subqueries below. */
+const latestSubmittedVersionId = sql`(
+  SELECT sv.id
+  FROM ${sebApplicationSubmission} sub
+  JOIN ${sebApplicationVersion} sv
+    ON sv.application_id = sub.application_id AND sv.version = sub.application_version
+  WHERE sub.application_id = ${sebApplication.id}
+  ORDER BY sub.submission_number DESC
+  LIMIT 1
+)`
+
+/** Every answer row of one version, as `answersFromRows` reads them. */
+const answerRowsOf = (versionId: SQL) => sql`COALESCE((
+  SELECT jsonb_agg(jsonb_build_object(
+    'applicationVersionId', a.application_version_id, 'fieldKey', a.field_key,
+    'entryIndex', a.entry_index, 'valueOrdinal', a.value_ordinal, 'valueText', a.value_text
+  ))
+  FROM ${sebApplicationVersionAnswer} a
+  WHERE a.application_version_id = ${versionId}
+), '[]'::jsonb)`
 
 /**
- * One application as its owner sees it, answers included.
- *
- * The template is resolved here rather than by the caller because three things
- * on this object are derived from it — the answers, the stages that may be
- * edited, and therefore what the client is allowed to draw — and they have to
- * agree. A template that will not resolve is an invariant failure rather than an
- * empty form: the answers exist and would silently read as unanswered.
+ * The whole application in one statement: the head and its current version
+ * as typed rows, and each collection as its own correlated aggregate — never
+ * a join, which would multiply documents by revision requests by answers.
  */
+const findOwnedApplicationAggregate = async (
+  db: Database,
+  userId: string,
+  applicationId: string,
+  includeDeleted: boolean,
+) => {
+  const [row] = await db
+    .select({
+      head: sebApplication,
+      version: sebApplicationVersion,
+      documents: sql<StoredDocument[]>`COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'id', d.id, 'fieldKey', d.field_key, 'currentVersion', d.current_version,
+          'originalFilename', dv.original_filename, 'contentType', dv.content_type,
+          'sizeBytes', dv.size_bytes, 'createdAt', d.created_at, 'deletedAt', d.deleted_at
+        ) ORDER BY d.field_key)
+        FROM ${sebApplicationDocument} d
+        JOIN ${sebApplicationDocumentVersion} dv
+          ON dv.document_id = d.id AND dv.version = d.current_version
+        WHERE d.application_id = ${sebApplication.id}
+      ), '[]'::jsonb)`,
+      revisionRequests: sql<StoredRevisionRequest[]>`COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'id', r.id, 'stageKey', r.stage_key, 'note', r.note, 'requestedAt', r.requested_at,
+          'resolvedAt', r.resolved_at, 'cancelledAt', r.cancelled_at
+        ) ORDER BY r.requested_at)
+        FROM ${sebRevisionRequest} r
+        WHERE r.application_id = ${sebApplication.id}
+      ), '[]'::jsonb)`,
+      answerRows: sql<StoredAnswerRow[]>`${answerRowsOf(sql`${sebApplicationVersion.id}`)}`,
+      submittedVersionId: sql<string | null>`${latestSubmittedVersionId}`,
+      submittedAnswerRows: sql<StoredAnswerRow[]>`${answerRowsOf(latestSubmittedVersionId)}`,
+      // As text: a bare `date` is a string under one driver and a Date under
+      // the other.
+      establishmentDate: sql<string | null>`(
+        SELECT ev.establishment_date::text
+        FROM ${sebEnterprise} e
+        JOIN ${sebEnterpriseVersion} ev ON ev.enterprise_id = e.id AND ev.version = e.current_version
+        WHERE e.id = ${sebApplication.enterpriseId}
+      )`,
+      applicantEmail: sql<string | null>`(
+        SELECT u.email FROM ${coreUser} u WHERE u.id = ${sebApplication.applicantUserId}
+      )`,
+    })
+    .from(sebApplication)
+    .leftJoin(
+      sebApplicationVersion,
+      and(
+        eq(sebApplicationVersion.applicationId, sebApplication.id),
+        eq(sebApplicationVersion.version, sebApplication.currentVersion),
+      ),
+    )
+    .where(
+      and(
+        eq(sebApplication.id, applicationId),
+        eq(sebApplication.applicantUserId, userId),
+        includeDeleted ? undefined : isNull(sebApplication.deletedAt),
+      ),
+    )
+    .limit(1)
+  return row ?? null
+}
+
+/**
+ * One application as its owner sees it, answers included, and what was read
+ * to build it.
+ *
+ * Two statements: the application, then its pinned form through `readForm`,
+ * which a request memoises, so any later step that needs the form reads
+ * nothing. The template is resolved here rather than by the caller because
+ * three things on the application are derived from it — the answers, the
+ * stages that may be edited, and therefore what the client is allowed to draw
+ * — and they have to agree. A template that will not resolve is an invariant
+ * failure rather than an empty form: the answers exist and would silently read
+ * as unanswered.
+ */
+export const loadOwnedApplicationContext = async (
+  db: Database,
+  readForm: PinnedFormReader,
+  userId: string,
+  applicationId: string,
+  includeDeleted = false,
+): Promise<LoadedApplication | null> => {
+  const row = await findOwnedApplicationAggregate(db, userId, applicationId, includeDeleted)
+  if (!row) return null
+  const current = requireInvariant(row.version, 'Application current version is missing.')
+  const rules = requireInvariant(
+    await readForm(current.programmeCycleId, current.programmeCycleVersion),
+    'The form this application was filled against could not be read.',
+  )
+  const answers = answersFromRows(rules.template, current.id, row.answerRows)
+  const revisionRequests: RevisionRequest[] = row.revisionRequests.map((request) => ({
+    ...request,
+    requestedAt: new Date(request.requestedAt),
+    resolvedAt: optionalDate(request.resolvedAt),
+    cancelledAt: optionalDate(request.cancelledAt),
+  }))
+  const application: Application = {
+    ...applicationBase(row.head),
+    // Derived from the revision requests already read rather than another
+    // query, and from the same rule `saveApplicationDraft` enforces, so the
+    // field can never invite an edit the write path would refuse.
+    editableStageKeys: editableStageKeysFor(
+      row.head.status,
+      revisionRequests,
+      rules.template.stages.map((stage) => stage.key),
+    ),
+    snapshot: snapshotFromRecord(current, answers),
+    answers,
+    documents: row.documents.map((document) => ({
+      ...document,
+      createdAt: new Date(document.createdAt),
+      deletedAt: optionalDate(document.deletedAt),
+    })),
+    revisionRequests,
+  }
+  return {
+    application,
+    version: current,
+    rules,
+    submittedAnswers: row.submittedVersionId === null
+      ? null
+      : answersFromRows(rules.template, row.submittedVersionId, row.submittedAnswerRows),
+    establishmentDate: row.establishmentDate,
+    applicantEmail: row.applicantEmail,
+  }
+}
+
+/** One application as its owner sees it, answers included. */
 export const loadOwnedApplication = async (
   db: Database,
   readForm: PinnedFormReader,
   userId: string,
   applicationId: string,
   includeDeleted = false,
-): Promise<Application | null> => {
-  const head = await findOwnedApplicationHead(db, userId, applicationId, includeDeleted)
-  if (!head) return null
-  const [version, documents, revisionRequests] = await Promise.all([
-    findApplicationVersion(db, applicationId, head.currentVersion),
-    listDocuments(db, applicationId),
-    listRevisionRequests(db, applicationId),
-  ])
-  const current = requireInvariant(version, 'Application current version is missing.')
-  const rules = requireInvariant(
-    await readForm(current.programmeCycleId, current.programmeCycleVersion),
-    'The form this application was filled against could not be read.',
-  )
-  const rows = await findAnswerRows(db, [current.id])
-  return {
-    ...applicationBase(head),
-    // Derived from the revision requests already read above rather than another
-    // query, and from the same rule `saveApplicationDraft` enforces, so the
-    // field can never invite an edit the write path would refuse.
-    editableStageKeys: editableStageKeysFor(
-      head.status,
-      revisionRequests,
-      rules.template.stages.map((stage) => stage.key),
-    ),
-    snapshot: snapshotFromRecord(current, answersFromRows(rules.template, current.id, rows)),
-    answers: answersFromRows(rules.template, current.id, rows),
-    documents,
-    revisionRequests,
-  }
-}
+): Promise<Application | null> =>
+  (await loadOwnedApplicationContext(db, readForm, userId, applicationId, includeDeleted))
+    ?.application ?? null
+
+/** The stages that open revision requests name — what a correction may change. */
+export const openRevisionStageKeys = (application: Pick<Application, 'revisionRequests'>) =>
+  new Set(application.revisionRequests
+    .filter((request) => request.resolvedAt === null && request.cancelledAt === null)
+    .map((request) => request.stageKey))
+
+/** The FILE questions a live document answers. */
+export const activeDocumentFieldKeys = (application: Pick<Application, 'documents'>) =>
+  new Set(application.documents
+    .filter((document) => document.deletedAt === null)
+    .map((document) => document.fieldKey))
 
 /**
  * Which form stages the applicant may currently change.
@@ -875,31 +1019,6 @@ export const findSubmissionPolicy = async (
   return pinned?.policy ?? null
 }
 
-/**
- * The one enterprise fact the policy rules read: when it began trading.
- *
- * Lean by design — the validator and the category computation need this and
- * nothing else, and loading the whole enterprise for it would put a second
- * full read on every submission.
- */
-export const findEnterpriseFacts = async (
-  db: Database,
-  enterpriseId: string,
-): Promise<{ establishmentDate: string | null } | null> => {
-  const [row] = await db
-    .select({ establishmentDate: sebEnterpriseVersion.establishmentDate })
-    .from(sebEnterprise)
-    .innerJoin(
-      sebEnterpriseVersion,
-      and(
-        eq(sebEnterpriseVersion.enterpriseId, sebEnterprise.id),
-        eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
-      ),
-    )
-    .where(eq(sebEnterprise.id, enterpriseId))
-    .limit(1)
-  return row ?? null
-}
 
 export const findEnterpriseApplicationSource = async (
   db: Database,
