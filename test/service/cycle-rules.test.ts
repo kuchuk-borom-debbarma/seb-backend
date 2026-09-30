@@ -426,3 +426,29 @@ describe('a submitted file whose stored form this build can no longer read', () 
     expect(workspace.response.documents.length).toBeGreaterThan(0)
   })
 })
+
+describe('the grant ceiling on the applicant’s form', () => {
+  const ceilingOf = async (policy: Record<string, unknown>) => {
+    const admin = await signIn({ roles: ['SUPER_ADMIN'] })
+    const cycle = await openCycle(admin.cookie, policy)
+    const applicant = await signIn({ roles: ['APPLICANT'] })
+    const draft = await startApplication(applicant.cookie, await createEnterprise(applicant.cookie), cycle.id)
+    const body = await graphql<any>(`query($id: ID!) { seb { application { formTemplate(applicationId: $id) {
+      success response { grantCeilingPaise }
+    } } } }`, { id: draft }, applicant.cookie)
+    return body.data.seb.application.formTemplate.response.grantCeilingPaise
+  }
+
+  it('states a per-application ceiling, the one validation refuses above', async () => {
+    expect(await ceilingOf({
+      fundingCeilingState: 'RESOLVED', fundingCeilingAmountPaise: '20000000', fundingCeilingScope: 'APPLICATION',
+    })).toBe('20000000')
+  })
+
+  it('states none while the ceiling is unresolved, or when it caps something other than one application', async () => {
+    expect(await ceilingOf({})).toBeNull()
+    expect(await ceilingOf({
+      fundingCeilingState: 'RESOLVED', fundingCeilingAmountPaise: '20000000', fundingCeilingScope: 'ENTERPRISE',
+    })).toBeNull()
+  })
+})

@@ -81,6 +81,7 @@ import {
   normalizeAnswers,
   requiredDocumentFieldKeys,
   applicationCategoryOf,
+  applicationGrantCeiling,
   validateAnswersForSubmission,
 } from '../form/engine'
 import {
@@ -752,24 +753,27 @@ export const applicationStatusExplanations = async (
   return success({ statuses: applicationStatusGuide })
 }
 
+/** The pinned form, with the one policy limit the applicant is told up front. */
+type ApplicationFormTemplate = ResolvedFormTemplate & { grantCeilingPaise: number | null }
+
 /**
  * The form one of this applicant's applications is filled against.
  *
  * Its own operation rather than a field on the application, because the two
- * have opposite lifetimes: the application changes on every autosave and the
+ * have opposite lifetimes: the application changes on every save and the
  * form does not change at all once the cycle version is pinned.
  */
 export const applicationFormTemplate = async (
   applicationId: string,
   context: ApplicationOperationContext,
-): Promise<SebResult<ResolvedFormTemplate>> => {
-  const owned = await ownedApplication<ResolvedFormTemplate>(applicationId, context)
+): Promise<SebResult<ApplicationFormTemplate>> => {
+  const owned = await ownedApplication<ApplicationFormTemplate>(applicationId, context)
   if ('refusal' in owned) return owned.refusal
   const rules = await findPinnedRulesForApplication(
     context.db, owned.application.id, owned.application.currentVersion,
   )
   return rules
-    ? success(rules.template)
+    ? success({ ...rules.template, grantCeilingPaise: applicationGrantCeiling(rules.policy) })
     : failure('The form this application was filled against could not be read.')
 }
 

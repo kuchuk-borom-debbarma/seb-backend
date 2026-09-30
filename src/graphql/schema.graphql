@@ -744,6 +744,14 @@ type FormTemplate {
   appears before submitting, and the server's verdict is the one that counts.
   """
   rules: [FormRule!]!
+
+  """
+  The most one application may ask for as a grant under the pinned version,
+  so the form can state the limit before an answer goes over it. Null when the
+  version sets no per-application ceiling, and on the programme office's own
+  view of a form, which is not an application's.
+  """
+  grantCeilingPaise: Money
 }
 
 """One rule about several answers, as the form declares it."""

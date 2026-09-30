@@ -203,6 +203,7 @@ fragment FormTemplateFields on FormTemplate {
   programmeCycleVersion
   stages { key title description iconName estimatedMinutes position }
   rules { key type stageKey message limit operandKeys }
+  grantCeilingPaise
   fields {
     key
     stageKey

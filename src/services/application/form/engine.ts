@@ -637,24 +637,29 @@ const policyIssues = (
   const requestedKey = template.roles.SEED_FUND_REQUESTED_PAISE
   const requested = requestedKey === undefined ? undefined : template.byKey.get(requestedKey)
   const requestedValue = requested === undefined ? undefined : answers[requested.key]
-  if (
-    requested &&
-    typeof requestedValue === 'number' &&
-    policy.fundingCeilingState === 'RESOLVED' &&
-    policy.fundingCeilingScope === 'APPLICATION' &&
-    policy.fundingCeilingAmountPaise !== null &&
-    requestedValue > policy.fundingCeilingAmountPaise
-  ) {
+  const ceiling = applicationGrantCeiling(policy)
+  if (requested && typeof requestedValue === 'number' && ceiling !== null && requestedValue > ceiling) {
     issues.push(
       issue(requested.stageKey, requested.key, 'FUNDING_CEILING_EXCEEDED',
         `The most this programme awards for one application is ₹${(
-          policy.fundingCeilingAmountPaise / 100
+          ceiling / 100
         ).toLocaleString('en-IN')}.`),
     )
   }
 
   return issues
 }
+
+/**
+ * The most one application may ask for as a grant, in paise, or null when the
+ * cycle sets no per-application ceiling (none resolved yet, or one that caps
+ * the whole cycle instead). The one reading of the policy, shared by the
+ * refusal above and the form that states the limit before it is reached.
+ */
+export const applicationGrantCeiling = (policy: CyclePolicy): number | null =>
+  policy.fundingCeilingState === 'RESOLVED' && policy.fundingCeilingScope === 'APPLICATION'
+    ? policy.fundingCeilingAmountPaise
+    : null
 
 const fullYearsBetween = (from: Date, to: Date): number => {
   let years = to.getUTCFullYear() - from.getUTCFullYear()

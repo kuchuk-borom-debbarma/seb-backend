@@ -17,6 +17,7 @@
  * 4. A hidden field is never required, whatever its flags say.
  */
 import type { FormTemplateFieldsFragment } from '#/graphql/generated/operations'
+import { formatMoney } from '#/lib/format'
 import type { AnswerEntry, AnswerMap, AnswerValue } from './answers'
 
 export type FormTemplate = FormTemplateFieldsFragment
@@ -85,9 +86,23 @@ const topologicalOrder = (fields: readonly FormField[]): string[] => {
   return [...order, ...fields.map((field) => field.key).filter((key) => !seen.has(key))]
 }
 
+/**
+ * The grant question, with the cycle's per-application ceiling said under it.
+ *
+ * The server refuses an amount over the ceiling; saying the limit beside the
+ * box is what spares the applicant finding it out from the refusal. Added to
+ * whatever note the cycle's author wrote, never in place of it.
+ */
+const withGrantCeiling = (field: FormField, ceilingPaise: string | null | undefined): FormField => {
+  if (!ceilingPaise || field.role !== 'SEED_FUND_REQUESTED_PAISE') return field
+  const limit = `Up to ${formatMoney(ceilingPaise)} for one application.`
+  const note = field.presentation.note ? `${field.presentation.note} ${limit}` : limit
+  return { ...field, presentation: { ...field.presentation, note } }
+}
+
 export const resolveTemplate = (template: FormTemplate): ResolvedTemplate => {
   const stages = [...template.stages].sort((a, b) => a.position - b.position)
-  const fields = [...template.fields]
+  const fields = template.fields.map((field) => withGrantCeiling(field, template.grantCeilingPaise))
   const byKey = new Map(fields.map((field) => [field.key, field]))
   return {
     stages,
