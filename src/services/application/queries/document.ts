@@ -217,19 +217,30 @@ export const finalizeUploadIntent = async (
   },
 ): Promise<boolean> => {
   const newDocument = input.existing === null
-  const intentStillIssued = sql`EXISTS (
-    SELECT 1 FROM ${sebDocumentUploadIntent}
+  /*
+   * The intent, locked. Without the lock the document could advance while the
+   * cleanup cron claimed the intent in between: the intent then stayed
+   * unfinalized, the applicant was told the upload succeeded, and the cleanup
+   * deleted the object the document's new version points at. Locked, a claim
+   * that committed first is seen when this re-checks the row after waiting,
+   * and nothing is written; a claim that comes second waits for this and then
+   * finds the intent FINALIZED.
+   */
+  const claim = sql`claim AS (
+    SELECT ${sebDocumentUploadIntent.id} AS claimed_id FROM ${sebDocumentUploadIntent}
     WHERE ${sebDocumentUploadIntent.id} = ${input.intent.id}
       AND ${sebDocumentUploadIntent.status} = 'ISSUED'
       AND ${sebDocumentUploadIntent.expiresAt} > ${input.now}
+    FOR UPDATE
   )`
   const editable = applicationDocumentsEditable(input.intent.applicationId, input.userId, input.stageKey)
   /*
    * The document head is the guarded write: created for an empty slot, or
    * advanced from exactly the version the intent was issued against. A second
    * finalization of a new slot meets the `(application, field)` key; of an
-   * existing one, the version guard. Everything else selects from what it
-   * returned, so a refused head writes nothing.
+   * existing one, the version guard. It selects from the claimed intent, and
+   * everything after it from what it, or a member built on it, returned — so
+   * a refused claim or head writes nothing.
    */
   const head = newDocument
     ? sql`head AS (
@@ -240,23 +251,25 @@ export const finalizeUploadIntent = async (
       SELECT ${input.documentId}, ${input.intent.applicationId},
         ${input.intent.fieldKey}, 1, ${input.now}, ${input.now},
         NULL, NULL, NULL
-      WHERE ${intentStillIssued} AND ${editable}
+      FROM claim
+      WHERE ${editable}
       RETURNING id
     )`
     : sql`head AS (
       UPDATE ${sebApplicationDocument}
       SET current_version = ${input.nextVersion}::int, updated_at = ${input.now}
+      FROM claim
       WHERE ${and(
         eq(sebApplicationDocument.id, input.existing!.id),
         eq(sebApplicationDocument.currentVersion, input.intent.expectedDocumentVersion),
         isNull(sebApplicationDocument.deletedAt),
-        intentStillIssued,
         editable,
       )}
       RETURNING id
     )`
   const operation = newDocument ? 'UPLOAD' : 'REPLACE'
   const written = await writeFolded(db, [
+    claim,
     head,
     sql`version AS (
       INSERT INTO ${sebApplicationDocumentVersion} (
