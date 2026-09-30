@@ -65,9 +65,9 @@ export const auditRecord = <A extends ApplicationAuditAction>(
  * Converts an expected uniqueness or foreign-key race into `false`, while
  * preserving unexpected faults for GraphQL Yoga's server-error handling.
  */
-export const runConstraintSafe = async (
-  operation: () => Promise<boolean>,
-): Promise<boolean> => {
+export const runConstraintSafe = async <T>(
+  operation: () => Promise<T | false>,
+): Promise<T | false> => {
   try {
     return await operation()
   } catch (error) {

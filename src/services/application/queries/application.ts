@@ -440,6 +440,37 @@ const findOwnedApplicationAggregate = async (
  * failure rather than an empty form: the answers exist and would silently read
  * as unanswered.
  */
+/**
+ * An application from its stored parts — what a read found, or what a write
+ * just made. One assembly for both, so a response built from a write cannot
+ * drift from what a read of the same rows returns.
+ */
+export const assembleApplication = (parts: {
+  head: ApplicationHeadRecord
+  version: ApplicationVersionRecord
+  template: PinnedCycleRules['template']
+  answerRows: readonly StoredAnswerRow[]
+  documents: ApplicationDocument[]
+  revisionRequests: RevisionRequest[]
+}): Application => {
+  const answers = answersFromRows(parts.template, parts.version.id, [...parts.answerRows])
+  return {
+    ...applicationBase(parts.head),
+    // Derived from the revision requests already read rather than another
+    // query, and from the same rule `saveApplicationDraft` enforces, so the
+    // field can never invite an edit the write path would refuse.
+    editableStageKeys: editableStageKeysFor(
+      parts.head.status,
+      parts.revisionRequests,
+      parts.template.stages.map((stage) => stage.key),
+    ),
+    snapshot: snapshotFromRecord(parts.version, answers),
+    answers,
+    documents: parts.documents,
+    revisionRequests: parts.revisionRequests,
+  }
+}
+
 export const loadOwnedApplicationContext = async (
   db: Database,
   readForm: PinnedFormReader,
@@ -454,32 +485,23 @@ export const loadOwnedApplicationContext = async (
     await readForm(current.programmeCycleId, current.programmeCycleVersion),
     'The form this application was filled against could not be read.',
   )
-  const answers = answersFromRows(rules.template, current.id, row.answerRows)
-  const revisionRequests: RevisionRequest[] = row.revisionRequests.map((request) => ({
-    ...request,
-    requestedAt: new Date(request.requestedAt),
-    resolvedAt: optionalDate(request.resolvedAt),
-    cancelledAt: optionalDate(request.cancelledAt),
-  }))
-  const application: Application = {
-    ...applicationBase(row.head),
-    // Derived from the revision requests already read rather than another
-    // query, and from the same rule `saveApplicationDraft` enforces, so the
-    // field can never invite an edit the write path would refuse.
-    editableStageKeys: editableStageKeysFor(
-      row.head.status,
-      revisionRequests,
-      rules.template.stages.map((stage) => stage.key),
-    ),
-    snapshot: snapshotFromRecord(current, answers),
-    answers,
+  const application = assembleApplication({
+    head: row.head,
+    version: current,
+    template: rules.template,
+    answerRows: row.answerRows,
     documents: row.documents.map((document) => ({
       ...document,
       createdAt: new Date(document.createdAt),
       deletedAt: optionalDate(document.deletedAt),
     })),
-    revisionRequests,
-  }
+    revisionRequests: row.revisionRequests.map((request) => ({
+      ...request,
+      requestedAt: new Date(request.requestedAt),
+      resolvedAt: optionalDate(request.resolvedAt),
+      cancelledAt: optionalDate(request.cancelledAt),
+    })),
+  })
   return {
     application,
     version: current,
@@ -1524,9 +1546,52 @@ export const insertApplicationAggregate = async (
     now: Date
     audit: AuditRecord
   },
-): Promise<boolean> => {
-  const versionId = crypto.randomUUID()
-  const eventId = crypto.randomUUID()
+): Promise<{ head: ApplicationHeadRecord; version: ApplicationVersionRecord } | false> => {
+  const head: Omit<ApplicationHeadRecord, 'pipelineId' | 'pipelineVersion'> = {
+    id: input.applicationId,
+    applicantUserId: input.applicantUserId,
+    enterpriseId: input.enterpriseId,
+    fundingCaseId: input.fundingCaseId,
+    programmeCycleId: input.programmeCycleId,
+    applicationKind: input.applicationKind,
+    phaseNumber: input.phaseNumber,
+    referenceNumber: null,
+    currentVersion: 1,
+    createdAt: input.now,
+    updatedAt: input.now,
+    deletedAt: null,
+    deletedByUserId: null,
+    deleteReason: null,
+    status: 'DRAFT',
+    statusVersion: 1,
+    statusChangedAt: input.now,
+    firstSubmittedAt: null,
+    currentStageKey: null,
+    stageEnteredAt: null,
+    stageTrail: [],
+    statusFlags: [],
+    recordedValues: {},
+  }
+  const version = versionValues({
+    applicationId: input.applicationId,
+    version: 1,
+    programmeCycleId: input.programmeCycleId,
+    programmeCycleVersion: input.programmeCycleVersion,
+    applicationKind: input.applicationKind,
+    phaseNumber: input.phaseNumber,
+    changeType: 'INITIAL',
+    changedByUserId: input.applicantUserId,
+    createdAt: input.now,
+    declarationAcceptedAt: null,
+    applicationCategory: null,
+  })
+  const answers = answerRowsMember({
+    rows: input.answerRows,
+    programmeCycleId: input.programmeCycleId,
+    programmeCycleVersion: input.programmeCycleVersion,
+    createdAt: input.now,
+    version: sql`version`,
+  })
   /*
    * The pipeline is read from the cycle version, in the statement, rather than
    * passed in: the application is worked in whatever the cycle pinned when it
@@ -1538,23 +1603,29 @@ export const insertApplicationAggregate = async (
    * controller; the unique `(case, cycle, phase)` index is the backstop that
    * refuses a duplicate attempt inside one cycle.
    */
-  const insertHead = db
-    .insert(sebApplication)
-    .select(sql`
-      SELECT ${input.applicationId}, ${input.applicantUserId}, ${input.enterpriseId},
-        ${input.fundingCaseId}, ${input.programmeCycleId}, ${input.applicationKind},
-        ${input.phaseNumber}, NULL, 1, ${input.now}, ${input.now},
+  const written = await writeFolded<{ pipeline_id: string; pipeline_version: number }>(db, [
+    sql`head AS (
+      INSERT INTO ${sebApplication} (
+        id, applicant_user_id, enterprise_id, funding_case_id, programme_cycle_id,
+        application_kind, phase_number, reference_number, current_version, created_at,
+        updated_at, deleted_at, deleted_by_user_id, delete_reason, status,
+        status_version, status_changed_at, first_submitted_at, pipeline_id, pipeline_version,
+        current_stage_key, stage_entered_at, stage_trail, status_flags, recorded_values
+      )
+      SELECT ${head.id}, ${head.applicantUserId}, ${head.enterpriseId},
+        ${head.fundingCaseId}, ${head.programmeCycleId}, ${head.applicationKind},
+        ${head.phaseNumber}::int, NULL, 1, ${input.now}, ${input.now},
         NULL, NULL, NULL, 'DRAFT', 1, ${input.now}, NULL,
         cycle_version.pipeline_id, cycle_version.pipeline_version,
         NULL, NULL, '{}'::text[], '{}'::text[], '{}'::jsonb
       FROM ${sebProgrammeCycleVersion} AS cycle_version
       WHERE cycle_version.programme_cycle_id = ${input.programmeCycleId}
-        AND cycle_version.version = ${input.programmeCycleVersion}
+        AND cycle_version.version = ${input.programmeCycleVersion}::int
         AND cycle_version.pipeline_version IS NOT NULL
         AND EXISTS (
           SELECT 1 FROM ${sebProgrammeCycleApplicationKind} AS kind
           WHERE kind.programme_cycle_id = ${input.programmeCycleId}
-            AND kind.programme_cycle_version = ${input.programmeCycleVersion}
+            AND kind.programme_cycle_version = ${input.programmeCycleVersion}::int
             AND kind.kind_key = ${input.applicationKind}
         )
         AND EXISTS (
@@ -1570,53 +1641,29 @@ export const insertApplicationAggregate = async (
             AND ${sebEnterprise.deletedAt} IS NULL
             AND ${sebFundingCase.status} = 'OPEN'
             AND ${sebFundingCase.deletedAt} IS NULL
-            AND ${sebProgrammeCycle.currentVersion} = ${input.programmeCycleVersion}
+            AND ${sebProgrammeCycle.currentVersion} = ${input.programmeCycleVersion}::int
             AND ${programmeCycleOpenAt(input.now)}
         )
-    `)
-    .returning({ id: sebApplication.id })
-  const insertVersion = insertVersionWhere(
-    db,
-    versionValues({
-      id: versionId,
+      RETURNING id, pipeline_id, pipeline_version
+    )`,
+    sql`version AS (${applicationVersionMember(version, sql`head`)})`,
+    answers && sql`answers AS (${answers})`,
+    sql`event AS (${applicationEventMember(eventValues({
       applicationId: input.applicationId,
-      version: 1,
-      programmeCycleId: input.programmeCycleId,
-      programmeCycleVersion: input.programmeCycleVersion,
-      applicationKind: input.applicationKind,
-      phaseNumber: input.phaseNumber,
-      changeType: 'INITIAL',
-      changedByUserId: input.applicantUserId,
+      eventType: 'APPLICATION_STARTED',
+      actorUserId: input.applicantUserId,
+      applicationVersion: 1,
+      toStatus: 'DRAFT',
+      message: 'Application draft started.',
       createdAt: input.now,
-      declarationAcceptedAt: null,
-      applicationCategory: null,
-    }),
-    sql`${sebApplication.id} = ${input.applicationId}`,
-  )
-  const insertAnswers = insertAnswerRows(db, {
-    applicationVersionId: versionId,
-    programmeCycleId: input.programmeCycleId,
-    programmeCycleVersion: input.programmeCycleVersion,
-    rows: input.answerRows,
-    createdAt: input.now,
-  })
-  const insertEvent = db.insert(sebApplicationEvent).select(sql`
-    SELECT ${eventId}, ${input.applicationId}, 'APPLICATION_STARTED',
-      ${input.applicantUserId}, 1, NULL, NULL, NULL, 'DRAFT', NULL,
-      'Application draft started.', NULL, ${input.now}, NULL
-    WHERE EXISTS (
-      SELECT 1 FROM ${sebApplication} WHERE ${sebApplication.id} = ${input.applicationId}
-    )
-  `)
-  const insertAudit = insertAuditEventWhere(db, input.audit, sql`EXISTS (
-      SELECT 1 FROM ${sebApplication} WHERE ${sebApplication.id} = ${input.applicationId}
-    )
-  `)
-  const statements = insertAnswers
-    ? [insertHead, insertVersion, insertAnswers] as const
-    : [insertHead, insertVersion] as const
-  const [headResult] = await batch(db, () => [...statements, insertEvent, insertAudit])
-  return headResult.length === 1
+    }), sql`head`)})`,
+    sql`audit AS (${auditEventCteMember(input.audit, sql`head`)})`,
+  ])
+  if (!written) return false
+  return {
+    head: { ...head, pipelineId: written.pipeline_id, pipelineVersion: Number(written.pipeline_version) },
+    version: version as ApplicationVersionRecord,
+  }
 }
 
 export const saveApplicationSnapshot = async (

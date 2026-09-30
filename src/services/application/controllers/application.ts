@@ -20,6 +20,7 @@ import {
   loadOwnedApplication,
   loadOwnedApplicationContext,
   applicationAfterWrite,
+  assembleApplication,
   openRevisionStageKeys,
   activeDocumentFieldKeys,
   type LoadedApplication,
@@ -327,10 +328,11 @@ export const startApplication = async (
       + 'cycle changed while it was being started. Reload and try again.',
     )
   }
-  return success(requireInvariant(
-    await loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, applicationId),
-    'Created application could not be read.',
-  ))
+  // Built from what was written rather than read back: a new draft has no
+  // documents, requests or answers yet (rule 4).
+  return success(assembleApplication({
+    ...inserted, template: rules.template, answerRows: [], documents: [], revisionRequests: [],
+  }))
 }
 
 /**
