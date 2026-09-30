@@ -123,8 +123,12 @@ export function ActionDialog({
       setStale(false)
     },
     onSuccess: async (outcome) => {
+      // A return goes to a stage the file has been through, so it is named.
+      const returnedTo = file.trail.find((stage) => stage.key === outcome.stageKey)?.name
       const where = outcome.ended
         ? 'The file’s journey has ended.'
+        : action.returnsFile
+          ? `The file has gone back to ${returnedTo ?? 'the stage it came from'}.`
         : outcome.stageKey && outcome.stageKey !== file.stage?.key
           ? 'The file has moved on to its next stage.'
           : action.requestsRevision
