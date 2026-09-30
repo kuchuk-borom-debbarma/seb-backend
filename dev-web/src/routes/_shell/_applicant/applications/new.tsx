@@ -1,5 +1,4 @@
 import {
-  queryOptions,
   useMutation,
   useQuery,
   useQueryClient,
@@ -17,8 +16,6 @@ import { useEffect, useState } from 'react'
 import { cyclesQuery } from '#/features/application/queries'
 import { useMarker } from '#/features/guide/GuideContext'
 import {
-  ApplicationKindEligibilityDocument,
-  MyEnterprisesDocument,
   StartApplicationDocument,
 } from '#/graphql/generated/operations'
 import { formatDate, formatRelative } from '#/lib/format'
@@ -27,42 +24,10 @@ import { gql } from '#/lib/graphql'
 import { humanize } from '#/lib/format'
 import { messageFor, unwrap } from '#/lib/result'
 import styles from '#/features/application/StartApplication.module.css'
+import { applicationKindsQuery, liveEnterprisesQuery } from '#/features/application/applicationQueries'
 
 type SetupStep = 'SETUP' | 'TYPE'
 type Search = { enterpriseId?: string; cycleId?: string }
-
-/** Only live enterprises can carry a new application. */
-const liveEnterprisesQuery = queryOptions({
-  queryKey: ['enterprises', 'live'],
-  queryFn: async () => {
-    const data = await gql(MyEnterprisesDocument, {
-      first: 100,
-      after: null,
-      includeDeleted: false,
-    })
-    return unwrap(data.seb.enterprise.mine).nodes
-  },
-  staleTime: 60_000,
-})
-
-/**
- * The kinds of application a cycle accepts, judged for one enterprise.
- *
- * Only asked once both are chosen, because the API needs both to answer: the
- * kinds are the cycle's, and whether each is open is the enterprise's history
- * read against that kind's rules.
- */
-const kindsQuery = (enterpriseId: string, programmeCycleId: string) =>
-  queryOptions({
-    queryKey: ['application-kinds', enterpriseId, programmeCycleId],
-    queryFn: async () => {
-      const data = await gql(ApplicationKindEligibilityDocument, {
-        enterpriseId,
-        programmeCycleId,
-      })
-      return unwrap(data.seb.application.applicationKinds).kinds
-    },
-  })
 
 export const Route = createFileRoute('/_shell/_applicant/applications/new')({
   validateSearch: (search: Record<string, unknown>): Search => ({
@@ -135,7 +100,7 @@ function StartApplicationPage() {
   const activeStep: SetupStep = step === 'TYPE' && chosen ? 'TYPE' : 'SETUP'
 
   const { data: kinds, isFetching: checkingEligibility } = useQuery({
-    ...kindsQuery(search.enterpriseId ?? '', search.cycleId ?? ''),
+    ...applicationKindsQuery(search.enterpriseId ?? '', search.cycleId ?? ''),
     enabled: chosen,
   })
   // With exactly one kind the enterprise may start, there is no choice to

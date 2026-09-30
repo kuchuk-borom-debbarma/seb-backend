@@ -33,8 +33,10 @@ import {
 } from '#/features/application/journey'
 import { cyclesQuery, statusGuideQuery } from '#/features/application/queries'
 import {
+  applicationKindsQuery,
   applicationQuery,
   formTemplateQuery,
+  liveEnterprisesQuery,
   validationQuery,
 } from '#/features/application/applicationQueries'
 import { resolveTemplate } from '#/features/application/formTemplate'
@@ -262,6 +264,12 @@ function ApplicationPage() {
   const { data: cycles } = useQuery(cyclesQuery)
   const { data: rawTemplate } = useQuery(formTemplateQuery(id))
   const { data: validation } = useQuery(validationQuery(id))
+  // For the page's own words: whose application this is, and what kind.
+  const { data: enterprises } = useQuery(liveEnterprisesQuery)
+  const { data: kinds } = useQuery({
+    ...applicationKindsQuery(application?.enterpriseId ?? '', application?.programmeCycleId ?? ''),
+    enabled: Boolean(application),
+  })
 
   const template = useMemo(
     () => (rawTemplate ? resolveTemplate(rawTemplate) : null),
@@ -388,12 +396,23 @@ function ApplicationPage() {
 
         <div className={styles.headerRow}>
           <div className={styles.titleGroup}>
+            {/*
+             * Named for the enterprise, which is what the applicant knows it
+             * by; the reference number follows once submission issues one.
+             * "Unsubmitted draft" told them neither whose it was nor what.
+             */}
             <h1 className={styles.appTitle}>
-              {application.referenceNumber ?? 'Unsubmitted draft'}
+              {enterprises?.find((each) => each.id === application.enterpriseId)?.name ??
+                application.referenceNumber ??
+                'Your application'}
             </h1>
+            <span className={styles.appSubtitle}>
+              {application.referenceNumber ?? 'Draft — not submitted yet'}
+            </span>
             <span className={styles.typeBadge}>
               <Sprout size={13} aria-hidden="true" />
-              {humanize(application.applicationKind)}
+              {kinds?.find((each) => each.kindKey === application.applicationKind)?.label ??
+                humanize(application.applicationKind)}
               {application.phaseNumber > 1 ? `, phase ${application.phaseNumber}` : ''}
             </span>
           </div>
@@ -741,15 +760,18 @@ function ApplicationPage() {
               </div>
             ) : null}
 
-            <div className={styles.statusNotice}>
-              <div className={styles.noticeIconBadge}>
-                <Sprout size={16} aria-hidden="true" />
+            {/* Only once there is a journey to be updated about. */}
+            {application.status === 'DRAFT' ? null : (
+              <div className={styles.statusNotice}>
+                <div className={styles.noticeIconBadge}>
+                  <Sprout size={16} aria-hidden="true" />
+                </div>
+                <p className={styles.noticeText}>
+                  We&apos;ll keep you updated as your application moves to the next stage.
+                  You can check this page anytime for the latest status.
+                </p>
               </div>
-              <p className={styles.noticeText}>
-                We&apos;ll keep you updated as your application moves to the next stage.
-                You can check this page anytime for the latest status.
-              </p>
-            </div>
+            )}
           </div>
 
           <div className={styles.rightColumn}>

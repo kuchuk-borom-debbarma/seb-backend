@@ -8,6 +8,8 @@
 import { queryOptions, type QueryClient } from '@tanstack/react-query'
 import {
   ApplicationByIdDocument,
+  ApplicationKindEligibilityDocument,
+  MyEnterprisesDocument,
   ApplicationFormTemplateDocument,
   ApplicationTimelineDocument,
   DraftChangesDocument,
@@ -46,8 +48,8 @@ export const submittedCopyQuery = (id: string) =>
  *
  * Cached hard, unlike the application beside it: the template is frozen with
  * the cycle version an application pins, so it cannot change while the
- * applicant is looking at it — and refetching it on every autosave would fetch
- * the same bytes back for every keystroke.
+ * applicant is looking at it — and refetching it on every save would fetch
+ * the same bytes back each time.
  */
 export const formTemplateQuery = (id: string) =>
   queryOptions({
@@ -103,7 +105,7 @@ export const draftChangesQuery = (id: string) =>
  * `ensureQueryData` returns whatever is in the cache without revalidating, and
  * on these two screens that is wrong in a way that surfaces as a refusal: every
  * write carries the version this data reports, so arriving from the form with
- * a copy taken before the last autosave means the first save — or the
+ * a copy taken before the last save means the first save — or the
  * submission — is refused as stale, and the applicant is told to refresh a page
  * they just opened.
  *
@@ -116,3 +118,37 @@ export const loadApplication = (queryClient: QueryClient, id: string) =>
     queryClient.fetchQuery(validationQuery(id)),
     queryClient.fetchQuery(formTemplateQuery(id)),
   ])
+
+/** The applicant's live enterprises: what can carry a new application. */
+export const liveEnterprisesQuery = queryOptions({
+  queryKey: ['enterprises', 'live'],
+  queryFn: async () => {
+    const data = await gql(MyEnterprisesDocument, {
+      first: 100,
+      after: null,
+      includeDeleted: false,
+    })
+    return unwrap(data.seb.enterprise.mine).nodes
+  },
+  staleTime: 60_000,
+})
+
+/**
+ * The kinds of application a cycle accepts, judged for one enterprise.
+ *
+ * Only asked once both are known, because the API needs both to answer: the
+ * kinds are the cycle's, and whether each is open is the enterprise's history
+ * read against that kind's rules. The application page reads it too, for the
+ * kind's name.
+ */
+export const applicationKindsQuery = (enterpriseId: string, programmeCycleId: string) =>
+  queryOptions({
+    queryKey: ['application-kinds', enterpriseId, programmeCycleId],
+    queryFn: async () => {
+      const data = await gql(ApplicationKindEligibilityDocument, {
+        enterpriseId,
+        programmeCycleId,
+      })
+      return unwrap(data.seb.application.applicationKinds).kinds
+    },
+  })
