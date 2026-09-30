@@ -21,7 +21,8 @@ type Standing = {
   journey?: Journey | null
 }
 
-const correcting = (application: Standing): boolean =>
+/** Whether the office has asked the applicant for corrections still open. */
+export const correcting = (application: Standing): boolean =>
   application.status !== 'DRAFT' &&
   ((application.editableStageKeys?.length ?? 0) > 0 || application.awaitingCorrection === true)
 

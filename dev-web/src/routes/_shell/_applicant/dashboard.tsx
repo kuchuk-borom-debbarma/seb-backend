@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
 import { applicantDashboardQuery } from '#/features/dashboard/dashboardQueries'
-import { standingLabel } from '#/features/application/journey'
+import { correcting, standingLabel } from '#/features/application/journey'
 import { formatDateTime, formatRelative, humanize } from '#/lib/format'
 import styles from '#/features/dashboard/Dashboard.module.css'
 
@@ -87,8 +87,15 @@ function ApplicantDashboard() {
    * saying where it is in the words its pipeline gives the applicant.
    */
   const drafts = data?.drafts.nodes ?? []
-  const submitted = data?.submitted.nodes ?? []
-  const attention = drafts
+  /*
+   * A submitted file the office has handed back for corrections is the
+   * applicant's move, exactly as a draft is: it belongs under "Needs your
+   * attention", not under "Submitted" saying the office is still checking.
+   */
+  const inPipeline = data?.submitted.nodes ?? []
+  const toCorrect = inPipeline.filter(correcting)
+  const submitted = inPipeline.filter((application) => !correcting(application))
+  const attention = [...toCorrect, ...drafts]
   const firstCycle = cycles[0]
   const firstEnterprise = data?.enterprises.nodes[0]
   const guide = new Map((data?.guide ?? []).map((entry) => [entry.status, entry]))
@@ -96,6 +103,13 @@ function ApplicantDashboard() {
   const primaryAction = (() => {
     if (enterprises === 0) {
       return { to: '/enterprises/new', label: 'Register an enterprise' } as const
+    }
+    if (toCorrect[0]) {
+      return {
+        to: '/applications/$id',
+        params: { id: toCorrect[0].id },
+        label: 'Make the corrections',
+      } as const
     }
     if (drafts[0]) {
       return {
@@ -157,7 +171,9 @@ function ApplicantDashboard() {
                   params={{ id: applicationInCycle(firstCycle.id)!.id }}
                   className={styles.cycleHeroButton}
                 >
-                  View your application
+                  {toCorrect.some((each) => each.id === applicationInCycle(firstCycle.id)!.id)
+                    ? 'Make the corrections asked for'
+                    : 'View your application'}
                   <ArrowRight size={15} aria-hidden="true" />
                 </Link>
               ) : enterprises > 0 ? (
@@ -239,10 +255,13 @@ function ApplicantDashboard() {
               <div className={styles.applicationList}>
                 {attention.map((application) => {
                   const status = guide.get(application.status)
+                  const asked = correcting(application)
                   return (
                     <Link
                       key={application.id}
-                      to="/applications/$id/form"
+                      // A correction opens the application's page first, where
+                      // the office's notes say what to change in each section.
+                      to={asked ? '/applications/$id' : '/applications/$id/form'}
                       params={{ id: application.id }}
                       className={styles.applicationRow}
                     >
@@ -253,16 +272,17 @@ function ApplicantDashboard() {
                           {application.referenceNumber ??
                             `Phase ${application.phaseNumber}`}
                           {' · '}
-                          {status?.nextAction ??
-                            status?.label ??
-                            humanize(application.status)}
+                          {asked
+                            ? 'The office asked for corrections. Make them and submit again.'
+                            : (status?.nextAction ??
+                              status?.label ??
+                              humanize(application.status))}
                         </small>
                       </span>
-                      <span
-                        className="badge"
-                        data-tone={application.status === 'DRAFT' ? 'action' : undefined}
-                      >
-                        {status?.label ?? humanize(application.status)}
+                      <span className="badge" data-tone="action">
+                        {asked
+                          ? standingLabel(application)
+                          : (status?.label ?? humanize(application.status))}
                       </span>
                     </Link>
                   )
