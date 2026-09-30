@@ -1,6 +1,5 @@
 /** Applicant application, validation, eligibility, and submission use cases. */
-import type { Database } from '../../../db'
-import { afterResponse } from '../../../deferred'
+import { afterResponse, type DatabaseAccess } from '../../../deferred'
 import { pinnedFormReader } from '../../../loaders'
 import { auditActions, applicationStatuses } from '../../../db/schema'
 import { decodeCursor, pageSize } from '../pagination'
@@ -542,7 +541,7 @@ const createReferenceNumber = (cycleYear: number): string => {
  * transport error can echo the recipient and these logs are public in CI.
  */
 const sendSubmissionConfirmation = async (
-  db: Database,
+  database: DatabaseAccess,
   context: ApplicationOperationContext,
   recipient: { applicantId: string; email: string },
   application: Application,
@@ -574,7 +573,7 @@ const sendSubmissionConfirmation = async (
   } catch {
     // Guarded itself: the audit write failing must not throw into the
     // submission that has already succeeded.
-    await bestEffort(insertAuditEvent(db, auditRecord(context, {
+    await bestEffort(database((db) => insertAuditEvent(db, auditRecord(context, {
       actorUserId: applicantId,
       action: auditActions.submissionConfirmationFailed,
       entityType: 'SEB_APPLICATION',
@@ -583,7 +582,7 @@ const sendSubmissionConfirmation = async (
       outcome: 'FAILURE',
       payload: {},
       now: new Date(),
-    })), 'A submission confirmation failed')
+    }))), 'A submission confirmation failed')
   }
 }
 
@@ -678,9 +677,9 @@ const submit = async (
   const response = submittedApplication(loaded, submitted, { resubmission, applicationCategory, now })
   // After the response: the applicant is not kept waiting on a mail provider,
   // and a failure is recorded rather than reported (rule 6).
-  await afterResponse(context, (db) => bestEffort(
+  await afterResponse(context, (database) => bestEffort(
     sendSubmissionConfirmation(
-      db, context, { applicantId: applicant.id, email: authorized.applicantEmail }, response, loaded.cycle,
+      database, context, { applicantId: applicant.id, email: authorized.applicantEmail }, response, loaded.cycle,
     ),
     'A submission confirmation failed',
   ))

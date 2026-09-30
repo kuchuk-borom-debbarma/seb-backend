@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { AppBindings } from './bindings'
 import { DatabaseUnavailableError, withDatabase, type Database } from './db'
-import type { DeferredTask, Defer } from './deferred'
+import type { DatabaseAccess, DeferredTask, Defer } from './deferred'
 import { createLoaders } from './loaders'
 import { handleGraphQLRequest } from './graphql'
 import {
@@ -71,16 +71,17 @@ const operationContext = (
 ) => ({ env, db, loaders: createLoaders(db), requestHeaders, requestUrl, responseHeaders, defer })
 
 /**
- * Runs what a request deferred, after its response, on a connection of its
- * own. One task failing does not stop the rest; its line names no detail,
- * because a transport error can echo a recipient.
+ * Runs what a request deferred, after its response. A task that needs the
+ * database opens its own connection, only when it does. One task failing does
+ * not stop the rest; the line names no detail, because a transport error can
+ * echo a recipient.
  */
-const runDeferred = (env: AppBindings, tasks: readonly DeferredTask[]) =>
-  withDatabase(connectionString(env), async (db) => {
-    for (const task of tasks) {
-      await task(db).catch(() => console.error('A deferred task failed'))
-    }
-  })
+const runDeferred = async (env: AppBindings, tasks: readonly DeferredTask[]) => {
+  const database: DatabaseAccess = (work) => withDatabase(connectionString(env), work)
+  for (const task of tasks) {
+    await task(database).catch(() => console.error('A deferred task failed'))
+  }
+}
 
 /**
  * The connection every request opens and every request closes.
