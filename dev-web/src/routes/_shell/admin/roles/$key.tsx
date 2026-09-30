@@ -59,6 +59,12 @@ function EditGate() {
 
 function EditLoader({ roleKey }: { roleKey: string }) {
   const found = useQuery(roleQuery(roleKey))
+  /*
+   * The version a save produced, held here rather than in the page: the page
+   * is keyed on the version and remounts the moment the save lands, so a flag
+   * of its own would be thrown away with it.
+   */
+  const [savedVersion, setSavedVersion] = useState<number | null>(null)
   const role = found.data?.response
   if (found.data && !found.data.success) {
     return (
@@ -74,10 +80,26 @@ function EditLoader({ roleKey }: { roleKey: string }) {
    * role moves underneath it. Without this a reload after a refused save would
    * re-mount with the stale selection still in hand.
    */
-  return <EditPage key={`${role.id}:${role.version}`} role={role} />
+  return (
+    <EditPage
+      key={`${role.id}:${role.version}`}
+      role={role}
+      justSaved={savedVersion === role.version}
+      onSaved={setSavedVersion}
+    />
+  )
 }
 
-function EditPage({ role }: { role: Role }) {
+function EditPage({
+  role,
+  justSaved,
+  onSaved,
+}: {
+  role: Role
+  /** Whether the version on screen is the one this reader just saved. */
+  justSaved: boolean
+  onSaved: (version: number) => void
+}) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const catalogue = useQuery(catalogueQuery)
@@ -88,9 +110,6 @@ function EditPage({ role }: { role: Role }) {
   const [description, setDescription] = useState(role.description)
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
-  // Said once a save lands: the pending list empties either way, and an empty
-  // list alone cannot tell "saved" from "nothing was changed".
-  const [justSaved, setJustSaved] = useState(false)
   const [retiring, setRetiring] = useState(false)
   const [reason, setReason] = useState('')
 
@@ -122,14 +141,13 @@ function EditPage({ role }: { role: Role }) {
           currentPassword: password,
         },
       })).access.updateRole),
-    onMutate: () => {
-      setError(null)
-      setJustSaved(false)
-    },
-    onSuccess: async () => {
+    onMutate: () => setError(null),
+    onSuccess: async (updated) => {
       setPassword('')
+      // Said once a save lands: the pending list empties either way, and an
+      // empty list alone cannot tell "saved" from "nothing was changed".
+      if (updated) onSaved(updated.version)
       await queryClient.invalidateQueries({ queryKey: ['roles'] })
-      setJustSaved(true)
     },
     onError: (failure) => setError(messageFor(failure)),
   })
