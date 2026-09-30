@@ -37,6 +37,7 @@ import { MAX_DOCUMENT_BYTES } from '../../src/services/application/uploads'
 import type { EnterpriseProfileInput } from '../../src/services/application/types'
 import {
   answersToRows,
+  readPinnedFormDirectly,
   type AnswerRow,
 } from '../../src/services/application/queries/form-template'
 import { resolveFormTemplate } from '../../src/services/application/form/template'
@@ -887,7 +888,7 @@ describe('applicant application business service', () => {
     const application = await startInitial(applicant.cookie, enterprise.id, cycleId)
     const saved = await saveCompleteDraft(applicant.cookie, application.id)
     await insertRequiredEvidence(application.id, applicant.userId)
-    const loaded = await loadOwnedApplication(db, applicant.userId, application.id)
+    const loaded = await loadOwnedApplication(db, readPinnedFormDirectly(db), applicant.userId, application.id)
     const currentVersion = await findApplicationVersion(db, application.id, saved.currentVersion)
     if (!loaded || !currentVersion) throw new Error('submission aggregate missing')
 
@@ -2170,7 +2171,7 @@ describe('applicant application business service', () => {
     ])
 
     const revisionHead = await loadOwnedApplication(
-      activeDatabase(),
+      activeDatabase(), readPinnedFormDirectly(activeDatabase()),
       applicant.userId,
       application.id,
     )

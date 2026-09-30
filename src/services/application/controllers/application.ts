@@ -1,4 +1,5 @@
 /** Applicant application, validation, eligibility, and submission use cases. */
+import { pinnedFormReader } from '../../../loaders'
 import { auditActions, applicationStatuses } from '../../../db/schema'
 import { decodeCursor, pageSize } from '../pagination'
 import {
@@ -185,7 +186,7 @@ export const applicationById = async (
 ): Promise<SebResult<Application>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
-  const application = await loadOwnedApplication(context.db, applicant.id, id, true)
+  const application = await loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, id, true)
   return application ? success(application) : failure('The application was not found.')
 }
 
@@ -287,7 +288,7 @@ export const startApplication = async (
    * the draft would exist with no questions, and the applicant would be told
    * nothing about why. Refused here rather than at the first save.
    */
-  const rules = await findPinnedCycleRules(context.db, cycle.id, cycle.currentVersion)
+  const rules = await pinnedFormReader(context.loaders)(cycle.id, cycle.currentVersion)
   if (!rules) return failure('This programme cycle has no application form yet.')
 
   const applicationId = crypto.randomUUID()
@@ -334,7 +335,7 @@ export const startApplication = async (
     )
   }
   return success(requireInvariant(
-    await loadOwnedApplication(context.db, applicant.id, applicationId),
+    await loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, applicationId),
     'Created application could not be read.',
   ))
 }
@@ -393,7 +394,7 @@ export const saveApplicationDraft = async (
    * what the form is.
    */
   const rules = await findPinnedRulesForApplication(
-    context.db, application.id, application.currentVersion,
+    context.db, pinnedFormReader(context.loaders), application.id, application.currentVersion,
   )
   if (!rules) return failure('The form this application was filled against could not be read.')
 
@@ -449,7 +450,7 @@ export const saveApplicationDraft = async (
   return completeGuardedOperation(
     saved,
     'The application changed. Refresh it and try again.',
-    () => loadOwnedApplication(context.db, applicant.id, application.id),
+    () => loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, application.id),
     'Saved application could not be read.',
   )
 }
@@ -460,10 +461,10 @@ export const validateApplication = async (
 ): Promise<SebResult<ValidationReport>> => {
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
-  const application = await loadOwnedApplication(context.db, applicant.id, applicationId)
+  const application = await loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, applicationId)
   if (!application) return failure('The application was not found.')
   const rules = await findPinnedRulesForApplication(
-    context.db, application.id, application.currentVersion,
+    context.db, pinnedFormReader(context.loaders), application.id, application.currentVersion,
   )
   if (!rules) return failure('The form this application was filled against could not be read.')
   return success(validateAnswersForSubmission(
@@ -525,7 +526,7 @@ const changeApplicationDeletion = async (
   return completeGuardedOperation(
     changed,
     'The application state changed. Refresh it and try again.',
-    () => loadOwnedApplication(context.db, applicant.id, head.id, true),
+    () => loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, head.id, true),
     'Changed application could not be read.',
   )
 }
@@ -648,7 +649,7 @@ const submit = async (
    * what makes the day they do not so hard to find.
    */
   const rules = await findPinnedRulesForApplication(
-    context.db, application.id, application.currentVersion,
+    context.db, pinnedFormReader(context.loaders), application.id, application.currentVersion,
   )
   if (!rules) return failure('The form this application was filled against could not be read.')
   const answers = application.answers
@@ -715,7 +716,7 @@ const submit = async (
   const result = await completeGuardedOperation(
     submitted === true,
     'The application changed. Refresh it and try again.',
-    () => loadOwnedApplication(context.db, applicant.id, application.id),
+    () => loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, application.id),
     'Submitted application could not be read.',
   )
   if (submitted === true && result.success && result.response) {
@@ -767,7 +768,7 @@ export const applicationFormTemplate = async (
   const owned = await ownedApplication<ApplicationFormTemplate>(applicationId, context)
   if ('refusal' in owned) return owned.refusal
   const rules = await findPinnedRulesForApplication(
-    context.db, owned.application.id, owned.application.currentVersion,
+    context.db, pinnedFormReader(context.loaders), owned.application.id, owned.application.currentVersion,
   )
   return rules
     ? success({ ...rules.template, grantCeilingPaise: applicationGrantCeiling(rules.policy) })
@@ -787,7 +788,7 @@ export const applicationDraftChanges = async (
     comparedToSubmissionNumber: number
   }>(applicationId, context)
   if ('refusal' in owned) return owned.refusal
-  const changes = await findDraftChanges(context.db, owned.application)
+  const changes = await findDraftChanges(context.db, pinnedFormReader(context.loaders), owned.application)
   return changes
     ? success(changes)
     : failure('This application has not been submitted yet, so there is nothing to compare.')

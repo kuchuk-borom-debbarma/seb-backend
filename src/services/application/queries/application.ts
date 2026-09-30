@@ -56,6 +56,7 @@ import {
   answersFromRows,
   findAnswerRows,
   findPinnedCycleRules,
+  type PinnedFormReader,
   type AnswerRow,
 } from './form-template'
 import { encodeCursor } from '../pagination'
@@ -333,6 +334,7 @@ const listRevisionRequests = async (db: Database, applicationId: string) =>
  */
 export const loadOwnedApplication = async (
   db: Database,
+  readForm: PinnedFormReader,
   userId: string,
   applicationId: string,
   includeDeleted = false,
@@ -346,7 +348,7 @@ export const loadOwnedApplication = async (
   ])
   const current = requireInvariant(version, 'Application current version is missing.')
   const rules = requireInvariant(
-    await findPinnedCycleRules(db, current.programmeCycleId, current.programmeCycleVersion),
+    await readForm(current.programmeCycleId, current.programmeCycleVersion),
     'The form this application was filled against could not be read.',
   )
   const rows = await findAnswerRows(db, [current.id])
@@ -413,6 +415,7 @@ const editableStageKeysFor = (
  */
 export const findDraftChanges = async (
   db: Database,
+  readForm: PinnedFormReader,
   head: ApplicationHeadRecord,
 ): Promise<{ stageKeys: ApplicationSection[]; comparedToSubmissionNumber: number } | null> => {
   const [latest] = await db
@@ -438,9 +441,7 @@ export const findDraftChanges = async (
   const submitted = versions.find((version) => version.version === latest.applicationVersion)
   const current = versions.find((version) => version.version === head.currentVersion)
   if (!submitted || !current) return null
-  const rules = await findPinnedCycleRules(
-    db, current.programmeCycleId, current.programmeCycleVersion,
-  )
+  const rules = await readForm(current.programmeCycleId, current.programmeCycleVersion)
   if (!rules) {
     return { stageKeys: [], comparedToSubmissionNumber: latest.submissionNumber }
   }

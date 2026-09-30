@@ -13,6 +13,7 @@
  * handed to the query and repeated in its SQL, so a count, a page and a single
  * file all see the same set, and a file outside it reads as not found.
  */
+import { pinnedFormReader } from '../../../loaders'
 import { getCurrentSession } from '../../auth'
 import { holdsPermission } from '../../auth/permissions'
 import { readScopeOf, type ReadScope } from '../../pipeline/queries/stage-scope'
@@ -126,7 +127,7 @@ export const intakeWorkspace = async (
 ): Promise<AdminResult<unknown>> => {
   const reader = await staffScope(context)
   if (!reader) return failure(ADMIN_REQUIRED_MESSAGE)
-  const workspace = await loadWorkspace(context.db, applicationId, reader.scope)
+  const workspace = await loadWorkspace(context.db, pinnedFormReader(context.loaders), applicationId, reader.scope)
   return workspace ? success(workspace) : failure('The application was not found.')
 }
 
@@ -169,7 +170,7 @@ export const addInternalNote = async (
     scope,
   }))
   return inserted
-    ? success(await loadWorkspace(context.db, input.applicationId, scope))
+    ? success(await loadWorkspace(context.db, pinnedFormReader(context.loaders), input.applicationId, scope))
     : failure('The note could not be added.')
 }
 

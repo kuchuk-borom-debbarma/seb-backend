@@ -44,7 +44,10 @@ import {
   sebRevisionRequest,
 } from '../../../db/schema'
 import { roleAnswerText } from '../../application/queries/answer-sql'
-import { findPinnedRulesForApplication } from '../../application/queries/form-template'
+import {
+  findPinnedRulesForApplication,
+  type PinnedFormReader,
+} from '../../application/queries/form-template'
 import { changedStageKeys, pinnedFilesOf } from '../../application/form/answers'
 import type { AnswerMap } from '../../application/form/types'
 import {
@@ -410,6 +413,7 @@ export const listIntakeQueue = async (
 
 export const loadWorkspace = async (
   db: Database,
+  readForm: PinnedFormReader,
   applicationId: string,
   scope: ReadScope,
 ) => {
@@ -425,7 +429,7 @@ export const loadWorkspace = async (
    * would offer refusals.
    */
   const rules = await findPinnedRulesForApplication(
-    db, applicationId, head.application.currentVersion,
+    db, readForm, applicationId, head.application.currentVersion,
   )
   const [submissions, documents, revisions, timeline, notes] = await Promise.all([
     db.select().from(sebApplicationSubmission)
@@ -484,9 +488,9 @@ export const loadWorkspace = async (
    * thrown — which is exactly what `answersByVersion` exists to make
    * impossible to express.
    */
-  const pinnedRules = await findPinnedCycleRules(
-    db, frozenSnapshot.programmeCycleId, frozenSnapshot.programmeCycleVersion,
-  )
+  // Through the request's reader: the latest submission is usually against
+  // the same version as the head, and then this reads nothing.
+  const pinnedRules = await readForm(frozenSnapshot.programmeCycleId, frozenSnapshot.programmeCycleVersion)
   const answersByVersionId = pinnedRules
     ? answersByVersion(
         pinnedRules.template,

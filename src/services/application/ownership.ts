@@ -10,6 +10,7 @@
  * Lives outside `support.ts` because it needs the query layer, and `support.ts`
  * is what the query layer itself imports.
  */
+import { pinnedFormReader } from '../../loaders'
 import {
   findOwnedApplicationHead,
   loadOwnedApplication,
@@ -80,8 +81,7 @@ export const ownedApplicationAtVersion = async (
 > => {
   const authorized = await applicantForVersionedWrite<Application>(input, context)
   if ('refusal' in authorized) return authorized
-  const application = await loadOwnedApplication(
-    context.db, authorized.applicantId, input.applicationId,
+  const application = await loadOwnedApplication(context.db, pinnedFormReader(context.loaders), authorized.applicantId, input.applicationId,
   )
   if (!application) return { refusal: failure(APPLICATION_NOT_FOUND_MESSAGE) }
   if (

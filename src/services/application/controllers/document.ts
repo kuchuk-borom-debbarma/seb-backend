@@ -1,4 +1,5 @@
 /** Applicant document authorization, finalization, download, and lifecycle. */
+import { pinnedFormReader } from '../../../loaders'
 import { auditActions } from '../../../db/schema'
 import { batch } from '../../../db'
 import { findPinnedRulesForApplication } from '../queries/form-template'
@@ -142,7 +143,7 @@ export const issueDocumentUpload = async (
    * too: it asks which stage this slot belongs to.
    */
   const pinned = await findPinnedRulesForApplication(
-    context.db,
+    context.db, pinnedFormReader(context.loaders),
     application.id,
     application.currentVersion,
   )
@@ -260,7 +261,7 @@ export const finalizeDocumentUpload = async (
   )
   const finalizePinned = application
     ? await findPinnedRulesForApplication(
-        context.db, application.id, application.currentVersion,
+        context.db, pinnedFormReader(context.loaders), application.id, application.currentVersion,
       )
     : null
   if (
@@ -394,7 +395,7 @@ const changeDocumentDeletion = async (
   )
   if (!document) return failure('The document was not found or its state changed.')
   const pinned = await findPinnedRulesForApplication(
-    context.db,
+    context.db, pinnedFormReader(context.loaders),
     application.id,
     application.currentVersion,
   )
