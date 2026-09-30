@@ -9,39 +9,38 @@
  */
 import { sql } from 'drizzle-orm'
 import {
-  boolean,
   check,
   foreignKey,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 import { coreUser } from '../core/auth'
-import { dateOnly, instant, paise, versionedSoftDeleteColumns } from '../shared'
+import { instant, versionedSoftDeleteColumns } from '../shared'
 import { sebFundingCase } from './case'
 import {
   businessSectors,
   registrationTypes,
   sebEnterprise,
 } from './enterprise'
+import { sebPipelineVersion, sebPipelineVersionStage } from './pipeline'
 import { sebProgrammeCycle, sebProgrammeCycleVersion } from './programme'
 
-export const applicationStatuses = [
-  'DRAFT',
-  'SUBMITTED',
-  'DESK_REVIEW',
-  'REVISION_REQUIRED',
-  'PARTNER_BANK_EVALUATION',
-  'AWAITING_DECISION',
-  'APPROVED',
-  'REJECTED',
-  'SANCTIONED',
-  'DISBURSED',
-  'CANCELLED',
-] as const
+/**
+ * The two states the code itself owns.
+ *
+ * Everything an office would call a status — in review, grant approved, with
+ * the bank, rejected — is a **status flag** its pipeline declares, held in
+ * `status_flags`. What stays here is only the line nothing configurable may
+ * move: before the first submission the applicant owns the form; after it, the
+ * pipeline does. Whether the applicant may edit again is derived from open
+ * revision requests, which only a revision effect can create.
+ */
+export const applicationStatuses = ['DRAFT', 'IN_PIPELINE'] as const
 
 export const applicationChangeTypes = [
   'INITIAL',
@@ -50,7 +49,6 @@ export const applicationChangeTypes = [
   'SUBMISSION',
   'RESUBMISSION',
 ] as const
-export const applicationTypes = ['INITIAL', 'EXPANSION'] as const
 export const applicationCategories = ['CATEGORY_A', 'CATEGORY_B'] as const
 /*
  * There were four more closed sets here — designations, genders, credit
@@ -76,23 +74,37 @@ export const sebApplication = pgTable(
     programmeCycleId: text('programme_cycle_id')
       .notNull()
       .references(() => sebProgrammeCycle.id, { onDelete: 'restrict' }),
-    applicationType: text('application_type', { enum: applicationTypes })
-      .notNull()
-      .default('INITIAL'),
+    /*
+     * Which of its cycle's configured application kinds this is — the cycle
+     * decides what kinds exist and who may start each, so the code knows no
+     * names here.
+     */
+    applicationKind: text('application_kind').notNull(),
     phaseNumber: integer('phase_number').notNull().default(1),
     referenceNumber: text('reference_number').unique(),
     ...versionedSoftDeleteColumns(() => coreUser.id),
     status: text('status', { enum: applicationStatuses }).notNull().default('DRAFT'),
     statusVersion: integer('status_version').notNull().default(1),
     statusChangedAt: instant('status_changed_at').notNull(),
-    // Assignment is duplicated on the head for fast work queues. Immutable
-    // assignment events retain how and why the pointer changed.
-    assignedToUserId: text('assigned_to_user_id').references(() => coreUser.id, {
-      onDelete: 'restrict',
-    }),
-    assignedAt: instant('assigned_at'),
-    assignmentVersion: integer('assignment_version').notNull().default(0),
     firstSubmittedAt: instant('first_submitted_at'),
+    /*
+     * The pipeline version the application is worked in — its cycle's pin,
+     * copied when it starts, so a later publish never re-routes it.
+     */
+    pipelineId: text('pipeline_id').notNull(),
+    pipelineVersion: integer('pipeline_version').notNull(),
+    /*
+     * Where it is now, and since when. Null before the first submission and
+     * after the journey ends — a terminal flag is what says which way it ended.
+     */
+    currentStageKey: text('current_stage_key'),
+    stageEnteredAt: instant('stage_entered_at'),
+    /** The stages it came through, newest last: what "send back" returns along. */
+    stageTrail: text('stage_trail').array().notNull().default(sql`'{}'::text[]`),
+    /** The configured status flags it holds now. History is on the action rows. */
+    statusFlags: text('status_flags').array().notNull().default(sql`'{}'::text[]`),
+    /** Values actions recorded, such as the approved grant, by their declared key. */
+    recordedValues: jsonb('recorded_values').notNull().default(sql`'{}'::jsonb`),
   },
   (table) => [
     // The two composite keys make ownership and case membership database
@@ -121,25 +133,63 @@ export const sebApplication = pgTable(
     ),
     check('seb_application_current_version_check', sql`${table.currentVersion} >= 1`),
     check('seb_application_status_version_check', sql`${table.statusVersion} >= 1`),
-    check('seb_application_assignment_version_check', sql`${table.assignmentVersion} >= 0`),
+    foreignKey({
+      columns: [table.pipelineId, table.pipelineVersion],
+      foreignColumns: [sebPipelineVersion.pipelineId, sebPipelineVersion.version],
+      name: 'seb_application_pipeline_version_fk',
+    }).onDelete('restrict'),
+    // The stage must be one the pinned version actually has. A null stage is
+    // not checked, which is what a draft and a finished file need.
+    foreignKey({
+      columns: [table.pipelineId, table.pipelineVersion, table.currentStageKey],
+      foreignColumns: [
+        sebPipelineVersionStage.pipelineId,
+        sebPipelineVersionStage.version,
+        sebPipelineVersionStage.stageKey,
+      ],
+      name: 'seb_application_current_stage_fk',
+    }).onDelete('restrict'),
     check(
-      'seb_application_assignment_group_check',
-      sql`(${table.assignedToUserId} IS NULL AND ${table.assignedAt} IS NULL)
-        OR (${table.assignedToUserId} IS NOT NULL AND ${table.assignedAt} IS NOT NULL)`,
+      'seb_application_kind_check',
+      sql`${table.applicationKind} ~ '^[A-Z][A-Z0-9_]{1,63}$'`,
+    ),
+    /*
+     * A draft is at no stage. A file in the pipeline is either at a stage,
+     * with the time it arrived, or at none because its journey has ended.
+     * Written with every NULL arm explicit, because a CHECK that evaluates to
+     * NULL passes.
+     */
+    check(
+      'seb_application_stage_lifecycle_check',
+      sql`(${table.status} = 'DRAFT' AND ${table.currentStageKey} IS NULL AND ${table.stageEnteredAt} IS NULL)
+        OR (${table.status} = 'IN_PIPELINE' AND ${table.currentStageKey} IS NOT NULL AND ${table.stageEnteredAt} IS NOT NULL)
+        OR (${table.status} = 'IN_PIPELINE' AND ${table.currentStageKey} IS NULL AND ${table.stageEnteredAt} IS NULL)`,
+    ),
+    /*
+     * Flags are keys, never NULLs, and bounded. `array_to_string` silently
+     * skips a NULL element, which is why `array_position` checks for one.
+     */
+    check(
+      'seb_application_status_flags_check',
+      sql`cardinality(${table.statusFlags}) <= 32
+        AND array_position(${table.statusFlags}, NULL) IS NULL
+        AND array_to_string(${table.statusFlags}, ',') ~ '^$|^[A-Z][A-Z0-9_]{1,63}(,[A-Z][A-Z0-9_]{1,63})*$'`,
+    ),
+    check(
+      'seb_application_stage_trail_check',
+      sql`cardinality(${table.stageTrail}) <= 64
+        AND array_position(${table.stageTrail}, NULL) IS NULL
+        AND array_to_string(${table.stageTrail}, ',') ~ '^$|^[A-Z][A-Z0-9_]{1,63}(,[A-Z][A-Z0-9_]{1,63})*$'`,
+    ),
+    check(
+      'seb_application_recorded_values_check',
+      sql`jsonb_typeof(${table.recordedValues}) = 'object' AND octet_length(${table.recordedValues}::text) <= 8192`,
     ),
     check(
       'seb_application_status_check',
-      sql`${table.status} IN ('DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED', 'PARTNER_BANK_EVALUATION', 'AWAITING_DECISION', 'APPROVED', 'REJECTED', 'SANCTIONED', 'DISBURSED', 'CANCELLED')`,
+      sql`${table.status} IN ('DRAFT', 'IN_PIPELINE')`,
     ),
-    check(
-      'seb_application_type_check',
-      sql`${table.applicationType} IN ('INITIAL', 'EXPANSION')`,
-    ),
-    check(
-      'seb_application_phase_check',
-      sql`(${table.applicationType} = 'INITIAL' AND ${table.phaseNumber} = 1)
-        OR (${table.applicationType} = 'EXPANSION' AND ${table.phaseNumber} >= 2)`,
-    ),
+    check('seb_application_phase_check', sql`${table.phaseNumber} >= 1`),
     /*
      * Deletion is a predicate, not a key column.
      *
@@ -166,11 +216,22 @@ export const sebApplication = pgTable(
     index('seb_application_status_idx')
       .on(table.status, table.updatedAt)
       .where(sql`${table.deletedAt} IS NULL`),
-    index('seb_application_assignment_idx').on(
-      table.assignedToUserId,
-      table.status,
-      table.statusChangedAt,
-    ),
+    /*
+     * A stage's queue: everything at one stage, in arrival order. The keyset
+     * cursor is `(stage_entered_at, id)`, so the seek and the ordering share
+     * this index and a page never sorts.
+     */
+    index('seb_application_stage_queue_idx')
+      .on(table.pipelineId, table.currentStageKey, table.stageEnteredAt, table.id)
+      .where(sql`${table.deletedAt} IS NULL AND ${table.currentStageKey} IS NOT NULL`),
+    // "Everything holding GRANT_APPROVED" — containment on an array is a GIN
+    // question; a btree cannot answer it.
+    index('seb_application_status_flags_idx')
+      .using('gin', table.statusFlags)
+      .where(sql`${table.deletedAt} IS NULL`),
+    index('seb_application_pipeline_status_idx')
+      .on(table.pipelineId, table.status, table.statusChangedAt)
+      .where(sql`${table.deletedAt} IS NULL`),
     /*
      * The administrative queue's default ordering, with no cycle or status
      * narrowing it. Every other index containing these columns is led by one
@@ -216,20 +277,11 @@ export const sebApplication = pgTable(
  * exact cycle version it was filled against — and the small set of values an
  * applicant must never be able to assert.
  *
- * ## Why the expansion facts are columns and not answers
- *
- * `priorSanctionOrderNumber`, `priorSanctionDate`, `priorNetDisbursedAmountPaise`
- * and `continuousOperationMonths` are derived by the server from the qualifying
- * award and the disbursement ledger, and are re-checked against live aggregates
- * inside the guarded write. As answer rows the only thing preventing an
- * applicant claiming a ten-crore prior sanction would be the engine remembering
- * to strip four keys on every path — a boundary maintained by vigilance rather
- * than by structure. A column the answer path cannot write is the boundary.
- *
- * `declarationAcceptedAt` is here for a related reason: the server re-stamps it
- * on every submission, so as an answer it would be both applicant-writable and
- * different on every save, making every submission differ from the draft it
- * came from and breaking both the no-op check and the change diff.
+ * `declarationAcceptedAt` is a column rather than an answer because the
+ * server re-stamps it on every submission, so as an answer it would be both
+ * applicant-writable and different on every save, making every submission
+ * differ from the draft it came from and breaking both the no-op check and the
+ * change diff.
  */
 export const sebApplicationVersion = pgTable(
   'seb_application_version',
@@ -242,7 +294,7 @@ export const sebApplicationVersion = pgTable(
     // follow later policy or phase corrections.
     programmeCycleId: text('programme_cycle_id').notNull(),
     programmeCycleVersion: integer('programme_cycle_version').notNull(),
-    applicationType: text('application_type', { enum: applicationTypes }).notNull(),
+    applicationKind: text('application_kind').notNull(),
     phaseNumber: integer('phase_number').notNull(),
     changeType: text('change_type', { enum: applicationChangeTypes }).notNull(),
     changeReason: text('change_reason'),
@@ -250,13 +302,6 @@ export const sebApplicationVersion = pgTable(
       .notNull()
       .references(() => coreUser.id, { onDelete: 'restrict' }),
     createdAt: instant('created_at').notNull(),
-
-    // Server-derived prior-award facts. See the header for why these are not
-    // answers; the write re-checks them against the live ledger.
-    priorSanctionOrderNumber: text('prior_sanction_order_number'),
-    priorSanctionDate: dateOnly('prior_sanction_date'),
-    priorNetDisbursedAmountPaise: paise('prior_net_disbursed_amount_paise'),
-    continuousOperationMonths: integer('continuous_operation_months'),
 
     // Stamped by the server on submission, never sent by the applicant.
     declarationAcceptedAt: instant('declaration_accepted_at'),
@@ -299,14 +344,10 @@ export const sebApplicationVersion = pgTable(
     unique('seb_application_version_number_uq').on(table.applicationId, table.version),
     check('seb_application_version_number_check', sql`${table.version} >= 1`),
     check(
-      'seb_application_version_type_check',
-      sql`${table.applicationType} IN ('INITIAL', 'EXPANSION')`,
+      'seb_application_version_kind_check',
+      sql`${table.applicationKind} ~ '^[A-Z][A-Z0-9_]{1,63}$'`,
     ),
-    check(
-      'seb_application_version_phase_check',
-      sql`(${table.applicationType} = 'INITIAL' AND ${table.phaseNumber} = 1)
-        OR (${table.applicationType} = 'EXPANSION' AND ${table.phaseNumber} >= 2)`,
-    ),
+    check('seb_application_version_phase_check', sql`${table.phaseNumber} >= 1`),
     check(
       'seb_application_version_change_type_check',
       sql`${table.changeType} IN ('INITIAL', 'SAVE', 'REVISION', 'SUBMISSION', 'RESUBMISSION')`,
@@ -325,13 +366,7 @@ export const sebApplicationVersion = pgTable(
       table.programmeCycleId,
       table.programmeCycleVersion,
     ),
-    check(
-      'seb_application_version_prior_award_check',
-      sql`(${table.priorNetDisbursedAmountPaise} IS NULL
-          OR (${table.priorNetDisbursedAmountPaise} >= 0
-              AND ${table.priorNetDisbursedAmountPaise} <= 9007199254740991))
-        AND (${table.continuousOperationMonths} IS NULL OR ${table.continuousOperationMonths} >= 0)`,
-    ),
+
     /*
      * The queue's category filter and the analytics category grouping both
      * read this column on the frozen submitted version. Partial, because every

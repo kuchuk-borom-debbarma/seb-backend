@@ -17,10 +17,9 @@ export const auditOutcomes = ['SUCCESS', 'FAILURE'] as const
  *
  * Two absences are deliberate rather than missing:
  *
- * - **Asking an applicant for a correction** has no action of its own. It
- *   happens three ways — a desk review, a bank outcome, a programme decision —
- *   and each already records itself with the outcome that caused it, so a
- *   separate name would be a second copy of the same fact.
+ * - **Asking an applicant for a correction** has no action of its own. It is
+ *   one effect of a configured stage action, and the action records itself
+ *   with what it did, so a separate name would be a second copy of the fact.
  * - **Claiming, releasing and reassigning** are gone with the claim itself.
  */
 export const auditActions = {
@@ -90,38 +89,25 @@ export const auditActions = {
   announcementUpdated: 'SEB.ANNOUNCEMENT_UPDATED',
   announcementRemoved: 'SEB.ANNOUNCEMENT_REMOVED',
   announcementReordered: 'SEB.ANNOUNCEMENT_REORDERED',
+  pipelineCreated: 'SEB.PIPELINE_CREATED',
+  pipelineDraftSaved: 'SEB.PIPELINE_DRAFT_SAVED',
+  pipelinePublished: 'SEB.PIPELINE_PUBLISHED',
+  pipelineDraftDiscarded: 'SEB.PIPELINE_DRAFT_DISCARDED',
+  pipelineRetired: 'SEB.PIPELINE_RETIRED',
+  pipelineStageOwnersChanged: 'SEB.PIPELINE_STAGE_OWNERS_CHANGED',
+  stageActionTaken: 'SEB.STAGE_ACTION_TAKEN',
   internalNoteAdded: 'SEB.INTERNAL_NOTE_ADDED',
-  deskReviewStarted: 'SEB.DESK_REVIEW_STARTED',
-  deskReviewCompleted: 'SEB.DESK_REVIEW_COMPLETED',
   revisionCancelled: 'SEB.REVISION_CANCELLED',
-  bankReferred: 'SEB.BANK_REFERRED',
-  bankReferralCancelled: 'SEB.BANK_REFERRAL_CANCELLED',
-  bankOutcomeRecorded: 'SEB.BANK_OUTCOME_RECORDED',
-  bankOutcomeCorrected: 'SEB.BANK_OUTCOME_CORRECTED',
-  decisionRecorded: 'SEB.DECISION_RECORDED',
-  decisionCorrected: 'SEB.DECISION_CORRECTED',
   selfReviewDisclosed: 'SEB.SELF_REVIEW_DISCLOSED',
-  awardCreated: 'SEB.AWARD_CREATED',
-  awardChanged: 'SEB.AWARD_CHANGED',
-  releaseRecorded: 'SEB.RELEASE_RECORDED',
-  releaseReversed: 'SEB.RELEASE_REVERSED',
-  assessmentRecorded: 'SEB.ASSESSMENT_RECORDED',
-  recoveryOpened: 'SEB.RECOVERY_OPENED',
-  recoveryEntryRecorded: 'SEB.RECOVERY_ENTRY_RECORDED',
-  recoveryClosed: 'SEB.RECOVERY_CLOSED',
-  recoveryCancelled: 'SEB.RECOVERY_CANCELLED',
   /*
-   * Failure-only, like the two notification actions above: the send is best
-   * effort, and the durable business record is the submission, decision or
-   * award row itself. A success action here would be a second copy of a fact
+   * Failure-only: the send is best effort, and the durable business record is
+   * the submission or stage-action row itself. A success action here would be a second copy of a fact
    * the history already carries; what the office cannot see anywhere else is
    * an applicant who was never told.
    */
   submissionConfirmationFailed: 'SEB.SUBMISSION_CONFIRMATION_FAILED',
-  approvalNotificationFailed: 'SEB.APPROVAL_NOTIFICATION_FAILED',
-  sanctionNotificationFailed: 'SEB.SANCTION_NOTIFICATION_FAILED',
   revisionNotificationFailed: 'SEB.REVISION_NOTIFICATION_FAILED',
-  releaseNotificationFailed: 'SEB.RELEASE_NOTIFICATION_FAILED',
+  stageNotificationFailed: 'SEB.STAGE_NOTIFICATION_FAILED',
   /*
    * Taking the history out of the system is itself history. The rows an export
    * carried are not copied here — they are still in this table — but who took

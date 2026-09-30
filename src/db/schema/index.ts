@@ -17,6 +17,8 @@ import {
   sebProgrammeCycleFormField,
   sebProgrammeCycleFormFieldCondition,
   sebProgrammeCycleFormFieldOption,
+  sebProgrammeCycleFormRule,
+  sebProgrammeCycleFormRuleOperand,
   sebProgrammeCycleFormStage,
 } from './seb/form-template'
 import {
@@ -35,37 +37,21 @@ import {
 import { sebAnnouncement, sebAnnouncementBoard } from './seb/announcement'
 import { sebEnterprise, sebEnterpriseVersion } from './seb/enterprise'
 import {
-  sebApplicationQualifyingAward,
-  sebApplicationQualifyingAwardVersion,
-  sebAwardAssessment,
-  sebDisbursement,
-  sebFundingAward,
-  sebFundingAwardVersion,
-  sebUtilizationObligation,
-} from './seb/funding'
+  sebPipeline,
+  sebPipelineStage,
+  sebPipelineStageOwner,
+  sebPipelineVersion,
+  sebPipelineVersionStage,
+} from './seb/pipeline'
 import {
   sebProgrammeCycle,
-  sebProgrammeCycleAssessmentRule,
+  sebProgrammeCycleApplicationKind,
+  sebProgrammeCycleApplicationKindRule,
   sebProgrammeCycleEvent,
-  sebProgrammeCycleIdentifierRule,
-  sebProgrammeCycleReason,
   sebProgrammeCycleVersion,
 } from './seb/programme'
-import {
-  sebApplicationAssignmentEvent,
-  sebApplicationInternalNote,
-  sebDeskReview,
-  sebDeskReviewCheck,
-  sebDeskReviewIdentifier,
-} from './seb/review'
-import {
-  sebPartnerBankOutcome,
-  sebPartnerBankReferral,
-  sebPartnerBankReferralVersion,
-  sebProgrammeDecision,
-} from './seb/decision'
-import { sebRecoveryCase, sebRecoveryCaseVersion, sebRecoveryEntry } from './seb/recovery'
-import { sebApplicationEvent, sebRevisionRequest } from './seb/workflow'
+import { sebApplicationInternalNote } from './seb/review'
+import { sebApplicationEvent, sebApplicationStageAction, sebRevisionRequest } from './seb/workflow'
 
 export * from './shared'
 export * from './core/audit'
@@ -76,13 +62,11 @@ export * from './seb/case'
 export * from './seb/announcement'
 export * from './seb/document'
 export * from './seb/policy-document'
-export * from './seb/decision'
 export * from './seb/answer'
 export * from './seb/enterprise'
 export * from './seb/form-template'
-export * from './seb/funding'
+export * from './seb/pipeline'
 export * from './seb/programme'
-export * from './seb/recovery'
 export * from './seb/review'
 export * from './seb/workflow'
 
@@ -100,9 +84,8 @@ export const schema = {
   sebEnterpriseVersion,
   sebProgrammeCycle,
   sebProgrammeCycleVersion,
-  sebProgrammeCycleAssessmentRule,
-  sebProgrammeCycleIdentifierRule,
-  sebProgrammeCycleReason,
+  sebProgrammeCycleApplicationKind,
+  sebProgrammeCycleApplicationKindRule,
   sebProgrammeCycleEvent,
   /*
    * The four template tables, which were imported and never listed.
@@ -117,6 +100,8 @@ export const schema = {
   sebProgrammeCycleFormField,
   sebProgrammeCycleFormFieldOption,
   sebProgrammeCycleFormFieldCondition,
+  sebProgrammeCycleFormRule,
+  sebProgrammeCycleFormRuleOperand,
   sebFundingCase,
   sebFundingCaseVersion,
   sebApplication,
@@ -136,23 +121,11 @@ export const schema = {
   sebAnnouncementBoard,
   sebRevisionRequest,
   sebApplicationEvent,
-  sebApplicationAssignmentEvent,
   sebApplicationInternalNote,
-  sebDeskReview,
-  sebDeskReviewCheck,
-  sebDeskReviewIdentifier,
-  sebPartnerBankReferral,
-  sebPartnerBankReferralVersion,
-  sebPartnerBankOutcome,
-  sebProgrammeDecision,
-  sebFundingAward,
-  sebFundingAwardVersion,
-  sebApplicationQualifyingAward,
-  sebApplicationQualifyingAwardVersion,
-  sebDisbursement,
-  sebUtilizationObligation,
-  sebAwardAssessment,
-  sebRecoveryCase,
-  sebRecoveryCaseVersion,
-  sebRecoveryEntry,
+  sebPipeline,
+  sebPipelineVersion,
+  sebPipelineStage,
+  sebPipelineStageOwner,
+  sebPipelineVersionStage,
+  sebApplicationStageAction,
 }
