@@ -1004,24 +1004,6 @@ export const listApplicantProgrammeCycles = async (
   ))
 }
 
-export const findOpenProgrammeCycle = async (
-  db: Database,
-  cycleId: string,
-  now: Date,
-): Promise<ProgrammeCycleRecord | null> => {
-  const [cycle] = await db
-    .select()
-    .from(sebProgrammeCycle)
-    .where(
-      and(
-        eq(sebProgrammeCycle.id, cycleId),
-        programmeCycleOpenAt(now),
-      ),
-    )
-    .limit(1)
-  return cycle ?? null
-}
-
 /**
  * How a cycle introduces itself on paper.
  *
@@ -1095,8 +1077,42 @@ export const findEnterpriseApplicationSource = async (
   return row ?? null
 }
 
+/** A kind as the cycle declares it, with its rules in order. */
+export type CycleApplicationKind = {
+  kindKey: string
+  label: string
+  description: string | null
+  rules: EligibilityRule[]
+}
+
+/** What `findOpenCycleEligibility` reads: all a judgement of the kinds needs. */
+export type OpenCycleEligibility = {
+  cycle: ProgrammeCycleRecord
+  kinds: CycleApplicationKind[]
+  history: EligibilityHistory
+}
+
+type StoredPriorApplication = {
+  id: string
+  kind: string
+  pipelineKey: string
+  status: string
+  currentStageKey: string | null
+  flags: string[]
+  recorded: Record<string, AnswerValue> | null
+  /** When each flag was last added, by any action on this application. */
+  flagAddedAt: Record<string, string>
+}
+
 /**
- * Everything an eligibility rule may ask about one enterprise, in two reads.
+ * The open cycle, the kinds its current version declares, and everything an
+ * eligibility rule may ask about the enterprise — in one statement.
+ *
+ * Null when the cycle is not open, which every caller refuses on before it
+ * judges anything. Keyed by the cycle rather than a version because eligibility
+ * is judged against the cycle's current version (a draft pinned to an older
+ * one is judged by today's rules), so the statement reads the version the
+ * judgement uses in the same snapshot as the kinds.
  *
  * The rules themselves are pure (`../eligibility`), so what a kind allows is a
  * function of this history alone — which is what lets the applicant be shown
@@ -1109,113 +1125,102 @@ export const findEnterpriseApplicationSource = async (
  * kind at submission must not count that draft as the "open application" the
  * rule forbids.
  */
-export const findEligibilityHistory = async (
+export const findOpenCycleEligibility = async (
   db: Database,
-  enterpriseId: string,
-  now: Date,
-  excludeApplicationId?: string,
-): Promise<EligibilityHistory> => {
-  const [facts, rows, added] = await batch(db, (tx) => [
-    tx
-      .select({ establishmentDate: sebEnterpriseVersion.establishmentDate })
-      .from(sebEnterprise)
-      .innerJoin(
-        sebEnterpriseVersion,
-        and(
-          eq(sebEnterpriseVersion.enterpriseId, sebEnterprise.id),
-          eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
-        ),
-      )
-      .where(eq(sebEnterprise.id, enterpriseId))
-      .limit(1),
-    tx
-      .select({
-        id: sebApplication.id,
-        kind: sebApplication.applicationKind,
-        pipelineKey: sebPipeline.key,
-        status: sebApplication.status,
-        currentStageKey: sebApplication.currentStageKey,
-        flags: sebApplication.statusFlags,
-        recorded: sebApplication.recordedValues,
-      })
-      .from(sebApplication)
-      .innerJoin(sebPipeline, eq(sebPipeline.id, sebApplication.pipelineId))
-      .where(and(
-        eq(sebApplication.enterpriseId, enterpriseId),
-        isNull(sebApplication.deletedAt),
-        excludeApplicationId ? ne(sebApplication.id, excludeApplicationId) : undefined,
-      ))
-      .limit(MAX_COLLECTION_ROWS),
-    /*
-     * When each flag was last added, per application, from the action rows —
-     * the head holds only which flags are held now. Grouped in SQL so the
-     * cost is one row per (application, flag) rather than one per action.
-     */
-    tx
-      .select({
-        applicationId: sql<string>`action.application_id`,
-        flag: sql<string>`added.flag`,
-        addedAt: sql<Date>`max(action.created_at)`.mapWith(sebApplicationStageAction.createdAt),
-      })
-      // Raw FROM, so the columns above are named through its aliases too:
-      // drizzle refuses a table column the query does not itself select from.
-      .from(sql`${sebApplicationStageAction} AS action
-        CROSS JOIN LATERAL unnest(action.flags_added) AS added(flag)`)
-      .where(sql`action.application_id IN (
-        SELECT ${sebApplication.id} FROM ${sebApplication}
-         WHERE ${sebApplication.enterpriseId} = ${enterpriseId}
-           AND ${sebApplication.deletedAt} IS NULL)`)
-      .groupBy(sql`action.application_id, added.flag`),
-  ])
-  const addedAt = new Map<string, Record<string, Date>>()
-  for (const row of added) {
-    const byFlag = addedAt.get(row.applicationId) ?? {}
-    byFlag[row.flag] = row.addedAt
-    addedAt.set(row.applicationId, byFlag)
-  }
+  input: { cycleId: string; enterpriseId: string; now: Date; excludeApplicationId?: string },
+): Promise<OpenCycleEligibility | null> => {
+  const excluded = input.excludeApplicationId === undefined
+    ? sql``
+    : sql`AND a.id <> ${input.excludeApplicationId}::text`
+  const [row] = await db
+    .select({
+      cycle: sebProgrammeCycle,
+      // As text: a bare `date` is a string under one driver and a Date under
+      // the other.
+      establishmentDate: sql<string | null>`(
+        SELECT ev.establishment_date::text
+        FROM ${sebEnterprise} e
+        JOIN ${sebEnterpriseVersion} ev ON ev.enterprise_id = e.id AND ev.version = e.current_version
+        WHERE e.id = ${input.enterpriseId}
+      )`,
+      kinds: sql<CycleApplicationKind[]>`COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'kindKey', k.kind_key, 'label', k.label, 'description', k.description,
+          'rules', COALESCE((
+            SELECT jsonb_agg(jsonb_build_object('type', r.rule_type, 'params', r.params) ORDER BY r.position)
+            FROM ${sebProgrammeCycleApplicationKindRule} r
+            WHERE r.programme_cycle_id = k.programme_cycle_id
+              AND r.programme_cycle_version = k.programme_cycle_version
+              AND r.kind_key = k.kind_key
+          ), '[]'::jsonb)
+        ) ORDER BY k.sort_order)
+        FROM ${sebProgrammeCycleApplicationKind} k
+        WHERE k.programme_cycle_id = ${input.cycleId}
+          -- Qualified by hand: with one table in FROM, drizzle renders its
+          -- columns bare, and a bare name here would bind to the kind's own.
+          AND k.programme_cycle_version = ${sebProgrammeCycle}.current_version
+      ), '[]'::jsonb)`,
+      /*
+       * When each flag was last added comes from the action rows — the head
+       * holds only which flags are held now — grouped so the cost is one row
+       * per (application, flag) rather than one per action.
+       */
+      priors: sql<StoredPriorApplication[]>`COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'id', a.id, 'kind', a.application_kind, 'pipelineKey', a.pipeline_key,
+          'status', a.status, 'currentStageKey', a.current_stage_key,
+          'flags', to_jsonb(a.status_flags), 'recorded', a.recorded_values,
+          'flagAddedAt', COALESCE((
+            SELECT jsonb_object_agg(added.flag, added.added_at)
+            FROM (
+              SELECT held.flag, max(action.created_at) AS added_at
+              FROM ${sebApplicationStageAction} action
+              CROSS JOIN LATERAL unnest(action.flags_added) AS held(flag)
+              WHERE action.application_id = a.id
+              GROUP BY held.flag
+            ) added
+          ), '{}'::jsonb)
+        ))
+        FROM (
+          SELECT a.id, a.application_kind, a.status, a.current_stage_key,
+            a.status_flags, a.recorded_values, p.key AS pipeline_key
+          FROM ${sebApplication} a
+          JOIN ${sebPipeline} p ON p.id = a.pipeline_id
+          WHERE a.enterprise_id = ${input.enterpriseId}
+            AND a.deleted_at IS NULL
+            ${excluded}
+          LIMIT ${MAX_COLLECTION_ROWS}
+        ) a
+      ), '[]'::jsonb)`,
+    })
+    .from(sebProgrammeCycle)
+    .where(and(eq(sebProgrammeCycle.id, input.cycleId), programmeCycleOpenAt(input.now)))
+    .limit(1)
+  if (!row) return null
   return {
-    now,
-    enterpriseEstablishedOn: facts[0]?.establishmentDate ?? null,
-    applications: rows.map((row) => ({
-      kind: row.kind,
-      pipelineKey: row.pipelineKey,
-      draft: row.status === 'DRAFT',
-      // Submitted, and no stage holds it: an action ended its journey.
-      finished: row.status === 'IN_PIPELINE' && row.currentStageKey === null,
-      flags: row.flags,
-      // Only flags still held have a time that matters; the rest are history.
-      flagAddedAt: Object.fromEntries(
-        Object.entries(addedAt.get(row.id) ?? {}).filter(([flag]) => row.flags.includes(flag)),
-      ),
-      recorded: (row.recorded ?? {}) as Record<string, AnswerValue>,
+    cycle: row.cycle,
+    kinds: row.kinds.map((kind) => ({
+      ...kind,
+      rules: kind.rules.map((rule) => ({ type: rule.type as EligibilityRuleType, params: rule.params })),
     })),
+    history: {
+      now: input.now,
+      enterpriseEstablishedOn: row.establishmentDate,
+      applications: row.priors.map((prior) => ({
+        kind: prior.kind,
+        pipelineKey: prior.pipelineKey,
+        draft: prior.status === 'DRAFT',
+        // Submitted, and no stage holds it: an action ended its journey.
+        finished: prior.status === 'IN_PIPELINE' && prior.currentStageKey === null,
+        flags: prior.flags,
+        // Only flags still held have a time that matters; the rest are history.
+        flagAddedAt: Object.fromEntries(Object.entries(prior.flagAddedAt)
+          .filter(([flag]) => prior.flags.includes(flag))
+          .map(([flag, at]) => [flag, new Date(at)])),
+        recorded: prior.recorded ?? {},
+      })),
+    },
   }
-}
-
-/** The kinds a cycle version declares, in their order, each with its rules. */
-export const findCycleApplicationKinds = async (
-  db: Database,
-  cycleId: string,
-  cycleVersion: number,
-): Promise<Array<{ kindKey: string; label: string; description: string | null; rules: EligibilityRule[] }>> => {
-  const [kinds, rules] = await batch(db, (tx) => [
-    tx.select().from(sebProgrammeCycleApplicationKind).where(and(
-      eq(sebProgrammeCycleApplicationKind.programmeCycleId, cycleId),
-      eq(sebProgrammeCycleApplicationKind.programmeCycleVersion, cycleVersion),
-    )).orderBy(asc(sebProgrammeCycleApplicationKind.sortOrder)),
-    tx.select().from(sebProgrammeCycleApplicationKindRule).where(and(
-      eq(sebProgrammeCycleApplicationKindRule.programmeCycleId, cycleId),
-      eq(sebProgrammeCycleApplicationKindRule.programmeCycleVersion, cycleVersion),
-    )).orderBy(asc(sebProgrammeCycleApplicationKindRule.position)),
-  ])
-  return kinds.map((kind) => ({
-    kindKey: kind.kindKey,
-    label: kind.label,
-    description: kind.description,
-    rules: rules
-      .filter((rule) => rule.kindKey === kind.kindKey)
-      .map((rule) => ({ type: rule.ruleType as EligibilityRuleType, params: rule.params })),
-  }))
 }
 
 const versionValues = (input: {

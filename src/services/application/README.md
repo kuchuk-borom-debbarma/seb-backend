@@ -130,7 +130,8 @@ version the file is worked in:
 | **Fails** | every failing rule's reason, joined |
 
 Each kind's verdict comes from its configured rules alone (`eligibility/`); the
-code knows no kind by name. The history is one read (`findEligibilityHistory`):
+code knows no kind by name. The open cycle, its current version's kinds and
+the history are one statement (`findOpenCycleEligibility`). The history is
 every application of the enterprise across every cycle, with its kind, whether
 it is a draft or finished, its flags, when each was last added (from the
 stage-action history), and its recorded values. The rules are pure over that,

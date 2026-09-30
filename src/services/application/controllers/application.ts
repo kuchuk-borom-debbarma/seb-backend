@@ -5,11 +5,10 @@ import { pinnedFormReader } from '../../../loaders'
 import { auditActions, applicationStatuses } from '../../../db/schema'
 import { decodeCursor, pageSize } from '../pagination'
 import {
-  findCycleApplicationKinds,
-  findEligibilityHistory,
   findEnterpriseApplicationSource,
+  findOpenCycleEligibility,
+  type OpenCycleEligibility,
   findLatestSubmittedVersion,
-  findOpenProgrammeCycle,
   findDownloadablePolicyDocument,
   findDraftChanges,
   findOwnedApplicationHead,
@@ -199,17 +198,10 @@ export const applicationById = async (
  * declared before this one, plus one — so a first application is phase 1 and
  * an application of a later kind follows the attempts before it.
  */
-const judgeKinds = async (
-  context: ApplicationOperationContext,
-  enterpriseId: string,
-  cycle: { id: string; currentVersion: number },
-  now: Date,
-  excludeApplicationId?: string,
-): Promise<Array<ApplicationKindEligibility & { phaseNumber: number }>> => {
-  const [kinds, history] = await Promise.all([
-    findCycleApplicationKinds(context.db, cycle.id, cycle.currentVersion),
-    findEligibilityHistory(context.db, enterpriseId, now, excludeApplicationId),
-  ])
+const judgeKinds = (
+  eligibility: Pick<OpenCycleEligibility, 'kinds' | 'history'>,
+): Array<ApplicationKindEligibility & { phaseNumber: number }> => {
+  const { kinds, history } = eligibility
   return kinds.map((kind, index) => {
     const earlier = new Set(kinds.slice(0, index).map((each) => each.kindKey))
     const verdict = eligibilityOf(kind.rules, history)
@@ -229,19 +221,21 @@ const judgeKinds = async (
  * again when a draft is submitted or restored, because the history it was
  * started against may have moved. The application itself is left out of the
  * history, so "no open application of this kind" does not count itself.
+ *
+ * Null when it may; otherwise the refusal, including the cycle having closed.
  */
 const kindStillEligible = async (
   context: ApplicationOperationContext,
   head: { id: string; enterpriseId: string; programmeCycleId: string; applicationKind: string },
-  cycleVersion: number,
   now: Date,
-): Promise<string | null> => {
-  const judged = await judgeKinds(
-    context, head.enterpriseId, { id: head.programmeCycleId, currentVersion: cycleVersion }, now, head.id,
-  )
-  const kind = judged.find((each) => each.kindKey === head.applicationKind)
-  if (!kind) return 'This kind of application is no longer offered by the programme cycle.'
-  return kind.eligible ? null : kind.reasons.join(' ')
+): Promise<{ refusal: string } | { cycle: OpenCycleEligibility['cycle'] }> => {
+  const eligibility = await findOpenCycleEligibility(context.db, {
+    cycleId: head.programmeCycleId, enterpriseId: head.enterpriseId, now, excludeApplicationId: head.id,
+  })
+  if (!eligibility) return { refusal: 'The programme cycle is no longer open.' }
+  const kind = judgeKinds(eligibility).find((each) => each.kindKey === head.applicationKind)
+  if (!kind) return { refusal: 'This kind of application is no longer offered by the programme cycle.' }
+  return kind.eligible ? { cycle: eligibility.cycle } : { refusal: kind.reasons.join(' ') }
 }
 
 export const applicationKindEligibility = async (
@@ -251,13 +245,13 @@ export const applicationKindEligibility = async (
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
   const now = new Date()
-  const [source, cycle] = await Promise.all([
-    findEnterpriseApplicationSource(context.db, applicant.id, input.enterpriseId),
-    findOpenProgrammeCycle(context.db, input.programmeCycleId, now),
-  ])
+  const source = await findEnterpriseApplicationSource(context.db, applicant.id, input.enterpriseId)
   if (!source) return failure('The enterprise was not found or its funding case is not open.')
-  if (!cycle) return failure('The programme cycle is not open.')
-  const judged = await judgeKinds(context, source.enterprise.id, cycle, now)
+  const eligibility = await findOpenCycleEligibility(context.db, {
+    cycleId: input.programmeCycleId, enterpriseId: source.enterprise.id, now,
+  })
+  if (!eligibility) return failure('The programme cycle is not open.')
+  const judged = judgeKinds(eligibility)
   return success({ kinds: judged.map(({ phaseNumber: _phase, ...kind }) => kind) })
 }
 
@@ -268,15 +262,15 @@ export const startApplication = async (
   const applicant = await currentApplicant(context)
   if (!applicant) return failure(AUTH_REQUIRED_MESSAGE)
   const now = new Date()
-  const [source, cycle] = await Promise.all([
-    findEnterpriseApplicationSource(context.db, applicant.id, input.enterpriseId),
-    findOpenProgrammeCycle(context.db, input.programmeCycleId, now),
-  ])
+  const source = await findEnterpriseApplicationSource(context.db, applicant.id, input.enterpriseId)
   if (!source) return failure('The enterprise was not found or its funding case is not open.')
-  if (!cycle) return failure('The programme cycle is not open.')
+  const eligibility = await findOpenCycleEligibility(context.db, {
+    cycleId: input.programmeCycleId, enterpriseId: source.enterprise.id, now,
+  })
+  if (!eligibility) return failure('The programme cycle is not open.')
+  const { cycle } = eligibility
 
-  const kind = (await judgeKinds(context, source.enterprise.id, cycle, now))
-    .find((each) => each.kindKey === input.applicationKind)
+  const kind = judgeKinds(eligibility).find((each) => each.kindKey === input.applicationKind)
   if (!kind) return failure('Select a kind of application this programme cycle offers.')
   if (!kind.eligible) return failure(kind.reasons.join(' '))
 
@@ -486,10 +480,8 @@ const changeApplicationDeletion = async (
   ) return failure('Only an unchanged draft can be removed or restored.')
   const now = new Date()
   if (!deleted) {
-    const cycle = await findOpenProgrammeCycle(context.db, head.programmeCycleId, now)
-    if (!cycle) return failure('The programme cycle is no longer open.')
-    const refusal = await kindStillEligible(context, head, cycle.currentVersion, now)
-    if (refusal) return failure(refusal)
+    const judged = await kindStillEligible(context, head, now)
+    if ('refusal' in judged) return failure(judged.refusal)
   }
   const reason = deleted ? (input.reason?.trim() || 'REMOVED_BY_APPLICANT') : null
   const changed = await runConstraintSafe(() => setApplicationDeleted(context.db, {
@@ -606,19 +598,18 @@ const submit = async (
     return failure('The application changed or cannot be submitted in its current status.')
   }
   const now = new Date()
-  const cycle = resubmission
-    ? null
-    : await findOpenProgrammeCycle(context.db, application.programmeCycleId, now)
-  if (!resubmission && !cycle) return failure('The programme cycle is no longer open.')
   const revisionStageKeys = resubmission ? openRevisionStageKeys(application) : undefined
   if (resubmission && revisionStageKeys?.size === 0) {
     return failure('There are no open revision requests to resolve.')
   }
-  // A first submission re-asks the kind's rules: the history the draft was
-  // started against may have moved. A resubmission is the same attempt.
-  if (cycle) {
-    const refusal = await kindStillEligible(context, application, cycle.currentVersion, now)
-    if (refusal) return failure(refusal)
+  // A first submission re-asks whether the cycle is open and the kind's rules:
+  // the history the draft was started against may have moved. A resubmission
+  // is the same attempt.
+  let cycle: OpenCycleEligibility['cycle'] | null = null
+  if (!resubmission) {
+    const judged = await kindStillEligible(context, application, now)
+    if ('refusal' in judged) return failure(judged.refusal)
+    cycle = judged.cycle
   }
   /*
    * The form the application was loaded against, handed to both the validator
