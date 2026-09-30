@@ -58,9 +58,9 @@ import type { ValidationReport } from '../form/engine'
  * here instead would be a second copy of the vocabulary, so the two functions
  * carry a suppression rather than this module carrying a duplicate.
  */
-export type { ResolvedFormTemplate } from '../form/types'
+export type { ApplicationFormTemplate } from '../form/types'
 export type { ValidationReport } from '../form/engine'
-import type { AnswerMap, ResolvedFormTemplate } from '../form/types'
+import type { AnswerMap, ApplicationFormTemplate, ResolvedFormTemplate } from '../form/types'
 import type {
   Application,
   ApplicationOperationContext,
@@ -752,9 +752,6 @@ export const applicationStatusExplanations = async (
   if (!await getCurrentSession(context)) return failure(AUTH_REQUIRED_MESSAGE)
   return success({ statuses: applicationStatusGuide })
 }
-
-/** The pinned form, with the one policy limit the applicant is told up front. */
-type ApplicationFormTemplate = ResolvedFormTemplate & { grantCeilingPaise: number | null }
 
 /**
  * The form one of this applicant's applications is filled against.

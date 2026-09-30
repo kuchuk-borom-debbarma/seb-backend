@@ -91,7 +91,7 @@ test.describe('working a file through its stages', () => {
         .getByLabel('What to correct in Funding requested')
         .fill('Ask for what the project needs: ninety thousand rupees.')
     })
-    await expect(page.getByText('Waiting on the applicant')).toBeVisible()
+    await expect(page.getByText('With the applicant for corrections')).toBeVisible()
 
     // The applicant is told it is their turn, corrects and resubmits.
     await as(page, applicant.email)
@@ -100,9 +100,11 @@ test.describe('working a file through its stages', () => {
     await expect(page.getByText('Ask for what the project needs: ninety thousand rupees.')).toBeVisible()
     await page.goto(`/applications/${id}/form?stage=FINANCIAL#SEED_FUND_REQUESTED_PAISE`)
     await page.getByLabel(/^Desired grant amount/u).fill('90000')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
     await page.goto(`/applications/${id}/review`)
     await page.getByRole('button', { name: 'Resubmit application' }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Send corrections' }).click()
     await expect(page).toHaveURL(new RegExp(`/applications/${id}/submitted$`, 'u'))
 
     // Back at TTC — the stage that asked, not the start of some other route.

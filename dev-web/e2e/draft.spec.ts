@@ -18,7 +18,7 @@ test.describe('the application form', () => {
     await page.context().clearCookies()
   })
 
-  test('saves answers as they are typed and says so', async ({ page }) => {
+  test('saves answers when Save is pressed, and says so', async ({ page }) => {
     const id = await startApplication(page, {
       cycleCode,
       prefix: 'draft',
@@ -26,10 +26,13 @@ test.describe('the application form', () => {
     })
     await page.goto(`/applications/${id}/form`)
 
-    await page.getByRole('button', { name: 'Add another owner', exact: true }).click()
+    await page.getByRole('button', { name: 'Add owner', exact: true }).click()
     await page.getByLabel('Full name').fill('Bethel Debbarma')
-    // Autosave is debounced, so the indicator is the honest signal that the
-    // server has the answer — not the keystroke.
+    // Nothing is saved on a timer: the answer waits, said to be unsaved, until
+    // the applicant saves it — and the indicator is the server's word, not
+    // the click's.
+    await expect(page.getByText('Unsaved changes')).toBeVisible()
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
 
     await page.reload()
@@ -164,6 +167,7 @@ test.describe('the application form', () => {
     await expect(page.getByText('Choose two different banks.')).toBeVisible()
 
     // The server holds the same rule: the review screen will not submit it.
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
     await page.goto(`/applications/${id}/review`)
     await expect(page.getByText('Choose two different banks.')).toBeVisible()
@@ -199,6 +203,7 @@ test.describe('the application form', () => {
 
     await page.getByRole('group', { name: 'Do you want a grant?' }).getByLabel('Yes').check()
     await page.getByLabel(/^Desired grant amount/u).fill('500000')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 15_000 })
 
     await page.reload()

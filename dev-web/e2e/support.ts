@@ -456,6 +456,8 @@ export const submitApplication = async (
   await page.goto(`/applications/${id}/review`)
   await expect(page.getByText('Ready to submit')).toBeVisible()
   await page.getByRole('button', { name: 'Submit application' }).click()
+  // Submitting asks once more, in a dialog whose button has the same name.
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Submit application' }).click()
   await expect(page).toHaveURL(new RegExp(`/applications/${id}/submitted$`, 'u'))
 
   return { email, id }
@@ -742,7 +744,7 @@ const makeDocumentsOptional = async (page: Page, cycleId: string): Promise<void>
  */
 export const fillOwnersStage = async (page: Page): Promise<void> => {
   // One entry, added explicitly — a fresh group starts empty.
-  await page.getByRole('button', { name: 'Add another owner', exact: true }).click()
+  await page.getByRole('button', { name: 'Add owner', exact: true }).click()
   await page.getByLabel('Full name').fill('Bethel Debbarma')
   await page.getByLabel('Role in the enterprise').selectOption({ index: 1 })
   await page.getByLabel('Date of birth').fill('1996-07-14')
@@ -820,7 +822,9 @@ export const fillEveryAnswer = async (
    * The indicator is the signal that the server holds the last answer, and the
    * reload is what makes a silent save failure land *here* rather than on a
    * review screen listing two dozen questions and saying nothing about why.
+   * Nothing saves itself, so the last answer is saved by hand, as a person would.
    */
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByText(/^Saved /u)).toBeVisible({ timeout: 20_000 })
   await page.reload()
   await expect(

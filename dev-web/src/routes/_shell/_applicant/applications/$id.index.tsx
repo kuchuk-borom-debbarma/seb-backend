@@ -439,8 +439,22 @@ function ApplicationPage() {
                     View submitted application
                   </Link>
                 ) : null}
-                {/* The documents and the final check are steps of the form's own
-                    rail; offering them here too made four buttons of one path. */}
+                {/*
+                  Documents can be attached before the answers are finished —
+                  each upload is kept at once — and the form's rail opens that
+                  step only in order, so a draft offers it here too. A
+                  correction names its sections below instead, and the final
+                  check is the form's last step, so neither is repeated.
+                */}
+                {correcting ? null : (
+                  <Link
+                    to="/applications/$id/documents"
+                    params={{ id }}
+                    className="button"
+                  >
+                    Attach documents
+                  </Link>
+                )}
                 <Link
                   to="/applications/$id/form"
                   params={{ id }}

@@ -182,6 +182,13 @@ export type ResolvedFormTemplate = {
 }
 
 /**
+ * The pinned form as the applicant's own screens receive it: the template,
+ * with the one policy limit they are told up front — the most one application
+ * may ask for as a grant, or null where the version sets none.
+ */
+export type ApplicationFormTemplate = ResolvedFormTemplate & { grantCeilingPaise: number | null }
+
+/**
  * A rule about several answers at once — "a grant, a loan, or both". Its type
  * is one of the workflow catalogue's form rules, evaluated by the registered
  * evaluator of that key on the server and in the browser.
