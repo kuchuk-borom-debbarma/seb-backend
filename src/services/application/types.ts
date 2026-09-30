@@ -1,3 +1,4 @@
+import type { Defer } from '../../deferred'
 import type { AppBindings } from '../../bindings'
 import type { Envelope } from '../envelope'
 
@@ -47,6 +48,8 @@ export type ApplicationOperationContext = {
   requestHeaders: Headers
   requestUrl: string
   responseHeaders: Headers
+  /** Runs work after the response; absent where there is none to run after. */
+  defer?: Defer
 }
 
 export type SebResult<T> = Envelope<T>

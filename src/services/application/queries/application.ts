@@ -306,8 +306,8 @@ export const listOpenRevisionStageKeys = async (
  * `loadOwnedApplication` answers the screen; this answers a write. A write
  * needs the version record, the pinned form, the answers last submitted (to
  * hold a revision to its scope), the enterprise's establishment date (for
- * validation and the category) and the applicant's address (for the
- * confirmation) — and a load that read them and then returned only the public
+ * validation and the category) and the cycle's name (for the confirmation)
+ * — and a load that read them and then returned only the public
  * shape sent every step below it back to the database for them again. Read
  * once, passed down (docs/rules/performance.md, rule 2).
  */
@@ -318,7 +318,8 @@ export type LoadedApplication = {
   /** The answers the latest submission froze; null before the first. */
   readonly submittedAnswers: AnswerMap | null
   readonly establishmentDate: string | null
-  readonly applicantEmail: string | null
+  /** How the cycle names itself to an applicant, for the confirmation. */
+  readonly cycle: { readonly cycleCode: string; readonly displayName: string }
 }
 
 type StoredDocument = Omit<ApplicationDocument, 'createdAt' | 'deletedAt'> & {
@@ -403,11 +404,11 @@ const findOwnedApplicationAggregate = async (
         JOIN ${sebEnterpriseVersion} ev ON ev.enterprise_id = e.id AND ev.version = e.current_version
         WHERE e.id = ${sebApplication.enterpriseId}
       )`,
-      applicantEmail: sql<string | null>`(
-        SELECT u.email FROM ${coreUser} u WHERE u.id = ${sebApplication.applicantUserId}
-      )`,
+      cycleCode: sebProgrammeCycle.cycleCode,
+      cycleDisplayName: sebProgrammeCycle.displayName,
     })
     .from(sebApplication)
+    .innerJoin(sebProgrammeCycle, eq(sebProgrammeCycle.id, sebApplication.programmeCycleId))
     .leftJoin(
       sebApplicationVersion,
       and(
@@ -487,7 +488,7 @@ export const loadOwnedApplicationContext = async (
       ? null
       : answersFromRows(rules.template, row.submittedVersionId, row.submittedAnswerRows),
     establishmentDate: row.establishmentDate,
-    applicantEmail: row.applicantEmail,
+    cycle: { cycleCode: row.cycleCode, displayName: row.cycleDisplayName },
   }
 }
 
@@ -1019,27 +1020,6 @@ export const findOpenProgrammeCycle = async (
     )
     .limit(1)
   return cycle ?? null
-}
-
-/**
- * Just the address a notification goes to.
- *
- * Its own read because the alternative, `findManagedUserById`, loads a whole
- * managed-user aggregate — roles, grants, versions — to answer a question
- * asked on a best-effort path after every submission and decision. A hook
- * that exists only to send mail should not pay for, or depend on, any of
- * that.
- */
-export const findUserEmailById = async (
-  db: Database,
-  userId: string,
-): Promise<string | null> => {
-  const [row] = await db
-    .select({ email: coreUser.email })
-    .from(coreUser)
-    .where(eq(coreUser.id, userId))
-    .limit(1)
-  return row?.email ?? null
 }
 
 /**

@@ -1,5 +1,6 @@
 import type { AppBindings } from '../bindings'
 import type { Database } from '../db'
+import type { Defer } from '../deferred'
 import type { Loaders } from '../loaders'
 
 /**
@@ -21,4 +22,6 @@ export type GraphQLContext = {
   requestHeaders: Headers
   requestUrl: string
   responseHeaders: Headers
+  /** Runs work after the response, on a connection of its own. */
+  defer?: Defer
 }

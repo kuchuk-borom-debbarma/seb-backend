@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { AppBindings } from './bindings'
 import { DatabaseUnavailableError, withDatabase, type Database } from './db'
+import type { DeferredTask, Defer } from './deferred'
 import { createLoaders } from './loaders'
 import { handleGraphQLRequest } from './graphql'
 import {
@@ -66,7 +67,20 @@ const operationContext = (
   requestHeaders: Headers,
   requestUrl: string,
   responseHeaders = new Headers(),
-) => ({ env, db, loaders: createLoaders(db), requestHeaders, requestUrl, responseHeaders })
+  defer?: Defer,
+) => ({ env, db, loaders: createLoaders(db), requestHeaders, requestUrl, responseHeaders, defer })
+
+/**
+ * Runs what a request deferred, after its response, on a connection of its
+ * own. One task failing does not stop the rest; its line names no detail,
+ * because a transport error can echo a recipient.
+ */
+const runDeferred = (env: AppBindings, tasks: readonly DeferredTask[]) =>
+  withDatabase(connectionString(env), async (db) => {
+    for (const task of tasks) {
+      await task(db).catch(() => console.error('A deferred task failed'))
+    }
+  })
 
 /**
  * The connection every request opens and every request closes.
@@ -450,6 +464,7 @@ app.on(['GET', 'POST'], '/graphql', async (c) => {
   // Controllers append session cookies here. The Worker merges them into
   // Yoga's immutable response after GraphQL execution completes.
   const responseHeaders = new Headers()
+  const deferred: DeferredTask[] = []
   /*
    * The connection lives exactly as long as GraphQL execution.
    *
@@ -460,9 +475,11 @@ app.on(['GET', 'POST'], '/graphql', async (c) => {
   const response = await withDatabase(connectionString(c.env), (db) =>
     handleGraphQLRequest(
       c.req.raw,
-      operationContext(c.env, db, c.req.raw.headers, c.req.url, responseHeaders),
+      operationContext(c.env, db, c.req.raw.headers, c.req.url, responseHeaders,
+        (task) => { deferred.push(task) }),
     ),
   )
+  if (deferred.length > 0) c.executionCtx.waitUntil(runDeferred(c.env, deferred))
   if (usesLocalQueue(c.env)) c.executionCtx.waitUntil(deliverLocalQueue(c.env))
 
   const headers = new Headers(response.headers)

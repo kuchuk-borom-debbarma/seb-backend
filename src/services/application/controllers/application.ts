@@ -1,4 +1,6 @@
 /** Applicant application, validation, eligibility, and submission use cases. */
+import type { Database } from '../../../db'
+import { afterResponse } from '../../../deferred'
 import { pinnedFormReader } from '../../../loaders'
 import { auditActions, applicationStatuses } from '../../../db/schema'
 import { decodeCursor, pageSize } from '../pagination'
@@ -8,9 +10,7 @@ import {
   findEnterpriseApplicationSource,
   findLatestSubmittedVersion,
   findOpenProgrammeCycle,
-  findProgrammeCycleIdentity,
   findDownloadablePolicyDocument,
-  findUserEmailById,
   findDraftChanges,
   findOwnedApplicationHead,
   insertApplicationAggregate,
@@ -548,16 +548,14 @@ const createReferenceNumber = (cycleYear: number): string => {
  * transport error can echo the recipient and these logs are public in CI.
  */
 const sendSubmissionConfirmation = async (
+  db: Database,
   context: ApplicationOperationContext,
-  applicantId: string,
+  recipient: { applicantId: string; email: string },
   application: Application,
+  cycle: LoadedApplication['cycle'],
 ): Promise<void> => {
+  const { applicantId, email } = recipient
   try {
-    const [email, cycle] = await Promise.all([
-      findUserEmailById(context.db, applicantId),
-      findProgrammeCycleIdentity(context.db, application.programmeCycleId),
-    ])
-    if (!email || !cycle) throw new Error('The confirmation cannot be addressed.')
     // The provider attaches by URL: it fetches this signed link and encloses
     // the PDF the route rebuilds from the frozen submission.
     const url = await confirmationPdfUrl(
@@ -582,7 +580,7 @@ const sendSubmissionConfirmation = async (
   } catch {
     // Guarded itself: the audit write failing must not throw into the
     // submission that has already succeeded.
-    await bestEffort(insertAuditEvent(context.db, auditRecord(context, {
+    await bestEffort(insertAuditEvent(db, auditRecord(context, {
       actorUserId: applicantId,
       action: auditActions.submissionConfirmationFailed,
       entityType: 'SEB_APPLICATION',
@@ -685,10 +683,14 @@ const submit = async (
   }, 3)
   if (!submitted) return failure('The application changed. Refresh it and try again.')
   const response = submittedApplication(loaded, submitted, { resubmission, applicationCategory, now })
-  await bestEffort(
-    sendSubmissionConfirmation(context, applicant.id, response),
+  // After the response: the applicant is not kept waiting on a mail provider,
+  // and a failure is recorded rather than reported (rule 6).
+  await afterResponse(context, (db) => bestEffort(
+    sendSubmissionConfirmation(
+      db, context, { applicantId: applicant.id, email: authorized.applicantEmail }, response, loaded.cycle,
+    ),
     'A submission confirmation failed',
-  )
+  ))
   return success(response)
 }
 
