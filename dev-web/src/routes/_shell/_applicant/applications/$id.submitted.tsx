@@ -25,7 +25,8 @@ import {
 } from '#/features/application/applicationQueries'
 import { formatBytes } from '#/features/application/documents'
 import { resolveTemplate } from '#/features/application/formTemplate'
-import { formatDateTime, humanize } from '#/lib/format'
+import { standingLabel } from '#/features/application/journey'
+import { formatDateTime } from '#/lib/format'
 
 export const Route = createFileRoute('/_shell/_applicant/applications/$id/submitted')({
   loader: async ({ context, params }) => {
@@ -119,8 +120,9 @@ function SubmittedPage() {
                 </div>
               ) : null}
               <div>
-                <span className="field-label">Status</span>
-                <span>{humanize(application.status)}</span>
+                <span className="field-label">Where it is now</span>
+                {/* The stage's own words for the applicant, not the internal status. */}
+                <span>{standingLabel(application)}</span>
               </div>
             </div>
           </div>
