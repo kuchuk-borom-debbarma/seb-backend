@@ -117,6 +117,9 @@ export const Route = createFileRoute('/_shell/_applicant/applications/$id/')({
       context.queryClient.ensureQueryData(applicationQuery(params.id)),
       context.queryClient.ensureQueryData(statusGuideQuery),
       context.queryClient.ensureQueryData(cyclesQuery),
+      // The title is the enterprise's name; fetched with the rest so the page
+      // does not open on the reference number and then change its heading.
+      context.queryClient.ensureQueryData(liveEnterprisesQuery),
     ])
   },
   component: ApplicationPage,
@@ -367,6 +370,14 @@ function ApplicationPage() {
   // A correction request holds the file with the applicant; it is not on track
   // until they resubmit.
   const correcting = awaitingCorrection(application)
+  /*
+   * Named for the enterprise, which is what the applicant knows it by; the
+   * reference number follows once submission issues one.
+   */
+  const title =
+    enterprises?.find((each) => each.id === application.enterpriseId)?.name ??
+    application.referenceNumber ??
+    'Your application'
   const steps = standingSteps(application)
   /*
    * A draft is at the first step; a file being worked is at the third; a
@@ -396,19 +407,14 @@ function ApplicationPage() {
 
         <div className={styles.headerRow}>
           <div className={styles.titleGroup}>
-            {/*
-             * Named for the enterprise, which is what the applicant knows it
-             * by; the reference number follows once submission issues one.
-             * "Unsubmitted draft" told them neither whose it was nor what.
-             */}
-            <h1 className={styles.appTitle}>
-              {enterprises?.find((each) => each.id === application.enterpriseId)?.name ??
-                application.referenceNumber ??
-                'Your application'}
-            </h1>
-            <span className={styles.appSubtitle}>
-              {application.referenceNumber ?? 'Draft — not submitted yet'}
-            </span>
+            {/* "Unsubmitted draft" told them neither whose it was nor what. */}
+            <h1 className={styles.appTitle}>{title}</h1>
+            {/* Beside the title only when the title is not already it. */}
+            {title !== application.referenceNumber ? (
+              <span className={styles.appSubtitle}>
+                {application.referenceNumber ?? 'Draft — not submitted yet'}
+              </span>
+            ) : null}
             <span className={styles.typeBadge}>
               <Sprout size={13} aria-hidden="true" />
               {kinds?.find((each) => each.kindKey === application.applicationKind)?.label ??
@@ -430,16 +436,8 @@ function ApplicationPage() {
                     View submitted application
                   </Link>
                 ) : null}
-                <Link
-                  to="/applications/$id/documents"
-                  params={{ id }}
-                  className="button"
-                >
-                  Evidence
-                </Link>
-                <Link to="/applications/$id/review" params={{ id }} className="button">
-                  Check and submit
-                </Link>
+                {/* The documents and the final check are steps of the form's own
+                    rail; offering them here too made four buttons of one path. */}
                 <Link
                   to="/applications/$id/form"
                   params={{ id }}
@@ -595,21 +593,45 @@ function ApplicationPage() {
         {openRevisions.length > 0 ? (
           <div className="card">
             <div className="card-header">
-              <p className="eyebrow">Changes requested</p>
+              <p className="eyebrow">What the office asked you to change</p>
             </div>
             <div className="card-body stack">
+              <p className="muted" style={{ margin: 0 }}>
+                Only {openRevisions.length === 1 ? 'this section opens' : 'these sections open'}{' '}
+                for editing. Change what is asked, then check your application and submit it
+                again; it goes back to the same reviewers.
+              </p>
               {openRevisions.map((request) => (
                 <div key={request.id} className="notice" data-tone="action">
                   <span className="notice-title">
                     {stageTitle(request.stageKey, template?.stages)}
                   </span>
                   {request.note}
-                  <p
-                    className="muted"
-                    style={{ marginTop: '0.5rem', fontSize: '0.75rem' }}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.75rem',
+                      marginTop: '0.5rem',
+                      flexWrap: 'wrap',
+                    }}
                   >
-                    Requested {formatDateTime(request.requestedAt)}
-                  </p>
+                    <span className="muted" style={{ fontSize: '0.75rem' }}>
+                      Requested {formatDateTime(request.requestedAt)}
+                    </span>
+                    {/* Straight to the section named, not to the form's start. */}
+                    <Link
+                      to="/applications/$id/form"
+                      params={{ id }}
+                      search={{ stage: request.stageKey }}
+                      className="button"
+                      style={{ minHeight: '2rem' }}
+                    >
+                      Change {stageTitle(request.stageKey, template?.stages)}
+                      <ArrowRight size={14} aria-hidden="true" />
+                    </Link>
+                  </div>
                 </div>
               ))}
             </div>
@@ -767,8 +789,9 @@ function ApplicationPage() {
                   <Sprout size={16} aria-hidden="true" />
                 </div>
                 <p className={styles.noticeText}>
-                  We&apos;ll keep you updated as your application moves to the next stage.
-                  You can check this page anytime for the latest status.
+                  {correcting
+                    ? 'Once you submit your corrections, the application goes back to the reviewers who asked for them, and this page shows where it is.'
+                    : 'We’ll keep you updated as your application moves to the next stage. You can check this page anytime for the latest status.'}
                 </p>
               </div>
             )}
@@ -822,10 +845,17 @@ function ApplicationPage() {
                         <div className={styles.timelineItemTop}>
                           <span className={styles.timelineStageName}>{stage.label}</span>
                           {isCurrent && (
-                            <span className={styles.currentBadge}>Current stage</span>
+                            <span className={styles.currentBadge}>
+                              {correcting ? 'Waiting on you' : 'Current stage'}
+                            </span>
                           )}
                         </div>
-                        <p className={styles.timelineStageDesc}>{stage.description}</p>
+                        <p className={styles.timelineStageDesc}>
+                          {/* Held here, but it is the applicant's move, not the office's. */}
+                          {isCurrent && correcting
+                            ? 'Paused until you submit the corrections asked for above.'
+                            : stage.description}
+                        </p>
                       </div>
                     </div>
                   )
