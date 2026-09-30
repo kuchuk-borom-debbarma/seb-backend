@@ -196,6 +196,9 @@ function DraftFormPage() {
        */
       queryClient.setQueryData(applicationQuery(id).queryKey, saved)
       void queryClient.invalidateQueries({ queryKey: ['validation', id] })
+      // What changed since the last submission moved with this save; the
+      // review page must fetch it again rather than show the old list.
+      queryClient.removeQueries({ queryKey: ['draft-changes', id] })
       // An answer changed while the save was in flight is still unsaved.
       setSaveState(latest.current && !sameAnswers(next, latest.current) ? 'unsaved' : 'saved')
     },

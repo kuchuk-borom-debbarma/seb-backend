@@ -221,6 +221,22 @@ describe.skipIf(onRealPostgres)('an applicant operation costs its budget in roun
     expect(count, statements).toBe(5)
   })
 
+  it('refuses a batch that carries a mutation, before anything runs', async () => {
+    const { applicant, id } = await draft()
+    const response = await SELF.fetch('https://api.example.test/graphql', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://app.example.test', cookie: applicant.cookie },
+      body: JSON.stringify([
+        { query: byIdQuery, variables: { id } },
+        { query: `mutation($input: ApplicationDeletionInput!) { seb { application { softDeleteDraft(input: $input) { success } } } }`,
+          variables: { input: { applicationId: id, expectedVersion: 1, expectedStatusVersion: 1, reason: 'Batched.' } } },
+      ]),
+    })
+    expect(response.status).toBe(400)
+    // Nothing ran: the draft was not put away.
+    expect((await readBack(applicant.cookie, id)).deletedAt).toBeNull()
+  })
+
   it('lists applications in two, enterprises in two and cycles in three', async () => {
     const { applicant } = await draft()
     const applications = await counted(() => graphql<any>(`query {

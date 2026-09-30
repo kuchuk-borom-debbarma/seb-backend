@@ -1,5 +1,5 @@
-import { GraphQLScalarType, Kind, type ValueNode } from 'graphql'
-import { createSchema, createYoga } from 'graphql-yoga'
+import { GraphQLScalarType, Kind, parse, type ValueNode } from 'graphql'
+import { createGraphQLError, createSchema, createYoga, type GraphQLParams } from 'graphql-yoga'
 import type { AppBindings } from '../bindings'
 import accessMutationTypeDefs from './mutations/access/access.graphql'
 import authMutationTypeDefs from './mutations/auth/auth.graphql'
@@ -340,6 +340,18 @@ const schema = createSchema<GraphQLContext>({
   ],
 })
 
+/** Whether a batched entry declares a mutation; an unparsable one is left to validation. */
+const carriesMutation = (params: GraphQLParams): boolean => {
+  if (typeof params.query !== 'string') return false
+  try {
+    return parse(params.query).definitions.some(
+      (definition) => definition.kind === Kind.OPERATION_DEFINITION && definition.operation === 'mutation',
+    )
+  } catch {
+    return false
+  }
+}
+
 /** The most operations one request may carry; a screen's entry needs at most five. */
 const MAX_BATCHED_OPERATIONS = 10
 
@@ -366,6 +378,28 @@ const graphqlServer = createYoga<GraphQLContext>({
      * to run.
      */
     rateLimitPlugin(),
+    {
+      /*
+       * A batch carries queries only.
+       *
+       * Yoga runs a batch's operations at once, on the request's one
+       * connection. Reads interleave harmlessly; a write does not — its
+       * statements could land inside another operation's transaction and roll
+       * back after answering success, and a session changed by one operation
+       * would still be the memoised session of the next. The client never
+       * batches a mutation (dev-web/src/lib/graphql.ts); this makes it a rule
+       * rather than a courtesy, before anything executes.
+       */
+      onRequestParse: () => ({
+        onRequestParseDone({ requestParserResult }: { requestParserResult: GraphQLParams | GraphQLParams[] }) {
+          if (Array.isArray(requestParserResult) && requestParserResult.some(carriesMutation)) {
+            throw createGraphQLError('A batched request may carry queries only.', {
+              extensions: { http: { status: 400 } },
+            })
+          }
+        },
+      }),
+    },
     {
       // Rejecting multi-action auth mutations during validation guarantees that
       // no resolver has performed a partial side effect before the error is raised.

@@ -63,12 +63,14 @@ const execute = createServerFn({ method: 'POST' })
 const executeBatch = createServerFn({ method: 'POST' })
   .validator((requests: GraphQLRequest[]) => requests)
   .handler(async ({ data }) => {
-    const { body, setCookie } = await forwardToWorker<GraphQLResponse<Json>[]>(
+    const { body, setCookie } = await forwardToWorker<GraphQLResponse<Json>[] | GraphQLResponse<Json>>(
       data,
       getRequestHeader('cookie'),
     )
     relayCookies(setCookie)
-    return body.map(outcomeOf)
+    // A refusal of the whole request — a rate limit, a batch the Worker will
+    // not take — is one object, not an array, and answers every query in it.
+    return Array.isArray(body) ? body.map(outcomeOf) : data.map(() => outcomeOf(body))
   })
 
 /*
