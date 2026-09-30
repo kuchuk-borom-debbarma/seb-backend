@@ -94,6 +94,14 @@ export function PipelineEditor({
   const [actionIndex, setActionIndex] = useState(0)
   const [focus, setFocus] = useState<number | undefined>(undefined)
   const [problems, setProblems] = useState<Problem[] | null>(draft ? draft.problems : null)
+  /*
+   * The document the problems describe. Compared by reference: every edit
+   * makes a new one, so "the list is out of date" is exactly "the document
+   * changed since it was checked" — not "since it was saved", which would
+   * call a check of these very edits stale.
+   */
+  const [checked, setChecked] = useState(definition)
+  const outOfDate = checked !== definition
   const [dialog, setDialog] = useState<'publish' | 'discard' | 'retire' | null>(null)
 
   /*
@@ -118,14 +126,23 @@ export function PipelineEditor({
     await queryClient.invalidateQueries({ queryKey: ['pipelines'], exact: true })
     await queryClient.invalidateQueries({ queryKey: ['pipelines', 'choices'] })
     const json = next.draft?.definitionJson ?? next.published?.definitionJson
-    if (json) dispatch({ type: 'load', definition: definitionFromJson(json) })
+    if (json) {
+      const loaded = definitionFromJson(json)
+      dispatch({ type: 'load', definition: loaded })
+      setChecked(loaded)
+    }
     setProblems(next.draft ? next.draft.problems : null)
   }
 
   const validate = useMutation({
-    mutationFn: async () =>
-      unwrap((await gql(ValidatePipelineDraftDocument, { definition: definitionToJson(definition) })).admin.pipeline.validateDraft),
-    onSuccess: (result) => setProblems(result.problems),
+    mutationFn: async (checking: typeof definition) => ({
+      checking,
+      result: unwrap((await gql(ValidatePipelineDraftDocument, { definition: definitionToJson(checking) })).admin.pipeline.validateDraft),
+    }),
+    onSuccess: ({ checking, result }) => {
+      setProblems(result.problems)
+      setChecked(checking)
+    },
   })
 
   const save = useMutation({
@@ -182,7 +199,7 @@ export function PipelineEditor({
           {readOnly && !retired && draft ? <span className="muted">Read-only: you may not edit pipelines</span> : null}
         </div>
         <div className={styles.toolbarActions}>
-          <button type="button" className="button" disabled={validate.isPending} onClick={() => validate.mutate()}>
+          <button type="button" className="button" disabled={validate.isPending} onClick={() => validate.mutate(definition)}>
             <CheckCircle2 size={16} aria-hidden /> {validate.isPending ? 'Checking…' : 'Check'}
           </button>
           {editable ? (
@@ -243,7 +260,11 @@ export function PipelineEditor({
       {problems !== null ? (
         problems.length === 0 ? (
           <div className="notice" data-tone="ok" role="status">
-            <Check size={16} aria-hidden /> {dirty ? 'The last check found nothing wrong — check again after your changes.' : 'Nothing stops this draft from being published.'}
+            <Check size={16} aria-hidden /> {outOfDate
+              ? 'The last check found nothing wrong — check again after your changes.'
+              : dirty
+                ? 'Nothing wrong with these changes. Save them, then publish.'
+                : 'Nothing stops this draft from being published.'}
           </div>
         ) : (
           <div className="card card-body" role="alert">
@@ -253,7 +274,7 @@ export function PipelineEditor({
             {/* The list is the last check's. After an edit it may name
                 something already fixed, and saying so stops it reading as
                 though the edit did not take. */}
-            {dirty ? (
+            {outOfDate ? (
               <p className="field-hint" style={{ marginTop: 0 }}>
                 As of the last check — press Check or save to see where your changes leave it.
               </p>

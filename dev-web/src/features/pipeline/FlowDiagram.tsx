@@ -6,6 +6,12 @@
  * dashed, endings green when they complete and red when they close. A stage no
  * route reaches is drawn dashed in a column of its own, because that is the
  * one mistake a picture shows faster than a list of problems.
+ *
+ * Edges carry a number, not their action's name: names written on the lines
+ * collided wherever two edges ran close — every bank route leaves the same
+ * stage — and were cut to fit. The legend under the diagram names each one in
+ * full. An edge that skips a column runs along the clear gap between rows, so
+ * it never passes through a stage it does not visit.
  */
 import { useMemo } from 'react'
 import type { PipelineDefinition } from './definition'
@@ -37,6 +43,24 @@ const merged = (edges: readonly FlowEdge[]): FlowEdge[] => {
 
 /** A curve between two nodes, and the point its label sits on. */
 const route = (from: FlowNode, to: FlowNode, lane: number) => {
+  if (to.column > from.column + 1) {
+    // Skipping a column: out of the source, along the gap beneath its row,
+    // and up or down into the target, clear of every box between.
+    const sx = x(from) + NODE_WIDTH
+    const sy = y(from) + NODE_HEIGHT / 2
+    const tx = x(to)
+    const ty = y(to) + NODE_HEIGHT / 2
+    const laneY = y(from) + NODE_HEIGHT + ROW_GAP / 2 + lane * 8
+    const turn = COLUMN_GAP / 3
+    return {
+      d: `M ${sx} ${sy} C ${sx + turn} ${sy}, ${sx + turn} ${laneY}, ${sx + turn * 2} ${laneY} `
+        + `L ${tx - turn * 2} ${laneY} C ${tx - turn} ${laneY}, ${tx - turn} ${ty}, ${tx} ${ty}`,
+      // By its own source, where the lane starts: the middle of a long lane
+      // is where the badges of shorter edges already sit.
+      labelX: sx + turn * 2 + 10,
+      labelY: laneY,
+    }
+  }
   if (to.column > from.column) {
     const sx = x(from) + NODE_WIDTH
     const sy = y(from) + NODE_HEIGHT / 2
@@ -84,6 +108,15 @@ export function FlowDiagram({
   const height = PAD * 2 + flow.rows * NODE_HEIGHT + (flow.rows - 1) * ROW_GAP + 40 + backLanes * 18
 
   let lane = 0
+  // Lanes for column-skipping edges, counted per source row so two from one
+  // row run side by side rather than on top of each other.
+  const skipLanes = new Map<number, number>()
+  const skipLane = (from: FlowNode) => {
+    const next = skipLanes.get(from.row) ?? 0
+    skipLanes.set(from.row, next + 1)
+    return next
+  }
+  const nameOf = (id: string) => byId.get(id)?.label ?? id
   return (
     <div className={styles.flowWrap}>
       <svg
@@ -111,12 +144,13 @@ export function FlowDiagram({
           ))}
         </defs>
 
-        {edges.map((edge) => {
+        {edges.map((edge, index) => {
           const from = byId.get(edge.from)
           const to = byId.get(edge.to)
           if (!from || !to) return null
           const backwards = to.column <= from.column
-          const path = route(from, to, backwards ? lane++ : 0)
+          const skips = to.column > from.column + 1
+          const path = route(from, to, backwards ? lane++ : skips ? skipLane(from) : 0)
           return (
             <g key={`${edge.from}-${edge.to}-${edge.style}`}>
               <path
@@ -127,9 +161,10 @@ export function FlowDiagram({
               >
                 <title>{edge.label}</title>
               </path>
-              <text x={path.labelX} y={path.labelY} textAnchor="middle" className={styles.edgeLabel}>
-                {clip(edge.label, 34)}
-              </text>
+              <g transform={`translate(${path.labelX}, ${path.labelY})`} aria-hidden>
+                <circle r={9} className={styles.edgeBadge} />
+                <text y={4} textAnchor="middle" className={styles.edgeBadgeText}>{index + 1}</text>
+              </g>
             </g>
           )
         })}
@@ -185,6 +220,19 @@ export function FlowDiagram({
           )
         })}
       </svg>
+      <ol className={styles.flowLegend}>
+        {edges.map((edge, index) => (
+          <li key={`${edge.from}-${edge.to}-${edge.style}`}>
+            {/* Drawn, not a list marker: the portal's reset removes those,
+                and the number is what ties a line to its name. */}
+            <span className={styles.flowLegendNumber} aria-hidden>{index + 1}</span>
+            <span className={styles.flowLegendRoute}>
+              {nameOf(edge.from)} → {nameOf(edge.to)}
+            </span>{' '}
+            {edge.label}
+          </li>
+        ))}
+      </ol>
       <p className="field-hint">
         Solid arrows move the application; dashed ones send it back or to the applicant. Rounded ends are where the
         journey finishes — green when it completes, red when it closes. Select a stage to edit it.

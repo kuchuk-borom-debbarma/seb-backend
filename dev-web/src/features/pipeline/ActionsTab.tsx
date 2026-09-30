@@ -75,6 +75,10 @@ export function ActionsTab({
   const setAction = (update: (current: PipelineAction) => PipelineAction) =>
     edit((current) => updateAction(current, stageIndex, actionIndex, update))
 
+  // Every other stage's actions, for the copy control below.
+  const copyable = definition.stages.flatMap((other, index) =>
+    index === stageIndex ? [] : other.actions.map((each) => ({ stageName: other.name || other.key, action: each })))
+
   return (
     <div className="stack">
       <div className="row" style={{ flexWrap: 'wrap' }}>
@@ -110,6 +114,35 @@ export function ActionsTab({
                 }}>
                 <Plus size={14} aria-hidden /> Add an action
               </button>
+            )}
+            {readOnly || copyable.length === 0 ? null : (
+              /*
+               * Two stages often work alike — two banks each send back and
+               * record a loan — and rebuilding an action with its inputs,
+               * conditions and effects by hand is where they drift apart.
+               * A copy is an ordinary action from then on, edited here alone.
+               */
+              <div className={styles.copyAction}>
+                <label className="field-label" htmlFor="copy-action">Copy an action from another stage</label>
+                <select id="copy-action" className="input" value=""
+                  onChange={(event) => {
+                    const source = copyable[Number(event.target.value)]
+                    if (!source) return
+                    const key = freshKey(source.action.key, stage.actions.map((each) => each.key))
+                    edit((current) => updateStage(current, stageIndex, (each) => ({
+                      ...each,
+                      actions: [...each.actions, { ...structuredClone(source.action), key }],
+                    })))
+                    onSelect(stageIndex, stage.actions.length)
+                  }}>
+                  <option value="">Choose an action…</option>
+                  {copyable.map((each, index) => (
+                    <option key={`${each.stageName}-${each.action.key}`} value={index}>
+                      {each.stageName} › {each.action.label || each.action.key}
+                    </option>
+                  ))}
+                </select>
+              </div>
             )}
           </nav>
         </div>

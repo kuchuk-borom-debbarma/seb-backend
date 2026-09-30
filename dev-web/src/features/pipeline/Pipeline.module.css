@@ -390,3 +390,54 @@
   gap: var(--space-2);
   color: var(--danger);
 }
+
+/* Copying an action sits under the list it adds to. */
+.copyAction {
+  margin-top: var(--space-3);
+  padding: var(--space-2);
+  border-top: 1px solid var(--hairline);
+}
+
+/* The number an edge carries, and the legend that names it. */
+.edgeBadge {
+  fill: var(--surface);
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.edgeBadgeText {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+
+.flowLegend {
+  columns: 2 22rem;
+  column-gap: var(--space-6);
+  margin: var(--space-3) 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+}
+
+.flowLegend li {
+  break-inside: avoid;
+  margin-bottom: var(--space-1);
+}
+
+.flowLegendRoute {
+  font-weight: 600;
+}
+
+.flowLegendNumber {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
