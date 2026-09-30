@@ -24,6 +24,7 @@ import {
   openRevisionStageKeys,
   activeDocumentFieldKeys,
   type LoadedApplication,
+  type SubmittedHead,
   saveApplicationSnapshot,
   setApplicationDeleted,
   submitApplicationSnapshot,
@@ -550,7 +551,6 @@ const sendSubmissionConfirmation = async (
   context: ApplicationOperationContext,
   applicantId: string,
   application: Application,
-  template: ResolvedFormTemplate,
 ): Promise<void> => {
   try {
     const [email, cycle] = await Promise.all([
@@ -640,26 +640,23 @@ const submit = async (
     facts,
   )
   if (!report.valid) return failure('The application is incomplete. Run validation for details.')
-  const readableVersion = loaded.version
-
-  const submitted = await runConstraintRetry(() => {
+  const applicationCategory = applicationCategoryOf(
+    facts.establishmentDate,
+    rules.policy.categoryAMaximumMonths,
+    now,
+  )
+  const submitted = await runConstraintRetry(async () => {
     // Minted per attempt, as it always was, and named once so the snapshot and
     // its audit row carry the same reference. A resubmission keeps the one the
-    // first submission issued — `submitApplicationSnapshot` prefers the head's.
+    // first submission issued — the write keeps the head's when it has one.
     const referenceNumber = application.referenceNumber
       ?? createReferenceNumber(cycle?.cycleYear ?? new Date().getUTCFullYear())
-    const applicationCategory = applicationCategoryOf(
-      facts.establishmentDate,
-      rules.policy.categoryAMaximumMonths,
-      now,
-    )
-    return submitApplicationSnapshot(context.db, {
+    const written = await submitApplicationSnapshot(context.db, {
       head: application,
-      currentVersion: readableVersion,
       userId: applicant.id,
       answerRows: answersToRows(rules.template, answers),
       revisionStageKeys: revisionStageKeys ? [...revisionStageKeys] : undefined,
-      programmeCycleVersion: readableVersion.programmeCycleVersion,
+      programmeCycleVersion: loaded.version.programmeCycleVersion,
       referenceNumber,
       resubmission,
       requiredDocumentFieldKeys: requiredDocumentFieldKeys(rules.template, answers),
@@ -684,20 +681,55 @@ const submit = async (
         now,
       }),
     })
+    return written && { ...written, referenceNumber }
   }, 3)
-  const result = await completeGuardedOperation(
-    submitted === true,
-    'The application changed. Refresh it and try again.',
-    () => loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, application.id),
-    'Submitted application could not be read.',
+  if (!submitted) return failure('The application changed. Refresh it and try again.')
+  const response = submittedApplication(loaded, submitted, { resubmission, applicationCategory, now })
+  await bestEffort(
+    sendSubmissionConfirmation(context, applicant.id, response),
+    'A submission confirmation failed',
   )
-  if (submitted === true && result.success && result.response) {
-    await bestEffort(
-      sendSubmissionConfirmation(context, applicant.id, result.response, rules.template),
-      'A submission confirmation failed',
-    )
-  }
-  return result
+  return success(response)
+}
+
+/**
+ * The application as a submission left it: the version the write froze, the
+ * stage and flags SQL chose, and — on a resubmission — the revision requests
+ * it resolved.
+ */
+const submittedApplication = (
+  loaded: LoadedApplication,
+  written: SubmittedHead & { referenceNumber: string },
+  submission: { resubmission: boolean; applicationCategory: Application['snapshot']['applicationCategory']; now: Date },
+): Application => {
+  const { application } = loaded
+  const { now } = submission
+  return applicationAfterWrite(loaded, {
+    head: {
+      currentVersion: application.currentVersion + 1,
+      statusVersion: application.statusVersion + 1,
+      status: 'IN_PIPELINE',
+      referenceNumber: application.referenceNumber ?? written.referenceNumber,
+      firstSubmittedAt: application.firstSubmittedAt ?? now,
+      currentStageKey: written.currentStageKey,
+      statusFlags: written.statusFlags,
+      updatedAt: now,
+    },
+    version: {
+      version: application.currentVersion + 1,
+      changeType: submission.resubmission ? 'RESUBMISSION' : 'SUBMISSION',
+      createdAt: now,
+      declarationAcceptedAt: now,
+      applicationCategory: submission.applicationCategory,
+      answers: application.answers,
+    },
+    revisionRequests: submission.resubmission
+      ? application.revisionRequests.map((request) =>
+        request.resolvedAt === null && request.cancelledAt === null
+          ? { ...request, resolvedAt: now }
+          : request)
+      : application.revisionRequests,
+  })
 }
 
 export const submitApplication = (

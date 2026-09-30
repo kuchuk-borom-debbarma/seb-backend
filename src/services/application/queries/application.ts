@@ -1434,14 +1434,20 @@ const applicationEventMember = (value: typeof sebApplicationEvent.$inferInsert, 
   FROM ${source}
 `
 
-/** Folds members into one statement and says whether the head was written. */
-const writeFolded = async (db: Database, members: (SQL | null)[]): Promise<boolean> => {
+/**
+ * Folds members into one statement and returns the row the head update
+ * returned, or null when its guard lost and so nothing was written.
+ */
+const writeFolded = async <Head extends Record<string, unknown>>(
+  db: Database,
+  members: (SQL | null)[],
+): Promise<Head | null> => {
   const present = members.filter((member): member is SQL => member !== null)
-  const result = await db.execute<{ id: string }>(sql`
+  const result = await db.execute(sql`
     WITH ${sql.join(present, sql`, `)}
-    SELECT id FROM head
+    SELECT * FROM head
   `)
-  return result.rows.length === 1
+  return (result.rows[0] as Head | undefined) ?? null
 }
 
 const eventValues = (input: {
@@ -1667,7 +1673,7 @@ export const saveApplicationSnapshot = async (
     createdAt: input.now,
     version: sql`version`,
   })
-  return writeFolded(db, [
+  return (await writeFolded(db, [
     sql`head AS (
       UPDATE ${sebApplication}
       SET current_version = ${nextVersion}::int, updated_at = ${input.now}
@@ -1698,7 +1704,7 @@ export const saveApplicationSnapshot = async (
       createdAt: input.now,
     }), sql`head`)})`,
     sql`audit AS (${auditEventCteMember(input.audit, sql`head`)})`,
-  ])
+  ])) !== null
 }
 
 export const setApplicationDeleted = async (
@@ -1862,11 +1868,16 @@ const resubmissionEntry = () => ({
   )`,
 })
 
+/** What a submission's head update returned: the fields SQL decided. */
+export type SubmittedHead = {
+  currentStageKey: string | null
+  statusFlags: string[]
+}
+
 export const submitApplicationSnapshot = async (
   db: Database,
   input: {
     head: ApplicationMutationHead
-    currentVersion: ApplicationVersionRecord
     userId: string
     /** Built by the caller from the template it validated against. */
     answerRows: readonly AnswerRow[]
@@ -1885,39 +1896,10 @@ export const submitApplicationSnapshot = async (
     now: Date
     audit: AuditRecord
   },
-): Promise<boolean> => {
+): Promise<SubmittedHead | false> => {
   const nextVersion = input.head.currentVersion + 1
-  const versionId = crypto.randomUUID()
   const nextStatusVersion = input.head.statusVersion + 1
-  let submissionNumber = 1
-  if (input.resubmission) {
-    const [nextSubmission] = await db
-      .select({ value: sql<number>`COALESCE(MAX(${sebApplicationSubmission.submissionNumber}), 0) + 1` })
-      .from(sebApplicationSubmission)
-      .where(eq(sebApplicationSubmission.applicationId, input.head.id))
-    submissionNumber = requireInvariant(
-      nextSubmission,
-      'Submission sequence query returned no row.',
-    ).value
-  }
   const submissionId = crypto.randomUUID()
-  // Read the logical document heads once and pin the exact versions observed.
-  // Each insert below repeats the current-version predicate inside the batch,
-  // so a concurrent replacement makes the entire submission fail instead of
-  // silently attaching a different file from the one validated here.
-  const submittedDocuments = await db
-    .select({
-      documentId: sebApplicationDocument.id,
-      fieldKey: sebApplicationDocument.fieldKey,
-      documentVersion: sebApplicationDocument.currentVersion,
-    })
-    .from(sebApplicationDocument)
-    .where(
-      and(
-        eq(sebApplicationDocument.applicationId, input.head.id),
-        isNull(sebApplicationDocument.deletedAt),
-      ),
-    )
   const cycleStillOpen = input.resubmission
     ? undefined
     : sql`EXISTS (
@@ -1925,14 +1907,6 @@ export const submitApplicationSnapshot = async (
         WHERE ${sebProgrammeCycle.id} = ${input.head.programmeCycleId}
           AND ${programmeCycleOpenAt(input.now)}
       )`
-  /*
-   * Repeated inside the write so a document deleted between validation and
-   * submission cannot slip past — using the list the validator computed from
-   * the cycle's own rules. Deriving it again here from the snapshot alone made
-   * the two disagree whenever a cycle asked for fewer documents than the
-   * default, and the submission was refused with a message about the
-   * application having changed, which it had not.
-   */
   // A pinned pipeline version always has one, but the write says so rather
   // than trusting it: without an initial stage the file would sit nowhere.
   const initialStageExists = sql`EXISTS (
@@ -1941,6 +1915,14 @@ export const submitApplicationSnapshot = async (
       AND ${sebPipelineVersionStage.version} = ${sebApplication.pipelineVersion}
       AND ${sebPipelineVersionStage.isInitial}
   )`
+  /*
+   * Repeated inside the write so a document deleted between validation and
+   * submission cannot slip past — using the list the validator computed from
+   * the cycle's own rules. Deriving it again here from the snapshot alone made
+   * the two disagree whenever a cycle asked for fewer documents than the
+   * default, and the submission was refused with a message about the
+   * application having changed, which it had not.
+   */
   const requiredDocumentsStillExist = and(
     ...input.requiredDocumentFieldKeys.map((fieldKey) => sql`EXISTS (
       SELECT 1 FROM ${sebApplicationDocument}
@@ -1949,35 +1931,64 @@ export const submitApplicationSnapshot = async (
         AND ${sebApplicationDocument.deletedAt} IS NULL
     )`),
   )
-  const updateHead = db
-    .update(sebApplication)
-    .set({
-      currentVersion: nextVersion,
-      statusVersion: nextStatusVersion,
-      referenceNumber: input.head.referenceNumber ?? input.referenceNumber,
-      firstSubmittedAt: input.head.firstSubmittedAt ?? input.now,
-      updatedAt: input.now,
-      ...(input.resubmission ? resubmissionEntry() : pipelineEntry(input.now)),
-    })
-    .where(
-      and(
-        eq(sebApplication.id, input.head.id),
-        eq(sebApplication.applicantUserId, input.userId),
-        eq(sebApplication.currentVersion, input.head.currentVersion),
-        eq(sebApplication.statusVersion, input.head.statusVersion),
-        eq(sebApplication.status, input.resubmission ? 'IN_PIPELINE' : 'DRAFT'),
-        isNull(sebApplication.deletedAt),
-        cycleStillOpen,
-        input.resubmission ? undefined : initialStageExists,
-        requiredDocumentsStillExist,
-        revisionScopeStillCurrent(input),
-      ),
-    )
-    .returning({ id: sebApplication.id })
-  const formalVersion = insertVersionWhere(
-    db,
-    versionValues({
-      id: versionId,
+  const guard = and(
+    eq(sebApplication.id, input.head.id),
+    eq(sebApplication.applicantUserId, input.userId),
+    eq(sebApplication.currentVersion, input.head.currentVersion),
+    eq(sebApplication.statusVersion, input.head.statusVersion),
+    eq(sebApplication.status, input.resubmission ? 'IN_PIPELINE' : 'DRAFT'),
+    isNull(sebApplication.deletedAt),
+    cycleStillOpen,
+    input.resubmission ? undefined : initialStageExists,
+    requiredDocumentsStillExist,
+    revisionScopeStillCurrent(input),
+  )
+  /*
+   * A first submission enters the pipeline at the pinned version's initial
+   * stage with the flags its definition adds on submit; a resubmission stays
+   * at the stage that asked and loses the flag that let the applicant edit.
+   * Both are SQL over the application's own pinned version, so the write
+   * cannot disagree with the version the file is worked in.
+   */
+  const entry = input.resubmission
+    ? sql`status_flags = ${resubmissionEntry().statusFlags}`
+    : sql`current_stage_key = ${pipelineEntry(input.now).currentStageKey},
+        stage_entered_at = ${input.now},
+        stage_trail = '{}'::text[],
+        status_flags = ${pipelineEntry(input.now).statusFlags}`
+  /*
+   * The next submission number: always one for a first submission, and one
+   * past the last for a resubmission. The unique index on the number is the
+   * backstop against two resubmissions racing, which the head's version guard
+   * already refuses.
+   */
+  const submissionNumber = input.resubmission
+    ? sql`(SELECT COALESCE(MAX(prior.submission_number), 0) + 1
+        FROM ${sebApplicationSubmission} prior WHERE prior.application_id = ${input.head.id})`
+    : sql`1`
+  const answers = answerRowsMember({
+    rows: input.answerRows,
+    programmeCycleId: input.head.programmeCycleId,
+    programmeCycleVersion: input.programmeCycleVersion,
+    createdAt: input.now,
+    version: sql`version`,
+  })
+  const written = await writeFolded<{ current_stage_key: string | null; status_flags: string[] }>(db, [
+    sql`head AS (
+      UPDATE ${sebApplication} SET
+        current_version = ${nextVersion}::int,
+        status_version = ${nextStatusVersion}::int,
+        status = 'IN_PIPELINE',
+        status_changed_at = ${input.now},
+        reference_number = COALESCE(reference_number, ${input.referenceNumber}),
+        first_submitted_at = COALESCE(first_submitted_at, ${input.now}),
+        updated_at = ${input.now},
+        ${entry}
+      WHERE ${guard}
+      RETURNING id, current_stage_key, status_flags
+    )`,
+    sql`version AS (${applicationVersionMember(versionValues({
+      id: crypto.randomUUID(),
       applicationId: input.head.id,
       version: nextVersion,
       programmeCycleId: input.head.programmeCycleId,
@@ -1989,99 +2000,62 @@ export const submitApplicationSnapshot = async (
       createdAt: input.now,
       declarationAcceptedAt: input.now,
       applicationCategory: input.applicationCategory,
-    }),
-    sql`${sebApplication.id} = ${input.head.id}
-      AND ${sebApplication.currentVersion} = ${nextVersion}
-      AND ${sebApplication.statusVersion} = ${nextStatusVersion}
-      AND ${sebApplication.updatedAt} = ${input.now}`,
-  )
-  const formalAnswers = insertAnswerRows(db, {
-    applicationVersionId: versionId,
-    programmeCycleId: input.head.programmeCycleId,
-    programmeCycleVersion: input.programmeCycleVersion,
-    rows: input.answerRows,
-    createdAt: input.now,
-  })
-  const submission = db.insert(sebApplicationSubmission).select(sql`
-    SELECT ${submissionId}, ${input.head.id}, ${submissionNumber}, ${nextVersion},
-      ${input.userId}, ${input.now}
-    WHERE EXISTS (
-      SELECT 1 FROM ${sebApplicationVersion}
-      WHERE ${sebApplicationVersion.applicationId} = ${input.head.id}
-        AND ${sebApplicationVersion.version} = ${nextVersion}
-    )
-  `)
-  const submittedDocumentPins = submittedDocuments.map((document) =>
-    db.insert(sebApplicationSubmissionDocument).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.head.id}, ${submissionId},
-        ${document.documentId}, ${document.documentVersion},
-        ${document.fieldKey}, ${input.now}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebApplicationSubmission}
-        WHERE ${sebApplicationSubmission.id} = ${submissionId}
-      ) AND EXISTS (
-        SELECT 1 FROM ${sebApplicationDocument}
-        WHERE ${sebApplicationDocument.id} = ${document.documentId}
-          AND ${sebApplicationDocument.applicationId} = ${input.head.id}
-          AND ${sebApplicationDocument.currentVersion} = ${document.documentVersion}
-          AND ${sebApplicationDocument.deletedAt} IS NULL
+    }), sql`head`)})`,
+    answers && sql`answers AS (${answers})`,
+    sql`submission AS (
+      INSERT INTO ${sebApplicationSubmission} (
+        id, application_id, submission_number, application_version,
+        submitted_by_user_id, submitted_at
       )
-    `),
-  )
-  const resolveRevisions = db
-    .update(sebRevisionRequest)
-    .set({ resolvedBySubmissionId: submissionId, resolvedAt: input.now })
-    .where(
-      and(
-        eq(sebRevisionRequest.applicationId, input.head.id),
-        isNull(sebRevisionRequest.resolvedAt),
-        isNull(sebRevisionRequest.cancelledAt),
-        sql`EXISTS (
-          SELECT 1 FROM ${sebApplicationSubmission}
-          WHERE ${sebApplicationSubmission.id} = ${submissionId}
-        )`,
-      ),
-    )
-  const event = db.insert(sebApplicationEvent).select(sql`
-    SELECT ${crypto.randomUUID()}, ${input.head.id},
-      ${input.resubmission ? 'APPLICATION_RESUBMITTED' : 'APPLICATION_SUBMITTED'},
-      ${input.userId}, ${nextVersion}, ${submissionId}, NULL,
-      ${input.resubmission ? 'IN_PIPELINE' : 'DRAFT'}, 'IN_PIPELINE', NULL,
-      ${input.resubmission ? 'Application resubmitted.' : 'Application submitted.'},
-      NULL, ${input.now}, NULL
-    WHERE EXISTS (
-      SELECT 1 FROM ${sebApplicationSubmission}
-      WHERE ${sebApplicationSubmission.id} = ${submissionId}
-    )
-  `)
-  const audit = insertAuditEventWhere(db, input.audit, sql`EXISTS (
-      SELECT 1 FROM ${sebApplicationSubmission}
-      WHERE ${sebApplicationSubmission.id} = ${submissionId}
-    )
-  `)
-  const answerStatements = formalAnswers ? [formalAnswers] as const : [] as const
-  const statements = input.resubmission
-    ? [
-        updateHead,
-        formalVersion,
-        ...answerStatements,
-        submission,
-        ...submittedDocumentPins,
-        resolveRevisions,
-        event,
-        audit,
-      ] as const
-    : [
-        updateHead,
-        formalVersion,
-        ...answerStatements,
-        submission,
-        ...submittedDocumentPins,
-        event,
-        audit,
-      ] as const
-  const [updated] = await batch(db, () => statements)
-  return changedExactlyOne(updated)
+      SELECT ${submissionId}, head.id, ${submissionNumber}, ${nextVersion}::int,
+        ${input.userId}, ${input.now}
+      FROM version CROSS JOIN head
+      RETURNING id
+    )`,
+    /*
+     * Every live document, at the version it is at as this statement runs.
+     * Read here rather than beforehand, so a document replaced between the
+     * validation and this write is pinned at its new version — the one the
+     * application now holds — instead of being silently left out.
+     */
+    sql`pins AS (
+      INSERT INTO ${sebApplicationSubmissionDocument} (
+        id, application_id, submission_id, document_id, document_version,
+        field_key, created_at
+      )
+      SELECT gen_random_uuid()::text, live.application_id, submission.id, live.id,
+        live.current_version, live.field_key, ${input.now}
+      FROM submission
+      CROSS JOIN ${sebApplicationDocument} live
+      WHERE live.application_id = ${input.head.id} AND live.deleted_at IS NULL
+    )`,
+    input.resubmission
+      ? sql`resolved AS (
+        UPDATE ${sebRevisionRequest} SET
+          resolved_by_submission_id = submission.id,
+          resolved_at = ${input.now}
+        FROM submission
+        WHERE ${sebRevisionRequest.applicationId} = ${input.head.id}
+          AND ${sebRevisionRequest.resolvedAt} IS NULL
+          AND ${sebRevisionRequest.cancelledAt} IS NULL
+      )`
+      : null,
+    sql`event AS (${applicationEventMember(eventValues({
+      applicationId: input.head.id,
+      eventType: input.resubmission ? 'APPLICATION_RESUBMITTED' : 'APPLICATION_SUBMITTED',
+      actorUserId: input.userId,
+      applicationVersion: nextVersion,
+      submissionId,
+      fromStatus: input.resubmission ? 'IN_PIPELINE' : 'DRAFT',
+      toStatus: 'IN_PIPELINE',
+      message: input.resubmission ? 'Application resubmitted.' : 'Application submitted.',
+      createdAt: input.now,
+    }), sql`submission`)})`,
+    sql`audit AS (${auditEventCteMember(input.audit, sql`submission`)})`,
+  ])
+  return written === null
+    ? false
+    : { currentStageKey: written.current_stage_key, statusFlags: written.status_flags }
 }
 
 export const listApplicationTimeline = async (

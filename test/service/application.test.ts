@@ -906,7 +906,6 @@ describe('applicant application business service', () => {
     const submitNow = new Date()
     expect(await submitApplicationSnapshot(db, {
       head: loaded,
-      currentVersion,
       userId: applicant.userId,
       answerRows: answerRowsFor(),
       programmeCycleVersion: currentVersion.programmeCycleVersion,
