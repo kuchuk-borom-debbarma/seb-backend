@@ -138,7 +138,13 @@ function StartApplicationPage() {
     ...kindsQuery(search.enterpriseId ?? '', search.cycleId ?? ''),
     enabled: chosen,
   })
-  const chosenKind = kinds?.find((each) => each.kindKey === kind) ?? null
+  // With exactly one kind the enterprise may start, there is no choice to
+  // make: it is chosen, and the applicant only confirms.
+  const soleEligibleKind = (() => {
+    const eligible = (kinds ?? []).filter((each) => each.eligible)
+    return eligible.length === 1 ? eligible[0]!.kindKey : null
+  })()
+  const chosenKind = kinds?.find((each) => each.kindKey === (kind ?? soleEligibleKind)) ?? null
 
   const start = useMutation({
     mutationFn: async (applicationKind: string) => {
@@ -244,7 +250,7 @@ function StartApplicationPage() {
                       activeStep === 'SETUP' ? styles.stepSub : styles.stepSubComplete
                     }
                   >
-                    {activeStep === 'SETUP' ? 'Current category' : 'Complete'}
+                    {activeStep === 'SETUP' ? 'Current step' : 'Complete'}
                   </span>
                 </div>
               </div>
@@ -280,7 +286,7 @@ function StartApplicationPage() {
                     }`}
                   >
                     {activeStep === 'TYPE'
-                      ? 'Current category'
+                      ? 'Current step'
                       : chosen
                         ? 'Available'
                         : 'Complete earlier categories first'}
@@ -297,7 +303,7 @@ function StartApplicationPage() {
 
             <div className={styles.card} {...mark('start-application')}>
               <div className={styles.categoryTag}>
-                Category {activeStep === 'SETUP' ? '1 of 2' : '2 of 2'}
+                Step {activeStep === 'SETUP' ? '1 of 2' : '2 of 2'}
               </div>
               <h2 className={styles.cardTitle}>
                 {activeStep === 'SETUP' ? 'Application setup' : 'Application type'}
@@ -396,7 +402,7 @@ function StartApplicationPage() {
                               </span>
                             </>
                           ) : (
-                            'No closing date has been set.'
+                            'Open until the programme office closes it.'
                           )}
                         </span>
                       </div>
@@ -417,7 +423,7 @@ function StartApplicationPage() {
                         key={option.kindKey}
                         htmlFor={`kind-${option.kindKey}`}
                         className={`${styles.choiceCard} ${
-                          kind === option.kindKey ? styles.choiceCardSelected : ''
+                          chosenKind?.kindKey === option.kindKey ? styles.choiceCardSelected : ''
                         } ${option.eligible ? '' : styles.choiceCardDisabled}`}
                         aria-disabled={!option.eligible}
                       >
@@ -428,7 +434,7 @@ function StartApplicationPage() {
                           aria-label={option.label}
                           value={option.kindKey}
                           disabled={!option.eligible}
-                          checked={kind === option.kindKey}
+                          checked={chosenKind?.kindKey === option.kindKey}
                           onChange={() => setKind(option.kindKey)}
                           style={{
                             position: 'absolute',
@@ -442,10 +448,10 @@ function StartApplicationPage() {
                         />
                         <div
                           className={`${styles.customRadio} ${
-                            kind === option.kindKey ? styles.customRadioSelected : ''
+                            chosenKind?.kindKey === option.kindKey ? styles.customRadioSelected : ''
                           }`}
                         >
-                          {kind === option.kindKey && <div className={styles.radioDot} />}
+                          {chosenKind?.kindKey === option.kindKey && <div className={styles.radioDot} />}
                         </div>
 
                         <div className={styles.choiceIconBadge} data-tone="blue">
@@ -519,7 +525,7 @@ function StartApplicationPage() {
                       type="button"
                       className={styles.nextBtn}
                       disabled={start.isPending || !chosenKind?.eligible}
-                      onClick={() => kind && start.mutate(kind)}
+                      onClick={() => chosenKind && start.mutate(chosenKind.kindKey)}
                     >
                       {start.isPending
                         ? 'Starting…'
