@@ -84,6 +84,7 @@ query StageApplication($applicationId: ID!) {
             defaults
             requestsRevision
             closesApplication
+            returnsFile
             permitted
           }
           history {

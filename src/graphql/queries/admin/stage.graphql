@@ -254,6 +254,12 @@ type AdminStageAvailableAction {
   """
   closesApplication: Boolean!
 
+  """
+  Whether taking it sends the file back to the stage it came from, which a
+  screen shows as a step back rather than as the way forward.
+  """
+  returnsFile: Boolean!
+
   """Whether this caller may take it: they work the stage and hold every permission its effects need."""
   permitted: Boolean!
 }

@@ -171,6 +171,7 @@ export const stageApplicationView = (
         defaults: inputDefaults(action, file),
         requestsRevision: action.effects.some((effect) => effect.type === 'REQUEST_REVISION'),
         closesApplication: action.effects.some((effect) => effect.type === 'CLOSE_APPLICATION'),
+        returnsFile: action.effects.some((effect) => effect.type === 'RETURN_TO_PREVIOUS'),
         permitted: mayTake(session, definition, file, stage!, action),
       })),
     history: history.map((entry) => {

@@ -486,17 +486,26 @@ function WithdrawDialog({
   )
 }
 
-type OfferedAction = { closesApplication: boolean; requestsRevision: boolean }
+type OfferedAction = {
+  closesApplication: boolean
+  requestsRevision: boolean
+  returnsFile: boolean
+}
 
 /**
  * How much an action should draw the eye. Carrying the file on is the usual
- * next step and is drawn as the primary button; handing it back for
- * corrections is secondary; closing it without support is drawn in the
+ * next step and is drawn as the primary button; handing it back — to the
+ * applicant for corrections, or to the stage it came from — is secondary;
+ * closing it without support is drawn in the
  * danger style and set apart, so it is never the button a hurried officer
  * hits by habit. Read from the action's effects, never from its label.
  */
 const actionWeight = (action: OfferedAction): 'forward' | 'revision' | 'closing' =>
-  action.closesApplication ? 'closing' : action.requestsRevision ? 'revision' : 'forward'
+  action.closesApplication
+    ? 'closing'
+    : action.requestsRevision || action.returnsFile
+      ? 'revision'
+      : 'forward'
 
 const WEIGHT_ORDER = { forward: 0, revision: 1, closing: 2 } as const
 

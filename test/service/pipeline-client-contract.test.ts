@@ -79,17 +79,25 @@ describe('taking an action', () => {
 })
 
 describe('the actions a stage offers', () => {
-  it('says which close the application, so a screen can set them apart', async () => {
+  it('says which close the application or send it back, so a screen can weigh them', async () => {
     const { id } = await atTtc()
     const ttc = await officer(['TTC'])
     const panel = await readStage(ttc.cookie, id)
     const weights = Object.fromEntries(panel.response.actions.map((action: any) =>
-      [action.key, { closes: action.closesApplication, revision: action.requestsRevision }]))
+      [action.key, [action.closesApplication, action.requestsRevision, action.returnsFile]]))
+    // [closes, asks for a revision, returns the file]
     expect(weights).toEqual({
-      TO_INDUSTRIES_COMMERCE: { closes: false, revision: false },
-      ASK_REVISION: { closes: false, revision: true },
-      REJECT: { closes: true, revision: false },
+      TO_INDUSTRIES_COMMERCE: [false, false, false],
+      ASK_REVISION: [false, true, false],
+      REJECT: [true, false, false],
     })
+
+    await advance(ttc.cookie, id, 'TO_INDUSTRIES_COMMERCE')
+    const ic = await officer(['INDUSTRIES_COMMERCE'])
+    const atIc = await readStage(ic.cookie, id)
+    const sendBack = atIc.response.actions.find((action: any) => action.key === 'SEND_BACK')
+    expect([sendBack.closesApplication, sendBack.requestsRevision, sendBack.returnsFile])
+      .toEqual([false, false, true])
   })
 })
 
