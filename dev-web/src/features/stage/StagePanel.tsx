@@ -162,6 +162,8 @@ export function StagePanel({
         ) : null}
       </div>
 
+      <SentBack file={file} />
+
       <Trail trail={file.trail} current={file.stage?.name ?? null} />
 
       <div className={styles.panelBlock}>
@@ -527,3 +529,38 @@ const askedAt = (revisions: readonly { requestedAt: string }[]): string | null =
       earliest === null || revision.requestedAt < earliest ? revision.requestedAt : earliest,
     null,
   )
+
+/**
+ * Why the file came back, at the top of the stage it came back to.
+ *
+ * A return carries a note from the stage that sent it — the bank will not
+ * lend, a figure is wrong — and that note is what the officer has to act on.
+ * It sat in the stage history, several entries down, so the officer met the
+ * file with no word of why it was on their desk again.
+ *
+ * Read from the history: the newest action brought the file here from a
+ * stage that is not on its way here, which only a return does.
+ */
+function SentBack({ file }: { file: StageFile }) {
+  const latest = file.history.at(-1)
+  if (!latest || !file.stage || latest.toStageKey !== file.stage.key) return null
+  if (latest.stageKey === file.stage.key) return null
+  if (file.trail.some((stage) => stage.key === latest.stageKey)) return null
+  const said = latest.inputs.filter(
+    (input) => typeof input.value === 'string' && input.value.trim() !== '',
+  )
+  return (
+    <div className="notice" data-tone="action" role="note">
+      <span className="notice-title">Sent back by {latest.stageName}</span>
+      {said.map((input) => (
+        <p key={input.key} style={{ margin: '0.25rem 0' }}>
+          {said.length > 1 ? <strong>{input.label}: </strong> : null}
+          {String(input.value)}
+        </p>
+      ))}
+      <span className="field-hint">
+        {latest.actor?.email ?? 'Somebody'} · {formatDateTime(latest.createdAt)}
+      </span>
+    </div>
+  )
+}
