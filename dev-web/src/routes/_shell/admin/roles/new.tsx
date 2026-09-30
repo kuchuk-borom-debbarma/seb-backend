@@ -73,7 +73,7 @@ function ComposePage() {
       />
 
       <form
-        className="card stack"
+        className="card card-body stack"
         onSubmit={(submitted) => {
           submitted.preventDefault()
           create.mutate()
@@ -130,7 +130,7 @@ function ComposePage() {
         {error ? <p className="field-error">{error}</p> : null}
 
         <div className="row">
-          <button type="submit" className="button" disabled={create.isPending}>
+          <button type="submit" className="button" data-variant="primary" disabled={create.isPending}>
             {create.isPending ? 'Composing…' : 'Compose the role'}
           </button>
         </div>

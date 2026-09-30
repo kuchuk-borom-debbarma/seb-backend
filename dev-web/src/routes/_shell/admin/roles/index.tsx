@@ -28,6 +28,7 @@ import {
   type Role,
 } from '#/features/roles/roleQueries'
 import { can, isSuperAdministrator } from '#/lib/session'
+import styles from '#/features/roles/Roles.module.css'
 
 export const Route = createFileRoute('/_shell/admin/roles/')({
   loader: ({ context }) => context.queryClient.ensureQueryData(rolesQuery),
@@ -144,9 +145,9 @@ function RoleSummary({ role, mayCompose }: { role: Role; mayCompose: boolean }) 
           This role holds nothing yet, so it grants nothing.
         </p>
       ) : (
-        <ul className="chip-list">
+        <ul className={styles.chips}>
           {role.permissions.map((permission) => (
-            <li key={permissionKey(permission)} className="chip">
+            <li key={permissionKey(permission)} className={styles.chip}>
               {humanizeKey(permission.resource)}: {permission.action}
             </li>
           ))}
