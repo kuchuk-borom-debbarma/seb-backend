@@ -153,6 +153,7 @@ fragment ApplicationFields on Application {
   enterpriseId
   programmeCycleId
   applicationKind
+  applicationKindLabel
   phaseNumber
   referenceNumber
   currentVersion

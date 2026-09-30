@@ -16,7 +16,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getRequestHeader, setResponseHeader } from '@tanstack/react-start/server'
 import type { TypedDocumentString } from '#/graphql/generated/operations'
-import { forwardToWorker, type GraphQLRequest } from './api'
+import { forwardToWorker, type GraphQLRequest, type GraphQLResponse } from './api'
 
 /** Raised for transport and schema faults, never for expected business refusals. */
 export class GraphQLRequestError extends Error {
@@ -26,28 +26,106 @@ export class GraphQLRequestError extends Error {
   }
 }
 
+/** Sign-in, sign-out and session revocation all depend on this relay. */
+const relayCookies = (setCookie: readonly string[]) => {
+  // Each header is appended separately because clearing writes several at once.
+  for (const cookie of setCookie) setResponseHeader('set-cookie', cookie)
+}
+
+/**
+ * An operation's data, or why there is none. A GraphQL error here means a
+ * malformed document or an unexpected server fault; expected failures travel
+ * inside `data` as result envelopes.
+ */
+/** What a response's `data` is: parsed JSON, which is what makes it serializable. */
+type Json = string | number | boolean | null | Json[] | { [key: string]: Json }
+
+const outcomeOf = (body: GraphQLResponse<Json>): { data: Json } | { error: string } => {
+  if (body.errors?.length) return { error: body.errors.map((error) => error.message).join('; ') }
+  if (!body.data) return { error: 'The API returned no data.' }
+  return { data: body.data }
+}
+
 const execute = createServerFn({ method: 'POST' })
   .validator((request: GraphQLRequest) => request)
   .handler(async ({ data }) => {
-    const { body, setCookie } = await forwardToWorker<unknown>(
+    const { body, setCookie } = await forwardToWorker<GraphQLResponse<Json>>(
       data,
       getRequestHeader('cookie'),
     )
-
-    // Sign-in, sign-out and session revocation all depend on this relay. Each
-    // header is appended separately because clearing writes several at once.
-    for (const cookie of setCookie) {
-      setResponseHeader('set-cookie', cookie)
-    }
-
-    if (body.errors?.length) {
-      // A GraphQL error here means a malformed document or an unexpected server
-      // fault. Expected failures travel inside `data` as result envelopes.
-      throw new GraphQLRequestError(body.errors.map((error) => error.message).join('; '))
-    }
-    if (!body.data) throw new GraphQLRequestError('The API returned no data.')
-    return body.data
+    relayCookies(setCookie)
+    const outcome = outcomeOf(body)
+    if ('error' in outcome) throw new GraphQLRequestError(outcome.error)
+    return outcome.data
   })
+
+/** Several queries as one request to the Worker, answered in order. */
+const executeBatch = createServerFn({ method: 'POST' })
+  .validator((requests: GraphQLRequest[]) => requests)
+  .handler(async ({ data }) => {
+    const { body, setCookie } = await forwardToWorker<GraphQLResponse<Json>[]>(
+      data,
+      getRequestHeader('cookie'),
+    )
+    relayCookies(setCookie)
+    return body.map(outcomeOf)
+  })
+
+/*
+ * ─── Coalescing ──────────────────────────────────────────────────────────────
+ *
+ * The queries a screen issues together — a route loader's, the components
+ * that mount with it — leave as one request, which the Worker answers over
+ * one connection, reading the session and any shared data once
+ * (docs/rules/frontend.md). Collected until the current task ends, so the
+ * callers need not know about each other: each still asks for exactly what it
+ * renders, through its own document and cache key.
+ *
+ * Only in the browser. On the server this module serves every visitor at once,
+ * and a queue there could put two people's queries into one request under one
+ * of their cookies. Only queries: a mutation is sent alone, because the Worker
+ * allows one per request and its effects must not wait on a read.
+ */
+const MAX_BATCH = 10 // the Worker's limit (src/graphql/index.ts)
+
+type Pending = {
+  request: GraphQLRequest
+  resolve: (data: unknown) => void
+  reject: (error: unknown) => void
+}
+
+let queued: Pending[] = []
+
+const flush = async () => {
+  const batch = queued
+  queued = []
+  for (let start = 0; start < batch.length; start += MAX_BATCH) {
+    const chunk = batch.slice(start, start + MAX_BATCH)
+    if (chunk.length === 1) {
+      const [only] = chunk
+      execute({ data: only!.request }).then(only!.resolve, only!.reject)
+      continue
+    }
+    executeBatch({ data: chunk.map((each) => each.request) }).then(
+      (outcomes) => chunk.forEach((each, index) => {
+        const outcome = outcomes[index]
+        if (outcome && 'data' in outcome) each.resolve(outcome.data)
+        else each.reject(new GraphQLRequestError(outcome?.error ?? 'The API returned no data.'))
+      }),
+      (error) => chunk.forEach((each) => each.reject(error)),
+    )
+  }
+}
+
+const isMutation = (query: string) => /^\s*mutation\b/m.test(query)
+
+const send = (request: GraphQLRequest): Promise<unknown> => {
+  if (typeof window === 'undefined' || isMutation(request.query)) return execute({ data: request })
+  return new Promise((resolve, reject) => {
+    queued.push({ request, resolve, reject })
+    if (queued.length === 1) setTimeout(flush, 0)
+  })
+}
 
 /**
  * Runs one generated operation and returns its `data`.
@@ -62,9 +140,7 @@ export const gql = async <TData, TVariables>(
     ? [variables?: undefined]
     : [variables: TVariables]
 ): Promise<TData> =>
-  (await execute({
-    data: {
-      query: document.toString(),
-      variables: variables as Record<string, unknown> | undefined,
-    },
+  (await send({
+    query: document.toString(),
+    variables: variables as Record<string, unknown> | undefined,
   })) as TData

@@ -9,6 +9,7 @@ import {
 } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
+import { JUST_LOADED } from '#/lib/freshness'
 
 /*
  * One API read per landing-page render, deliberately uncached on the server.
@@ -43,6 +44,6 @@ export const announcementBoardQuery = queryOptions({
     const data = await gql(AdminAnnouncementBoardDocument)
     return unwrap(data.admin.announcement.board)
   },
-  // Never served stale: every write quotes a version read from this data.
-  staleTime: 0,
+  // Served only just after it loads: every write quotes a version read from this data.
+  staleTime: JUST_LOADED,
 })

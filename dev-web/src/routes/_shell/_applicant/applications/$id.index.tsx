@@ -33,7 +33,6 @@ import {
 } from '#/features/application/journey'
 import { cyclesQuery, statusGuideQuery } from '#/features/application/queries'
 import {
-  applicationKindsQuery,
   applicationQuery,
   formTemplateQuery,
   liveEnterprisesQuery,
@@ -50,7 +49,7 @@ import {
   RemoveApplicationDraftDocument,
   RestoreApplicationDraftDocument,
 } from '#/graphql/generated/operations'
-import { formatDate, formatDateTime, humanize } from '#/lib/format'
+import { formatDate, formatDateTime } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import styles from '#/features/application/ApplicationDetails.module.css'
@@ -120,6 +119,10 @@ export const Route = createFileRoute('/_shell/_applicant/applications/$id/')({
       // The title is the enterprise's name; fetched with the rest so the page
       // does not open on the reference number and then change its heading.
       context.queryClient.ensureQueryData(liveEnterprisesQuery),
+      // Read by the page as it mounts; asked for here so they travel in the
+      // same request as the rest instead of a second one after it.
+      context.queryClient.prefetchQuery(formTemplateQuery(params.id)),
+      context.queryClient.prefetchQuery(validationQuery(params.id)),
     ])
   },
   component: ApplicationPage,
@@ -269,10 +272,6 @@ function ApplicationPage() {
   const { data: validation } = useQuery(validationQuery(id))
   // For the page's own words: whose application this is, and what kind.
   const { data: enterprises } = useQuery(liveEnterprisesQuery)
-  const { data: kinds } = useQuery({
-    ...applicationKindsQuery(application?.enterpriseId ?? '', application?.programmeCycleId ?? ''),
-    enabled: Boolean(application),
-  })
 
   const template = useMemo(
     () => (rawTemplate ? resolveTemplate(rawTemplate) : null),
@@ -420,8 +419,7 @@ function ApplicationPage() {
             ) : null}
             <span className={styles.typeBadge}>
               <Sprout size={13} aria-hidden="true" />
-              {kinds?.find((each) => each.kindKey === application.applicationKind)?.label ??
-                humanize(application.applicationKind)}
+              {application.applicationKindLabel}
               {application.phaseNumber > 1 ? `, phase ${application.phaseNumber}` : ''}
             </span>
           </div>

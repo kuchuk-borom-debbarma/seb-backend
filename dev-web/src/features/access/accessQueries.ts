@@ -11,6 +11,7 @@
 import { queryOptions } from '@tanstack/react-query'
 import { ManagedUserByEmailDocument } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
+import { JUST_LOADED } from '#/lib/freshness'
 
 export const managedUserQuery = (email: string | undefined) =>
   queryOptions({
@@ -20,5 +21,5 @@ export const managedUserQuery = (email: string | undefined) =>
       return data.access.user
     },
     enabled: Boolean(email),
-    staleTime: 0,
+    staleTime: JUST_LOADED,
   })

@@ -173,65 +173,9 @@ fourteen. Where a comment states a cost, a budget test states it too.
 
 ## The browser
 
-The same model holds with the browser request as the unit, and each request
-costs a network trip, a session read and whatever the operation costs on top.
-
-### A screen's entry costs one wave
-
-Everything a screen cannot render without is fetched **by its route loader, in
-parallel**. A `useQuery` in a component, for data the screen needs to paint,
-starts only after the loader has finished and the component has mounted — a
-second wave the user sees as a slow page. Component-level queries are for what
-the screen can show without: below the fold, behind a toggle, after an action.
-
-Where several of a screen's needs live under one namespace, they are one GraphQL
-document built from fragments. Each component owns the fragment for what it
-renders, which keeps components independent, and the route composes them into
-the one request.
-
-### Decide each query's freshness on purpose
-
-A query's `staleTime` is a decision about its volatility (Rule 3), not a default
-left in place:
-
-- **Immutable by key** (a pinned template): `Infinity`. Keep it as its own
-  query, not embedded in a document that is refetched after every write, or it
-  is re-downloaded with every unrelated change.
-- **The viewer's own working copy**, updated from mutation responses (Rule 4):
-  long; it changes only when this viewer changes it.
-- **Shared, edited by others** (a queue, a file several officers act on): short,
-  but never zero.
-
-**A loader-fed query at `staleTime: 0` is fetched twice on every entry** — once
-by the loader and once when the component mounts — and again on every tab
-focus. Zero is allowed only where a test or comment says why a copy from one
-second ago is wrong.
-
-### A mutation's response updates the cache
-
-- Write the mutation's response into the cache for what it changed.
-- Invalidate only what the response cannot answer, by exact key rather than a
-  broad prefix.
-- Never await an invalidation to unblock the UI. The server has already
-  confirmed the write; the screen moves on, and anything else refreshes behind
-  it.
-
-### A list row renders from the list
-
-A row in a list renders from the list's own payload. If a row needs more, the
-list API gains a field. A per-row request turns a page of twenty into forty-one
-requests, and it hides, because each row looks cheap on its own.
-
-### Refusals are answers
-
-Retry transport failures, never refusals. A refusal is the server's decided
-answer, and retrying it only delays the same answer by the retry's back-off.
-
-### Preload what is cheap to be wrong about
-
-Hover preloading spends a request the user may never want. It pays for itself on
-a navigation that is likely and light, and costs real load on lists of heavy
-rows. Opt out per link where the target is heavy and the hover is incidental.
+The same model holds with the browser request as the unit. How a screen opens
+in one request, how fresh each query is allowed to be and how a write keeps the
+cache current are in [Frontend](frontend.md).
 
 ## Measuring
 
@@ -276,6 +220,7 @@ response (Rule 6). The workspace and the client remain; both are tracked in the
 
 ## Related
 
+- [Frontend](frontend.md): one request per screen, freshness, writing responses into the cache
 - [Code](code.md): folding, one statement per transition, per-request loaders
 - [Security](security.md): why authority is re-read on every request
 - [Pipeline service](../../src/services/pipeline/README.md#performance): the

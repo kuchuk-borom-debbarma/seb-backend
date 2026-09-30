@@ -18,6 +18,7 @@ import {
 } from '#/graphql/generated/operations'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
+import { JUST_LOADED } from '#/lib/freshness'
 
 export const applicationQuery = (id: string) =>
   queryOptions({
@@ -26,7 +27,7 @@ export const applicationQuery = (id: string) =>
       const data = await gql(ApplicationByIdDocument, { id })
       return unwrap(data.seb.application.byId)
     },
-    staleTime: 0,
+    staleTime: JUST_LOADED,
   })
 
 /**
@@ -80,7 +81,7 @@ export const validationQuery = (id: string) =>
       const data = await gql(ValidateApplicationDocument, { applicationId: id })
       return unwrap(data.seb.application.validate)
     },
-    staleTime: 0,
+    staleTime: JUST_LOADED,
   })
 
 /**
@@ -96,7 +97,7 @@ export const draftChangesQuery = (id: string) =>
       const data = await gql(DraftChangesDocument, { applicationId: id })
       return data.seb.application.draftChanges
     },
-    staleTime: 0,
+    staleTime: JUST_LOADED,
   })
 
 /**

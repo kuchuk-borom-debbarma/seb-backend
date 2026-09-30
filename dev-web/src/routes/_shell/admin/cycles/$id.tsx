@@ -55,6 +55,7 @@ import { OFFICE_LEDES } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
 import styles from '#/features/admin/CycleDetails.module.css'
 import { fieldTypeWords, roleWords } from '#/features/admin/fieldWords'
+import { JUST_LOADED } from '#/lib/freshness'
 
 const cycleQuery = (id: string) =>
   queryOptions({
@@ -69,7 +70,7 @@ const cycleQuery = (id: string) =>
     },
     // Lifecycle transitions are version-guarded, so the version on screen must
     // be the current one or every action would be refused as stale.
-    staleTime: 0,
+    staleTime: JUST_LOADED,
   })
 
 export const Route = createFileRoute('/_shell/admin/cycles/$id')({

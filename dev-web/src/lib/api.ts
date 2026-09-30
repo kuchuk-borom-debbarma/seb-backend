@@ -56,17 +56,17 @@ export type GraphQLResponse<TData> = {
 }
 
 /**
- * Forwards one operation to the Worker.
+ * Forwards one operation, or a batch of them, to the Worker.
  *
  * Returns the parsed body together with any `Set-Cookie` headers, because the
  * caller — the server route — is responsible for relaying them to the browser.
  * Kept separate from `execute` so server-side render loaders can call it
  * in-process instead of making an HTTP round trip to their own server.
  */
-export const forwardToWorker = async <TData>(
-  request: GraphQLRequest,
+export const forwardToWorker = async <TBody>(
+  request: GraphQLRequest | readonly GraphQLRequest[],
   cookie: string | undefined,
-): Promise<{ body: GraphQLResponse<TData>; setCookie: string[] }> => {
+): Promise<{ body: TBody; setCookie: string[] }> => {
   const target = `${workerOrigin()}/graphql`
   const init = {
     method: 'POST',
@@ -87,5 +87,5 @@ export const forwardToWorker = async <TData>(
   // `getSetCookie` preserves multiple headers; joining them would corrupt the
   // expiry attributes that sign-out relies on.
   const setCookie = response.headers.getSetCookie?.() ?? []
-  return { body: (await response.json()) as GraphQLResponse<TData>, setCookie }
+  return { body: (await response.json()) as TBody, setCookie }
 }

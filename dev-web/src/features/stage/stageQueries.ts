@@ -18,6 +18,7 @@ import {
 import type { AdminStageQueueInput } from '#/graphql/generated/schema'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
+import { JUST_LOADED } from '#/lib/freshness'
 
 export const STAGE_QUEUE_PAGE_SIZE = 25
 
@@ -47,7 +48,7 @@ export const stageApplicationQuery = (applicationId: string) =>
       const data = await gql(StageApplicationDocument, { applicationId })
       return unwrap(data.admin.stage.application)
     },
-    staleTime: 0,
+    staleTime: JUST_LOADED,
   })
 
 export type StageFile = Awaited<
