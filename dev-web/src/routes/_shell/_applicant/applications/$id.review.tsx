@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { Dialog } from '#/components/Dialog'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import {
   ArrowLeft,
@@ -74,6 +75,9 @@ function ReviewPage() {
   // Resubmission answers a revision request; a first submission does not.
   const resubmission = awaitingCorrection(application)
 
+  // Submitting cannot be undone, so it is asked once more, in words.
+  const [confirming, setConfirming] = useState(false)
+
   const submit = useMutation({
     mutationFn: async () => {
       const input = {
@@ -89,10 +93,18 @@ function ReviewPage() {
       return unwrap(data.seb.application.submit)
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['application', id] })
-      await queryClient.invalidateQueries({ queryKey: ['applications'] })
-      await queryClient.invalidateQueries({ queryKey: ['application-timeline', id] })
-      await queryClient.invalidateQueries({ queryKey: ['draft-changes', id] })
+      /*
+       * Marked stale, not waited on: the submission is already recorded, and
+       * four refetches in a row held the applicant on "Sending…" for seconds
+       * after the server had said yes. The next page's loader fetches what it
+       * needs and shares any request already in flight.
+       */
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['application', id] }),
+        queryClient.invalidateQueries({ queryKey: ['applications'] }),
+        queryClient.invalidateQueries({ queryKey: ['application-timeline', id] }),
+        queryClient.invalidateQueries({ queryKey: ['draft-changes', id] }),
+      ])
       await router.navigate({ to: '/applications/$id/submitted', params: { id } })
     },
   })
@@ -176,7 +188,7 @@ function ReviewPage() {
             type="button"
             className={styles.nextButton}
             disabled={!validation.valid || submit.isPending}
-            onClick={() => submit.mutate()}
+            onClick={() => setConfirming(true)}
           >
             <span>
               {submit.isPending
@@ -482,6 +494,54 @@ function ReviewPage() {
           ) : null}
         </div>
       </ApplicationJourney>
+      <Dialog open={confirming} onClose={submit.isPending ? undefined : () => setConfirming(false)}>
+        <div className={styles.leaveBackdrop} role="presentation">
+          <div
+            className={styles.leaveDialog}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="submit-title"
+            aria-describedby="submit-body"
+          >
+            <h2 id="submit-title" className={styles.leaveTitle}>
+              {resubmission ? 'Send your corrections?' : 'Submit your application?'}
+            </h2>
+            <p id="submit-body" className={styles.leaveBody}>
+              {resubmission
+                ? 'Your corrected application goes back to the reviewers who asked for the changes. The sections you corrected are closed again once it is sent.'
+                : 'The programme office receives a copy of your answers and documents exactly as they are now. You cannot change them afterwards unless the office asks you to.'}
+            </p>
+            {submit.isError ? (
+              <p className="notice" data-tone="error" role="alert">
+                {messageFor(submit.error)}
+              </p>
+            ) : null}
+            <div className={styles.leaveActions}>
+              <button
+                type="button"
+                className={styles.backButton}
+                onClick={() => setConfirming(false)}
+                disabled={submit.isPending}
+              >
+                Not yet
+              </button>
+              <button
+                type="button"
+                className={styles.nextButton}
+                onClick={() => submit.mutate()}
+                disabled={submit.isPending}
+                autoFocus
+              >
+                {submit.isPending
+                  ? 'Sending…'
+                  : resubmission
+                    ? 'Send corrections'
+                    : 'Submit application'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Dialog>
     </div>
   )
 }

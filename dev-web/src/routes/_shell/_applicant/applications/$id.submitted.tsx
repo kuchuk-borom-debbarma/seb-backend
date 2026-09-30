@@ -64,8 +64,17 @@ function SubmittedPage() {
   return (
     <main className="page">
       <PageHeader
-        title="Your application has been submitted"
-        description="The programme office can now see it. Keep the reference number — you will be asked for it."
+        // A resubmission answers the office's request, and says so.
+        title={
+          submissionNumber && submissionNumber > 1
+            ? 'Your corrections have been sent'
+            : 'Your application has been submitted'
+        }
+        description={
+          submissionNumber && submissionNumber > 1
+            ? 'The reviewers who asked for them can now see them. Keep the reference number — you will be asked for it.'
+            : 'The programme office can now see it. Keep the reference number — you will be asked for it.'
+        }
         actions={
           <>
             {copyUrl ? (
