@@ -179,17 +179,32 @@ export const blankInput = (key: string): PipelineInput => ({
   defaultFrom: null,
 })
 
-export const blankAction = (key: string): PipelineAction => ({
-  key,
-  label: 'New action',
-  description: null,
-  confirmation: null,
-  inputs: [],
-  availableWhen: [],
-  // An action needs at least one effect; returning the file is the one that
-  // names nothing else in the document, so it is valid wherever it lands.
-  effects: [{ type: 'RETURN_TO_PREVIOUS', params: {}, when: [] }],
-})
+/**
+ * A new action at one stage of a definition.
+ *
+ * An action needs at least one effect, so it starts with the one most likely
+ * to be wanted and valid where it lands. Everywhere but the entry stage that is
+ * sending the file back, which names nothing else in the document. At the entry
+ * stage a return is always refused — the file came from nowhere — so there it
+ * starts by moving the file on to the next stage instead.
+ */
+export const blankAction = (key: string, definition: PipelineDefinition, stageKey: string): PipelineAction => {
+  const onward = definition.stages.find((stage) => stage.key !== stageKey)
+  const atEntry = stageKey === definition.initialStageKey
+  return {
+    key,
+    label: 'New action',
+    description: null,
+    confirmation: null,
+    inputs: [],
+    availableWhen: [],
+    effects: [
+      atEntry && onward
+        ? { type: 'MOVE_TO_STAGE', params: { target: onward.key }, when: [] }
+        : { type: 'RETURN_TO_PREVIOUS', params: {}, when: [] },
+    ],
+  }
+}
 
 export const blankStage = (key: string, name: string): PipelineStage => ({
   key,

@@ -105,7 +105,7 @@ export function ActionsTab({
               <button type="button" className="button" data-variant="ghost"
                 onClick={() => {
                   const key = freshKey('NEW_ACTION', stage.actions.map((each) => each.key))
-                  edit((current) => updateStage(current, stageIndex, (each) => ({ ...each, actions: [...each.actions, blankAction(key)] })))
+                  edit((current) => updateStage(current, stageIndex, (each) => ({ ...each, actions: [...each.actions, blankAction(key, current, each.key)] })))
                   onSelect(stageIndex, stage.actions.length)
                 }}>
                 <Plus size={14} aria-hidden /> Add an action
@@ -214,6 +214,7 @@ export function ActionsTab({
                 onChange={(effects) => setAction((each) => ({ ...each, effects }))}
                 catalogue={catalogue.effects}
                 scope={scope}
+                statusFlags={definition.statusFlags}
                 paramContext={{
                   readOnly,
                   stages: stageNames(definition),

@@ -16,13 +16,29 @@ import { moveAt, removeAt, replaceAt } from './editorState'
 import { ParamFields, type ParamContext } from './paramControls'
 import type { CatalogueEffect } from './pipelineQueries'
 import styles from './Pipeline.module.css'
+import { isOrdinaryFlag } from './definition'
 
 /** How an effect's permission reads: `stage:decide` → "Stage: decide". */
 const permissionWords = (entry: CatalogueEffect): string => {
   if (entry.permission === null) return 'Needs no permission of its own.'
   if (entry.permission === 'BY_FLAG_KIND') return 'Needs stage: decide for an outcome flag, stage: advance for a progress flag.'
   const [resource, action] = entry.permission.split(':')
-  return `Needs ${humanize(resource ?? '')}: ${action ?? ''}.`
+  return `Needs ${humanize(resource ?? '')}: ${humanize(action ?? '').toLowerCase()}.`
+}
+
+type FlagTraits = { key: string; terminal: boolean; applicantEdit: string }
+
+/**
+ * Which flags an effect's flag parameter may name — the rules the server
+ * enforces, applied where the author chooses, so the list offers no refusal.
+ * An ending names an ending flag; a revision names a flag that hands the
+ * applicant the pen; adding or removing a status names an ordinary one.
+ */
+const flagFits = (effectType: string, flag: FlagTraits): boolean => {
+  if (effectType === 'COMPLETE_PIPELINE' || effectType === 'CLOSE_APPLICATION') return flag.terminal
+  if (effectType === 'REQUEST_REVISION') return flag.applicantEdit === 'REVISION_SCOPED'
+  if (effectType === 'ADD_STATUS' || effectType === 'REMOVE_STATUS') return isOrdinaryFlag(flag)
+  return true
 }
 
 export function EffectsEditor({
@@ -31,6 +47,7 @@ export function EffectsEditor({
   onChange,
   catalogue,
   paramContext,
+  statusFlags,
   scope,
 }: {
   idPrefix: string
@@ -38,6 +55,8 @@ export function EffectsEditor({
   onChange: (effects: PipelineEffect[]) => void
   catalogue: readonly CatalogueEffect[]
   paramContext: Omit<ParamContext, 'siblings'>
+  /** The pipeline's flags with the traits that decide which effect may name each. */
+  statusFlags: readonly FlagTraits[]
   scope: ConditionScope
 }) {
   const { readOnly } = scope
@@ -83,7 +102,15 @@ export function EffectsEditor({
                   params={entry.params}
                   values={effect.params}
                   onChange={(params) => set(index, { ...effect, params })}
-                  context={paramContext}
+                  context={{
+                    ...paramContext,
+                    // The chosen flag stays listed even if it no longer fits,
+                    // so the author sees what is set and can change it.
+                    flags: paramContext.flags.filter((named) => {
+                      const flag = statusFlags.find((each) => each.key === named.key)
+                      return !flag || flagFits(effect.type, flag) || effect.params.flag === named.key
+                    }),
+                  }}
                 />
               </>
             ) : (

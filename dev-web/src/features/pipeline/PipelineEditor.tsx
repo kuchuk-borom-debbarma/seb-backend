@@ -247,9 +247,17 @@ export function PipelineEditor({
           </div>
         ) : (
           <div className="card card-body" role="alert">
-            <p className="field-label" style={{ color: 'var(--danger)' }}>
+            <p className={`field-label ${styles.problemsTitle}`}>
               <AlertTriangle size={16} aria-hidden /> {problems.length === 1 ? 'One problem stops' : `${problems.length} problems stop`} this draft from being published
             </p>
+            {/* The list is the last check's. After an edit it may name
+                something already fixed, and saying so stops it reading as
+                though the edit did not take. */}
+            {dirty ? (
+              <p className="field-hint" style={{ marginTop: 0 }}>
+                As of the last check — press Check or save to see where your changes leave it.
+              </p>
+            ) : null}
             <ol className={styles.problems}>
               {problems.map((problem, index) => (
                 <li key={`${problem.path}-${index}`}>
