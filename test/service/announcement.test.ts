@@ -142,9 +142,9 @@ describe('who may write the banner', () => {
   it('gives the announcer nothing beyond the banner', async () => {
     const announcer = await signIn({ permissions: permissionsOn('announcement') })
     const queue = await graphql<any>(`query {
-      admin { intake { queues { success message } } }
+      admin { intake { queue { success message } } }
     }`, {}, announcer.cookie)
-    expect(queue.data.admin.intake.queues).toMatchObject({
+    expect(queue.data.admin.intake.queue).toMatchObject({
       success: false, message: PERMISSION,
     })
   })

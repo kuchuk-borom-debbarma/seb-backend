@@ -111,6 +111,43 @@ for (const path of files) {
   }
 }
 
+/*
+ * The raw form a data-modifying `WITH` uses: `INSERT INTO ${t} (a, b, …)
+ * SELECT …`. Its column list is explicit, so Postgres already refuses a list
+ * longer or shorter than the select — but only on the path that runs it. This
+ * holds the two lists to each other here, and every named column to the table,
+ * so a renamed column fails the build instead of the one stage action that
+ * reaches it.
+ */
+const tableColumns = new Map()
+for (const row of (await db.query(`
+  SELECT table_name, column_name FROM information_schema.columns
+  WHERE table_schema = 'public'`)).rows) {
+  if (!tableColumns.has(row.table_name)) tableColumns.set(row.table_name, new Set())
+  tableColumns.get(row.table_name).add(row.column_name)
+}
+for (const path of files) {
+  const text = readFileSync(path, 'utf8')
+  const pattern = /INSERT INTO \$\{(\w+)\}\s*\(([^)]*)\)\s*SELECT([\s\S]*?)(?=`)/gu
+  for (const match of text.matchAll(pattern)) {
+    const table = tableOf(match[1])
+    const known = tableColumns.get(table)
+    if (known === undefined) {
+      problems.push(`${path}: ${match[1]} → no table ${table}`)
+      continue
+    }
+    const named = match[2].split(',').map((column) => column.trim()).filter(Boolean)
+    for (const column of named) {
+      if (!known.has(column)) problems.push(`${path}: INSERT INTO ${table} names ${column}, which it does not have`)
+    }
+    const actual = topLevelCount(selectList(match[3]))
+    checked += 1
+    if (actual !== named.length) {
+      problems.push(`${path}: INSERT INTO ${table} names ${named.length} columns and selects ${actual}`)
+    }
+  }
+}
+
 if (problems.length > 0) {
   throw new Error(
     'A positional insert does not match its table:\n\n' +

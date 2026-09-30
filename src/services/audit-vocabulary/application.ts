@@ -101,22 +101,27 @@ export const applicationVocabulary = {
     entityTypes: ['SEB_APPLICATION'],
     subject: 'ACTOR',
     application: 'REQUIRED',
+    /*
+     * `kind` is one of the cycle's configured kinds, so it is a code rather
+     * than a closed enum. Rows written when this was `type: INITIAL|EXPANSION`
+     * no longer parse and are shown as recorded — never restated.
+     */
     payload: z.strictObject({
-      type: z.enum(['INITIAL', 'EXPANSION']),
+      kind: code,
       phaseNumber: z.number().int().positive(),
       enterpriseId: z.string().min(1),
       programmeCycleId: z.string().min(1),
     }),
     fields: {
-      type: { label: 'Type', kind: 'ENUM' },
+      kind: { label: 'Kind', kind: 'ENUM' },
       phaseNumber: { label: 'Phase', kind: 'COUNT' },
       enterpriseId: { label: 'Enterprise', kind: 'ENTERPRISE' },
       programmeCycleId: { label: 'Cycle', kind: 'CYCLE' },
     },
     summary: (p, name) =>
-      `Started ${p.type === 'EXPANSION' ? `a phase ${p.phaseNumber} expansion` : 'an initial application'} in ${name('CYCLE', p.programmeCycleId)}`,
+      `Started an application (${p.kind}, phase ${p.phaseNumber}) in ${name('CYCLE', p.programmeCycleId)}`,
     example: {
-      type: 'INITIAL',
+      kind: 'INITIAL',
       phaseNumber: 1,
       enterpriseId: '00000000-0000-4000-8000-000000000010',
       programmeCycleId: '00000000-0000-4000-8000-000000000011',

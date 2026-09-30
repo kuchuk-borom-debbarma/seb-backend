@@ -182,7 +182,8 @@ describe('templates a request must never accept', () => {
     expect(cyclic).toBeNull()
   })
 
-  it('refuses a template that leaves a role unbound', () => {
+  // Roles are partial: a cycle may ask no grant amount at all.
+  it('resolves a template that leaves a role unbound', () => {
     const missingRole = resolveFormTemplate({
       programmeCycleId: 'c1',
       programmeCycleVersion: 1,
@@ -191,7 +192,8 @@ describe('templates a request must never accept', () => {
       options: roleOptions,
       conditions: [],
     })
-    expect(missingRole).toBeNull()
+    expect(missingRole).not.toBeNull()
+    expect(missingRole?.roles.SEED_FUND_REQUESTED_PAISE).toBeUndefined()
   })
 
   it('refuses a condition naming a question the template does not declare', () => {

@@ -26,9 +26,10 @@
  * a security check. It stays off the loader entirely.
  */
 import DataLoader from 'dataloader'
-import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Database } from '../db'
-import { coreRole, coreUser, coreUserRoleGrant } from '../db/schema'
+import { coreRole, coreUser, coreUserRoleGrant, sebPipelineVersion } from '../db/schema'
+import { parseDefinition, type PipelineDefinition } from '../services/pipeline/definition'
 import type { StaffMember } from './staff'
 
 export type { StaffMember } from './staff'
@@ -36,9 +37,43 @@ export type { StaffMember } from './staff'
 export type Loaders = {
   /** Resolves a person by id. `null` for one that no longer exists. */
   userById: DataLoader<string, StaffMember | null>
+  /**
+   * A pipeline version's definition, by `pipelineId:version`, parsed once. `null`
+   * for a version that does not exist or no longer parses — which callers treat
+   * as "this pipeline cannot be worked", never as an empty one.
+   */
+  pipelineDefinition: DataLoader<string, PipelineDefinition | null>
 }
 
+/** The loader key for one pipeline version. */
+export const pipelineVersionKey = (pipelineId: string, version: number): string => `${pipelineId}:${version}`
+
 export const createLoaders = (db: Database): Loaders => ({
+  /*
+   * A page of applications from several cycles names a few pipeline versions
+   * at most; this reads all of them in one statement, and parses each document
+   * once for the whole request rather than once per row.
+   */
+  pipelineDefinition: new DataLoader<string, PipelineDefinition | null>(async (keys) => {
+    const wanted = keys.map((key) => {
+      const split = key.lastIndexOf(':')
+      return { pipelineId: key.slice(0, split), version: Number(key.slice(split + 1)) }
+    })
+    const rows = await db
+      .select({ pipelineId: sebPipelineVersion.pipelineId, version: sebPipelineVersion.version, definition: sebPipelineVersion.definition })
+      .from(sebPipelineVersion)
+      .where(sql`(${sebPipelineVersion.pipelineId}, ${sebPipelineVersion.version}) IN (${sql.join(
+        wanted.map((key) => sql`(${key.pipelineId}, ${key.version}::int)`),
+        sql`, `,
+      )})`)
+    const parsed = new Map(
+      rows.map((row) => {
+        const result = parseDefinition(row.definition)
+        return [pipelineVersionKey(row.pipelineId, row.version), result.ok ? result.definition : null]
+      }),
+    )
+    return keys.map((key) => parsed.get(key) ?? null)
+  }),
   userById: new DataLoader<string, StaffMember | null>(async (ids) => {
     const wanted = [...ids]
     const [people, grants] = await Promise.all([

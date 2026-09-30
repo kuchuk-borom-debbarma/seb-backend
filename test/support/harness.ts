@@ -308,7 +308,6 @@ export const testEnv = (overrides: Partial<AppBindings> = {}): AppBindings =>
      * now, and without it every desk review that transcribes an identity
      * number throws rather than refusing.
      */
-    IDENTIFIER_SECRET: 'test-identifier-secret-that-is-at-least-32-bytes',
     PORTAL_BASE_URL: 'https://portal.example.test',
     FRONTEND_ORIGINS: 'https://app.example.test',
     AUTH_COOKIE_SAME_SITE: 'lax',

@@ -45,18 +45,14 @@ enum AuditCategory {
   APPLICATION
   """Evidence attached to an application."""
   DOCUMENT
-  """The programme office's review: notes, desk review, corrections."""
+  """The programme office's notes on an application."""
   REVIEW
-  """Referral to a partner bank and its answer."""
-  BANK
-  """The programme's decision."""
-  DECISION
-  """Sanction, payments and their use."""
-  FUNDING
-  """Recovering money that was paid."""
-  RECOVERY
   """Programme cycles and their policy."""
   PROGRAMME
+  """Pipelines: their drafts, publishing, retirement and who works each stage."""
+  PIPELINE
+  """Actions taken on an application at a pipeline stage, and what surrounds them."""
+  STAGE
   """The public announcement banner."""
   ANNOUNCEMENT
   """The activity history itself — its exports."""
@@ -99,6 +95,10 @@ enum AuditDetailKind {
   CYCLE
   """The filters an export used, as JSON text."""
   FILTERS
+  """A list of labels, as a JSON array of strings."""
+  LIST
+  """Configured values, as a JSON array of objects with a `label`, a `kind` and a `value`; each value is read by its own kind (TEXT, MONEY, DATE, COUNT, ENUM or BOOLEAN)."""
+  VALUES
 }
 
 """
@@ -260,7 +260,7 @@ type AuditEvent {
   """
   What was done, as a stable code safe to branch on.
 
-  **Example:** `"SEB.DESK_REVIEW_STARTED"`
+  **Example:** `"SEB.APPLICATION_SUBMITTED"`
   """
   action: String!
 

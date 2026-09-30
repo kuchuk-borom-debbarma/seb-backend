@@ -18,12 +18,12 @@
  * suite a proof that the cutover preserved behaviour rather than a set of
  * assertions to rewrite — and it is why `{ exact: true }` matches still work.
  *
- * ## Two roles, bound
+ * ## Three roles, each optional
  *
- * A cycle cannot open with one unbound: the amount a decision is bounded by
- * and the age rule reach their input through a role. The requested amount is
- * pinned to its canonical key; the date of birth lives inside the owners
- * group under the key this fixture chose for it.
+ * Code reaches the grant and loan amounts and the date of birth through a
+ * role, and a cycle may leave any unbound. The two amounts are pinned to their
+ * canonical keys and asked only behind their own yes/no; the date of birth
+ * lives inside the owners group under the key this fixture chose for it.
  *
  * ## No enterprise questions, no declaration
  *
@@ -62,8 +62,8 @@ const STAGES = [
     description: 'Everyone who owns the enterprise. Add each owner below.',
     iconName: 'users', estimatedMinutes: 5,
   },
-  { stageKey: 'FINANCIAL', title: 'Project cost and funding' },
-  { stageKey: 'PRIOR_FUNDING', title: 'Previous support and credit' },
+  { stageKey: 'FINANCIAL', title: 'Funding requested' },
+  { stageKey: 'PRIOR_FUNDING', title: 'Previous support' },
   { stageKey: 'DOCUMENTS', title: 'Evidence' },
 ]
 
@@ -110,28 +110,41 @@ const FIELDS: Field[] = [
     maxLength: 120,
   },
 
-  // What the project costs and who pays for it.
+  /*
+   * What the applicant asks for: a grant, a bank loan, or both — which the
+   * form's AT_LEAST_ONE_TRUE rule insists on. Each amount hangs off its own
+   * yes/no, so a loan-only applicant is never asked for a grant figure and the
+   * grant role is required only where it is asked.
+   */
   {
-    stageKey: 'FINANCIAL', fieldKey: 'TOTAL_PROJECT_COST_PAISE', fieldType: 'MONEY_PAISE',
-    label: 'Total project cost', requirement: 'REQUIRED', minValue: 1,
-    prefixText: '₹',
+    stageKey: 'FINANCIAL', fieldKey: 'WANTS_GRANT', fieldType: 'BOOLEAN',
+    label: 'Do you want a grant?', requirement: 'REQUIRED',
   },
   {
     stageKey: 'FINANCIAL', fieldKey: 'SEED_FUND_REQUESTED_PAISE', fieldType: 'MONEY_PAISE',
-    role: 'SEED_FUND_REQUESTED_PAISE', label: 'Seed fund requested',
-    requirement: 'REQUIRED', minValue: 1, prefixText: '₹',
+    role: 'SEED_FUND_REQUESTED_PAISE', label: 'Desired grant amount',
+    requirement: 'CONDITIONAL', minValue: 1, prefixText: '₹',
   },
   {
-    stageKey: 'FINANCIAL', fieldKey: 'BANK_LOAN_PROPOSED_PAISE', fieldType: 'MONEY_PAISE',
-    label: 'Bank loan proposed', requirement: 'OPTIONAL', minValue: 0,
+    stageKey: 'FINANCIAL', fieldKey: 'WANTS_BANK_LOAN', fieldType: 'BOOLEAN',
+    label: 'Do you want a bank loan?', requirement: 'REQUIRED',
   },
   {
-    stageKey: 'FINANCIAL', fieldKey: 'PROMOTER_CONTRIBUTION_PAISE', fieldType: 'MONEY_PAISE',
-    label: 'Your own contribution', requirement: 'OPTIONAL', minValue: 0,
+    stageKey: 'FINANCIAL', fieldKey: 'LOAN_BANK_FIRST_CHOICE', fieldType: 'SINGLE_CHOICE',
+    label: 'First choice of bank', requirement: 'CONDITIONAL',
+  },
+  {
+    stageKey: 'FINANCIAL', fieldKey: 'LOAN_BANK_SECOND_CHOICE', fieldType: 'SINGLE_CHOICE',
+    label: 'Second choice of bank', requirement: 'OPTIONAL',
+  },
+  {
+    stageKey: 'FINANCIAL', fieldKey: 'LOAN_AMOUNT_REQUESTED_PAISE', fieldType: 'MONEY_PAISE',
+    role: 'LOAN_REQUESTED_PAISE', label: 'Loan amount requested',
+    requirement: 'CONDITIONAL', minValue: 1, prefixText: '₹',
   },
 
   /*
-   * Previous support and credit — the stage that exercises conditions.
+   * Previous support — the stage that exercises conditions.
    *
    * Three questions hang off one yes/no answer, which is the shape the old form
    * hard-coded and the reason `pruneHidden` runs to a fixed point.
@@ -156,24 +169,6 @@ const FIELDS: Field[] = [
     // Past sanctions only: the programme asked for years below 2026.
     minValue: 1900, maxValue: 2025, widthHint: 'CHAR_4',
   },
-  {
-    stageKey: 'PRIOR_FUNDING', fieldKey: 'HAS_EXISTING_BANK_CREDIT', fieldType: 'BOOLEAN',
-    label: 'Does this enterprise have existing bank credit?', requirement: 'REQUIRED',
-  },
-  {
-    stageKey: 'PRIOR_FUNDING', fieldKey: 'EXISTING_BANK_NAME', fieldType: 'TEXT',
-    label: 'Bank', requirement: 'CONDITIONAL', maxLength: 200,
-  },
-  {
-    stageKey: 'PRIOR_FUNDING', fieldKey: 'EXISTING_CREDIT_AMOUNT_PAISE',
-    fieldType: 'MONEY_PAISE', label: 'Amount outstanding', requirement: 'CONDITIONAL',
-    minValue: 1,
-  },
-  {
-    stageKey: 'PRIOR_FUNDING', fieldKey: 'EXISTING_CREDIT_STATUS', fieldType: 'SINGLE_CHOICE',
-    label: 'Account status', requirement: 'CONDITIONAL',
-  },
-
   // Evidence. Every document is a FILE question, so which are required and when
   // is an ordinary condition rather than four hard-coded ones.
   {
@@ -234,9 +229,13 @@ const OPTIONS: Option[] = [
     ['FEMALE', 'Female'],
     ['OTHER', 'Other'],
   ]),
-  ...choice('EXISTING_CREDIT_STATUS', [
-    ['STANDARD', 'Standard'],
-    ['NPA', 'NPA'],
+  ...choice('LOAN_BANK_FIRST_CHOICE', [
+    ['SBI', 'State Bank of India'],
+    ['TGB', 'Tripura Gramin Bank'],
+  ]),
+  ...choice('LOAN_BANK_SECOND_CHOICE', [
+    ['SBI', 'State Bank of India'],
+    ['TGB', 'Tripura Gramin Bank'],
   ]),
   ...choice('RELATIONSHIP_TYPE', [
     ['SON_OF', 'Son of'],
@@ -246,6 +245,12 @@ const OPTIONS: Option[] = [
 ]
 
 const CONDITIONS: FormTemplateInput['conditions'] = [
+  // Asked with the loan, never required: a second choice is a preference.
+  {
+    fieldKey: 'LOAN_BANK_SECOND_CHOICE', effect: 'VISIBLE_WHEN',
+    sourceFieldKey: 'WANTS_BANK_LOAN', sourceFieldType: 'BOOLEAN',
+    operator: 'EQUALS', comparisonValue: 'true',
+  },
   // The certificate follows the answer that says it applies.
   {
     fieldKey: 'NOC', effect: 'REQUIRED_WHEN',
@@ -257,9 +262,9 @@ const CONDITIONS: FormTemplateInput['conditions'] = [
       ['GOVERNMENT_SCHEME_NAME', 'RECEIVED_GOVERNMENT_FUNDING'],
       ['GOVERNMENT_FUNDING_AMOUNT_PAISE', 'RECEIVED_GOVERNMENT_FUNDING'],
       ['GOVERNMENT_FUNDING_SANCTION_YEAR', 'RECEIVED_GOVERNMENT_FUNDING'],
-      ['EXISTING_BANK_NAME', 'HAS_EXISTING_BANK_CREDIT'],
-      ['EXISTING_CREDIT_AMOUNT_PAISE', 'HAS_EXISTING_BANK_CREDIT'],
-      ['EXISTING_CREDIT_STATUS', 'HAS_EXISTING_BANK_CREDIT'],
+      ['SEED_FUND_REQUESTED_PAISE', 'WANTS_GRANT'],
+      ['LOAN_BANK_FIRST_CHOICE', 'WANTS_BANK_LOAN'],
+      ['LOAN_AMOUNT_REQUESTED_PAISE', 'WANTS_BANK_LOAN'],
     ] as const
   ).flatMap(([fieldKey, sourceFieldKey]) => [
     {
@@ -273,6 +278,26 @@ const CONDITIONS: FormTemplateInput['conditions'] = [
       comparisonValue: 'true',
     },
   ]),
+]
+
+/** A grant, a loan, or both; and two different banks. */
+const RULES: NonNullable<FormTemplateInput['rules']> = [
+  {
+    ruleKey: 'GRANT_OR_LOAN', ruleType: 'AT_LEAST_ONE_TRUE', stageKey: 'FINANCIAL',
+    message: 'Ask for a grant, a bank loan, or both.',
+    operands: [
+      { fieldKey: 'WANTS_GRANT', fieldType: 'BOOLEAN' },
+      { fieldKey: 'WANTS_BANK_LOAN', fieldType: 'BOOLEAN' },
+    ],
+  },
+  {
+    ruleKey: 'DIFFERENT_BANKS', ruleType: 'DIFFERENT_VALUES', stageKey: 'FINANCIAL',
+    message: 'Choose two different banks.',
+    operands: [
+      { fieldKey: 'LOAN_BANK_FIRST_CHOICE', fieldType: 'SINGLE_CHOICE' },
+      { fieldKey: 'LOAN_BANK_SECOND_CHOICE', fieldType: 'SINGLE_CHOICE' },
+    ],
+  },
 ]
 
 /**
@@ -290,6 +315,7 @@ export const defaultTemplate = (
     fields: FIELDS.map((field) => ({ ...field })),
     options: OPTIONS.map((option) => ({ ...option })),
     conditions: CONDITIONS.map((condition) => ({ ...condition })),
+    rules: RULES.map((rule) => ({ ...rule, operands: rule.operands.map((operand) => ({ ...operand })) })),
   })
 
 export const withoutField = (fieldKey: string) => (template: FormTemplateInput) => ({
@@ -299,6 +325,9 @@ export const withoutField = (fieldKey: string) => (template: FormTemplateInput) 
   conditions: template.conditions.filter(
     (condition) =>
       condition.fieldKey !== fieldKey && condition.sourceFieldKey !== fieldKey,
+  ),
+  rules: (template.rules ?? []).filter(
+    (rule) => !rule.operands.some((operand) => operand.fieldKey === fieldKey),
   ),
 })
 
@@ -321,19 +350,17 @@ export const completeAnswers = (
     RELATED_PERSON_NAME: 'Maya Debbarma',
   }],
 
-  TOTAL_PROJECT_COST_PAISE: 50_000_000,
+  WANTS_GRANT: true,
   SEED_FUND_REQUESTED_PAISE: 10_000_000,
-  BANK_LOAN_PROPOSED_PAISE: 0,
-  PROMOTER_CONTRIBUTION_PAISE: 1_000_000,
+  WANTS_BANK_LOAN: false,
+  LOAN_BANK_FIRST_CHOICE: null,
+  LOAN_BANK_SECOND_CHOICE: null,
+  LOAN_AMOUNT_REQUESTED_PAISE: null,
 
   RECEIVED_GOVERNMENT_FUNDING: false,
   GOVERNMENT_SCHEME_NAME: null,
   GOVERNMENT_FUNDING_AMOUNT_PAISE: null,
   GOVERNMENT_FUNDING_SANCTION_YEAR: null,
-  HAS_EXISTING_BANK_CREDIT: false,
-  EXISTING_BANK_NAME: null,
-  EXISTING_CREDIT_AMOUNT_PAISE: null,
-  EXISTING_CREDIT_STATUS: null,
 
   NOC_REQUIRED: false,
 

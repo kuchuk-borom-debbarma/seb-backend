@@ -251,7 +251,7 @@ const stripComments = (source) =>
  * not to assemble one.
  */
 const GUARD = new RegExp(
-  String.raw`(?:authenticatedWithPermission|currentStaff|authorizeReasonedTransition)` +
+  String.raw`(?:authenticatedWithPermission|currentStaff|authorizeReasonedTransition|holdsPermission)` +
     String.raw`\(\s*[A-Za-z_.]+\s*,\s*'([a-z_]+)'\s*,\s*'([a-z_]+)'`,
   'gu',
 )

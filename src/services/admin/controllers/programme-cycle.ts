@@ -6,18 +6,19 @@
  * therefore strictest before opening; afterwards only the guidance text and the
  * closing time may change, each with a retained reason.
  */
-import {
-  programmeReasonContexts,
-  deskReviewChecks,
-  deskReviewIdentifierKinds,
-} from '../../../db/schema'
-import { formFieldRoles } from '../../../db/schema/seb/form-template'
+import { eligibilityEvaluators } from '../../application/eligibility'
+import { resolveFormTemplate } from '../../application/form/template'
+import { authenticatedWithPermission } from '../../auth'
+import { holdsPermission } from '../../auth/permissions'
+import { parseDefinition } from '../../pipeline/definition'
+import { pipelinePinProblems } from '../../pipeline/validate'
 import { formTemplateProblem } from '../form-template-input'
 import { expandGroupDefinitions } from '../group-definitions'
 import { decodeAdminCursor, adminPageSize } from '../pagination'
 import { findCyclePolicyDocument } from '../queries/policy-document'
 import {
   findExpiredOpenCycles,
+  findPipelinePublishedDefinition,
   insertProgrammeCycle,
   listProgrammeCycleEvents,
   listProgrammeCycles,
@@ -26,6 +27,7 @@ import {
   reviseOpenProgrammeCycle,
   setDraftCycleDeleted,
   transitionProgrammeCycle,
+  unfinishedApplicationCount,
   updateDraftProgrammeCycle,
 } from '../queries/programme-cycle'
 import {
@@ -59,16 +61,20 @@ const validateCycleIdentity = (input: ProgrammeCycleInput): string | null => {
   return null
 }
 
+const KEY = /^[A-Z][A-Z0-9_]{1,63}$/u
+
 const validatePolicyCollections = (input: ProgrammeCycleInput): string | null => {
   const policy = input.policy
-  const identifierRules = policy.identifierRules ?? []
+  const rules = policy.formTemplate.rules ?? []
   if (
     !uniqueBy(policy.formTemplate.stages, (stage) => stage.stageKey) ||
     !uniqueBy(policy.formTemplate.fields, (field) => field.fieldKey) ||
-    !uniqueBy(policy.requiredAssessmentTypes, (type) => type) ||
-    !uniqueBy(identifierRules, (rule) => rule.kind) ||
-    !uniqueBy(policy.reasons, (reason) => `${reason.context}:${reason.code}`)
+    !uniqueBy(rules, (rule) => rule.ruleKey) ||
+    !uniqueBy(policy.applicationKinds, (kind) => kind.kindKey)
   ) return 'Cycle policy entries must be unique.'
+  if (!normalizeRequiredText(policy.pipelineId, 128)) {
+    return 'Choose the pipeline this cycle\u2019s applications are worked in.'
+  }
   /*
    * Refused here so it cannot be authored, and refused again by
    * `resolveFormTemplate` when the rows are read back.
@@ -79,31 +85,42 @@ const validatePolicyCollections = (input: ProgrammeCycleInput): string | null =>
    */
   const templateProblem = formTemplateProblem(policy.formTemplate)
   if (templateProblem) return templateProblem
-  /*
-   * A unique index and a CHECK enforce both of these in SQL, which is what makes
-   * the outcome correct. These exist to make the refusal *useful*: a constraint
-   * violation arrives as "the record changed", which tells somebody editing a
-   * cycle form nothing about which row to fix.
-   */
-  if (identifierRules.some(
-    (rule) => !(deskReviewIdentifierKinds as readonly string[]).includes(rule.kind),
-  )) {
-    return 'The cycle contains an unknown identifier rule.'
+  if (policy.applicationKinds.length > 10) return 'A cycle may accept at most 10 kinds of application.'
+  if (policy.applicationKinds.some((kind) =>
+    !KEY.test(kind.kindKey) ||
+    !normalizeRequiredText(kind.label, 80) ||
+    (kind.description?.trim().length ?? 0) > 500 ||
+    kind.rules.length > 10,
+  )) return 'One or more application kinds are invalid.'
+  return kindRuleProblem(policy.applicationKinds)
+}
+
+/**
+ * Each eligibility rule's parameters, against its evaluator's own schema — the
+ * schema the rule is later evaluated with, so a rule saved here can never be
+ * one the start operation refuses to read. Keys that name something (a kind,
+ * a flag, a pipeline) are checked for shape only: a flag is the pipeline's to
+ * declare, and the pipeline may be republished after the cycle is written.
+ */
+const kindRuleProblem = (kinds: ProgrammeCycleInput['policy']['applicationKinds']): string | null => {
+  const kindKeys = new Set(kinds.map((kind) => kind.kindKey))
+  for (const kind of kinds) {
+    for (const rule of kind.rules) {
+      const evaluator = eligibilityEvaluators[rule.ruleType]
+      if (!evaluator) return `${kind.kindKey} uses a rule type this build does not know.`
+      const parsed = evaluator.params.safeParse(rule.params)
+      if (!parsed.success) {
+        return `${kind.kindKey}: the ${rule.ruleType} rule\u2019s settings are incomplete or invalid.`
+      }
+      const named = (parsed.data as { kind?: unknown }).kind
+      if (typeof named === 'string' && !kindKeys.has(named)) {
+        return `${kind.kindKey}: the ${rule.ruleType} rule names ${named}, which this cycle does not accept.`
+      }
+      if (JSON.stringify(rule.params).length > 4096) {
+        return `${kind.kindKey}: the ${rule.ruleType} rule\u2019s settings are too large.`
+      }
+    }
   }
-  if (identifierRules.some((rule) =>
-    rule.requirement === 'REQUIRED_ON_PASS'
-      ? !rule.checkType ||
-        !(deskReviewChecks as readonly string[]).includes(rule.checkType)
-      : Boolean(rule.checkType),
-  )) {
-    return 'An identifier demanded on a passing check must name that check, and no other may name one.'
-  }
-  if (policy.reasons.length > 50) return 'A cycle may contain at most 50 reason categories.'
-  if (policy.reasons.some((reason) =>
-    !/^[A-Z0-9_]{2,64}$/u.test(reason.code) ||
-    !normalizeRequiredText(reason.label, 120) ||
-    (reason.applicantMessageTemplate?.trim().length ?? 0) > 500,
-  )) return 'One or more reason categories are invalid.'
   return null
 }
 
@@ -125,10 +142,6 @@ const validatePolicyNumbers = (input: ProgrammeCycleInput): string | null => {
   if (policy.categoryAMaximumMonths !== null &&
       (!Number.isInteger(policy.categoryAMaximumMonths) || policy.categoryAMaximumMonths < 0)) {
     return 'Category A month limit must be a non-negative whole number.'
-  }
-  if (policy.expansionWaitMonths !== null &&
-      (!Number.isInteger(policy.expansionWaitMonths) || policy.expansionWaitMonths < 1)) {
-    return 'Expansion waiting time must be a positive whole number of months.'
   }
   return null
 }
@@ -175,6 +188,7 @@ const listOf = (items: readonly string[]): string =>
 const openingProblem = (
   cycle: Awaited<ReturnType<typeof loadProgrammeCycle>>,
   policyDocument: Awaited<ReturnType<typeof findCyclePolicyDocument>>,
+  pipelinePublishedVersion: number | null,
 ): string | null => {
   if (!cycle) return 'The programme cycle was not found.'
   const version = cycle.version
@@ -194,7 +208,6 @@ const openingProblem = (
     version.minimumApplicantAge === null ? 'the minimum applicant age' : null,
     version.maximumApplicantAge === null ? 'the maximum applicant age' : null,
     version.categoryAMaximumMonths === null ? 'the category threshold' : null,
-    version.expansionWaitMonths === null ? 'the expansion wait' : null,
     version.majorityOwnershipRequired === null ? 'the ownership rule' : null,
     version.jurisdiction === null ? 'the jurisdiction' : null,
     version.fundingCeilingState === null ? 'the funding ceiling' : null,
@@ -215,40 +228,55 @@ const openingProblem = (
     return 'The policy document failed its malware check. '
       + 'Upload a clean copy before opening.'
   }
-  /*
-   * Every role bound before a cycle can open.
-   *
-   * The administrative queue, the amount a decision is bounded by, and the
-   * eligibility rules all reach their input through a role, and none of them
-   * can resolve a key per cycle — the queue filters across all of them at once.
-   * A cycle that leaves one unbound describes a form no staff screen could
-   * read, so it is refused here rather than discovered later.
-   */
   if (version.closesAt && version.closesAt <= new Date()) {
     return 'This cycle\u2019s closing time has already passed. Move it forward, '
       + 'or remove it, before opening.'
   }
-  const boundRoles = new Set(cycle.formFields.map((field) => field.role).filter(Boolean))
-  if (formFieldRoles.some((role) => !boundRoles.has(role))) {
-    return 'Bind every reporting question before opening the cycle.'
-  }
   if (cycle.formStages.length === 0 || cycle.formFields.length === 0) {
     return 'Define the questions before opening the cycle.'
   }
-  if (cycle.assessmentRules.length === 0) {
-    return 'Define the assessment requirements before opening the cycle.'
+  if (cycle.applicationKinds.length === 0) {
+    return 'Define at least one kind of application before opening the cycle.'
   }
-  const contexts = new Set(cycle.reasons.map((reason) => reason.context))
-  // CYCLE_CLOSE is exempt: closing and archiving take free-text reasons, and
-  // the scheduled close writes its own literal, so no flow ever consumes a
-  // CYCLE_CLOSE catalogue entry. Requiring one made officers invent it.
-  const consumedContexts = programmeReasonContexts
-    .filter((context) => context !== 'CYCLE_CLOSE')
-  if (consumedContexts.some((context) => !contexts.has(context))) {
-    return 'Define at least one approved reason for every administrative action.'
+  /*
+   * Opening pins the pipeline's published version, so a pipeline never
+   * published has nothing to pin — and a cycle opened on it could accept an
+   * application no stage could ever receive.
+   */
+  if (pipelinePublishedVersion === null) {
+    return 'Publish the cycle\u2019s pipeline before opening the cycle.'
   }
   return null
 }
+
+/**
+ * The caller, if they may write a cycle **and** choose its pipeline.
+ *
+ * Choosing a pipeline decides how every application in the cycle is worked,
+ * so it needs the authority to read pipelines as well as to write the cycle —
+ * somebody who cannot see a route should not be the one sending files down it.
+ * One session read answers both pairs.
+ */
+const cycleAuthor = async (context: AdminOperationContext, action: 'create' | 'update') => {
+  const session = action === 'create'
+    ? await authenticatedWithPermission(context, 'programme_cycle', 'create')
+    : await authenticatedWithPermission(context, 'programme_cycle', 'update')
+  return session && holdsPermission(session, 'pipeline', 'read') ? session.user : null
+}
+
+/**
+ * Why a cycle may not name this pipeline, or null. Only a pipeline with a
+ * published version and not retired may be chosen: anything else is one the
+ * cycle could never open on, and saying so at the choice beats saying so at
+ * the opening.
+ */
+const pipelineChoiceProblem = async (
+  context: AdminOperationContext,
+  pipelineId: string,
+): Promise<string | null> =>
+  (await findPipelinePublishedDefinition(context.db, pipelineId)) === null
+    ? 'Choose a pipeline that has been published and has not been retired.'
+    : null
 
 export const createProgrammeCycle = async (
   input: ProgrammeCycleInput,
@@ -257,11 +285,12 @@ export const createProgrammeCycle = async (
   // A cycle's policy and form decide who is eligible and for how much — the
   // programme's own rulebook, not casework — so cycle writes carry their own
   // permissions, granted separately from anything that works an application.
-  const administrator = await currentStaff(context, 'programme_cycle', 'create')
+  const administrator = await cycleAuthor(context, 'create')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const expanded = withExpandedTemplate(input)
   if (typeof expanded === 'string') return failure(expanded)
   const problem = validateCycleInput(expanded)
+    ?? await pipelineChoiceProblem(context, expanded.policy.pipelineId)
   if (problem) return failure(problem)
   const id = await constraintSafe(() =>
     insertProgrammeCycle(context, expanded, administrator.id, new Date()),
@@ -277,11 +306,12 @@ export const updateDraftProgrammeCycleController = async (
   input: ProgrammeCycleInput & { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
-  const administrator = await currentStaff(context, 'programme_cycle', 'update')
+  const administrator = await cycleAuthor(context, 'update')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const expanded = withExpandedTemplate(input)
   if (typeof expanded === 'string') return failure(expanded)
   const problem = validateCycleInput(expanded)
+    ?? await pipelineChoiceProblem(context, expanded.policy.pipelineId)
   if (problem) return failure(problem)
   if (!normalizeRequiredText(input.reason, 500)) return failure('Enter a change reason.')
   const changed = await constraintSafe(() =>
@@ -291,6 +321,38 @@ export const updateDraftProgrammeCycleController = async (
   return success((await loadProgrammeCycle(context.db, input.id))!)
 }
 
+/**
+ * Why this cycle's form cannot carry the pipeline version it would pin, or null.
+ *
+ * The two are authored apart — a pipeline knows nothing of which forms will
+ * use it — so this is where they meet: every answer the pipeline reads must be
+ * a top-level question of this form, of the type it expects. Checked at
+ * opening because that is when both are frozen; a mismatch found later would
+ * be a condition silently never true on the first file that reached it.
+ */
+const pinningProblem = (
+  cycle: NonNullable<Awaited<ReturnType<typeof loadProgrammeCycle>>>,
+  definition: unknown,
+): string | null => {
+  const parsed = parseDefinition(definition)
+  // A published version was checked when it was published; failing to parse
+  // now means a build removed something it uses, and it must not be pinned.
+  if (!parsed.ok) return 'The cycle\u2019s pipeline no longer matches what this system can run. Publish it again.'
+  const template = resolveFormTemplate({
+    programmeCycleId: cycle.head.id,
+    programmeCycleVersion: cycle.head.currentVersion,
+    stages: cycle.formStages,
+    fields: cycle.formFields,
+    options: cycle.formFieldOptions,
+    conditions: cycle.formFieldConditions,
+  })
+  if (!template) return 'The cycle\u2019s questions cannot be read. Fix them before opening.'
+  const problems = pipelinePinProblems(parsed.definition, template)
+  if (problems.length === 0) return null
+  const shown = problems.slice(0, 5).map((problem) => problem.message).join(' ')
+  return `This cycle\u2019s questions do not fit its pipeline: ${shown}`
+}
+
 export const openProgrammeCycle = async (
   input: { id: string; expectedVersion: number; reason: string },
   context: AdminOperationContext,
@@ -298,14 +360,20 @@ export const openProgrammeCycle = async (
   const administrator = await currentStaff(context, 'programme_cycle', 'open')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
   const aggregate = await loadProgrammeCycle(context.db, input.id)
+  const published = aggregate
+    ? await findPipelinePublishedDefinition(context.db, aggregate.version.pipelineId)
+    : null
   const problem = openingProblem(
     aggregate,
     await findCyclePolicyDocument(context.db, input.id),
+    published?.version ?? null,
   )
   if (problem) return failure(problem)
-  if (!aggregate || aggregate.head.status !== 'DRAFT' || aggregate.head.deletedAt) {
+  if (!aggregate || !published || aggregate.head.status !== 'DRAFT' || aggregate.head.deletedAt) {
     return failure('Only an active draft cycle can be opened.')
   }
+  const pinProblem = pinningProblem(aggregate, published.definition)
+  if (pinProblem) return failure(pinProblem)
   const reason = normalizeRequiredText(input.reason, 500)
   if (!reason) return failure('Enter an opening reason.')
   const changed = await constraintSafe(() => transitionProgrammeCycle(context, {
@@ -318,6 +386,7 @@ export const openProgrammeCycle = async (
     action: 'SEB.CYCLE_OPENED',
     actorUserId: administrator.id,
     now: new Date(),
+    pinnedPipelineVersion: published.version,
   }))
   if (!changed) return failure(STALE_MESSAGE)
   return success(await loadProgrammeCycle(context.db, input.id))
@@ -328,20 +397,18 @@ export const updateOpenCycleGuidance = async (
     id: string
     expectedVersion: number
     applicantGuidance: string
-    partnerBankGuidance: string
     reason: string
   },
   context: AdminOperationContext,
 ): Promise<AdminResult<unknown>> => {
   const administrator = await currentStaff(context, 'programme_cycle', 'update')
   if (!administrator) return failure(ADMIN_REQUIRED_MESSAGE)
-  const [guidance, bankGuidance, reason] = [
+  const [guidance, reason] = [
     normalizeRequiredText(input.applicantGuidance, 5_000),
-    normalizeRequiredText(input.partnerBankGuidance, 5_000),
     normalizeRequiredText(input.reason, 500),
   ]
-  if (!guidance || !bankGuidance || !reason) {
-    return failure('Enter applicant guidance, partner-bank guidance, and a change reason.')
+  if (!guidance || !reason) {
+    return failure('Enter applicant guidance and a change reason.')
   }
   const aggregate = await loadProgrammeCycle(context.db, input.id)
   if (!aggregate || aggregate.head.status !== 'OPEN') return failure('The cycle is not open.')
@@ -349,7 +416,6 @@ export const updateOpenCycleGuidance = async (
     aggregate,
     expectedVersion: input.expectedVersion,
     applicantGuidance: guidance,
-    partnerBankGuidance: bankGuidance,
     changeType: 'GUIDANCE_CHANGED',
     reason,
     message: 'Applicant guidance for this cycle changed.',
@@ -433,13 +499,8 @@ const cycleTransition = async (
   }
   if (toStatus === 'ARCHIVED') {
     if (aggregate.head.status !== 'CLOSED') return failure('Only a closed cycle can be archived.')
-    const counts = await programmeCycleCounts(context.db, input.id)
-    const unfinished = new Set([
-      'DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED',
-      'PARTNER_BANK_EVALUATION', 'AWAITING_DECISION', 'APPROVED',
-      'SANCTIONED',
-    ])
-    if (counts.some(({ status, count }) => count > 0 && unfinished.has(status))) {
+    // Unfinished: a draft, or a file still at a stage of its pipeline.
+    if (await unfinishedApplicationCount(context.db, input.id) > 0) {
       return failure('Finish the cycle’s active applications before archiving it.')
     }
   }

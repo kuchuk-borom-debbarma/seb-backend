@@ -1,0 +1,415 @@
+extend type AdminQuery {
+  """Working applications at the pipeline stages the caller owns."""
+  stage: AdminStageQuery!
+}
+
+"""
+Reading files at pipeline stages.
+
+**Who may read:** `application:read` reads every submitted file; `stage:read`
+reads the files at stages the caller's roles own, plus every file the caller
+has acted on. A file outside that scope reads exactly like one that does not
+exist.
+"""
+type AdminStageQuery {
+  """
+  The stages the caller works, with how many files wait at each.
+
+  **Use case:** the "My stages" cards on the staff home. A super administrator
+  works every stage of every published pipeline.
+
+  **Refuses:** a caller without `stage:read`.
+  """
+  myStages: AdminWorkedStagesResult!
+
+  """
+  The files at one stage, oldest arrival first.
+
+  **Use case:** a stage's work queue. Allowed to the stage's owners and to
+  anybody reading office-wide.
+  """
+  queue(
+    """Which stage, which flags, and which page."""
+    input: AdminStageQueueInput!
+  ): AdminStageQueueResult!
+
+  """
+  One file as its stage shows it: where it is, what it holds, what happened to
+  it, and the actions this caller is offered.
+
+  **Use case:** the stage panel on `/admin/applications/$id`. `actions` lists
+  what the file's state allows; `permitted` on each says whether this caller
+  may take it, which is exactly what `takeAction` will decide.
+  """
+  application(
+    """The submitted application to read."""
+    applicationId: ID!
+  ): AdminStageApplicationResult!
+}
+
+"""Which stage's queue to read, filtered and paged."""
+input AdminStageQueueInput {
+  """The pipeline the stage belongs to."""
+  pipelineId: ID!
+
+  """The stage, by its key in the pipeline."""
+  stageKey: String!
+
+  """Only files holding **every** one of these status flags. At most 8."""
+  flags: [String!]
+
+  """How many to return, 1–100. Defaults to 20."""
+  first: Int
+
+  """The previous page's `endCursor`."""
+  after: String
+}
+
+"""A stage the caller works, and its backlog."""
+type AdminWorkedStage {
+  """The pipeline the stage belongs to."""
+  pipelineId: ID!
+
+  """The pipeline's key, stable across renames."""
+  pipelineKey: String!
+
+  """The pipeline's name, for the card's heading."""
+  pipelineName: String!
+
+  """The published version the stage's name was read from."""
+  pipelineVersion: Int!
+
+  """The stage's key, which `queue` takes."""
+  stageKey: String!
+
+  """The stage's name for the office."""
+  stageName: String!
+
+  """How many files are at the stage now, across every version of the pipeline."""
+  waiting: Int!
+}
+
+"""A configured status flag, named as the office reads it."""
+type AdminStageFlagRef {
+  """The flag's key."""
+  key: String!
+
+  """The flag's label for the office."""
+  label: String!
+}
+
+"""A configured value — an officer's input or a recorded value — with its label."""
+type AdminStageValue {
+  """The input's or recorded value's key."""
+  key: String!
+
+  """What the pipeline calls it."""
+  label: String!
+
+  """
+  How to read `value`: the configured field type, such as `MONEY_PAISE` (a
+  number of paise), `DATE`, `TEXT` or `SINGLE_CHOICE` (already the option's label).
+  """
+  type: String!
+
+  """The value as text."""
+  value: String!
+}
+
+"""One file waiting at a stage."""
+type AdminStageQueueItem {
+  """The application."""
+  id: ID!
+
+  """The programme's reference."""
+  referenceNumber: String
+
+  """The enterprise applying."""
+  enterpriseName: String!
+
+  """Which of its cycle's kinds the application is."""
+  applicationKind: String!
+
+  """Send back as `expectedStatusVersion` when acting."""
+  statusVersion: Int!
+
+  """When the file arrived at this stage; the queue's order."""
+  stageEnteredAt: DateTime!
+
+  """The status flags it holds, in the order they were added."""
+  flags: [AdminStageFlagRef!]!
+
+  """What earlier actions recorded on it, such as the grant approved."""
+  recordedValues: [AdminStageValue!]!
+}
+
+"""One page of a stage's queue."""
+type AdminStageQueueConnection {
+  """This page, oldest arrival first."""
+  nodes: [AdminStageQueueItem!]!
+
+  """Where this page sits in the whole queue."""
+  pageInfo: PageInfo!
+}
+
+"""The stage a file is at, as the office names it."""
+type AdminStageSummary {
+  """The stage's key."""
+  key: String!
+
+  """The stage's name for the office."""
+  name: String!
+
+  """What happens at the stage, when the pipeline says."""
+  description: String
+
+  """What the applicant is told while their file is here."""
+  applicantLabel: String!
+}
+
+"""A stage the file came through, for the trail "send back" returns along."""
+type AdminStageTrailEntry {
+  """The stage's key."""
+  key: String!
+
+  """The stage's name for the office."""
+  name: String!
+}
+
+"""A status flag the file holds, with how the pipeline declares it."""
+type AdminStageFlag {
+  """The flag's key."""
+  key: String!
+
+  """The office's label."""
+  label: String!
+
+  """What the applicant is shown, when `applicantVisible`."""
+  applicantLabel: String!
+
+  """`PROGRESS` for movement, `OUTCOME` for a decision."""
+  kind: String!
+
+  """Whether holding it means the journey is over."""
+  terminal: Boolean!
+
+  """Whether the applicant sees it."""
+  applicantVisible: Boolean!
+}
+
+"""How a finished journey ended."""
+type AdminStageEnding {
+  """The terminal flag's key."""
+  key: String!
+
+  """The terminal flag's label, such as "Completed" or "Rejected"."""
+  label: String!
+}
+
+"""A correction the applicant has been asked for and has not yet made."""
+type AdminStageOpenRevision {
+  """The revision request, which `withdrawRevision` takes."""
+  id: ID!
+
+  """The form section it names."""
+  stageKey: String!
+}
+
+"""An action the file's state offers at its stage."""
+type AdminStageAvailableAction {
+  """The action's key, which `takeAction` takes."""
+  key: String!
+
+  """The button's label."""
+  label: String!
+
+  """What the action does, when the pipeline says."""
+  description: String
+
+  """A question to ask before taking it, for an action that cannot be undone."""
+  confirmation: String
+
+  """
+  What the action asks the officer, as a one-stage form the client renders with
+  its ordinary form renderer. Null when the action asks nothing.
+  """
+  inputForm: FormTemplate
+
+  """
+  What each input starts as, keyed by input: the applicant's answer or a value
+  already recorded, when the pipeline says so. The officer may change it.
+  """
+  defaults: JSON!
+
+  """
+  Whether taking it hands the file to the applicant, in which case
+  `takeAction` needs `revisionRequests` naming form sections from
+  `revisionStageKeys`.
+  """
+  requestsRevision: Boolean!
+
+  """Whether this caller may take it: they work the stage and hold every permission its effects need."""
+  permitted: Boolean!
+}
+
+"""A member of staff who acted on the file."""
+type AdminStageActor {
+  """Their account."""
+  id: ID!
+
+  """Their sign-in address."""
+  email: String!
+}
+
+"""One action taken on the file, oldest first."""
+type AdminStageHistoryEntry {
+  """The action row."""
+  id: ID!
+
+  """Where it was taken."""
+  stageKey: String!
+
+  """That stage's name."""
+  stageName: String
+
+  """The configured action's key, stable across relabelling."""
+  actionKey: String!
+
+  """What the button said, from the pinned pipeline version."""
+  actionLabel: String!
+
+  """Where it sent the file; null when the file stayed or its journey ended."""
+  toStageKey: String
+
+  """That stage's name."""
+  toStageName: String
+
+  """Who took it."""
+  actor: AdminStageActor!
+
+  """Status flags it added, by label."""
+  flagsAdded: [String!]!
+
+  """Status flags it removed, by label."""
+  flagsRemoved: [String!]!
+
+  """What it recorded on the file."""
+  recorded: [AdminStageValue!]!
+
+  """What the officer entered, including notes."""
+  inputs: [AdminStageValue!]!
+
+  """The form sections it asked the applicant to correct."""
+  revisionStageKeys: [String!]!
+
+  """Whether the officer was acting on their own application, and said so."""
+  selfReviewDisclosed: Boolean!
+
+  """When."""
+  createdAt: DateTime!
+}
+
+"""A file at its stage, as the stage panel shows it."""
+type AdminStageApplication {
+  """The application."""
+  id: ID!
+
+  """The programme's reference."""
+  referenceNumber: String
+
+  """The enterprise applying."""
+  enterpriseName: String!
+
+  """
+  Who submitted it, so the panel can tell staff the file is their own — acting
+  on it then needs `selfReviewDisclosed`.
+  """
+  applicantUserId: ID!
+
+  """Which of its cycle's kinds the application is."""
+  applicationKind: String!
+
+  """Send back as `expectedStatusVersion` when acting."""
+  statusVersion: Int!
+
+  """The pipeline it is worked in."""
+  pipelineId: ID!
+
+  """The pinned pipeline version."""
+  pipelineVersion: Int!
+
+  """Where it is now; null once its journey has ended."""
+  stage: AdminStageSummary
+
+  """When it arrived there."""
+  stageEnteredAt: DateTime
+
+  """The stages it came through, oldest first."""
+  trail: [AdminStageTrailEntry!]!
+
+  """The status flags it holds, in the order they were added."""
+  flags: [AdminStageFlag!]!
+
+  """What actions recorded on it."""
+  recordedValues: [AdminStageValue!]!
+
+  """How the journey ended; null while it is still being worked."""
+  ended: AdminStageEnding
+
+  """Whether it is with the applicant for correction; no action is offered meanwhile."""
+  awaitingApplicant: Boolean!
+
+  """Corrections asked for and not yet made."""
+  openRevisions: [AdminStageOpenRevision!]!
+
+  """The form sections a revision may name."""
+  revisionStageKeys: [String!]!
+
+  """Whether the caller works the file's current stage."""
+  worksStage: Boolean!
+
+  """Whether the caller may withdraw an open correction request."""
+  canWithdrawRevision: Boolean!
+
+  """The actions the file's state offers now; see `permitted` on each."""
+  actions: [AdminStageAvailableAction!]!
+
+  """Every action taken on it, oldest first."""
+  history: [AdminStageHistoryEntry!]!
+}
+
+"""The stages the caller works."""
+type AdminWorkedStagesResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+
+  """What to show when `success` is false: a caller without `stage:read`."""
+  message: String
+
+  """Every stage worked, by pipeline then position. Null whenever `success` is false."""
+  response: [AdminWorkedStage!]
+}
+
+"""One page of a stage's queue, or why not."""
+type AdminStageQueueResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+
+  """What to show when `success` is false: a stage the caller neither works nor reads, or a bad cursor."""
+  message: String
+
+  """The page. Null whenever `success` is false."""
+  response: AdminStageQueueConnection
+}
+
+"""A file at its stage, or why not."""
+type AdminStageApplicationResult implements BaseResponse {
+  """Whether the operation succeeded."""
+  success: Boolean!
+
+  """What to show when `success` is false: a file outside the caller's scope reads as not found."""
+  message: String
+
+  """The file. Null whenever `success` is false."""
+  response: AdminStageApplication
+}

@@ -467,13 +467,13 @@ describe('the audit history', () => {
   it('filters by category, including actions this build does not know', async () => {
     const reader = await sessionHolding(['SUPER_ADMIN'])
     const access = await recordEvent({ action: 'RBAC.ROLE_CREATED', entityType: 'CORE_ROLE' })
-    const funding = await recordEvent({ action: 'SEB.RELEASE_RECORDED', entityType: 'SEB_DISBURSEMENT' })
+    const saved = await recordEvent({ action: 'SEB.APPLICATION_SAVED', entityType: 'SEB_APPLICATION' })
     const unknown = await recordEvent({ action: `LEGACY.RENAMED_${crypto.randomUUID().slice(0, 8)}` })
 
     const inCategories = async (categories: string) =>
       new Set(idsOf(await events('first: 50', `categories: [${categories}]`, reader.cookie)))
     expect(await inCategories('ACCESS')).toEqual(new Set([access]))
-    expect(await inCategories('ACCESS, FUNDING')).toEqual(new Set([access, funding]))
+    expect(await inCategories('ACCESS, APPLICATION')).toEqual(new Set([access, saved]))
     // OTHER is everything not declared — which is where a legacy name lives.
     expect((await inCategories('OTHER')).has(unknown)).toBe(true)
     expect((await inCategories('OTHER')).has(access)).toBe(false)

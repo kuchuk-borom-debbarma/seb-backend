@@ -35,7 +35,7 @@ import {
   usableSuperAdminExistsExcluding,
 } from '../queries/access'
 import { findRoleById, findRoleByKey } from '../queries/roles'
-import { holdsPermission, permissionsOf, withinAuthority } from '../permissions'
+import { holdsPermission, ownsEveryStage, permissionsOf, withinAuthority } from '../permissions'
 import {
   auditEvent,
   AUTH_REQUIRED_MESSAGE,
@@ -358,7 +358,11 @@ export const inviteRole = async (
    * are the same rule. Nobody is ever invited to super administrator: it is not
    * a composed role, so no role reachable here can carry it.
    */
-  if (!role || !withinAuthority(actor, role.permissions)) {
+  /*
+   * And the stage half: a role that works stages the issuer does not work is
+   * beyond them even when its permissions are not — see `ownsEveryStage`.
+   */
+  if (!role || !withinAuthority(actor, role.permissions) || !ownsEveryStage(actor, role.ownedStages)) {
     return failure('You cannot invite somebody to that role.')
   }
   /*
@@ -509,12 +513,15 @@ const recordInviteRefusal = (
  */
 const issuerMayStillOffer = (
   issuer: Awaited<ReturnType<typeof findUserAuthority>>,
-  wanted: readonly { resource: string; action: string }[],
+  wanted: { permissions: readonly { resource: string; action: string }[]; ownedStages: readonly string[] },
 ): boolean => {
   if (issuer.superAdministrator) return true
   const permissions = permissionsOf(issuer)
+  // Stages too: an issuer who stopped working a stage the role works — or a
+  // role given a stage after it was offered — fails the same way.
   return holdsPermission({ permissions }, 'role', 'invite') &&
-    withinAuthority({ superAdministrator: false, permissions }, wanted)
+    withinAuthority({ superAdministrator: false, permissions }, wanted.permissions) &&
+    ownsEveryStage({ superAdministrator: false, ownedStages: new Set(issuer.ownedStages) }, wanted.ownedStages)
 }
 
 type ManagedSubject = NonNullable<Awaited<ReturnType<typeof findManagedUserById>>>
@@ -583,7 +590,10 @@ export const acceptRoleInvite = async (
     subject,
     role,
     invite,
-    issuerStillMay: issuerMayStillOffer(issuer, role?.permissions ?? []),
+    issuerStillMay: issuerMayStillOffer(issuer, {
+      permissions: role?.permissions ?? [],
+      ownedStages: role?.ownedStages ?? [],
+    }),
   })
   if (typeof checked === 'string') {
     await recordInviteRefusal(context, checked, subject?.id ?? null)

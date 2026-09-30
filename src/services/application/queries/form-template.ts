@@ -1,11 +1,11 @@
 /**
  * Reading the form a cycle version froze, and the answers given against it.
  *
- * ## Five reads, concurrently, and why not one
+ * ## Six reads, concurrently, and why not one
  *
- * The template is four tables plus the cycle's scalars. These are issued
- * together on the pool rather than in sequence, so the cost is one round trip's
- * latency rather than five — but it is five connections, which is real pressure
+ * The template is four tables, its cross-field rules and the cycle's scalars.
+ * These are issued together on the pool rather than in sequence, so the cost is
+ * one round trip's latency rather than six — but it is six connections, which is real pressure
  * on a pooled edge connection and is the first thing to revisit if that becomes
  * the bottleneck.
  *
@@ -18,8 +18,8 @@
  * the reason it cannot simply be joined.
  *
  * **This must never be called inside a transaction.** A transaction is bound to
- * one connection, so these five would serialize on it and read as parallel
- * while costing five sequential hops.
+ * one connection, so these six would serialize on it and read as parallel
+ * while costing six sequential hops.
  *
  * ## The policy comes with it
  *
@@ -28,7 +28,7 @@
  * only the template and carries four unread scalars, which costs less than the
  * extra hop separating them would add.
  */
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import type { Database } from '../../../db'
 import {
@@ -37,6 +37,8 @@ import {
   sebProgrammeCycleFormField,
   sebProgrammeCycleFormFieldCondition,
   sebProgrammeCycleFormFieldOption,
+  sebProgrammeCycleFormRule,
+  sebProgrammeCycleFormRuleOperand,
   sebProgrammeCycleFormStage,
   sebProgrammeCycleVersion,
 } from '../../../db/schema'
@@ -74,7 +76,7 @@ export const findPinnedCycleRules = async (
     versionColumn: PgColumn,
   ) => and(eq(cycleColumn, programmeCycleId), eq(versionColumn, programmeCycleVersion))
 
-  const [versions, stages, fields, options, conditions] = await Promise.all([
+  const [versions, stages, fields, options, conditions, rules] = await Promise.all([
     db
       .select({
         minimumApplicantAge: sebProgrammeCycleVersion.minimumApplicantAge,
@@ -134,6 +136,35 @@ export const findPinnedCycleRules = async (
       })
       .from(sebProgrammeCycleFormFieldCondition)
       .where(pinned(sebProgrammeCycleFormFieldCondition.programmeCycleId, sebProgrammeCycleFormFieldCondition.programmeCycleVersion)),
+    /*
+     * A rule's operands are its only child, so they are aggregated in the
+     * same statement: one row per rule, the operands in position order.
+     * Joined rather than read separately because there is nothing to
+     * multiply against — the trap above needs two children.
+     */
+    db
+      .select({
+        ruleKey: sebProgrammeCycleFormRule.ruleKey,
+        ruleType: sebProgrammeCycleFormRule.ruleType,
+        stageKey: sebProgrammeCycleFormRule.stageKey,
+        message: sebProgrammeCycleFormRule.message,
+        limitValue: sebProgrammeCycleFormRule.limitValue,
+        operandKeys: sql<string[]>`array_agg(${sebProgrammeCycleFormRuleOperand.fieldKey} ORDER BY ${sebProgrammeCycleFormRuleOperand.position})`,
+      })
+      .from(sebProgrammeCycleFormRule)
+      .innerJoin(sebProgrammeCycleFormRuleOperand, and(
+        eq(sebProgrammeCycleFormRuleOperand.programmeCycleId, sebProgrammeCycleFormRule.programmeCycleId),
+        eq(sebProgrammeCycleFormRuleOperand.programmeCycleVersion, sebProgrammeCycleFormRule.programmeCycleVersion),
+        eq(sebProgrammeCycleFormRuleOperand.ruleKey, sebProgrammeCycleFormRule.ruleKey),
+      ))
+      .where(pinned(sebProgrammeCycleFormRule.programmeCycleId, sebProgrammeCycleFormRule.programmeCycleVersion))
+      .groupBy(
+        sebProgrammeCycleFormRule.ruleKey,
+        sebProgrammeCycleFormRule.ruleType,
+        sebProgrammeCycleFormRule.stageKey,
+        sebProgrammeCycleFormRule.message,
+        sebProgrammeCycleFormRule.limitValue,
+      ),
   ])
 
   const version = versions[0]
@@ -180,6 +211,7 @@ export const findPinnedCycleRules = async (
     })),
     options,
     conditions,
+    rules,
   })
   if (!template) return null
 

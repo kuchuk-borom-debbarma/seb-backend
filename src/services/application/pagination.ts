@@ -18,6 +18,8 @@ export type SortKey =
   | 'statusChangedAt'
   | 'submittedAt'
   | 'scheduledAt'
+  /* A stage queue, in the order files arrived at the stage. */
+  | 'stageEnteredAt'
   /*
    * The history is ordered by `createdAt` in either direction, and a cursor
    * from one direction seeks the wrong side of the position in the other. The

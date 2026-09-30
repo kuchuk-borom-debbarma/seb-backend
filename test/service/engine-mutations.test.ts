@@ -201,10 +201,10 @@ describe('one broken answer at a time', () => {
   })
 
   it('generates a case for every answered question', () => {
-    // 7 top-level answered questions and 6 owner members; a generator that
+    // 6 top-level answered questions and 6 owner members; a generator that
     // silently shrank below that is testing less form than the fixture asks.
-    expect(subjects.length + memberSubjects.length).toBeGreaterThan(12)
-    expect(cases.length + memberCases.length).toBeGreaterThan(20)
+    expect(subjects.length + memberSubjects.length).toBeGreaterThanOrEqual(12)
+    expect(cases.length + memberCases.length).toBeGreaterThan(15)
     /*
      * Counted, because a generator that silently produced nothing would report
      * a fast green run — and the whole family would be testing the empty set.
@@ -289,8 +289,15 @@ describe('one broken answer at a time', () => {
    * `ATTESTATION` earns nothing.
    */
   it('accepts "no" to a required yes/no question that is not an attestation', () => {
+    /*
+     * A yes/no a cross-field rule reads is left out: "no" to both a grant and
+     * a loan is refused by the form's own AT_LEAST_ONE_TRUE rule, which is the
+     * rule working rather than the question refusing its own answer.
+     */
+    const ruled = new Set((defaultTemplate().rules ?? [])
+      .flatMap((rule) => rule.operands.map((operand) => operand.fieldKey)))
     const booleans = subjects.filter(
-      (field) => field.type === 'BOOLEAN' && field.requirement === 'REQUIRED',
+      (field) => field.type === 'BOOLEAN' && field.requirement === 'REQUIRED' && !ruled.has(field.key),
     )
     expect(booleans.length).toBeGreaterThan(0)
     for (const field of booleans) {

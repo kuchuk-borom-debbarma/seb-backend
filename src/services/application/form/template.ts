@@ -18,12 +18,12 @@
  */
 import {
   ROLE_CANONICAL_KEY,
-  formFieldRoles,
   type FormFieldRole,
 } from '../../../db/schema/seb/form-template'
 import type {
   FieldCondition,
   FormField,
+  FormRule,
   FormTemplateRows,
   ResolvedFormTemplate,
 } from './types'
@@ -142,7 +142,6 @@ const rulesOf = (row: FormTemplateRows['fields'][number]): FormField['rules'] =>
 const fieldInvariantsHold = (
   fields: readonly FormField[],
   byKey: ReadonlyMap<string, FormField>,
-  optionsByField: ReadonlyMap<string, unknown[]>,
 ): boolean => {
   for (const field of fields) {
     for (const condition of field.conditions) {
@@ -162,16 +161,21 @@ const fieldInvariantsHold = (
       if (field.source === 'SERVER_DERIVED') return false
       if (field.role !== null && field.role !== 'APPLICANT_DATE_OF_BIRTH') return false
     }
-    if (optionsByField.has(field.key) && field.options.length === 0) return false
   }
   return true
 }
 
-/* Role → key, or null when a binding is missing, duplicated, or off its pin. */
+/*
+ * Role → key, or null when a binding is duplicated or off its pin.
+ *
+ * Partial: a role is how code finds a question across every cycle, and a cycle
+ * that does not ask it — a loan-only round with no grant question — simply has
+ * no holder. Whatever reads a role reads it as possibly absent.
+ */
 const roleBindingsOf = (
   fields: readonly FormField[],
-): Record<FormFieldRole, string> | null => {
-  const roles = {} as Record<FormFieldRole, string>
+): Partial<Record<FormFieldRole, string>> | null => {
+  const roles: Partial<Record<FormFieldRole, string>> = {}
   for (const field of fields) {
     if (field.role === null) continue
     // A second binding would make "the requested amount" ambiguous, and the
@@ -183,10 +187,39 @@ const roleBindingsOf = (
     if (pinned !== undefined && field.key !== pinned) return null
     roles[field.role] = field.key
   }
-  // Every role bound, because a cycle cannot be opened otherwise and the admin
-  // queue, the decision bound and the policy rules all assume it.
-  for (const role of formFieldRoles) if (roles[role] === undefined) return null
   return roles
+}
+
+/*
+ * The cross-field rules, or null when one names a question or stage the form
+ * does not have. The foreign keys already refuse that in SQL; this is the
+ * second layer, for the same reason `fieldInvariantsHold` is. An operand must
+ * be a top-level question with a value: a rule over a group's member would
+ * have several answers to choose from, and a statement has none.
+ */
+const rulesOfTemplate = (
+  rows: NonNullable<FormTemplateRows['rules']>,
+  byKey: ReadonlyMap<string, FormField>,
+  stagePosition: ReadonlyMap<string, number>,
+): FormRule[] | null => {
+  const rules: FormRule[] = []
+  for (const row of [...rows].sort((a, b) => a.ruleKey.localeCompare(b.ruleKey))) {
+    if (!stagePosition.has(row.stageKey)) return null
+    for (const key of row.operandKeys) {
+      const field = byKey.get(key)
+      if (!field || field.repeatGroupKey !== null) return null
+      if (['REPEAT_GROUP', 'STATEMENT', 'FILE'].includes(field.type)) return null
+    }
+    rules.push({
+      key: row.ruleKey,
+      type: row.ruleType,
+      stageKey: row.stageKey,
+      message: row.message,
+      limit: row.limitValue,
+      operandKeys: [...row.operandKeys],
+    })
+  }
+  return rules
 }
 
 export const resolveFormTemplate = (
@@ -274,13 +307,16 @@ export const resolveFormTemplate = (
   const byKey = new Map(fields.map((field) => [field.key, field]))
   if (byKey.size !== fields.length) return null
 
-  if (!fieldInvariantsHold(fields, byKey, optionsByField)) return null
+  if (!fieldInvariantsHold(fields, byKey)) return null
 
   const roles = roleBindingsOf(fields)
   if (roles === null) return null
 
   const evaluationOrder = topologicalOrder(fields)
   if (evaluationOrder === null) return null
+
+  const rules = rulesOfTemplate(rows.rules ?? [], byKey, stagePosition)
+  if (rules === null) return null
 
   return {
     programmeCycleId: rows.programmeCycleId,
@@ -300,6 +336,7 @@ export const resolveFormTemplate = (
     ),
     roles,
     evaluationOrder,
+    rules,
   }
 }
 

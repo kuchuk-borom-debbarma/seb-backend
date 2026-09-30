@@ -23,11 +23,9 @@ export const auditCategories = [
   'APPLICATION',
   'DOCUMENT',
   'REVIEW',
-  'BANK',
-  'DECISION',
-  'FUNDING',
-  'RECOVERY',
   'PROGRAMME',
+  'PIPELINE',
+  'STAGE',
   'ANNOUNCEMENT',
   'AUDIT',
   'OTHER',
@@ -41,7 +39,10 @@ export type AuditCategory = (typeof auditCategories)[number]
  * `CYCLE` — carry an identifier the read side turns into something a person
  * recognizes (an address, a role's name, a reference number). Everything else
  * is shown as recorded, formatted by kind: `MONEY` is integer paise, `DATE` an
- * ISO calendar date, `DATETIME` an ISO instant.
+ * ISO calendar date, `DATETIME` an ISO instant. `LIST` is an array of
+ * labels, shown joined. `VALUES` is an array of `{ label, kind, value }`, each
+ * value read by its own kind: what an officer entered at a stage, or what an
+ * action recorded, where the set of values is configured rather than known.
  */
 export const auditDetailKinds = [
   'TEXT',
@@ -60,6 +61,8 @@ export const auditDetailKinds = [
   'ENTERPRISE',
   'CYCLE',
   'FILTERS',
+  'LIST',
+  'VALUES',
 ] as const
 export type AuditDetailKind = (typeof auditDetailKinds)[number]
 
@@ -68,7 +71,7 @@ export const auditReferenceKinds = ['USER', 'ROLE', 'APPLICATION', 'ENTERPRISE',
 export type AuditReferenceKind = (typeof auditReferenceKinds)[number]
 
 /** The services that write audit rows, each allowed only its own actions. */
-export type AuditWriter = 'auth' | 'admin' | 'application' | 'announcement' | 'audit'
+export type AuditWriter = 'auth' | 'admin' | 'application' | 'announcement' | 'audit' | 'pipeline'
 
 /**
  * Who an event is *about*, which is what `subject_user_id` records.

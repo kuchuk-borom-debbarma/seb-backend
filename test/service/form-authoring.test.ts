@@ -27,7 +27,6 @@ const draftCycle = async (cookie: string) => {
     cycleCode: `SEP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
     displayName: 'Authoring test', cycleYear: 2026,
     applicantGuidance: 'Guide.',
-    partnerBankGuidance: 'Roster.',
     opensAt: new Date(Date.now() + 86_400_000).toISOString(),
     closesAt: new Date(Date.now() + 172_800_000).toISOString(),
     policy: testPolicy(),
@@ -586,9 +585,9 @@ describe('an administrator authoring a cycle’s questions', () => {
 
     const storedRules = async () => {
       const version = await env.DB.prepare(
-        `SELECT policy_reference, applicant_guidance, partner_bank_guidance,
+        `SELECT policy_reference, applicant_guidance, pipeline_id, pipeline_version,
                 minimum_applicant_age, maximum_applicant_age, category_a_maximum_months,
-                expansion_wait_months, majority_ownership_required, jurisdiction,
+                majority_ownership_required, jurisdiction,
                 funding_ceiling_state, funding_ceiling_amount_paise, funding_ceiling_scope,
                 cycle_code, display_name, cycle_year, status
            FROM seb_programme_cycle_version
@@ -596,7 +595,7 @@ describe('an administrator authoring a cycle’s questions', () => {
           ORDER BY version DESC LIMIT 1`,
       ).bind(cycle.id).first()
       const children = await Promise.all(
-        ['assessment_rule', 'identifier_rule', 'reason'].map(async (table) => {
+        ['application_kind', 'application_kind_rule', 'form_rule', 'form_rule_operand'].map(async (table) => {
           const rows = await env.DB.prepare(
             `SELECT * FROM seb_programme_cycle_${table}
               WHERE programme_cycle_id = ?
@@ -665,14 +664,15 @@ describe('an administrator authoring a cycle’s questions', () => {
     const body = await graphql<any>(`query($id: ID!) { admin { programmeCycle { byId(id: $id) {
       response { policy {
         minimumApplicantAge maximumApplicantAge categoryAMaximumMonths
-        expansionWaitMonths majorityOwnershipRequired jurisdiction
-        fundingCeilingState fundingCeilingAmountPaise fundingCeilingScope
+        majorityOwnershipRequired jurisdiction
+        fundingCeilingState fundingCeilingAmountPaise fundingCeilingScope pipelineId
       } }
     } } } }`, { id: cycle.id }, officer.cookie)
     expect(body.errors, JSON.stringify(body.errors)).toBeUndefined()
 
-    const { formTemplate: _form, identifierRules: _ids, reasons: _reasons,
-      requiredAssessmentTypes: _types, ...configured } = testPolicy() as Record<string, unknown>
+    // Kinds and the form have their own fields on the aggregate.
+    const { formTemplate: _form, applicationKinds: _kinds, ...configured } =
+      testPolicy() as Record<string, unknown>
     expect(body.data.admin.programmeCycle.byId.response.policy)
       .toMatchObject(configured)
   })

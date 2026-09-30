@@ -81,7 +81,9 @@
     { "name": "RL_EMAIL_CHANGE_SESSION", "namespace_id": "1013", "simple": { "limit": 2, "period": 60 } },
     { "name": "RL_EMAIL_VERIFY_SESSION", "namespace_id": "1014", "simple": { "limit": 10, "period": 60 } },
     { "name": "RL_CONFIRMATION_PDF_IP", "namespace_id": "1015", "simple": { "limit": 10, "period": 60 } },
-    { "name": "RL_AUDIT_EXPORT_SESSION", "namespace_id": "1016", "simple": { "limit": 5, "period": 60 } }
+    { "name": "RL_AUDIT_EXPORT_SESSION", "namespace_id": "1016", "simple": { "limit": 5, "period": 60 } },
+    { "name": "RL_STAGE_ACTION_SESSION", "namespace_id": "1017", "simple": { "limit": 60, "period": 60 } },
+    { "name": "RL_PIPELINE_DRAFT_SESSION", "namespace_id": "1018", "simple": { "limit": 30, "period": 60 } }
   ],
   // Non-secret configuration. Credentials are never here — they are set with
   // `wrangler secret put`, which keeps them out of a public repository.

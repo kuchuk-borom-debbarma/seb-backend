@@ -12,7 +12,7 @@ import type { Loaders } from '../../loaders'
 export type { Loaders } from '../../loaders'
 import type { Database } from '../../db'
 export type { AnswerMap } from './form/types'
-import type { AnswerMap } from './form/types'
+import type { AnswerMap, AnswerValue } from './form/types'
 
 /*
  * `AnswerMap` alone, because `Application` and `ApplicationSnapshot` below both
@@ -31,12 +31,7 @@ import type { AnswerMap } from './form/types'
  * engine's own file.
  */
 import type {
-  awardAssessmentOutcomes,
-  awardAssessmentTypes,
-  fundingAwardClosureDispositions,
-  fundingAwardStatuses,
   applicationStatuses,
-  applicationTypes,
   businessSectors,
   enterpriseStatuses,
   programmeCycleStatuses,
@@ -61,7 +56,6 @@ export type TripuraDistrict = (typeof tripuraDistricts)[number]
 export type BusinessSector = (typeof businessSectors)[number]
 export type EnterpriseStatus = (typeof enterpriseStatuses)[number]
 export type ApplicationStatus = (typeof applicationStatuses)[number]
-export type ApplicationType = (typeof applicationTypes)[number]
 /*
  * Five closed sets stood here — category, designation, gender, credit status
  * and relationship — naming answers the *old fixed form* asked. What a cycle
@@ -86,11 +80,6 @@ export type ApplicationType = (typeof applicationTypes)[number]
 export type DocumentType = string
 export type ApplicationSection = string
 export type ProgrammeCycleStatus = (typeof programmeCycleStatuses)[number]
-export type FundingAwardStatus = (typeof fundingAwardStatuses)[number]
-export type FundingAwardClosureDisposition =
-  (typeof fundingAwardClosureDispositions)[number]
-export type AwardAssessmentType = (typeof awardAssessmentTypes)[number]
-export type AwardAssessmentOutcome = (typeof awardAssessmentOutcomes)[number]
 
 export type EnterpriseProfileInput = {
   name: string
@@ -134,13 +123,6 @@ export type Enterprise = EnterpriseProfileInput & {
   deletedAt: Date | null
 }
 
-export type ExpansionClaim = {
-  priorSanctionOrderNumber: string | null
-  priorSanctionDate: string | null
-  priorNetDisbursedAmountPaise: number | null
-  continuousOperationMonths: number | null
-}
-
 /**
  * One stored version, without its answers.
  *
@@ -149,12 +131,13 @@ export type ExpansionClaim = {
  * this type is what stops a list of applications loading a template and an
  * answer set per row by accident.
  */
-export type ApplicationSnapshot = ExpansionClaim & {
+export type ApplicationSnapshot = {
   version: number
   /** What was answered at this version, against the form it is pinned to. */
   answers: AnswerMap
   programmeCycleVersion: number
-  applicationType: ApplicationType
+  /** One of the kinds the pinned cycle version declares. */
+  applicationKind: string
   phaseNumber: number
   changeType: string
   declarationAcceptedAt: Date | null
@@ -190,12 +173,25 @@ export type Application = {
   enterpriseId: string
   fundingCaseId: string
   programmeCycleId: string
-  applicationType: ApplicationType
+  /** One of the kinds the pinned cycle version declares. */
+  applicationKind: string
   phaseNumber: number
   referenceNumber: string | null
   currentVersion: number
   status: ApplicationStatus
   statusVersion: number
+  /**
+   * Where the application is in its pipeline. Null while it is a draft, and
+   * again once an action has ended its journey.
+   */
+  currentStageKey: string | null
+  /** The pipeline's status flags the application holds now, in the order added. */
+  statusFlags: string[]
+  /** The pipeline this is worked in, pinned from its cycle when it started. */
+  pipelineId: string
+  pipelineVersion: number
+  /** Values the pipeline's actions recorded, by declared key; read through `journey`. */
+  recordedValues: Record<string, AnswerValue>
   firstSubmittedAt: Date | null
   createdAt: Date
   updatedAt: Date
@@ -214,8 +210,8 @@ export type Application = {
    * Stages the applicant may change right now.
    *
    * Every stage the pinned template declares while the application is a draft,
-   * only the stages named by unresolved revision requests while revision is
-   * required, and none otherwise. Anything outside this list is locked.
+   * only the stages named by open revision requests once it is in its
+   * pipeline, and none otherwise. Anything outside this list is locked.
    */
   editableStageKeys: ApplicationSection[]
 }
@@ -230,6 +226,8 @@ export type ApplicationSummary = Omit<
   businessName: string | null
   cycleCode: string
   cycleYear: number
+  /** Whether a correction request is open, so the applicant holds the pen. */
+  awaitingCorrection: boolean
 }
 
 export type ProgrammeCycle = {
@@ -273,7 +271,6 @@ export type EnterpriseDeletionBlocker = {
   /** Null while the application has never been submitted. */
   referenceNumber: string | null
   status: ApplicationStatus
-  hasAward: boolean
 }
 
 /**
@@ -305,38 +302,16 @@ export type ApplicationStatusGuideEntry = {
 }
 
 /**
- * One unmet expansion rule, stated separately so the applicant can see exactly
- * what remains outstanding rather than a single combined refusal.
+ * Whether an enterprise may start one kind of application in a cycle, and
+ * every reason it may not — all of them, so the applicant is not taught the
+ * rules one refusal at a time.
  */
-export type ExpansionReason = {
-  code: ExpansionReasonCode
-  message: string
-  /**
-   * The release obligation this reason is about, for utilization results.
-   * Null for reasons that apply to the award as a whole.
-   */
-  obligationId: string | null
-}
-
-const expansionReasonCodes = [
-  'NO_QUALIFYING_AWARD',
-  'QUALIFYING_AWARD_NOT_ACTIVE',
-  'NO_POSITIVE_RELEASE',
-  'TWELVE_MONTH_WAIT_NOT_COMPLETE',
-  'UTILIZATION_NOT_PASSED',
-  'PERFORMANCE_NOT_PASSED',
-  'FINANCIAL_AUDIT_NOT_PASSED',
-  'COMPETING_PHASE_APPLICATION',
-] as const
-export type ExpansionReasonCode = (typeof expansionReasonCodes)[number]
-
-export type ExpansionEligibility = {
+export type ApplicationKindEligibility = {
+  kindKey: string
+  label: string
+  description: string | null
   eligible: boolean
-  nextPhaseNumber: number | null
-  qualifyingAwardId: string | null
-  /** The first calendar instant the twelve-month rule is satisfied. */
-  eligibleAt: Date | null
-  reasons: ExpansionReason[]
+  reasons: string[]
 }
 
 export type TimelineEvent = {
@@ -378,54 +353,4 @@ export type UploadAuthorization = {
 export type DownloadAuthorization = {
   downloadUrl: string
   expiresAt: Date
-}
-
-/**
- * Applicant-visible view of an award and what it has actually paid out.
- *
- * Amounts are derived from the append-only ledger rather than stored, so they
- * cannot drift from the releases and reversals behind them.
- */
-export type ApplicantAward = {
-  sanctionOrderNumber: string
-  sanctionDate: string
-  sanctionedAmountPaise: number
-  applicantConditions: string | null
-  status: FundingAwardStatus
-  closureDisposition: FundingAwardClosureDisposition | null
-  grossReleasedPaise: number
-  reversedPaise: number
-  netReleasedPaise: number
-  remainingPlannedPaise: number
-}
-
-/** One payment, with any correction folded into it rather than listed apart. */
-export type ApplicantRelease = {
-  sequenceNumber: number
-  occurredAt: Date
-  amountPaise: number
-  paymentReference: string | null
-  reversedAmountPaise: number
-}
-
-/** One post-award assessment result, without reviewer-only evidence or notes. */
-export type ApplicantAssessment = {
-  assessmentType: AwardAssessmentType
-  assessmentNumber: number
-  outcome: AwardAssessmentOutcome
-  assessedAt: Date
-  summary: string
-  /**
-   * True when this is the current result rather than a superseded one.
-   *
-   * Utilization is assessed per release, so more than one utilization
-   * assessment can be current at the same time.
-   */
-  latest: boolean
-}
-
-export type ApplicantFunding = {
-  award: ApplicantAward
-  releases: ApplicantRelease[]
-  assessments: ApplicantAssessment[]
 }

@@ -1,9 +1,9 @@
 /**
- * Guarded persistence for queues, assignment, notes, and desk review.
+ * The office-wide list of submitted applications, one application's workspace,
+ * its documents, and staff-only notes.
  *
- * Every transition begins with an optimistic update and makes the append-only
- * evidence depend on the resulting version, so a concurrent winner leaves no
- * partial review, identifier, revision request, timeline entry, or audit row.
+ * Moving a file between stages is the pipeline's and lives in
+ * `services/pipeline`; this is the read side every stage shares.
  *
  * The queue reads seek on a cursor that names its own sort column, because
  * deriving that column separately on the encode and decode sides once let a
@@ -19,7 +19,6 @@ import {
   gte,
   inArray,
   isNull,
-  ne,
   or,
   sql,
   lt,
@@ -29,12 +28,9 @@ import {
 import type { PgSelect } from 'drizzle-orm/pg-core'
 import { COUNT_MISSING, requireInvariant } from '../../application/support'
 
-/** A submitted application without a reference number cannot happen. */
-const REFERENCE_MISSING = 'A reviewed application has no reference number.'
-import { batch, type Database, type Transaction } from '../../../db'
+import { batch, type Database } from '../../../db'
 import {
   sebApplication,
-  sebApplicationAssignmentEvent,
   sebApplicationDocumentScan,
   sebApplicationDocumentVersion,
   sebApplicationEvent,
@@ -42,23 +38,10 @@ import {
   sebApplicationSubmission,
   sebApplicationSubmissionDocument,
   sebApplicationVersion,
-  sebApplicationVersionAnswer,
-  sebDeskReview,
-  sebDeskReviewIdentifier,
-  sebDeskReviewCheck,
   sebEnterprise,
   sebEnterpriseVersion,
-  sebPartnerBankOutcome,
-  sebPartnerBankReferral,
   sebProgrammeCycle,
-  sebProgrammeCycleIdentifierRule,
-  sebProgrammeCycleReason,
-  sebRecoveryCase,
   sebRevisionRequest,
-  sebProgrammeDecision,
-  sebFundingAward,
-  sebDisbursement,
-  sebAwardAssessment,
 } from '../../../db/schema'
 import { roleAnswerText } from '../../application/queries/answer-sql'
 import { findPinnedRulesForApplication } from '../../application/queries/form-template'
@@ -73,21 +56,16 @@ import { MAX_COLLECTION_ROWS } from '../../application/pagination'
 import { encodeAdminCursor, type SortKey } from '../pagination'
 import { prefixMatchAny, prefixPattern } from '../../search'
 import { insertAuditEventWhere } from '../../audit-event'
-import { auditReason } from '../../audit-vocabulary/fields'
-import { adminAudit, disclosedSelfReview, headJustMovedTo } from '../support'
-import { intakeQueueKeys } from '../types'
-import type { IdentifierKind } from '../identifiers'
-import type {
-  AdminOperationContext,
-  DeskReviewCheckInput,
-  IdentifierRule,
-  DeskReviewOutcome,
-  IntakeQueueKey,
-  PageInfo,
-  RevisionRequestInput,
-} from '../types'
+import { adminAudit } from '../support'
+import { readScopeFilter, type ReadScope } from '../../pipeline/queries/stage-scope'
+import type { AdminOperationContext, PageInfo } from '../types'
 
-export const loadApplicationHead = async (db: Database, id: string) => {
+/**
+ * One application's head, with its enterprise and cycle — or null when it
+ * does not exist or lies outside `scope`. The scope is part of the `WHERE`,
+ * so the two refusals cannot be told apart.
+ */
+export const loadApplicationHead = async (db: Database, id: string, scope: ReadScope) => {
   const [row] = await db
     .select({
       application: sebApplication,
@@ -105,74 +83,24 @@ export const loadApplicationHead = async (db: Database, id: string) => {
       ),
     )
     .innerJoin(sebProgrammeCycle, eq(sebProgrammeCycle.id, sebApplication.programmeCycleId))
-    .where(eq(sebApplication.id, id))
+    .where(and(eq(sebApplication.id, id), readScopeFilter(scope)))
     .limit(1)
   return row ?? null
 }
 
 /**
- * The amount this submission asked for, read from the answer it was given in.
+ * The grant amount a submission asked for, read from the answer it was given
+ * in — the queue's amount filters and the analytics totals both read it.
  *
- * Resolved here, once, rather than at the three places that bound a decision by
- * it. The path is a literal because a role-bound field must use its canonical
- * key — that constraint exists precisely so code which is not template-aware,
- * like the amount a decision is bounded by, can still find its input across
- * every cycle.
- *
- * Read as text and parsed in JavaScript rather than cast in SQL: a `::bigint`
- * on a column that is text by design raises on any non-numeric row, turning a
- * corrupt answer into a failed read of the whole submission instead of one
- * refusal the officer can act on.
+ * The path is a literal because a role-bound field must use its canonical key:
+ * that constraint exists so code which is not template-aware can still find
+ * the amount across every cycle. A cycle that asks no grant has no such answer,
+ * and its applications simply never match an amount bound.
  */
 export const requestedAmountText = roleAnswerText('SEED_FUND_REQUESTED_PAISE')
 
-export const latestSubmission = async (db: Database, applicationId: string) => {
-  const [row] = await db
-    .select({
-      submission: sebApplicationSubmission,
-      snapshot: sebApplicationVersion,
-      requestedAmountText,
-    })
-    .from(sebApplicationSubmission)
-    .innerJoin(
-      sebApplicationVersion,
-      and(
-        eq(sebApplicationVersion.applicationId, sebApplicationSubmission.applicationId),
-        eq(sebApplicationVersion.version, sebApplicationSubmission.applicationVersion),
-      ),
-    )
-    .where(eq(sebApplicationSubmission.applicationId, applicationId))
-    .orderBy(desc(sebApplicationSubmission.submissionNumber))
-    .limit(1)
-  if (!row) return null
-  const parsed = Number(row.requestedAmountText)
-  return {
-    ...row,
-    /** Null when unanswered or unreadable; the caller refuses rather than guessing. */
-    requestedAmountPaise:
-      row.requestedAmountText !== null && Number.isSafeInteger(parsed) && parsed > 0
-        ? parsed
-        : null,
-  }
-}
-
-
-const queueKeyPredicate = (queue: IntakeQueueKey): SQL => {
-  if (queue === 'NEW_SUBMISSIONS') {
-    return and(
-      eq(sebApplication.status, 'SUBMITTED'),
-      eq(sebApplicationSubmission.submissionNumber, 1),
-    )!
-  }
-  if (queue === 'REVISION_RESPONSES') {
-    return and(
-      eq(sebApplication.status, 'SUBMITTED'),
-      gt(sebApplicationSubmission.submissionNumber, 1),
-    )!
-  }
-  return eq(sebApplication.status, queue)
-}
-
+/** The loan amount a submission asked for, by the same canonical-key rule. */
+const loanAmountText = roleAnswerText('LOAN_REQUESTED_PAISE')
 
 export type IntakeOrder = 'OLDEST_WAITING' | 'NEWEST_SUBMISSION' | 'LAST_ACTIVITY'
 
@@ -204,10 +132,8 @@ export type IntakeQueueFilterInput = {
   cycleIds?: readonly string[] | null
   status?: typeof sebApplication.$inferSelect.status | null
   statuses?: readonly (typeof sebApplication.$inferSelect.status)[] | null
-  queue?: IntakeQueueKey | null
   phaseNumber?: number | null
-  applicationType?: typeof sebApplication.$inferSelect.applicationType | null
-  assigneeUserId?: string | null
+  applicationKind?: string | null
   referenceNumber?: string | null
   search?: string | null
   sector?: typeof sebEnterpriseVersion.$inferSelect.businessSector | null
@@ -220,8 +146,14 @@ export type IntakeQueueFilterInput = {
   submittedTo?: Date | null
   requestedMinPaise?: number | null
   requestedMaxPaise?: number | null
-  decidedFrom?: Date | null
-  decidedTo?: Date | null
+  loanRequestedMinPaise?: number | null
+  loanRequestedMaxPaise?: number | null
+  /** Only applications worked in this pipeline. */
+  pipelineId?: string | null
+  /** Only applications at any of these stages; given with `pipelineId`. */
+  stageKeys?: readonly string[] | null
+  /** Only applications holding **every** one of these status flags. */
+  flags?: readonly string[] | null
 }
 
 /**
@@ -233,9 +165,15 @@ export type IntakeQueueFilterInput = {
  * rows: they simply never match an amount bound, which is the honest answer
  * for a value that is not an amount.
  */
-const requestedAtLeast = (bound: number, comparator: '>=' | '<='): SQL => sql`(
-  ${requestedAmountText} ~ '^[0-9]+$'
-  AND (${requestedAmountText})::bigint ${sql.raw(comparator)} ${bound}
+/** A stored amount as a number, or null when it is absent or not a whole number of paise. */
+const amountOf = (amount: SQL): SQL<number | null> =>
+  sql<number | null>`CASE WHEN ${amount} ~ '^[0-9]+$' THEN (${amount})::bigint END`.mapWith(
+    (value: string | number | null) => (value === null ? null : Number(value)),
+  )
+
+const amountBound = (amount: SQL, bound: number, comparator: '>=' | '<='): SQL => sql`(
+  ${amount} ~ '^[0-9]+$'
+  AND (${amount})::bigint ${sql.raw(comparator)} ${bound}
 )`
 
 /**
@@ -248,25 +186,6 @@ const requestedAtLeast = (bound: number, comparator: '>=' | '<='): SQL => sql`(
  */
 export const intakeQueueFilters = (input: IntakeQueueFilterInput): SQL | undefined => {
   const pattern = prefixPattern(input.search)
-  /*
-   * "Decided between" means at least one recorded decision in the range. The
-   * decision's own timestamp, because a correction appends a second row: the
-   * application was decided at both moments, and either belongs to a report
-   * about that period. Probes `seb_programme_decision_application_idx`
-   * (application_id, created_at), so no new index is needed for it.
-   */
-  const decided = input.decidedFrom || input.decidedTo
-    ? sql`EXISTS (
-        SELECT 1 FROM ${sebProgrammeDecision}
-        WHERE ${and(
-          eq(sebProgrammeDecision.applicationId, sebApplication.id),
-          input.decidedFrom
-            ? gte(sebProgrammeDecision.createdAt, input.decidedFrom) : undefined,
-          input.decidedTo
-            ? lte(sebProgrammeDecision.createdAt, input.decidedTo) : undefined,
-        )}
-      )`
-    : undefined
   return and(
     isNull(sebApplication.deletedAt),
     sql`${sebApplication.status} <> 'DRAFT'`,
@@ -282,12 +201,31 @@ export const intakeQueueFilters = (input: IntakeQueueFilterInput): SQL | undefin
       ? lte(sebApplicationSubmission.submittedAt, input.submittedTo) : undefined,
     // Inclusive at both ends: a bound equal to the answer still matches it.
     input.requestedMinPaise != null
-      ? requestedAtLeast(input.requestedMinPaise, '>=') : undefined,
+      ? amountBound(requestedAmountText, input.requestedMinPaise, '>=') : undefined,
     input.requestedMaxPaise != null
-      ? requestedAtLeast(input.requestedMaxPaise, '<=') : undefined,
-    decided,
+      ? amountBound(requestedAmountText, input.requestedMaxPaise, '<=') : undefined,
+    input.loanRequestedMinPaise != null
+      ? amountBound(loanAmountText, input.loanRequestedMinPaise, '>=') : undefined,
+    input.loanRequestedMaxPaise != null
+      ? amountBound(loanAmountText, input.loanRequestedMaxPaise, '<=') : undefined,
+    ...pipelineFilters(input),
   )
 }
+
+/*
+ * Where the file is in its pipeline. Flags are containment on the array, which
+ * is the GIN index's question; a stage is equality on the stage-queue index's
+ * leading columns.
+ */
+const pipelineFilters = (input: IntakeQueueFilterInput): (SQL | undefined)[] => [
+  input.pipelineId ? eq(sebApplication.pipelineId, input.pipelineId) : undefined,
+  input.stageKeys?.length
+    ? inArray(sebApplication.currentStageKey, [...input.stageKeys])
+    : undefined,
+  input.flags?.length
+    ? sql`${sebApplication.statusFlags} @> ARRAY[${sql.join(input.flags.map((flag) => sql`${flag}`), sql`, `)}]::text[]`
+    : undefined,
+]
 
 /* The application-head dimensions. A plural filter supersedes its singular. */
 const headFilters = (
@@ -300,13 +238,9 @@ const headFilters = (
   input.statuses?.length
     ? inArray(sebApplication.status, [...input.statuses])
     : input.status ? eq(sebApplication.status, input.status) : undefined,
-  input.queue ? queueKeyPredicate(input.queue) : undefined,
   input.phaseNumber ? eq(sebApplication.phaseNumber, input.phaseNumber) : undefined,
-  input.applicationType
-    ? eq(sebApplication.applicationType, input.applicationType)
-    : undefined,
-  input.assigneeUserId
-    ? eq(sebApplication.assignedToUserId, input.assigneeUserId)
+  input.applicationKind
+    ? eq(sebApplication.applicationKind, input.applicationKind)
     : undefined,
   input.referenceNumber
     ? eq(sebApplication.referenceNumber, input.referenceNumber)
@@ -387,6 +321,8 @@ export const listIntakeQueue = async (
     first: number
     after: { timestamp: Date; id: string } | null
     order?: 'OLDEST_WAITING' | 'NEWEST_SUBMISSION' | 'LAST_ACTIVITY' | null
+    /** Who is reading; office-wide when absent. Applied to the page and its count alike. */
+    scope?: ReadScope
   },
 ): Promise<{ nodes: unknown[]; pageInfo: PageInfo }> => {
   const order = input.order ?? 'OLDEST_WAITING'
@@ -410,7 +346,7 @@ export const listIntakeQueue = async (
    * Everything the filters say, without the cursor — the page seeks from a
    * position, the total counts the whole matching set.
    */
-  const filters = intakeQueueFilters(input)
+  const filters = and(intakeQueueFilters(input), readScopeFilter(input.scope ?? { kind: 'OFFICE' }))
   const rows = await joinIntakeQueueTables(db
     .select({
       id: sebApplication.id,
@@ -423,17 +359,24 @@ export const listIntakeQueue = async (
       sector: sebEnterpriseVersion.businessSector,
       category: sebApplicationVersion.applicationCategory,
       phaseNumber: sebApplication.phaseNumber,
-      applicationType: sebApplication.applicationType,
+      applicationKind: sebApplication.applicationKind,
       status: sebApplication.status,
       statusVersion: sebApplication.statusVersion,
-      assignedToUserId: sebApplication.assignedToUserId,
-      assignedAt: sebApplication.assignedAt,
-      assignmentVersion: sebApplication.assignmentVersion,
+      pipelineId: sebApplication.pipelineId,
+      pipelineVersion: sebApplication.pipelineVersion,
+      currentStageKey: sebApplication.currentStageKey,
+      stageEnteredAt: sebApplication.stageEnteredAt,
+      statusFlags: sebApplication.statusFlags,
       firstSubmittedAt: sebApplication.firstSubmittedAt,
       submissionNumber: sebApplicationSubmission.submissionNumber,
       submittedAt: sebApplicationSubmission.submittedAt,
       statusChangedAt: sebApplication.statusChangedAt,
       updatedAt: sebApplication.updatedAt,
+      // What was asked for, from the submitted version's role-bound answers —
+      // the same expressions the range filters compare, so a row shows the
+      // amount it was filtered on. Null when the form did not ask.
+      requestedGrantPaise: amountOf(requestedAmountText),
+      requestedLoanPaise: amountOf(loanAmountText),
     })
     .from(sebApplication)
     .$dynamic())
@@ -465,63 +408,12 @@ export const listIntakeQueue = async (
   }
 }
 
-/**
- * Counts the applications waiting in each named queue.
- *
- * One grouped aggregate rather than one query per queue. The two `SUBMITTED`
- * queues are separated by the same submission-number rule the list uses, so a
- * chip count can never disagree with the queue it opens.
- */
-export const intakeQueueSummary = async (
+export const loadWorkspace = async (
   db: Database,
-  cycleId?: string | null,
-): Promise<Array<{ queue: IntakeQueueKey; count: number }>> => {
-  const rows = await db
-    .select({
-      status: sebApplication.status,
-      submissionNumber: sebApplicationSubmission.submissionNumber,
-      count: sql<number>`count(*)`,
-    })
-    .from(sebApplication)
-    .innerJoin(
-      sebApplicationSubmission,
-      and(
-        eq(sebApplicationSubmission.applicationId, sebApplication.id),
-        sql`NOT EXISTS (
-          SELECT 1 FROM ${sebApplicationSubmission} AS newer_submission
-          WHERE newer_submission.application_id = ${sebApplication.id}
-            AND newer_submission.submission_number > ${sebApplicationSubmission.submissionNumber}
-        )`,
-      ),
-    )
-    .where(
-      and(
-        isNull(sebApplication.deletedAt),
-        sql`${sebApplication.status} <> 'DRAFT'`,
-        cycleId ? eq(sebApplication.programmeCycleId, cycleId) : undefined,
-      ),
-    )
-    .groupBy(sebApplication.status, sebApplicationSubmission.submissionNumber)
-
-  // Every queue is reported, including empty ones, so the caller renders a
-  // stable set of chips instead of one that appears and disappears.
-  const counts = new Map<IntakeQueueKey, number>(
-    intakeQueueKeys.map((queue) => [queue, 0]),
-  )
-  for (const row of rows) {
-    const queue: IntakeQueueKey | undefined = row.status === 'SUBMITTED'
-      ? (row.submissionNumber === 1 ? 'NEW_SUBMISSIONS' : 'REVISION_RESPONSES')
-      : intakeQueueKeys.find((key) => key === row.status)
-    // CANCELLED has no queue: it is a terminal state nobody works from.
-    if (!queue) continue
-    // Seeded above, so every queue key is already present.
-    counts.set(queue, counts.get(queue)! + Number(row.count))
-  }
-  return intakeQueueKeys.map((queue) => ({ queue, count: counts.get(queue)! }))
-}
-
-export const loadWorkspace = async (db: Database, applicationId: string) => {
-  const head = await loadApplicationHead(db, applicationId)
+  applicationId: string,
+  scope: ReadScope,
+) => {
+  const head = await loadApplicationHead(db, applicationId, scope)
   if (!head || head.application.status === 'DRAFT') return null
   /*
    * The form this application was filled against.
@@ -535,9 +427,7 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
   const rules = await findPinnedRulesForApplication(
     db, applicationId, head.application.currentVersion,
   )
-  const [submissions, documents, revisions, timeline, assignments, notes, reviews,
-    reviewChecks, referrals, bankOutcomeRows, decisions, awards, releases,
-    assessments, recoveries] = await Promise.all([
+  const [submissions, documents, revisions, timeline, notes] = await Promise.all([
     db.select().from(sebApplicationSubmission)
       .where(eq(sebApplicationSubmission.applicationId, applicationId))
       .orderBy(asc(sebApplicationSubmission.submissionNumber)),
@@ -560,42 +450,10 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
       .where(eq(sebApplicationEvent.applicationId, applicationId))
       .orderBy(desc(sebApplicationEvent.createdAt))
       .limit(MAX_COLLECTION_ROWS),
-    db.select().from(sebApplicationAssignmentEvent)
-      .where(eq(sebApplicationAssignmentEvent.applicationId, applicationId))
-      .orderBy(desc(sebApplicationAssignmentEvent.assignmentVersion))
-      .limit(MAX_COLLECTION_ROWS),
     db.select().from(sebApplicationInternalNote)
       .where(eq(sebApplicationInternalNote.applicationId, applicationId))
       .orderBy(desc(sebApplicationInternalNote.createdAt))
       .limit(MAX_COLLECTION_ROWS),
-    db.select().from(sebDeskReview)
-      .where(eq(sebDeskReview.applicationId, applicationId))
-      .orderBy(asc(sebDeskReview.reviewedAt)),
-    db.select({ check: sebDeskReviewCheck, reviewApplicationId: sebDeskReview.applicationId })
-      .from(sebDeskReviewCheck)
-      .innerJoin(sebDeskReview, eq(sebDeskReview.id, sebDeskReviewCheck.deskReviewId))
-      .where(eq(sebDeskReview.applicationId, applicationId)),
-    db.select().from(sebPartnerBankReferral)
-      .where(eq(sebPartnerBankReferral.applicationId, applicationId))
-      .orderBy(asc(sebPartnerBankReferral.createdAt)),
-    db.select().from(sebPartnerBankOutcome)
-      .where(eq(sebPartnerBankOutcome.applicationId, applicationId))
-      .orderBy(asc(sebPartnerBankOutcome.createdAt)),
-    db.select().from(sebProgrammeDecision)
-      .where(eq(sebProgrammeDecision.applicationId, applicationId))
-      .orderBy(asc(sebProgrammeDecision.createdAt)),
-    db.select().from(sebFundingAward)
-      .where(eq(sebFundingAward.applicationId, applicationId)),
-    db.select({ entry: sebDisbursement, awardApplicationId: sebFundingAward.applicationId })
-      .from(sebDisbursement)
-      .innerJoin(sebFundingAward, eq(sebFundingAward.id, sebDisbursement.fundingAwardId))
-      .where(eq(sebFundingAward.applicationId, applicationId)),
-    db.select({ assessment: sebAwardAssessment, awardApplicationId: sebFundingAward.applicationId })
-      .from(sebAwardAssessment)
-      .innerJoin(sebFundingAward, eq(sebFundingAward.id, sebAwardAssessment.fundingAwardId))
-      .where(eq(sebFundingAward.applicationId, applicationId)),
-    db.select().from(sebRecoveryCase)
-      .where(eq(sebRecoveryCase.applicationId, applicationId)),
   ])
   // A non-draft application can only be produced by a formal submission batch,
   // so at least one submission is a database/service invariant here.
@@ -607,49 +465,19 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
     ),
   )).orderBy(asc(sebApplicationVersion.version))
   const snapshotsByVersion = new Map(snapshots.map((snapshot) => [snapshot.version, snapshot]))
-  /*
-   * The identifier rules the newest submission was frozen against.
-   *
-   * This is a third round trip rather than a member of either batch above, and
-   * it has to be: the frozen cycle *version* is recorded on the snapshot, not
-   * on the application, so it is not known until the snapshots have loaded.
-   * Reading the cycle's current rules instead would be one call cheaper and
-   * wrong — editing a cycle would retroactively change what an already
-   * submitted application is judged by, which is the property the freezing
-   * exists to provide.
-   *
-   * It is a single-table read against the composite primary key.
-   *
-   * Both lookups are total rather than defensive: a draft returned above, so
-   * anything reaching here has been submitted at least once, and the snapshots
-   * were selected for exactly these submissions' versions.
-   */
+  // A draft returned above, so anything here was submitted at least once, and
+  // the snapshots were selected for exactly these submissions' versions.
   const frozenSnapshot = snapshotsByVersion.get(
     submissions[submissions.length - 1]!.applicationVersion,
   )!
-  const identifierRules = await findIdentifierRules(
-    db, frozenSnapshot.programmeCycleId, frozenSnapshot.programmeCycleVersion,
-  )
-  /*
-   * The approved reasons of the same frozen cycle version. Read here, keyed by
-   * the snapshot's version, because `approvedReason` validates reason ids
-   * against exactly this version — a picker built from the cycle's *current*
-   * version would offer ids that stop validating the moment the cycle is
-   * revised, since a revision re-mints every reason row with a fresh id.
-   */
-  const reasons = await db.select().from(sebProgrammeCycleReason).where(and(
-    eq(sebProgrammeCycleReason.programmeCycleId, frozenSnapshot.programmeCycleId),
-    eq(
-      sebProgrammeCycleReason.programmeCycleVersion,
-      frozenSnapshot.programmeCycleVersion,
-    ),
-  )).orderBy(asc(sebProgrammeCycleReason.context), asc(sebProgrammeCycleReason.code))
   /*
    * The answers each submission froze, and the form they were given against.
    *
-   * Read here for the same reason the identifier rules are: the cycle version
-   * is on the snapshot rather than on the application, so it is not known until
-   * the snapshots have loaded.
+   * Read after the snapshots because the frozen cycle version is recorded on
+   * the snapshot, not on the application, so it is not known until they have
+   * loaded. Reading the cycle's current form instead would be one call cheaper
+   * and wrong: editing a cycle would change what an already submitted
+   * application is read against.
    *
    * Grouped by version before anything reads them. Folding rows from several
    * submissions into one map would merge them — every value plausible, nothing
@@ -692,9 +520,10 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
     .select({
       id: sebApplication.id,
       referenceNumber: sebApplication.referenceNumber,
-      applicationType: sebApplication.applicationType,
+      applicationKind: sebApplication.applicationKind,
       phaseNumber: sebApplication.phaseNumber,
       status: sebApplication.status,
+      statusFlags: sebApplication.statusFlags,
       cycleCode: sebProgrammeCycle.cycleCode,
       createdAt: sebApplication.createdAt,
     })
@@ -732,20 +561,8 @@ export const loadWorkspace = async (db: Database, applicationId: string) => {
      * reversed here because the screen reads a file from the top down.
      */
     timeline: [...timeline].reverse(),
-    assignments: [...assignments].reverse(),
     internalNotes: [...notes].reverse(),
-    reviews,
-    reviewChecks,
-    identifierRules,
-    reasons,
     formTemplate: rules?.template ?? null,
-    referrals,
-    bankOutcomes: bankOutcomeRows,
-    decisions,
-    awards,
-    releases,
-    assessments,
-    recoveries,
   }
 }
 
@@ -757,9 +574,12 @@ export const insertInternalNote = async (
     note: string
     actorUserId: string
     now: Date
+    /** Who is writing: a note may be added only to a file its author may read. */
+    scope: ReadScope
   },
 ) => {
   const id = crypto.randomUUID()
+  const readable = readScopeFilter(input.scope)
   const [inserted] = await batch(context.db, (tx) => [
     tx.insert(sebApplicationInternalNote).select(sql`
       SELECT ${id}, ${input.applicationId}, ${input.correctionOfNoteId ?? null},
@@ -769,6 +589,7 @@ export const insertInternalNote = async (
         WHERE ${sebApplication.id} = ${input.applicationId}
           AND ${sebApplication.deletedAt} IS NULL
           AND ${sebApplication.status} <> 'DRAFT'
+          ${readable ? sql`AND ${readable}` : sql``}
       )
     `).returning({ id: sebApplicationInternalNote.id }),
     // The note's text is office-only and is not copied into the history.
@@ -791,377 +612,6 @@ export const insertInternalNote = async (
   // The guarded insert returned this exact primary key, so the row cannot be
   // absent without a database violation inside the same request.
   return row!
-}
-
-export const startDeskReviewWrite = async (
-  context: AdminOperationContext,
-  input: {
-    applicationId: string
-    expectedStatusVersion: number
-    actorUserId: string
-    now: Date
-  },
-): Promise<boolean> => {
-  const nextStatusVersion = input.expectedStatusVersion + 1
-  const updated = context.db.update(sebApplication).set({
-    status: 'DESK_REVIEW',
-    statusVersion: nextStatusVersion,
-    statusChangedAt: input.now,
-    /*
-     * Starting the review is what records who is working the file. It is not a
-     * lock — anybody holding the permission may still act — but it is the first
-     * moment there is anything true to say, and the workspace shows it so a
-     * second officer can decide whether to duplicate the effort.
-     *
-     * Without this the record would only be written when a review *completes*,
-     * leaving it empty for the whole period it is actually useful.
-     */
-    assignedToUserId: input.actorUserId,
-    assignedAt: input.now,
-    assignmentVersion: sql`${sebApplication.assignmentVersion} + 1`,
-    updatedAt: input.now,
-  }).where(and(
-    eq(sebApplication.id, input.applicationId),
-    eq(sebApplication.status, 'SUBMITTED'),
-    eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    isNull(sebApplication.deletedAt),
-  )).returning({ id: sebApplication.id })
-  const [changed] = await batch(context.db, (tx) => [
-    updated,
-    tx.insert(sebApplicationEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'DESK_REVIEW_STARTED',
-        ${input.actorUserId}, NULL, NULL, NULL, 'SUBMITTED', 'DESK_REVIEW',
-        NULL, 'Desk review started.', NULL, ${input.now}
-      WHERE ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}
-    `),
-    insertAuditEventWhere(tx, adminAudit(context, {
-      actorUserId: input.actorUserId,
-      action: 'SEB.DESK_REVIEW_STARTED',
-      entityType: 'SEB_APPLICATION',
-      entityId: input.applicationId,
-      applicationId: input.applicationId,
-      now: input.now,
-      payload: { statusVersion: nextStatusVersion },
-    }), headJustMovedTo(input.applicationId, nextStatusVersion, input.now)),
-  ])
-  return Array.isArray(changed) && changed.length === 1
-}
-
-export const unacceptedSubmissionDocumentCount = async (
-  db: Database,
-  submissionId: string,
-): Promise<number> => {
-  const { rows } = await db.execute<{ count: number }>(sql`
-    SELECT COUNT(*)::int AS count
-    FROM ${sebApplicationSubmissionDocument} AS pinned
-    WHERE pinned.submission_id = ${submissionId}
-      AND NOT EXISTS (
-        SELECT 1 FROM ${sebApplicationDocumentScan} AS scan
-        INNER JOIN ${sebApplicationDocumentVersion} AS file
-          ON file.id = scan.document_version_id
-        WHERE file.document_id = pinned.document_id
-          AND file.version = pinned.document_version
-          AND scan.sequence_number = (
-            SELECT MAX(latest.sequence_number)
-            FROM ${sebApplicationDocumentScan} AS latest
-            WHERE latest.document_version_id = file.id
-          )
-          AND scan.status = 'ACCEPTED'
-      )
-  `)
-  // COUNT always yields one row, including when the count is zero.
-  return Number(rows[0]!.count)
-}
-
-/**
- * Which of these values have already been recorded against a different case.
- *
- * One indexed seek per identifier rather than a join walked from the review
- * side: this runs on every completed desk review, and the index is
- * `(kind, comparable_value, funding_case_id)` precisely so the answer is a
- * range lookup on a key that starts with what is being asked.
- *
- * The matching application's reference comes back with it, because a reviewer
- * cannot judge whether a match is a legitimate second phase or a duplicate
- * attempt without being able to go and look. Staff can already see every
- * application in the queue, so this discloses nothing new.
- */
-export const identifierMatches = async (
-  db: Database,
-  fundingCaseId: string,
-  candidates: { kind: IdentifierKind; comparableValue: string }[],
-): Promise<Map<IdentifierKind, string>> => {
-  /*
-   * Asked together rather than one after another. The questions are independent
-   * and this sits in the middle of completing a review, so four sequential
-   * round trips would be three waits nobody needs. Order is preserved, so the
-   * refusal still names whichever identifier the reviewer listed first.
-   */
-  const rows = await Promise.all(candidates.map((candidate) => db
-    .select({ referenceNumber: sebApplication.referenceNumber })
-    .from(sebDeskReviewIdentifier)
-    .innerJoin(sebDeskReview, eq(sebDeskReview.id, sebDeskReviewIdentifier.deskReviewId))
-    .innerJoin(sebApplication, eq(sebApplication.id, sebDeskReview.applicationId))
-    .where(and(
-      eq(sebDeskReviewIdentifier.kind, candidate.kind),
-      eq(sebDeskReviewIdentifier.comparableValue, candidate.comparableValue),
-      ne(sebDeskReviewIdentifier.fundingCaseId, fundingCaseId),
-    ))
-    .orderBy(desc(sebDeskReviewIdentifier.createdAt))
-    .limit(1)))
-
-  const found = new Map<IdentifierKind, string>()
-  rows.forEach(([row], index) => {
-    /*
-     * A desk review only exists for a submitted application, and submission is
-     * what issues the reference number — so a match always has one. Asserted
-     * rather than defaulted, because a quiet fallback would hide a broken
-     * invariant behind a plausible-looking message.
-     */
-    if (row) {
-      found.set(
-        candidates[index]!.kind,
-        requireInvariant(row.referenceNumber, REFERENCE_MISSING),
-      )
-    }
-  })
-  return found
-}
-
-export const completeDeskReviewWrite = async (
-  context: AdminOperationContext,
-  input: {
-    applicationId: string
-    submissionId: string
-    expectedStatusVersion: number
-    actorUserId: string
-    outcome: DeskReviewOutcome
-    checks: DeskReviewCheckInput[]
-    reasonCategoryId?: string | null
-    applicantMessage?: string | null
-    revisions: RevisionRequestInput[]
-    identifiers: {
-      kind: IdentifierKind
-      comparableValue: string
-      lastFour: string
-      matchedReason: string | null
-    }[]
-    fundingCaseId: string
-    /** True only where the reviewer is the applicant and said so. */
-    conflictAcknowledged?: boolean | null
-    now: Date
-  },
-): Promise<boolean> => {
-  const reviewId = crypto.randomUUID()
-  // Both the stored value and a term in the audit guard below. Read from the
-  // application rather than from the caller — see `disclosedSelfReview`.
-  const disclosed = disclosedSelfReview(
-    input.applicationId, input.actorUserId, input.conflictAcknowledged,
-  )
-  const nextStatus = input.outcome === 'ADVANCE_TO_BANK'
-    ? 'PARTNER_BANK_EVALUATION'
-    : input.outcome === 'REQUEST_REVISION' ? 'REVISION_REQUIRED' : 'REJECTED'
-  const nextStatusVersion = input.expectedStatusVersion + 1
-  const releasesAssignment = input.outcome === 'REJECT'
-  const update = context.db.update(sebApplication).set({
-    status: nextStatus,
-    statusVersion: nextStatusVersion,
-    statusChangedAt: input.now,
-    assignedToUserId: releasesAssignment ? null : input.actorUserId,
-    assignedAt: releasesAssignment ? null : input.now,
-    assignmentVersion: releasesAssignment
-      ? sql`${sebApplication.assignmentVersion} + 1`
-      : sebApplication.assignmentVersion,
-    updatedAt: input.now,
-  }).where(and(
-    eq(sebApplication.id, input.applicationId),
-    eq(sebApplication.status, 'DESK_REVIEW'),
-    eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    isNull(sebApplication.deletedAt),
-  )).returning({ id: sebApplication.id })
-  const statements = (tx: Transaction) => [
-    update,
-    tx.insert(sebDeskReview).select(sql`
-      SELECT ${reviewId}, ${input.applicationId}, ${input.submissionId},
-        ${input.outcome}, ${input.reasonCategoryId ?? null},
-        ${input.applicantMessage ?? null}, ${input.actorUserId}, ${input.now},
-        ${disclosed}
-      WHERE ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}
-    `),
-    ...input.checks.map((check) => tx.insert(sebDeskReviewCheck).select(sql`
-      SELECT ${crypto.randomUUID()}, ${reviewId}, ${check.checkType}, ${check.result},
-        ${check.internalNote ?? null}, ${input.now}
-      WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
-    `)),
-    ...input.identifiers.map((identifier) => tx.insert(sebDeskReviewIdentifier).select(sql`
-      SELECT ${crypto.randomUUID()}, ${reviewId}, ${input.fundingCaseId},
-        ${identifier.kind}, ${identifier.comparableValue}, ${identifier.lastFour},
-        ${identifier.matchedReason}, ${input.now}
-      WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
-    `)),
-    ...input.revisions.map((revision) => tx.insert(sebRevisionRequest).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.applicationId}, ${input.submissionId},
-        ${revision.stageKey}, ${revision.reasonCategoryId}, ${revision.note},
-        ${input.actorUserId}, ${input.now}, NULL, NULL, NULL, NULL, NULL
-      WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
-    `)),
-    ...(releasesAssignment ? [tx.insert(sebApplicationAssignmentEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, application.id, 'RELEASED', application.assignment_version,
-        ${input.actorUserId}, NULL, ${input.reasonCategoryId!},
-        ${input.applicantMessage!},
-        ${input.actorUserId}, ${input.now}
-      FROM ${sebApplication} AS application
-      WHERE application.id = ${input.applicationId}
-        AND application.status = 'REJECTED'
-        AND ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)}
-    `)] : []),
-    tx.insert(sebApplicationEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.applicationId},
-        ${input.outcome === 'ADVANCE_TO_BANK'
-          ? 'DESK_REVIEW_COMPLETED'
-          : input.outcome === 'REQUEST_REVISION' ? 'REVISION_REQUESTED' : 'APPLICATION_REJECTED'},
-        ${input.actorUserId}, NULL, ${input.submissionId}, NULL, 'DESK_REVIEW',
-        ${nextStatus}, NULL, ${input.applicantMessage ?? 'Desk review completed.'},
-        NULL, ${input.now}
-      WHERE EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})
-    `),
-    insertAuditEventWhere(tx, adminAudit(context, {
-      actorUserId: input.actorUserId,
-      action: 'SEB.DESK_REVIEW_COMPLETED',
-      entityType: 'SEB_DESK_REVIEW',
-      entityId: reviewId,
-      applicationId: input.applicationId,
-      now: input.now,
-      payload: {
-        outcome: input.outcome,
-        submissionId: input.submissionId,
-        checkCount: input.checks.length,
-        failedCheckCount: input.checks.filter((check) => check.result === 'FAIL').length,
-        identifierCount: input.identifiers.length,
-        revisionCount: input.revisions.length,
-        reasonCategoryId: input.reasonCategoryId ?? undefined,
-      },
-    }), sql`EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})`),
-    /*
-     * Its own action, and only where there was something to disclose — the
-     * `disclosed` term is what makes an ordinary review write nothing here.
-     * The column on the review is the record; this is what makes "every file
-     * decided by its own applicant" a query on `action` rather than a join of
-     * actor against applicant across every decided application.
-     */
-    insertAuditEventWhere(tx, adminAudit(context, {
-      actorUserId: input.actorUserId,
-      action: 'SEB.SELF_REVIEW_DISCLOSED',
-      entityType: 'SEB_DESK_REVIEW',
-      entityId: reviewId,
-      applicationId: input.applicationId,
-      now: input.now,
-      payload: { stage: 'DESK_REVIEW' },
-    }), sql`${disclosed}
-      AND EXISTS (SELECT 1 FROM ${sebDeskReview} WHERE ${sebDeskReview.id} = ${reviewId})`),
-  ]
-  const [changed] = await batch(context.db, statements)
-  return Array.isArray(changed) && changed.length === 1
-}
-
-export const approvedReason = async (
-  db: Database,
-  input: { id: string; cycleId: string; version: number; context: string },
-) => {
-  const [row] = await db.select().from(sebProgrammeCycleReason).where(and(
-    eq(sebProgrammeCycleReason.id, input.id),
-    eq(sebProgrammeCycleReason.programmeCycleId, input.cycleId),
-    eq(sebProgrammeCycleReason.programmeCycleVersion, input.version),
-    sql`${sebProgrammeCycleReason.context} = ${input.context}`,
-  )).limit(1)
-  return row ?? null
-}
-
-export const cancelRevisionRequestWrite = async (
-  context: AdminOperationContext,
-  input: {
-    applicationId: string
-    revisionRequestId: string
-    expectedStatusVersion: number
-    actorUserId: string
-    reason: string
-    now: Date
-  },
-): Promise<boolean> => {
-  const nextStatusVersion = input.expectedStatusVersion + 1
-  const cancel = context.db.update(sebRevisionRequest).set({
-    cancelledAt: input.now,
-    cancelledByUserId: input.actorUserId,
-    cancellationReason: input.reason,
-  }).where(and(
-    eq(sebRevisionRequest.id, input.revisionRequestId),
-    eq(sebRevisionRequest.applicationId, input.applicationId),
-    isNull(sebRevisionRequest.resolvedAt),
-    isNull(sebRevisionRequest.cancelledAt),
-    sql`EXISTS (
-      SELECT 1 FROM ${sebApplication}
-      WHERE ${sebApplication.id} = ${input.applicationId}
-        AND ${sebApplication.status} = 'REVISION_REQUIRED'
-        AND ${sebApplication.statusVersion} = ${input.expectedStatusVersion}
-    )`,
-  )).returning({ id: sebRevisionRequest.id })
-  const returnToReview = context.db.update(sebApplication).set({
-    status: 'DESK_REVIEW',
-    statusVersion: nextStatusVersion,
-    statusChangedAt: input.now,
-    updatedAt: input.now,
-  }).where(and(
-    eq(sebApplication.id, input.applicationId),
-    eq(sebApplication.status, 'REVISION_REQUIRED'),
-    eq(sebApplication.statusVersion, input.expectedStatusVersion),
-    sql`EXISTS (
-      SELECT 1 FROM ${sebRevisionRequest}
-      WHERE ${sebRevisionRequest.id} = ${input.revisionRequestId}
-        AND ${sebRevisionRequest.cancelledAt} = ${input.now}
-    )`,
-    sql`NOT EXISTS (
-      SELECT 1 FROM ${sebRevisionRequest}
-      WHERE ${sebRevisionRequest.applicationId} = ${input.applicationId}
-        AND ${sebRevisionRequest.resolvedAt} IS NULL
-        AND ${sebRevisionRequest.cancelledAt} IS NULL
-    )`,
-  )).returning({ id: sebApplication.id })
-  const [cancelled] = await batch(context.db, (tx) => [
-    cancel,
-    returnToReview,
-    tx.insert(sebApplicationEvent).select(sql`
-      SELECT ${crypto.randomUUID()}, ${input.applicationId}, 'REVISION_CANCELLED',
-        ${input.actorUserId}, NULL, NULL, ${input.revisionRequestId},
-        'REVISION_REQUIRED',
-        CASE WHEN ${headJustMovedTo(input.applicationId, nextStatusVersion, input.now)} THEN 'DESK_REVIEW' ELSE 'REVISION_REQUIRED' END,
-        NULL, 'A mistaken revision request was cancelled.', NULL, ${input.now}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebRevisionRequest}
-        WHERE ${sebRevisionRequest.id} = ${input.revisionRequestId}
-          AND ${sebRevisionRequest.cancelledAt} = ${input.now}
-      )
-    `),
-    /*
-     * The applicant-facing event above says what happened to the application;
-     * this says who did it. Withdrawing a correction request is the one
-     * administrative act here that leaves the application exactly as it was, so
-     * without this it left no trace of the officer at all.
-     */
-    insertAuditEventWhere(tx, adminAudit(context, {
-      actorUserId: input.actorUserId,
-      action: 'SEB.REVISION_CANCELLED',
-      entityType: 'SEB_APPLICATION',
-      entityId: input.applicationId,
-      applicationId: input.applicationId,
-      now: input.now,
-      payload: { revisionRequestId: input.revisionRequestId, reason: auditReason(input.reason) },
-    }), sql`EXISTS (
-      SELECT 1 FROM ${sebRevisionRequest}
-      WHERE ${sebRevisionRequest.id} = ${input.revisionRequestId}
-        AND ${sebRevisionRequest.cancelledAt} = ${input.now}
-    )`),
-  ])
-  return Array.isArray(cancelled) && cancelled.length === 1
 }
 
 export const acceptedPinnedDocument = async (
@@ -1195,32 +645,3 @@ export const acceptedPinnedDocument = async (
     .limit(1)
   return row ?? null
 }
-
-/**
- * The identifier rules frozen into one cycle version.
- *
- * Its own read rather than part of `findSubmissionPolicy`, which is the
- * applicant-side submission policy and is not consulted on this path — folding
- * a reviewer's rules into an applicant's type would have bought nothing and
- * mixed two audiences.
- *
- * One statement, and a small one: at most four rows, seeked on the composite
- * key that freezes them to the version.
- */
-export const findIdentifierRules = async (
-  db: Database,
-  cycleId: string,
-  cycleVersion: number,
-): Promise<IdentifierRule[]> =>
-  db
-    .select({
-      kind: sebProgrammeCycleIdentifierRule.kind,
-      requirement: sebProgrammeCycleIdentifierRule.requirement,
-      duplicatePolicy: sebProgrammeCycleIdentifierRule.duplicatePolicy,
-      checkType: sebProgrammeCycleIdentifierRule.checkType,
-    })
-    .from(sebProgrammeCycleIdentifierRule)
-    .where(and(
-      eq(sebProgrammeCycleIdentifierRule.programmeCycleId, cycleId),
-      eq(sebProgrammeCycleIdentifierRule.programmeCycleVersion, cycleVersion),
-    ))

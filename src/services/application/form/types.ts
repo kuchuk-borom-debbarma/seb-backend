@@ -14,6 +14,7 @@ import type {
   FormFieldType,
   FormFieldWidth,
 } from '../../../db/schema/seb/form-template'
+import type { FormRuleType } from '../../catalogue/workflow.generated'
 
 export type {
   FormFieldAutocompleteHint,
@@ -172,10 +173,30 @@ export type ResolvedFormTemplate = {
   readonly answerKeys: ReadonlySet<string>
   /** FILE fields, which carry evidence rather than an answer. */
   readonly documentFieldKeys: ReadonlySet<string>
-  /** Role → field key, total: a cycle cannot open with a role unbound. */
-  readonly roles: Readonly<Record<FormFieldRole, string>>
+  /** Role → field key, for the roles this cycle's form binds. Partial. */
+  readonly roles: Readonly<Partial<Record<FormFieldRole, string>>>
   /** Topological over the condition graph, so a controller is seen before it acts. */
   readonly evaluationOrder: readonly string[]
+  /** The rules about several answers at once, in rule-key order. */
+  readonly rules: readonly FormRule[]
+}
+
+/**
+ * A rule about several answers at once — "a grant, a loan, or both". Its type
+ * is one of the workflow catalogue's form rules, evaluated by the registered
+ * evaluator of that key on the server and in the browser.
+ */
+export type FormRule = {
+  readonly key: string
+  readonly type: FormRuleType
+  /** The form stage the refusal is shown on. */
+  readonly stageKey: string
+  /** What the applicant is told when the rule does not hold. */
+  readonly message: string
+  /** The fixed limit, for the rule type that has one. */
+  readonly limit: number | null
+  /** The questions it reads, in order: order matters for `AT_MOST_FIELD`. */
+  readonly operandKeys: readonly string[]
 }
 
 /**
@@ -273,6 +294,18 @@ export type FormTemplateRows = {
     optionDescription?: string | null
     iconName?: string | null
     sortOrder: number
+  }[]
+  /*
+   * Optional in rows: a template read by a path that has no rules — an action's
+   * inputs, a fixture — has none, and "none" is the right reading.
+   */
+  readonly rules?: readonly {
+    ruleKey: string
+    ruleType: FormRuleType
+    stageKey: string
+    message: string
+    limitValue: number | null
+    operandKeys: readonly string[]
   }[]
   readonly conditions: readonly {
     fieldKey: string

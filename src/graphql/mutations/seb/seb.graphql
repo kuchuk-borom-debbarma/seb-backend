@@ -205,6 +205,12 @@ input StartApplicationInput {
   a later edit to the cycle cannot change what this application is judged by.
   """
   programmeCycleId: ID!
+
+  """
+  Which of the cycle's kinds to start, from `applicationKinds`. The kind's
+  eligibility rules are checked now and again at submission.
+  """
+  applicationKind: String!
 }
 
 """
@@ -434,31 +440,17 @@ be resubmitted.
 """
 type SebApplicationMutation {
   """
-  Starts a first-phase application for an enterprise.
+  Starts an application of one of the cycle's kinds for an enterprise.
 
   **Use case:** `/applications/new`. Creates an empty draft; nothing is
   submitted until `submit`.
 
   **Refuses:** a cycle that is not open, an enterprise the applicant does not
-  own, and a second application for a phase that already has one.
+  own, a kind the cycle does not accept or whose rules the enterprise does not
+  meet (every reason is given), and a second application in the same cycle.
   """
-  startInitial(
-    """Which enterprise, and which cycle."""
-    input: StartApplicationInput!
-  ): ApplicationResult!
-
-  """
-  Starts a later-phase application against a completed earlier award.
-
-  **Use case:** `/applications/new`, offered only where an earlier award
-  qualifies. Eligibility depends on the earlier award's assessment and the
-  cycle's waiting period.
-
-  **Refuses:** an enterprise with no qualifying award, one whose waiting period
-  has not elapsed, and a cycle that is not open.
-  """
-  startExpansion(
-    """Which enterprise, and which cycle."""
+  start(
+    """Which enterprise, which cycle, and which kind."""
     input: StartApplicationInput!
   ): ApplicationResult!
 
@@ -496,8 +488,8 @@ type SebApplicationMutation {
   """
   Puts a removed draft back.
 
-  **Refuses:** an expansion draft whose qualifying award is no longer valid,
-  and stale versions.
+  **Refuses:** a draft whose kind the enterprise no longer qualifies for, a
+  cycle that has closed, and stale versions.
   """
   restoreDraft(
     """Which application, at which versions."""

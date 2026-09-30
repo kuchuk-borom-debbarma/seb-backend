@@ -48,7 +48,7 @@ const applicationDocumentsEditable = (
     AND (
       ${sebApplication.status} = 'DRAFT'
       OR (
-        ${sebApplication.status} = 'REVISION_REQUIRED'
+        ${sebApplication.status} = 'IN_PIPELINE'
         AND EXISTS (
           SELECT 1 FROM ${sebRevisionRequest}
           WHERE ${sebRevisionRequest.applicationId} = ${applicationId}
@@ -265,7 +265,7 @@ export const finalizeUploadIntent = async (
   const event = (tx: Transaction) => tx.insert(sebApplicationEvent).select(sql`
     SELECT ${crypto.randomUUID()}, ${input.intent.applicationId}, 'DOCUMENT_FINALIZED',
       ${input.userId}, NULL, NULL, NULL, NULL, NULL, ${input.stageKey},
-      'Application document updated.', NULL, ${input.now}
+      'Application document updated.', NULL, ${input.now}, NULL
     WHERE EXISTS (
       SELECT 1 FROM ${sebDocumentUploadIntent}
       WHERE ${sebDocumentUploadIntent.id} = ${input.intent.id}
@@ -442,7 +442,7 @@ export const setDocumentDeleted = async (
       ${input.deleted ? 'DOCUMENT_DELETED' : 'DOCUMENT_RESTORED'}, ${input.userId},
       NULL, NULL, NULL, NULL, NULL, ${input.stageKey},
       ${input.deleted ? 'Application document removed.' : 'Application document restored.'},
-      NULL, ${input.now}
+      NULL, ${input.now}, NULL
     WHERE EXISTS (
       SELECT 1 FROM ${coreAuditEvent}
       WHERE ${coreAuditEvent.id} = ${input.audit.id}

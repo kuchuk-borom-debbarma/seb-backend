@@ -6,7 +6,6 @@ import type {
   FormFieldType,
   FormFieldWidth,
 } from '../../db/schema/seb/form-template'
-import type { deskReviewIdentifierKinds } from '../../db/schema'
 import type { Envelope } from '../envelope'
 
 /*
@@ -20,42 +19,12 @@ import type { Loaders } from '../../loaders'
 // Re-exported because the operation contexts below name it.
 export type { Loaders } from '../../loaders'
 import type { Database } from '../../db'
-import type { IdentifierKind } from './identifiers'
-export type { IdentifierKind } from './identifiers'
+import type { EligibilityRuleType, FormRuleType } from '../catalogue/workflow.generated'
 import type {
-  awardAssessmentTypes,
-  bankOutcomes,
-  deskReviewChecks,
-  deskReviewCheckResults,
-  deskReviewOutcomes,
   fundingCeilingScopes,
   fundingCeilingStates,
   programmeJurisdictions,
-  programmeReasonContexts,
-  recoveryComponents,
-  decisionOutcomes,
 } from '../../db/schema'
-
-/**
- * The named work queues staff actually operate from.
- *
- * Most map to a single application status, but two do not, which is why this is
- * its own vocabulary rather than a reuse of `ApplicationStatus`: a first
- * submission and an answer to a revision request are both `SUBMITTED` and need
- * completely different handling, so they are separated by submission number.
- */
-export const intakeQueueKeys = [
-  'NEW_SUBMISSIONS',
-  'DESK_REVIEW',
-  'REVISION_RESPONSES',
-  'PARTNER_BANK_EVALUATION',
-  'AWAITING_DECISION',
-  'APPROVED',
-  'REJECTED',
-  'SANCTIONED',
-  'DISBURSED',
-] as const
-export type IntakeQueueKey = (typeof intakeQueueKeys)[number]
 
 export type AdminOperationContext = {
   db: Database
@@ -69,17 +38,9 @@ export type AdminOperationContext = {
 
 export type AdminResult<T> = Envelope<T>
 
-export type ProgrammeReasonContext = (typeof programmeReasonContexts)[number]
 export type ProgrammeJurisdiction = (typeof programmeJurisdictions)[number]
 export type FundingCeilingState = (typeof fundingCeilingStates)[number]
 export type FundingCeilingScope = (typeof fundingCeilingScopes)[number]
-export type AssessmentType = (typeof awardAssessmentTypes)[number]
-export type DeskReviewCheckType = (typeof deskReviewChecks)[number]
-export type DeskReviewCheckResult = (typeof deskReviewCheckResults)[number]
-export type DeskReviewOutcome = (typeof deskReviewOutcomes)[number]
-export type BankOutcome = (typeof bankOutcomes)[number]
-export type DecisionOutcome = (typeof decisionOutcomes)[number]
-export type RecoveryComponent = (typeof recoveryComponents)[number]
 
 export type FormTemplateInput = {
   stages: Array<{
@@ -189,26 +150,42 @@ export type FormTemplateInput = {
       | 'IS_PRESENT' | 'IS_ABSENT'
     comparisonValue?: string | null
   }>
+  /**
+   * Rules about several answers at once — "a grant, a loan, or both". Operands
+   * are field keys, in order; the rule is shown against `stageKey`.
+   */
+  rules?: Array<{
+    ruleKey: string
+    ruleType: FormRuleType
+    stageKey: string
+    message: string
+    limitValue?: number | null
+    operands: Array<{ fieldKey: string; fieldType: FormFieldType }>
+  }>
 }
 
-export type ProgrammeCycleReasonInput = {
-  context: ProgrammeReasonContext
-  code: string
+/**
+ * A kind of application the cycle accepts, and the rules an enterprise must
+ * meet to start one. Rule parameters are validated against the rule type's
+ * declared parameters in `services/catalogue/workflow.json`.
+ */
+export type ApplicationKindInput = {
+  kindKey: string
   label: string
-  applicantMessageTemplate?: string | null
+  description?: string | null
+  /** Parameters are checked against the rule's own schema, so they arrive untyped. */
+  rules: Array<{ ruleType: EligibilityRuleType; params: unknown }>
 }
 
 export type ProgrammeCyclePolicyInput = {
   minimumApplicantAge: number | null
   maximumApplicantAge: number | null
   categoryAMaximumMonths: number | null
-  expansionWaitMonths: number | null
   majorityOwnershipRequired: boolean | null
   jurisdiction: ProgrammeJurisdiction | null
   fundingCeilingState: FundingCeilingState | null
   fundingCeilingAmountPaise: number | null
   fundingCeilingScope: FundingCeilingScope | null
-  requiredAssessmentTypes: AssessmentType[]
   /**
    * The questions this cycle asks, sent complete on every write.
    *
@@ -218,9 +195,13 @@ export type ProgrammeCyclePolicyInput = {
    * FILE field with an ordinary conditional requirement.
    */
   formTemplate: FormTemplateInput
-  /** Absent means the cycle collects nothing and compares nothing. */
-  identifierRules?: ProgrammeCycleIdentifierRuleInput[]
-  reasons: ProgrammeCycleReasonInput[]
+  /**
+   * The pipeline this cycle's applications are worked in. Its published
+   * version is pinned when the cycle opens.
+   */
+  pipelineId: string
+  /** The kinds of application this cycle accepts. */
+  applicationKinds: ApplicationKindInput[]
 }
 
 export type ProgrammeCycleInput = {
@@ -228,67 +209,9 @@ export type ProgrammeCycleInput = {
   displayName: string
   cycleYear: number
   applicantGuidance?: string | null
-  partnerBankGuidance?: string | null
   opensAt?: Date | null
   closesAt?: Date | null
   policy: ProgrammeCyclePolicyInput
 }
 
-export type DeskReviewCheckInput = {
-  checkType: DeskReviewCheckType
-  result: DeskReviewCheckResult
-  internalNote?: string | null
-}
-
-/**
- * One number read off a document, as the reviewer typed it.
- *
- * `branchCode` belongs only to a bank account, where the account number alone
- * does not identify a destination. `matchedReason` is supplied on the second
- * attempt, once the reviewer has been told the value already exists elsewhere.
- */
-export type DeskReviewIdentifierInput = {
-  kind: IdentifierKind
-  value: string
-  branchCode?: string | null
-  matchedReason?: string | null
-}
-
-/**
- * One stage a reviewer sends back for revision.
- *
- * `stageKey` was a closed enum of the six sections the form used to have. It is
- * open text now because the stages are a cycle's own, and membership is checked
- * against the pinned template instead — which is stronger, since the enum could
- * never tell that `EXPANSION` was not a stage of *this* cycle's form.
- */
-export type RevisionRequestInput = {
-  stageKey: string
-  reasonCategoryId: string
-  note: string
-}
-
 export type { PageInfo } from '../application/types'
-
-
-/**
- * One frozen rule about an identifier a reviewer transcribes.
- *
- * `requirement` and `duplicatePolicy` are independent on purpose: a value can
- * be worth recording without being worth refusing on, and worth comparing
- * without being demanded.
- */
-export type ProgrammeCycleIdentifierRuleInput = {
-  kind: (typeof deskReviewIdentifierKinds)[number]
-  requirement: 'REQUIRED_ON_PASS' | 'OPTIONAL' | 'OFF'
-  duplicatePolicy: 'CHECKED' | 'NOT_CHECKED'
-  checkType?: string | null
-}
-
-export type IdentifierRule = {
-  kind: (typeof deskReviewIdentifierKinds)[number]
-  requirement: 'REQUIRED_ON_PASS' | 'OPTIONAL' | 'OFF'
-  duplicatePolicy: 'CHECKED' | 'NOT_CHECKED'
-  /** The check this is evidence for. Null unless it is required on a pass. */
-  checkType: string | null
-}

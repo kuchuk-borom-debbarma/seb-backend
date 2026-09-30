@@ -58,6 +58,8 @@ export const validationIssueCodes = [
   'MUST_BE_TRUE',
   'CONDITIONAL_FIELDS',
   'DOCUMENT_REQUIRED',
+  /* A rule about several answers at once; the message is the rule's own. */
+  'FORM_RULE_VIOLATED',
 
   /* Programme policy, which reads cycle scalars rather than template rows. */
   'AGE_INELIGIBLE',

@@ -31,6 +31,7 @@ import {
   permissionKey,
   resourceDescriptions,
   resources,
+  ownsEveryStage,
   withinAuthority,
   type Permission,
 } from '../permissions'
@@ -153,7 +154,9 @@ export const invitableRoles = async (
    * it would be offering to strand somebody.
    */
   return success(all.filter((role) =>
-    role.permissions.length > 0 && withinAuthority(actor, role.permissions)))
+    role.permissions.length > 0
+    && withinAuthority(actor, role.permissions)
+    && ownsEveryStage(actor, role.ownedStages)))
 }
 
 /**

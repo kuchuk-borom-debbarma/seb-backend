@@ -21,19 +21,15 @@
   "resources": [
     {
       "key": "application",
-      "description": "An applicant's submitted file and the casework on it. Reading one includes what sits on its desk — its decisions, its funding and its bank referrals — because the workspace returns them together."
+      "description": "An applicant's submitted file and the casework on it. Reading one includes its case file — its submissions, evidence, revision requests, notes and history — because the workspace returns them together."
     },
     {
-      "key": "decision",
-      "description": "The programme's own verdict on an application, as distinct from what a partner bank reported back."
+      "key": "stage",
+      "description": "Where a submitted application is in its pipeline, and the configured actions that move it on. Which stages a person may act at is decided by the roles that own each stage, as well as by these."
     },
     {
-      "key": "funding",
-      "description": "Money committed against an approved application, paid out, reversed, or judged after the fact."
-    },
-    {
-      "key": "recovery",
-      "description": "A demand for released money to come back, and the ledger of what was demanded, received or written off."
+      "key": "pipeline",
+      "description": "The configured route applications take — its stages, status flags and actions — and which roles own each stage. Changing one changes how every future file is worked."
     },
     {
       "key": "programme_cycle",
@@ -79,48 +75,12 @@
       "description": "Write a staff-only note against a file. The narrowest write there is — somebody may comment without being able to work the review."
     },
     {
-      "key": "review",
-      "description": "Work the desk review: start it, complete its checklist, and withdraw a revision it asked for."
-    },
-    {
-      "key": "refer",
-      "description": "Send a file to a partner bank and handle what comes back. What the bank reported is an input to the programme's verdict, not the verdict."
-    },
-    {
-      "key": "record",
-      "description": "State something for the first time, into a history that supersedes rather than overwrites."
-    },
-    {
-      "key": "correct",
-      "description": "Supersede something already stated, keeping both readable and the reason beside them."
-    },
-    {
-      "key": "award",
-      "description": "Commit money against an approved file, or change what was committed. Nothing has left the account yet."
-    },
-    {
-      "key": "release",
-      "description": "Pay out against a commitment already made. This is money leaving."
-    },
-    {
-      "key": "reverse",
-      "description": "Compensate a payment that should not have gone out."
-    },
-    {
-      "key": "assess",
-      "description": "Judge how well money already paid was used."
-    },
-    {
       "key": "open",
-      "description": "Bring it into its live state — a cycle accepting applications, a demand being pursued."
-    },
-    {
-      "key": "cancel",
-      "description": "End it on the grounds that it should never have been started."
+      "description": "Bring it into its live state — a cycle accepting applications."
     },
     {
       "key": "close",
-      "description": "End it on the grounds that it has run its course."
+      "description": "End it on the grounds that it has run its course — a cycle taking no more applications, or an application whose journey a stage action ends without success."
     },
     {
       "key": "create",
@@ -144,7 +104,7 @@
     },
     {
       "key": "publish",
-      "description": "Put it in front of the public, or take it back out of sight."
+      "description": "Make a prepared version live — an announcement card in front of the public, or a pipeline version for the cycles that open next — or take a card back out of sight."
     },
     {
       "key": "remove",
@@ -161,14 +121,37 @@
     {
       "key": "export",
       "description": "Take a copy out of the portal as a file. Separate from reading, because a copy outlives every permission that allowed it."
+    },
+    {
+      "key": "advance",
+      "description": "Move a file on from the stage it is at, by a configured action — to the next stage, to the one an input chose, or to the end of its journey."
+    },
+    {
+      "key": "return",
+      "description": "Send a file back to the stage it actually came from."
+    },
+    {
+      "key": "request_revision",
+      "description": "Ask the applicant to correct named sections of their form. The file waits at this stage until they resubmit."
+    },
+    {
+      "key": "decide",
+      "description": "Record a value on the file that later stages and eligibility rules rely on, such as the amount approved."
+    },
+    {
+      "key": "retire",
+      "description": "Stop offering it to new work while keeping it readable, and everything worked in it untouched."
+    },
+    {
+      "key": "assign",
+      "description": "Choose which roles own a stage — who may act on the files that sit there."
     }
   ],
 
   "grants": {
-    "application": ["read", "note", "review", "refer"],
-    "decision": ["record", "correct"],
-    "funding": ["read", "award", "release", "reverse", "assess"],
-    "recovery": ["read", "open", "record", "cancel", "close"],
+    "application": ["read", "note"],
+    "stage": ["read", "advance", "return", "request_revision", "decide", "close"],
+    "pipeline": ["read", "create", "update", "publish", "retire", "assign"],
     "programme_cycle": ["read", "create", "update", "open", "close", "archive", "delete"],
     "form_template": ["update"],
     "policy_document": ["read", "upload"],

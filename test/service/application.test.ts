@@ -10,12 +10,10 @@ import {
   myApplications,
   softDeleteApplicationDocument,
 } from '../../src/services/application'
+import { TEST_INITIAL_STAGE } from '../support/pipeline'
 import {
   findApplicationVersion,
   findEnterpriseApplicationSource,
-  evaluateExpansionEligibility,
-  expansionClaimFromAward,
-  findExpansionAwardForApplication,
   findLatestSubmittedVersion,
   findOwnedApplicationHead,
   insertApplicationAggregate,
@@ -212,19 +210,19 @@ const createEnterprise = async (
 
 const startInitial = async (cookie: string, enterpriseId: string, programmeCycleId: string) => {
   const response = await graphql<{
-    seb: { application: { startInitial: { success: boolean; message: string | null; response: { id: string; currentVersion: number; statusVersion: number; answers: Record<string, unknown> } | null } } }
+    seb: { application: { start: { success: boolean; message: string | null; response: { id: string; currentVersion: number; statusVersion: number; answers: Record<string, unknown> } | null } } }
   }>(
     `mutation Start($input: StartApplicationInput!) {
-      seb { application { startInitial(input: $input) {
+      seb { application { start(input: $input) {
         success message response {
           id currentVersion statusVersion answers
         }
       } } }
     }`,
-    { input: { enterpriseId, programmeCycleId } },
+    { input: { enterpriseId, programmeCycleId, applicationKind: 'INITIAL' } },
     cookie,
   )
-  const result = response.data?.seb.application.startInitial
+  const result = response.data?.seb.application.start
   if (!result?.success || !result.response) throw new Error(`start failed: ${result?.message ?? JSON.stringify(response)}`)
   return result.response
 }
@@ -311,58 +309,6 @@ const insertRequiredEvidence = async (applicationId: string, userId: string) => 
   }
 }
 
-const insertActiveAward = async (
-  userId: string,
-  applicationId: string,
-  releaseAt: number,
-) => {
-  const [{ fundingCaseId }] = await env.DB.prepare(
-    'SELECT funding_case_id AS "fundingCaseId" FROM seb_application WHERE id = ?',
-  ).bind(applicationId).all<{ fundingCaseId: string }>().then((result) => result.results)
-  if (!fundingCaseId) throw new Error('funding case missing')
-  const awardId = crypto.randomUUID()
-  const order = `ORDER-${awardId}`
-  const now = Date.now()
-  await env.DB.batch([
-    env.DB.prepare(
-      `UPDATE seb_application SET status = 'SANCTIONED', status_version = 2,
-        updated_at = ? WHERE id = ?`,
-    ).bind(now, applicationId),
-    env.DB.prepare(
-      `INSERT INTO seb_funding_award (
-        id, funding_case_id, application_id, sanction_order_number, sanction_date,
-        sanctioned_amount_paise, status, current_version, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, '2025-01-01', 50000000, 'ACTIVE', 1, ?, ?)`,
-    ).bind(awardId, fundingCaseId, applicationId, order, now, now),
-    env.DB.prepare(
-      `INSERT INTO seb_funding_award_version (
-        id, funding_award_id, version, sanction_order_number, sanction_date,
-        sanctioned_amount_paise, status, change_type, changed_by_user_id, created_at
-      ) VALUES (?, ?, 1, ?, '2025-01-01', 50000000, 'ACTIVE', 'CREATED', ?, ?)`,
-    ).bind(crypto.randomUUID(), awardId, order, userId, now),
-    env.DB.prepare(
-      `INSERT INTO seb_disbursement (
-        id, funding_award_id, sequence_number, entry_type, amount_paise,
-        occurred_at, external_reference, approval_reference, approval_date,
-        bank_account_verified_at, performance_agreement_reference,
-        performance_agreement_executed_at, physical_verification_required,
-        applicant_message, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 1, 'RELEASE', 10000000, ?, ?, 'TTM-TEST', '2025-01-01',
-        ?, 'AGREEMENT-TEST', ?, false, 'Test release.', ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      awardId,
-      releaseAt,
-      `RELEASE-${awardId}`,
-      now,
-      now,
-      userId,
-      now,
-    ),
-  ])
-  return { awardId, fundingCaseId }
-}
-
 /** A fresh application's answers: every key read back null, groups empty. */
 const expectUnanswered = (answers: Record<string, unknown>) => {
   expect(Object.keys(answers).length).toBeGreaterThan(0)
@@ -387,16 +333,14 @@ describe('applicant application business service', () => {
       ['query { seb { application { availableProgrammeCycles { success } } } }'],
       ['query { seb { application { myProgrammeCycles { success } } } }'],
       ['query { seb { application { statusGuide { success } } } }'],
-      ['query { seb { application { funding(applicationId: "missing") { success } } } }'],
       ['query { seb { application { draftChanges(applicationId: "missing") { success } } } }'],
       ['query { seb { application { mine { success } } } }'],
       ['query { seb { application { byId(id: "missing") { success } } } }'],
       ['query { seb { application { validate(applicationId: "missing") { success } } } }'],
-      ['query { seb { application { expansionEligibility(enterpriseId: "missing", programmeCycleId: "missing") { success } } } }'],
+      ['query { seb { application { applicationKinds(enterpriseId: "missing", programmeCycleId: "missing") { success } } } }'],
       ['query { seb { application { timeline(applicationId: "missing") { success } } } }'],
       ['query { seb { application { documentDownloadUrl(documentId: "missing") { success } } } }'],
-      ['mutation { seb { application { startInitial(input: { enterpriseId: "missing", programmeCycleId: "missing" }) { success } } } }'],
-      ['mutation { seb { application { startExpansion(input: { enterpriseId: "missing", programmeCycleId: "missing" }) { success } } } }'],
+      ['mutation { seb { application { start(input: { enterpriseId: "missing", programmeCycleId: "missing", applicationKind: "INITIAL" }) { success } } } }'],
       [`mutation Save($input: SaveApplicationDraftInput!) {
         seb { application { saveDraft(input: $input) { success } } }
       }`, { input: {
@@ -530,8 +474,8 @@ describe('applicant application business service', () => {
       'query { seb { application { mine(first: 101) { success response { nodes { id } } } } } }',
       'query { seb { application { byId(id: "missing") { success response { id } } } } }',
       'query { seb { application { validate(applicationId: "missing") { success response { valid } } } } }',
-      'query { seb { application { expansionEligibility(enterpriseId: "missing", programmeCycleId: "missing") { success response { eligible } } } } }',
-      'mutation { seb { application { startInitial(input: { enterpriseId: "missing", programmeCycleId: "missing" }) { success response { id } } } } }',
+      'query { seb { application { applicationKinds(enterpriseId: "missing", programmeCycleId: "missing") { success response { kinds { eligible } } } } } }',
+      'mutation { seb { application { start(input: { enterpriseId: "missing", programmeCycleId: "missing", applicationKind: "INITIAL" }) { success response { id } } } } }',
       'mutation { seb { application { softDeleteDraft(input: { applicationId: "missing", expectedVersion: 1, expectedStatusVersion: 1 }) { success response { id } } } } }',
       'mutation { seb { application { restoreDraft(input: { applicationId: "missing", expectedVersion: 1, expectedStatusVersion: 1 }) { success response { id } } } } }',
       'mutation { seb { application { submit(input: { applicationId: "missing", expectedVersion: 1, expectedStatusVersion: 1 }) { success response { id } } } } }',
@@ -558,11 +502,11 @@ describe('applicant application business service', () => {
     expect(blockedEnterprise.data?.seb.enterprise.softDelete).toEqual({ success: false, response: null })
 
     const duplicate = await graphql<{
-      seb: { application: { startInitial: { success: boolean; response: unknown } } }
-    }>(`mutation { seb { application { startInitial(input: {
-      enterpriseId: "${enterprise.id}", programmeCycleId: "${cycleId}"
+      seb: { application: { start: { success: boolean; response: unknown } } }
+    }>(`mutation { seb { application { start(input: {
+      enterpriseId: "${enterprise.id}", programmeCycleId: "${cycleId}", applicationKind: "INITIAL"
     }) { success response { id } } } } }`, {}, applicant.cookie)
-    expect(duplicate.data?.seb.application.startInitial).toEqual({ success: false, response: null })
+    expect(duplicate.data?.seb.application.start).toEqual({ success: false, response: null })
 
     const incomplete = await graphql<{
       seb: { application: { submit: { success: boolean; response: unknown } } }
@@ -642,14 +586,6 @@ describe('applicant application business service', () => {
     } }, applicant.cookie)
     expect(malformedSave.data?.seb.application.saveDraft).toEqual({ success: false, response: null })
 
-    const noAwardCycle = await insertOpenCycle(applicant.userId)
-    const noAwardExpansion = await graphql<{
-      seb: { application: { startExpansion: { success: boolean; response: unknown } } }
-    }>(`mutation { seb { application { startExpansion(input: {
-      enterpriseId: "${enterprise.id}", programmeCycleId: "${noAwardCycle}"
-    }) { success response { id } } } } }`, {}, applicant.cookie)
-    expect(noAwardExpansion.data?.seb.application.startExpansion).toEqual({ success: false, response: null })
-
     const invalidTimeline = await graphql<{
       seb: { application: { timeline: { success: boolean; response: unknown } } }
     }>(`query { seb { application { timeline(applicationId: "${application.id}", first: 0) {
@@ -667,17 +603,17 @@ describe('applicant application business service', () => {
       registrationNumber: `UDYAM-${crypto.randomUUID()}`,
     })
     const closedStart = await graphql<{
-      seb: { application: { startInitial: { success: boolean; response: unknown } } }
-    }>(`mutation { seb { application { startInitial(input: {
-      enterpriseId: "${freshEnterprise.id}", programmeCycleId: "${closedCycle}"
+      seb: { application: { start: { success: boolean; response: unknown } } }
+    }>(`mutation { seb { application { start(input: {
+      enterpriseId: "${freshEnterprise.id}", programmeCycleId: "${closedCycle}", applicationKind: "INITIAL"
     }) { success response { id } } } } }`, {}, applicant.cookie)
-    expect(closedStart.data?.seb.application.startInitial).toEqual({ success: false, response: null })
+    expect(closedStart.data?.seb.application.start).toEqual({ success: false, response: null })
     const closedEligibility = await graphql<{
-      seb: { application: { expansionEligibility: { success: boolean; response: unknown } } }
-    }>(`query { seb { application { expansionEligibility(
+      seb: { application: { applicationKinds: { success: boolean; response: unknown } } }
+    }>(`query { seb { application { applicationKinds(
       enterpriseId: "${freshEnterprise.id}", programmeCycleId: "${closedCycle}"
-    ) { success response { eligible } } } } }`, {}, applicant.cookie)
-    expect(closedEligibility.data?.seb.application.expansionEligibility)
+    ) { success response { kinds { eligible } } } } } }`, {}, applicant.cookie)
+    expect(closedEligibility.data?.seb.application.applicationKinds)
       .toEqual({ success: false, response: null })
 
     expect(await myApplications(
@@ -730,7 +666,7 @@ describe('applicant application business service', () => {
     if (!head) throw new Error('application head missing')
     const now = new Date()
     expect(await setApplicationDeleted(db, {
-      head: { ...head, applicationType: 'EXPANSION' },
+      head: { ...head, statusVersion: head.statusVersion + 1 },
       userId: applicant.userId,
       deleted: true,
       reason: 'GUARD_TEST',
@@ -924,15 +860,9 @@ describe('applicant application business service', () => {
       fundingCaseId: staleSource.fundingCase.id,
       programmeCycleId: staleCycleId,
       programmeCycleVersion: await liveCycleVersion(staleCycleId),
-      applicationType: 'INITIAL',
+      applicationKind: 'INITIAL',
       phaseNumber: 1,
       answerRows: answerRowsFor(),
-      expansionClaim: {
-        priorSanctionOrderNumber: null,
-        priorSanctionDate: null,
-        priorNetDisbursedAmountPaise: null,
-        continuousOperationMonths: null,
-      },
       now: staleNow,
       audit: auditRecord(context, {
         actorUserId: applicant.userId,
@@ -940,7 +870,7 @@ describe('applicant application business service', () => {
         entityType: 'SEB_APPLICATION',
         entityId: staleApplicationId,
         applicationId: staleApplicationId,
-        payload: { type: 'INITIAL', phaseNumber: 1, enterpriseId: crypto.randomUUID(), programmeCycleId: crypto.randomUUID() },
+        payload: { kind: 'INITIAL', phaseNumber: 1, enterpriseId: crypto.randomUUID(), programmeCycleId: crypto.randomUUID() },
         now: staleNow,
       }),
     })).toBe(false)
@@ -978,12 +908,6 @@ describe('applicant application business service', () => {
       currentVersion,
       userId: applicant.userId,
       answerRows: answerRowsFor(),
-      expansionClaim: {
-        priorSanctionOrderNumber: null,
-        priorSanctionDate: null,
-        priorNetDisbursedAmountPaise: null,
-        continuousOperationMonths: null,
-      },
       programmeCycleVersion: currentVersion.programmeCycleVersion,
       referenceNumber: `SEP-2026-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
       resubmission: false,
@@ -1042,9 +966,9 @@ describe('applicant application business service', () => {
      * reporting success.
      */
     await env.DB.prepare(
-      `UPDATE seb_application SET status = 'SUBMITTED', status_version = status_version + 1,
-       updated_at = ? WHERE id = ?`,
-    ).bind(Date.now(), application.id).run()
+      `UPDATE seb_application SET status = 'IN_PIPELINE', status_version = status_version + 1,
+       current_stage_key = ?, stage_entered_at = now(), updated_at = ? WHERE id = ?`,
+    ).bind(TEST_INITIAL_STAGE, Date.now(), application.id).run()
 
     const racedIssue = await issueDocumentUpload({
       applicationId: application.id,
@@ -1576,7 +1500,7 @@ describe('applicant application business service', () => {
     expect(results.filter((result) => result?.success)).toHaveLength(1)
     const successful = results.find((result) => result?.success)
     expect(successful?.response).toMatchObject({
-      status: 'SUBMITTED',
+      status: 'IN_PIPELINE',
       referenceNumber: expect.stringMatching(/^SEP-2026-[0-9A-HJKMNP-TV-Z]{8}$/u),
       currentVersion: 3,
     })
@@ -1625,7 +1549,7 @@ describe('applicant application business service', () => {
       events: number
     }>()
     expect(state).toMatchObject({
-      status: 'SUBMITTED',
+      status: 'IN_PIPELINE',
       changeType: 'SUBMISSION',
       acceptedAt: expect.any(Number),
       submissions: 1,
@@ -2200,8 +2124,8 @@ describe('applicant application business service', () => {
     const now = Date.now()
     await env.DB.batch([
       env.DB.prepare(
-        `UPDATE seb_application SET status = 'REVISION_REQUIRED', status_version = 3,
-          updated_at = ? WHERE id = ?`,
+        `UPDATE seb_application SET status_version = 3,
+          status_flags = array_append(status_flags, 'REVISION_REQUIRED'), updated_at = ? WHERE id = ?`,
       ).bind(now, application.id),
       env.DB.prepare(
         `UPDATE seb_programme_cycle SET status = 'CLOSED', closes_at = ?,
@@ -2262,12 +2186,6 @@ describe('applicant application business service', () => {
       head: revisionHead,
       userId: applicant.userId,
       answerRows: answerRowsFor(),
-      expansionClaim: {
-        priorSanctionOrderNumber: null,
-        priorSanctionDate: null,
-        priorNetDisbursedAmountPaise: null,
-        continuousOperationMonths: null,
-      },
       programmeCycleVersion: revisionVersion.programmeCycleVersion,
       now: unscopedSaveAt,
       audit: auditRecord(directContext(applicant.cookie), {
@@ -2322,7 +2240,7 @@ describe('applicant application business service', () => {
     expect(locked.data?.seb.application.byId.response?.editableStageKeys)
       .toEqual(['OWNERS', 'FINANCIAL', 'DOCUMENTS'])
 
-    const revisedDraft = completeAnswers({ TOTAL_PROJECT_COST_PAISE: 51_000_000 })
+    const revisedDraft = completeAnswers({ SEED_FUND_REQUESTED_PAISE: 11_000_000 })
     const revised = await graphql<{
       seb: { application: { saveDraft: { success: boolean; message: string | null; response: { currentVersion: number } | null } } }
     }>(`mutation Save($input: SaveApplicationDraftInput!) {
@@ -2362,7 +2280,7 @@ describe('applicant application business service', () => {
     expect(resubmitted.data?.seb.application.resubmit.response).toEqual({
       currentVersion: 5,
       statusVersion: 4,
-      status: 'SUBMITTED',
+      status: 'IN_PIPELINE',
     })
     expect(await env.DB.prepare(
       `SELECT resolved_by_submission_id AS "submissionId", resolved_at AS "resolvedAt"
@@ -2373,707 +2291,35 @@ describe('applicant application business service', () => {
     })
 
     /*
-     * A revision response and a first submission are both SUBMITTED, and staff
-     * handle them completely differently, so the named queues separate them by
-     * submission number. Asserted here because this is the only place a real
-     * second submission exists. Authority is joined live, so granting a
-     * casework role makes the applicant's existing session a staff one on the
-     * next request.
+     * The resubmission seam: the file stays at the stage that asked for the
+     * correction, and loses only the flag that let the applicant edit — the
+     * flag the pipeline added on submission is still held.
      */
-    const grantedAt = Date.now()
-    const queueRoleId = crypto.randomUUID()
-    await env.DB.prepare(
-      `INSERT INTO core_role (id, key, name, description, current_version,
-        created_at, updated_at, created_by_user_id)
-       VALUES (?, 'QUEUE_READER', 'Queue reader', 'Reads the intake queues.', 1, ?, ?, ?)`,
-    ).bind(queueRoleId, grantedAt, grantedAt, applicant.userId).run()
-    await env.DB.prepare(
-      `INSERT INTO core_role_permission (id, role_id, resource, action, created_at)
-       VALUES (?, ?, 'application', 'read', ?)`,
-    ).bind(crypto.randomUUID(), queueRoleId, grantedAt).run()
-    await env.DB.prepare(
-      `INSERT INTO core_user_role_grant (id, user_id, role_id, grant_reason, granted_at)
-       VALUES (?, ?, ?, 'QUEUE_ASSERTION', ?)`,
-    ).bind(crypto.randomUUID(), applicant.userId, queueRoleId, grantedAt).run()
-
-    const queues = await graphql<{
-      admin: { intake: { queues: { response: { queues: Array<{ queue: string; count: number }> } } } }
-    }>(`query { admin { intake { queues { response { queues { queue count } } } } } }`,
-      {}, applicant.cookie)
-    const countFor = (queue: string) => queues.data?.admin.intake.queues.response.queues
-      .find((entry) => entry.queue === queue)?.count
-    expect(countFor('REVISION_RESPONSES')).toBe(1)
-    expect(countFor('NEW_SUBMISSIONS')).toBe(0)
-
-    const revisionResponses = await graphql<{
-      admin: { intake: { queue: { response: { nodes: Array<{ id: string; submissionNumber: number }> } } } }
-    }>(`query { admin { intake { queue(input: { first: 10, queue: REVISION_RESPONSES }) {
-      response { nodes { id submissionNumber } }
-    } } } }`, {}, applicant.cookie)
-    expect(revisionResponses.data?.admin.intake.queue.response.nodes).toEqual([
-      { id: application.id, submissionNumber: 2 },
-    ])
-
-    const newSubmissions = await graphql<{
-      admin: { intake: { queue: { response: { nodes: unknown[] } } } }
-    }>(`query { admin { intake { queue(input: { first: 10, queue: NEW_SUBMISSIONS }) {
-      response { nodes { id } }
-    } } } }`, {}, applicant.cookie)
-    expect(newSubmissions.data?.admin.intake.queue.response.nodes).toEqual([])
+    expect(await env.DB.prepare(
+      `SELECT current_stage_key AS "stageKey", status_flags AS "flags"
+       FROM seb_application WHERE id = ?`,
+    ).bind(application.id).first()).toEqual({
+      stageKey: TEST_INITIAL_STAGE,
+      flags: ['IN_REVIEW'],
+    })
   })
 
-  it('rejects an expansion start when its derived ledger evidence changes before the batch', async () => {
-    const applicant = await applicantSession()
-    const initialCycleId = await insertOpenCycle(applicant.userId)
-    const expansionCycleId = await insertOpenCycle(applicant.userId)
-    const enterprise = await createEnterprise(applicant.cookie, {
-      ...profile,
-      name: 'Atomic Expansion Evidence',
-      registrationNumber: `UDYAM-${crypto.randomUUID()}`,
-    })
-    const initial = await startInitial(applicant.cookie, enterprise.id, initialCycleId)
-    const oldReleaseAt = Date.now() - 370 * 86_400_000
-    const { awardId, fundingCaseId } = await insertActiveAward(
-      applicant.userId,
-      initial.id,
-      oldReleaseAt,
-    )
-    const secondReleaseId = crypto.randomUUID()
-    await env.DB.prepare(
-      `INSERT INTO seb_disbursement (
-        id, funding_award_id, sequence_number, entry_type, amount_paise,
-        occurred_at, external_reference, approval_reference, approval_date,
-        bank_account_verified_at, performance_agreement_reference,
-        performance_agreement_executed_at, physical_verification_required,
-        applicant_message, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 2, 'RELEASE', 100, ?, ?, 'TTM-TEST', '2025-01-01',
-        ?, 'AGREEMENT-TEST', ?, false, 'Test release.', ?, ?)`,
-    ).bind(
-      secondReleaseId,
-      awardId,
-      oldReleaseAt,
-      `SECOND-${awardId}`,
-      Date.now(),
-      Date.now(),
-      applicant.userId,
-      Date.now(),
-    ).run()
-
-    const db = activeDatabase()
-    const now = new Date()
-    const [source, evaluated] = await Promise.all([
-      findEnterpriseApplicationSource(db, applicant.userId, enterprise.id),
-      evaluateExpansionEligibility(db, fundingCaseId, now),
-    ])
-    if (!source || !evaluated.award || !evaluated.result.nextPhaseNumber) {
-      throw new Error('eligible expansion evidence missing')
-    }
-    const staleClaim = expansionClaimFromAward(evaluated.award, now)
-
-    // Leave the original aged release positive while over-reversing another
-    // release. A weak "some release is positive" predicate would still pass,
-    // but the authoritative total is now zero and must invalidate the start.
-    await env.DB.prepare(
-      `INSERT INTO seb_disbursement (
-        id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-        amount_paise, occurred_at, external_reference, reason_category_id,
-        applicant_message, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 3, 'REVERSAL', ?, 10000100, ?, ?,
-        (SELECT id FROM seb_programme_cycle_reason WHERE context = 'RELEASE_REVERSAL' LIMIT 1),
-        'Test reversal.', ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      awardId,
-      secondReleaseId,
-      Date.now(),
-      `OVER-REVERSAL-${awardId}`,
-      applicant.userId,
-      Date.now(),
-    ).run()
-    const candidateId = crypto.randomUUID()
-    expect(await insertApplicationAggregate(db, {
-      applicationId: candidateId,
-      applicantUserId: applicant.userId,
-      enterpriseId: source.enterprise.id,
-      fundingCaseId,
-      programmeCycleId: expansionCycleId,
-      programmeCycleVersion: await liveCycleVersion(expansionCycleId),
-      applicationType: 'EXPANSION',
-      phaseNumber: evaluated.result.nextPhaseNumber,
-      answerRows: answerRowsFor(),
-      expansionClaim: staleClaim,
-      qualifyingAwardId: awardId,
-      qualifyingReleaseAt: evaluated.award.firstReleaseAt,
-      now,
-      audit: auditRecord(directContext(applicant.cookie), {
-        actorUserId: applicant.userId,
-        action: auditActions.applicationStarted,
-        entityType: 'SEB_APPLICATION',
-        entityId: candidateId,
-        applicationId: candidateId,
-        payload: { type: 'INITIAL', phaseNumber: 1, enterpriseId: crypto.randomUUID(), programmeCycleId: crypto.randomUUID() },
-        now,
-      }),
-    })).toBe(false)
-    expect(await env.DB.prepare(
-      'SELECT id FROM seb_application WHERE id = ?',
-    ).bind(candidateId).first()).toBeNull()
-  })
-
-  it('derives expansion eligibility and atomically releases/reclaims qualifying awards', async () => {
-    const applicant = await applicantSession()
-    const initialCycle = await insertOpenCycle(applicant.userId)
-    const enterprise = await createEnterprise(applicant.cookie)
-    const initial = await startInitial(applicant.cookie, enterprise.id, initialCycle)
-    expect(await findExpansionAwardForApplication(activeDatabase(), initial.id)).toBeNull()
-    const beforeAward = await graphql<{
-      seb: { application: { expansionEligibility: { response: {
-        eligible: boolean
-        reasons: Array<{ code: string; message: string; obligationId: string | null }>
-      } } } }
-    }>(`query { seb { application { expansionEligibility(
-      enterpriseId: "${enterprise.id}", programmeCycleId: "${initialCycle}"
-    ) { response { eligible reasons { code message obligationId } } } } } }`, {}, applicant.cookie)
-    expect(beforeAward.data?.seb.application.expansionEligibility.response).toEqual({
-      eligible: false,
-      reasons: [{
-        code: 'NO_QUALIFYING_AWARD',
-        message: 'This enterprise has no sanctioned funding award to expand from.',
-        obligationId: null,
-      }],
-    })
-    const { awardId } = await insertActiveAward(
-      applicant.userId,
-      initial.id,
-      Date.now() - 370 * 86_400_000,
-    )
-    const release = await env.DB.prepare(
-      `SELECT id FROM seb_disbursement WHERE funding_award_id = ? AND entry_type = 'RELEASE'`,
-    ).bind(awardId).first<{ id: string }>()
-    if (!release) throw new Error('release missing')
-    await env.DB.prepare(
-      `INSERT INTO seb_disbursement (
-        id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-        amount_paise, occurred_at, external_reference, reason_category_id,
-        applicant_message, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 2, 'REVERSAL', ?, 1000000, ?, ?,
-        (SELECT id FROM seb_programme_cycle_reason WHERE context = 'RELEASE_REVERSAL' LIMIT 1),
-        'Test reversal.', ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      awardId,
-      release.id,
-      Date.now(),
-      `REVERSAL-${awardId}`,
-      applicant.userId,
-      Date.now(),
-    ).run()
-    const expansionCycle = await insertOpenCycle(applicant.userId)
-    const obligationId = crypto.randomUUID()
-    const assessmentTime = Date.now()
-    await env.DB.batch([
-      env.DB.prepare(`INSERT INTO seb_utilization_obligation (
-        id, funding_award_id, release_disbursement_id, due_at, created_at
-      ) VALUES (?, ?, ?, ?, ?)`).bind(
-        obligationId, awardId, release.id, assessmentTime, assessmentTime,
-      ),
-      env.DB.prepare(`INSERT INTO seb_award_assessment (
-        id, funding_award_id, assessment_type, assessment_number, outcome,
-        utilization_obligation_id, evidence_reference, applicant_summary,
-        assessed_by_user_id, assessed_at, created_at
-      ) VALUES (?, ?, 'UTILIZATION', 1, 'PASSED', ?, 'UC-TEST',
-        'Utilization passed.', ?, ?, ?)`).bind(
-        crypto.randomUUID(), awardId, obligationId, applicant.userId,
-        assessmentTime, assessmentTime,
-      ),
-      ...(['PERFORMANCE', 'FINANCIAL_AUDIT'] as const).map((type) =>
-        env.DB.prepare(`INSERT INTO seb_award_assessment (
-          id, funding_award_id, assessment_type, assessment_number, outcome,
-          evidence_reference, applicant_summary, assessed_by_user_id,
-          assessed_at, created_at
-        ) VALUES (?, ?, ?, 1, 'PASSED', ?, 'Assessment passed.', ?, ?, ?)`).bind(
-          crypto.randomUUID(), awardId, type, `${type}-TEST`, applicant.userId,
-          assessmentTime, assessmentTime,
-        )),
-    ])
-    const eligibility = await graphql<{
-      seb: { application: { expansionEligibility: { success: boolean; response: { eligible: boolean; nextPhaseNumber: number; qualifyingAwardId: string } } } }
-    }>(`query { seb { application { expansionEligibility(
-      enterpriseId: "${enterprise.id}", programmeCycleId: "${expansionCycle}"
-    ) { success response { eligible nextPhaseNumber qualifyingAwardId } } } } }`, {}, applicant.cookie)
-    expect(eligibility.data?.seb.application.expansionEligibility.response).toEqual({
-      eligible: true,
-      nextPhaseNumber: 2,
-      qualifyingAwardId: awardId,
-    })
-    await env.DB.prepare(`INSERT INTO seb_award_assessment (
-      id, funding_award_id, assessment_type, assessment_number, outcome,
-      utilization_obligation_id, evidence_reference, applicant_summary,
-      assessed_by_user_id, assessed_at, created_at
-    ) VALUES (?, ?, 'UTILIZATION', 2, 'FAILED', ?, 'UC-REASSESS-FAILED',
-      'Utilization reassessment failed.', ?, ?, ?)`).bind(
-      crypto.randomUUID(), awardId, obligationId, applicant.userId,
-      assessmentTime + 1, assessmentTime + 1,
-    ).run()
-    const failedUtilization = await graphql<{
-      seb: { application: { expansionEligibility: { response: {
-        eligible: boolean
-        reasons: Array<{ code: string; message: string; obligationId: string | null }>
-      } } } }
-    }>(`query { seb { application { expansionEligibility(
-      enterpriseId: "${enterprise.id}", programmeCycleId: "${expansionCycle}"
-    ) { response { eligible reasons { code message obligationId } } } } } }`, {}, applicant.cookie)
-    expect(failedUtilization.data?.seb.application.expansionEligibility.response).toEqual({
-      eligible: false,
-      // The obligation is named in its own field rather than concatenated into
-      // the code, so a client can link the reason to the release it is about.
-      reasons: [{
-        code: 'UTILIZATION_NOT_PASSED',
-        message: 'A utilization assessment for one of your releases has not passed yet.',
-        obligationId,
-      }],
-    })
-    await env.DB.prepare(`INSERT INTO seb_award_assessment (
-      id, funding_award_id, assessment_type, assessment_number, outcome,
-      utilization_obligation_id, evidence_reference, applicant_summary,
-      assessed_by_user_id, assessed_at, created_at
-    ) VALUES (?, ?, 'UTILIZATION', 3, 'PASSED', ?, 'UC-REASSESS-PASSED',
-      'Utilization reassessment passed.', ?, ?, ?)`).bind(
-      crypto.randomUUID(), awardId, obligationId, applicant.userId,
-      assessmentTime + 2, assessmentTime + 2,
-    ).run()
-
-    const started = await graphql<{
-      seb: { application: { startExpansion: { success: boolean; response: { id: string; applicationType: string; phaseNumber: number; currentVersion: number; statusVersion: number } | null } } }
-    }>(`mutation { seb { application { startExpansion(input: {
-      enterpriseId: "${enterprise.id}", programmeCycleId: "${expansionCycle}"
-    }) { success response { id applicationType phaseNumber currentVersion statusVersion } } } } }`, {}, applicant.cookie)
-    expect(started.data?.seb.application.startExpansion.response).toMatchObject({
-      applicationType: 'EXPANSION',
-      phaseNumber: 2,
-    })
-    const expansion = started.data?.seb.application.startExpansion.response
-    if (!expansion) throw new Error('expansion missing')
-    const competing = await graphql<{
-      seb: { application: { expansionEligibility: { response: {
-        eligible: boolean
-        reasons: Array<{ code: string; message: string; obligationId: string | null }>
-      } } } }
-    }>(`query { seb { application { expansionEligibility(
-      enterpriseId: "${enterprise.id}", programmeCycleId: "${expansionCycle}"
-    ) { response { eligible reasons { code message obligationId } } } } } }`, {}, applicant.cookie)
-    expect(competing.data?.seb.application.expansionEligibility.response).toEqual({
-      eligible: false,
-      reasons: [{
-        code: 'COMPETING_PHASE_APPLICATION',
-        message: 'Another application for this phase is already in progress.',
-        obligationId: null,
-      }],
-    })
-
-    const deleted = await graphql<{
-      seb: { application: { softDeleteDraft: { success: boolean; response: { deletedAt: string | null } | null } } }
-    }>(`mutation { seb { application { softDeleteDraft(input: {
-      applicationId: "${expansion.id}", expectedVersion: 1, expectedStatusVersion: 1
-    }) { success response { deletedAt } } } } }`, {}, applicant.cookie)
-    expect(deleted.data?.seb.application.softDeleteDraft.response?.deletedAt).not.toBeNull()
-    expect(await env.DB.prepare(
-      'SELECT status FROM seb_application_qualifying_award WHERE application_id = ?',
-    ).bind(expansion.id).first()).toEqual({ status: 'CANCELLED' })
-
-    await env.DB.prepare(
-      `UPDATE seb_funding_award SET status = 'SUSPENDED', updated_at = ? WHERE id = ?`,
-    ).bind(Date.now(), awardId).run()
-    const ineligibleRestore = await graphql<{
-      seb: { application: { restoreDraft: { success: boolean; response: unknown } } }
-    }>(`mutation { seb { application { restoreDraft(input: {
-      applicationId: "${expansion.id}", expectedVersion: 1, expectedStatusVersion: 1
-    }) { success response { id } } } } }`, {}, applicant.cookie)
-    expect(ineligibleRestore.data?.seb.application.restoreDraft)
-      .toEqual({ success: false, response: null })
-    await env.DB.prepare(
-      `UPDATE seb_funding_award SET status = 'ACTIVE', updated_at = ? WHERE id = ?`,
-    ).bind(Date.now(), awardId).run()
-
-    const restored = await graphql<{
-      seb: { application: { restoreDraft: { success: boolean; response: { deletedAt: string | null } | null } } }
-    }>(`mutation { seb { application { restoreDraft(input: {
-      applicationId: "${expansion.id}", expectedVersion: 1, expectedStatusVersion: 1
-    }) { success response { deletedAt } } } } }`, {}, applicant.cookie)
-    expect(restored.data?.seb.application.restoreDraft.response?.deletedAt).toBeNull()
-    expect(await env.DB.prepare(
-      'SELECT status, current_funding_award_id AS "awardId" FROM seb_application_qualifying_award WHERE application_id = ?',
-    ).bind(expansion.id).first()).toEqual({ status: 'ACTIVE', awardId })
-
-    const savedExpansion = await saveCompleteDraft(applicant.cookie, expansion.id)
-    await insertRequiredEvidence(expansion.id, applicant.userId)
-
-    // An administrator may change the authoritative award after the applicant
-    // passed the friendly eligibility read. The formal D1 write must repeat
-    // that check rather than submitting a stale Phase-II snapshot.
-    const staleExpansion = await loadOwnedApplication(
-      activeDatabase(),
-      applicant.userId,
-      expansion.id,
-    )
-    const staleExpansionVersion = await findApplicationVersion(
-      activeDatabase(),
-      expansion.id,
-      savedExpansion.currentVersion,
-    )
-    if (!staleExpansion || !staleExpansionVersion) {
-      throw new Error('stale expansion submission aggregate missing')
-    }
-    await env.DB.prepare(
-      `UPDATE seb_funding_award SET status = 'SUSPENDED', updated_at = ? WHERE id = ?`,
-    ).bind(Date.now(), awardId).run()
-    const staleSubmitAt = new Date()
-    expect(await submitApplicationSnapshot(activeDatabase(), {
-      head: staleExpansion,
-      currentVersion: staleExpansionVersion,
-      userId: applicant.userId,
-      answerRows: answerRowsFor(),
-      expansionClaim: {
-        priorSanctionOrderNumber: staleExpansion.snapshot.priorSanctionOrderNumber,
-        priorSanctionDate: staleExpansion.snapshot.priorSanctionDate,
-        priorNetDisbursedAmountPaise: staleExpansion.snapshot.priorNetDisbursedAmountPaise,
-        continuousOperationMonths: staleExpansion.snapshot.continuousOperationMonths,
-      },
-      qualifyingAwardId: awardId,
-      programmeCycleVersion: staleExpansionVersion.programmeCycleVersion,
-      referenceNumber: `SEP-2026-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
-      resubmission: false,
-      // The real list, so the write repeats the check the validator made —
-      // which is what this test is about.
-      requiredDocumentFieldKeys: requiredDocumentFieldKeys(
-        resolveFormTemplate(templateRowsFor(defaultTemplate()))!,
-        normalizeAnswers(
-          resolveFormTemplate(templateRowsFor(defaultTemplate()))!,
-          completeAnswers(),
-          new Date(),
-        ).value!,
-      ),
-      applicationCategory: null,
-      now: staleSubmitAt,
-      audit: auditRecord(directContext(applicant.cookie), {
-        actorUserId: applicant.userId,
-        action: auditActions.applicationSubmitted,
-        entityType: 'SEB_APPLICATION',
-        entityId: expansion.id,
-        applicationId: expansion.id,
-        payload: { referenceNumber: 'SEP-2026-STALE001', version: 2 },
-        now: staleSubmitAt,
-      }),
-    })).toBe(false)
-    await env.DB.prepare(
-      `UPDATE seb_funding_award SET status = 'ACTIVE', updated_at = ? WHERE id = ?`,
-    ).bind(Date.now(), awardId).run()
-    const submittedExpansion = await graphql<{
-      seb: { application: { submit: { success: boolean; response: { status: string } | null } } }
-    }>(`mutation { seb { application { submit(input: {
-      applicationId: "${expansion.id}", expectedVersion: ${savedExpansion.currentVersion}, expectedStatusVersion: 1
-    }) { success response { status } } } } }`, {}, applicant.cookie)
-    expect(submittedExpansion.data?.seb.application.submit)
-      .toEqual({ success: true, response: { status: 'SUBMITTED' } })
-
-    // A rejected attempt can retry only in a later cycle. Creating the retry
-    // cancels the old link and claims the same award for the replacement in one
-    // guarded batch.
-    await env.DB.prepare(
-      `UPDATE seb_application SET status = 'REJECTED', status_version = status_version + 1,
-        updated_at = ? WHERE id = ?`,
-    ).bind(Date.now(), expansion.id).run()
-    const retryCycle = await insertOpenCycle(applicant.userId)
-    const retry = await graphql<{
-      seb: { application: { startExpansion: { success: boolean; message: string | null; response: { id: string } | null } } }
-    }>(`mutation { seb { application { startExpansion(input: {
-      enterpriseId: "${enterprise.id}", programmeCycleId: "${retryCycle}"
-    }) { success message response { id } } } } }`, {}, applicant.cookie)
-    expect(retry.data?.seb.application.startExpansion).toMatchObject({
-      success: true,
-      response: { id: expect.any(String) },
-    })
-    const retryId = retry.data?.seb.application.startExpansion.response?.id
-    expect(await env.DB.prepare(
-      `SELECT application_id AS "applicationId", status, current_funding_award_id AS "awardId"
-       FROM seb_application_qualifying_award
-       WHERE application_id IN (?, ?) ORDER BY application_id`,
-    ).bind(expansion.id, retryId).all()).toMatchObject({
-      results: expect.arrayContaining([
-        { applicationId: expansion.id, status: 'CANCELLED', awardId: null },
-        { applicationId: retryId, status: 'ACTIVE', awardId },
-      ]),
-    })
-
-    if (!retryId) throw new Error('retry application missing')
-    const transitionTime = Date.now()
-    await env.DB.batch([
-      env.DB.prepare(
-        `INSERT INTO seb_disbursement (
-          id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-          amount_paise, occurred_at, external_reference, reason_category_id,
-          applicant_message, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 3, 'REVERSAL', ?, 9000000, ?, ?,
-          (SELECT id FROM seb_programme_cycle_reason WHERE context = 'RELEASE_REVERSAL' LIMIT 1),
-          'Test reversal.', ?, ?)`,
-      ).bind(
-        crypto.randomUUID(),
-        awardId,
-        release.id,
-        transitionTime,
-        `FINAL-REVERSAL-${awardId}`,
-        applicant.userId,
-        transitionTime,
-      ),
-      env.DB.prepare(
-        `INSERT INTO seb_disbursement (
-          id, funding_award_id, sequence_number, entry_type, amount_paise,
-          occurred_at, external_reference, approval_reference, approval_date,
-          bank_account_verified_at, performance_agreement_reference,
-          performance_agreement_executed_at, physical_verification_required,
-          applicant_message, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 4, 'RELEASE', 1000000, ?, ?, 'TTM-TEST', '2025-01-01',
-          ?, 'AGREEMENT-TEST', ?, false, 'Test release.', ?, ?)`,
-      ).bind(
-        crypto.randomUUID(),
-        awardId,
-        transitionTime,
-        `SECOND-RELEASE-${awardId}`,
-        transitionTime,
-        transitionTime,
-        applicant.userId,
-        transitionTime,
-      ),
-    ])
-    const submitRetry = async () => graphql<{
-      seb: { application: { submit: { success: boolean; response: unknown } } }
-    }>(`mutation { seb { application { submit(input: {
-      applicationId: "${retryId}", expectedVersion: 1, expectedStatusVersion: 1
-    }) { success response { id } } } } }`, {}, applicant.cookie)
-    expect((await submitRetry()).data?.seb.application.submit)
-      .toEqual({ success: false, response: null })
-    await env.DB.prepare(
-      `UPDATE seb_funding_award SET status = 'SUSPENDED', updated_at = ? WHERE id = ?`,
-    ).bind(Date.now(), awardId).run()
-    expect((await submitRetry()).data?.seb.application.submit)
-      .toEqual({ success: false, response: null })
-    const saveWithoutAward = await graphql<{
-      seb: { application: { saveDraft: { success: boolean; response: unknown } } }
-    }>(`mutation Save($input: SaveApplicationDraftInput!) {
-      seb { application { saveDraft(input: $input) { success response { id } } }
-    } }`, { input: {
-      applicationId: retryId,
-      expectedVersion: 1,
-      expectedStatusVersion: 1,
-      answers: completeAnswers(),
-    } }, applicant.cookie)
-    expect(saveWithoutAward.data?.seb.application.saveDraft)
-      .toEqual({ success: false, response: null })
-  })
-
-  it('blocks expansion before the calendar anniversary and after effective releases are reversed', async () => {
-    const applicant = await applicantSession()
-    const cycleId = await insertOpenCycle(applicant.userId)
-    const enterprise = await createEnterprise(applicant.cookie)
-    const initial = await startInitial(applicant.cookie, enterprise.id, cycleId)
-    const { awardId } = await insertActiveAward(applicant.userId, initial.id, Date.now())
-    const eligibility = async () => graphql<{
-      seb: { application: { expansionEligibility: { response: {
-        eligible: boolean
-        reasons: Array<{ code: string; message: string; obligationId: string | null }>
-      } } } }
-    }>(`query { seb { application { expansionEligibility(
-      enterpriseId: "${enterprise.id}", programmeCycleId: "${cycleId}"
-    ) { response { eligible reasons { code message obligationId } } } } } }`, {}, applicant.cookie)
-    /*
-     * Three reasons, because the fixture cycle asks for three assessments —
-     * the hand-seeded cycle this replaced asked for none, so only the calendar
-     * one ever appeared. Every unmet rule at once is the point of this screen:
-     * an applicant fixing them one at a time and re-asking is the experience it
-     * exists to avoid.
-     */
-    expect((await eligibility()).data?.seb.application.expansionEligibility.response)
-      .toEqual({ eligible: false, reasons: [
-        {
-          code: 'TWELVE_MONTH_WAIT_NOT_COMPLETE',
-          message:
-            'Twelve months of operation since the first release have not been completed yet.',
-          obligationId: null,
-        },
-        {
-          code: 'PERFORMANCE_NOT_PASSED',
-          message: 'The performance assessment for your award has not passed yet.',
-          obligationId: null,
-        },
-        {
-          code: 'FINANCIAL_AUDIT_NOT_PASSED',
-          message: 'The financial audit for your award has not passed yet.',
-          obligationId: null,
-        },
-      ] })
-
-    const release = await env.DB.prepare(
-      `SELECT id FROM seb_disbursement WHERE funding_award_id = ? AND sequence_number = 1`,
-    ).bind(awardId).first<{ id: string }>()
-    if (!release) throw new Error('release missing')
-    await env.DB.prepare(
-      `INSERT INTO seb_disbursement (
-        id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-        amount_paise, occurred_at, external_reference, reason_category_id,
-        applicant_message, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 2, 'REVERSAL', ?, 10000000, ?, ?,
-        (SELECT id FROM seb_programme_cycle_reason WHERE context = 'RELEASE_REVERSAL' LIMIT 1),
-        'Test reversal.', ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      awardId,
-      release.id,
-      Date.now(),
-      `FULL-REVERSAL-${awardId}`,
-      applicant.userId,
-      Date.now(),
-    ).run()
-    expect((await eligibility()).data?.seb.application.expansionEligibility.response)
-      .toEqual({ eligible: false, reasons: [{
-        code: 'NO_POSITIVE_RELEASE',
-        message: 'No funds have been released and retained under the award yet.',
-        obligationId: null,
-      }] })
-
-    const retainedReleaseId = crypto.randomUUID()
-    const overReversedReleaseId = crypto.randomUUID()
-    const ledgerTime = Date.now()
-    await env.DB.batch([
-      env.DB.prepare(
-        `INSERT INTO seb_disbursement (
-          id, funding_award_id, sequence_number, entry_type, amount_paise,
-          occurred_at, external_reference, approval_reference, approval_date,
-          bank_account_verified_at, performance_agreement_reference,
-          performance_agreement_executed_at, physical_verification_required,
-          applicant_message, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 3, 'RELEASE', 100, ?, ?, 'TTM-TEST', '2025-01-01',
-          ?, 'AGREEMENT-TEST', ?, false, 'Test release.', ?, ?)`,
-      ).bind(
-        retainedReleaseId,
-        awardId,
-        ledgerTime,
-        `SMALL-RELEASE-${awardId}`,
-        ledgerTime,
-        ledgerTime,
-        applicant.userId,
-        ledgerTime,
-      ),
-      env.DB.prepare(
-        `INSERT INTO seb_disbursement (
-          id, funding_award_id, sequence_number, entry_type, amount_paise,
-          occurred_at, external_reference, approval_reference, approval_date,
-          bank_account_verified_at, performance_agreement_reference,
-          performance_agreement_executed_at, physical_verification_required,
-          applicant_message, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 4, 'RELEASE', 100, ?, ?, 'TTM-TEST', '2025-01-01',
-          ?, 'AGREEMENT-TEST', ?, false, 'Test release.', ?, ?)`,
-      ).bind(
-        overReversedReleaseId,
-        awardId,
-        ledgerTime,
-        `OVER-REVERSED-RELEASE-${awardId}`,
-        ledgerTime,
-        ledgerTime,
-        applicant.userId,
-        ledgerTime,
-      ),
-      env.DB.prepare(
-        `INSERT INTO seb_disbursement (
-          id, funding_award_id, sequence_number, entry_type, related_disbursement_id,
-          amount_paise, occurred_at, external_reference, reason_category_id,
-          applicant_message, recorded_by_user_id, created_at
-        ) VALUES (?, ?, 5, 'REVERSAL', ?, 300, ?, ?,
-          (SELECT id FROM seb_programme_cycle_reason WHERE context = 'RELEASE_REVERSAL' LIMIT 1),
-          'Test reversal.', ?, ?)`,
-      ).bind(
-        crypto.randomUUID(),
-        awardId,
-        overReversedReleaseId,
-        ledgerTime,
-        `OVER-REVERSAL-${awardId}`,
-        applicant.userId,
-        ledgerTime,
-      ),
-    ])
-    expect((await eligibility()).data?.seb.application.expansionEligibility.response)
-      .toEqual({ eligible: false, reasons: [{
-        code: 'NO_POSITIVE_RELEASE',
-        message: 'No funds have been released and retained under the award yet.',
-        obligationId: null,
-      }] })
-
-    // A later release restores a positive award-wide balance, while the
-    // over-reversed release remains non-qualifying. Its own utilization
-    // obligation must therefore be skipped rather than gate the application.
-    const restoringReleaseId = crypto.randomUUID()
-    await env.DB.batch([
-      env.DB.prepare(`INSERT INTO seb_disbursement (
-        id, funding_award_id, sequence_number, entry_type, amount_paise,
-        occurred_at, external_reference, approval_reference, approval_date,
-        bank_account_verified_at, performance_agreement_reference,
-        performance_agreement_executed_at, physical_verification_required,
-        applicant_message, recorded_by_user_id, created_at
-      ) VALUES (?, ?, 6, 'RELEASE', 300, ?, ?, 'TTM-RESTORE', '2025-01-01',
-        ?, 'AGREEMENT-RESTORE', ?, false, 'Restoring release.', ?, ?)`)
-        .bind(
-          restoringReleaseId, awardId, ledgerTime, `RESTORING-RELEASE-${awardId}`,
-          ledgerTime, ledgerTime, applicant.userId, ledgerTime,
-        ),
-      env.DB.prepare(`INSERT INTO seb_utilization_obligation (
-        id, funding_award_id, release_disbursement_id, due_at, created_at
-      ) VALUES (?, ?, ?, ?, ?)`).bind(
-        crypto.randomUUID(), awardId, overReversedReleaseId,
-        ledgerTime + 180 * 86_400_000, ledgerTime,
-      ),
-    ])
-    /*
-     * Three reasons, because the fixture cycle asks for three assessments —
-     * the hand-seeded cycle this replaced asked for none, so only the calendar
-     * one ever appeared. Every unmet rule at once is the point of this screen:
-     * an applicant fixing them one at a time and re-asking is the experience it
-     * exists to avoid.
-     */
-    expect((await eligibility()).data?.seb.application.expansionEligibility.response)
-      .toEqual({ eligible: false, reasons: [
-        {
-          code: 'TWELVE_MONTH_WAIT_NOT_COMPLETE',
-          message:
-            'Twelve months of operation since the first release have not been completed yet.',
-          obligationId: null,
-        },
-        {
-          code: 'PERFORMANCE_NOT_PASSED',
-          message: 'The performance assessment for your award has not passed yet.',
-          obligationId: null,
-        },
-        {
-          code: 'FINANCIAL_AUDIT_NOT_PASSED',
-          message: 'The financial audit for your award has not passed yet.',
-          obligationId: null,
-        },
-      ] })
-  })
   it('tells the applicant what is editable, what changed, and what each status means', async () => {
     const applicant = await applicantSession()
     const cycleId = await insertOpenCycle(applicant.userId)
     const enterprise = await createEnterprise(applicant.cookie)
     const started = await graphql<{
-      seb: { application: { startInitial: { response: {
+      seb: { application: { start: { response: {
         id: string
         editableStageKeys: string[]
       } | null } } }
     }>(`mutation($input: StartApplicationInput!) {
-      seb { application { startInitial(input: $input) {
+      seb { application { start(input: $input) {
         response { id editableStageKeys }
       } } }
-    }`, { input: { enterpriseId: enterprise.id, programmeCycleId: cycleId } },
+    }`, { input: { enterpriseId: enterprise.id, programmeCycleId: cycleId, applicationKind: 'INITIAL' } },
       applicant.cookie)
-    const application = started.data?.seb.application.startInitial.response
+    const application = started.data?.seb.application.start.response
     if (!application) throw new Error('Expected a started application.')
 
     /*
@@ -3123,25 +2369,30 @@ describe('applicant application business service', () => {
     } } } } } }`, {}, applicant.cookie)
     const statuses = guide.data?.seb.application.statusGuide.response.statuses ?? []
     // Every status the workflow can produce is explained, in workflow order.
-    expect(statuses.map((entry) => entry.status)).toEqual([
-      'DRAFT', 'SUBMITTED', 'DESK_REVIEW', 'REVISION_REQUIRED',
-      'PARTNER_BANK_EVALUATION', 'AWAITING_DECISION', 'APPROVED', 'REJECTED',
-      'SANCTIONED', 'DISBURSED', 'CANCELLED',
-    ])
+    // Two statuses: everything after submission is the pipeline's to say.
+    expect(statuses.map((entry) => entry.status)).toEqual(['DRAFT', 'IN_PIPELINE'])
     expect(statuses.every((entry) => entry.label && entry.explanation)).toBe(true)
     expect(statuses.find((entry) => entry.status === 'DRAFT')).toMatchObject({
       nextActor: 'APPLICANT',
       nextAction: 'Complete every section and the required documents, then submit.',
     })
-    expect(statuses.find((entry) => entry.status === 'DESK_REVIEW')).toMatchObject({
+    expect(statuses.find((entry) => entry.status === 'IN_PIPELINE')).toMatchObject({
       nextActor: 'PROGRAMME_OFFICE', nextAction: null,
     })
-    expect(statuses.find((entry) => entry.status === 'REJECTED')?.nextActor).toBe('NOBODY')
     // Staff do not commit to a completion date, so nothing here may imply one.
     const guideText = JSON.stringify(statuses)
     for (const timing of ['days', 'weeks', 'within', 'by ']) {
       expect(guideText.toLowerCase()).not.toContain(timing)
     }
+
+    // The office reads "How this works" too, so a staff session that holds no
+    // applicant role is given the same catalogue.
+    const staff = await signIn({ roles: ['SUPER_ADMIN'] })
+    const staffGuide = await graphql<{
+      seb: { application: { statusGuide: { success: boolean; response: { statuses: { status: string }[] } } } }
+    }>('query { seb { application { statusGuide { success response { statuses { status } } } } } }', {}, staff.cookie)
+    expect(staffGuide.data?.seb.application.statusGuide.response.statuses.map((entry) => entry.status))
+      .toEqual(['DRAFT', 'IN_PIPELINE'])
   })
 
   it('lists the applicant own cycles including closed ones, separately from startable ones', async () => {
@@ -3149,8 +2400,8 @@ describe('applicant application business service', () => {
     const cycleId = await insertOpenCycle(applicant.userId)
     const enterprise = await createEnterprise(applicant.cookie)
     await graphql(`mutation($input: StartApplicationInput!) {
-      seb { application { startInitial(input: $input) { success } } }
-    }`, { input: { enterpriseId: enterprise.id, programmeCycleId: cycleId } },
+      seb { application { start(input: $input) { success } } }
+    }`, { input: { enterpriseId: enterprise.id, programmeCycleId: cycleId, applicationKind: 'INITIAL' } },
       applicant.cookie)
 
     const cycleQuery = `query { seb { application {
@@ -3216,18 +2467,18 @@ describe('applicant application business service', () => {
     const cycleId = await insertOpenCycle(applicant.userId)
     const enterprise = await createEnterprise(applicant.cookie)
     const started = await graphql<{
-      seb: { application: { startInitial: { response: { id: string } | null } } }
+      seb: { application: { start: { response: { id: string } | null } } }
     }>(`mutation($input: StartApplicationInput!) {
-      seb { application { startInitial(input: $input) { response { id } } } }
-    }`, { input: { enterpriseId: enterprise.id, programmeCycleId: cycleId } },
+      seb { application { start(input: $input) { response { id } } } }
+    }`, { input: { enterpriseId: enterprise.id, programmeCycleId: cycleId, applicationKind: 'INITIAL' } },
       applicant.cookie)
-    const applicationId = started.data?.seb.application.startInitial.response?.id
+    const applicationId = started.data?.seb.application.start.response?.id
     if (!applicationId) throw new Error('Expected a started application.')
 
     const deleteQuery = `mutation($input: EnterpriseDeletionInput!) {
       seb { enterprise { softDelete(input: $input) {
         success message response { id } blockers {
-          applicationId referenceNumber status hasAward
+          applicationId referenceNumber status
         }
       } } }
     }`
@@ -3240,7 +2491,6 @@ describe('applicant application business service', () => {
           applicationId: string
           referenceNumber: string | null
           status: string
-          hasAward: boolean
         }>
       } } }
     }
@@ -3250,14 +2500,13 @@ describe('applicant application business service', () => {
     expect(blocked.data?.seb.enterprise.softDelete).toEqual({
       success: false,
       message:
-        'Delete all drafts first. Submitted applications and awards retain their enterprise.',
+        'Delete all drafts first. Submitted applications retain their enterprise.',
       response: null,
       // The exact application is named, so the applicant knows what to remove.
       blockers: [{
         applicationId,
         referenceNumber: null,
         status: 'DRAFT',
-        hasAward: false,
       }],
     })
 
@@ -3387,10 +2636,10 @@ describe('searching and filtering the applicant lists', () => {
           }
         }
       }>(
-        `query Mine($programmeCycleId: ID, $applicationType: ApplicationType, $search: String) {
+        `query Mine($programmeCycleId: ID, $applicationKind: String, $search: String) {
           seb { application { mine(
             programmeCycleId: $programmeCycleId
-            applicationType: $applicationType
+            applicationKind: $applicationKind
             search: $search
           ) { response { nodes { id } pageInfo { totalCount } } } } }
         }`,
@@ -3404,9 +2653,9 @@ describe('searching and filtering the applicant lists', () => {
       .toContain(application.id)
     expect((await list({ programmeCycleId: crypto.randomUUID() }))?.pageInfo.totalCount).toBe(0)
 
-    expect((await list({ applicationType: 'INITIAL' }))?.nodes.map((node) => node.id))
+    expect((await list({ applicationKind: 'INITIAL' }))?.nodes.map((node) => node.id))
       .toContain(application.id)
-    expect((await list({ applicationType: 'EXPANSION' }))?.pageInfo.totalCount).toBe(0)
+    expect((await list({ applicationKind: 'EXPANSION' }))?.pageInfo.totalCount).toBe(0)
 
     // A draft has no reference number yet, so searching for one finds nothing —
     // which is the honest answer, not an empty filter falling through to all.

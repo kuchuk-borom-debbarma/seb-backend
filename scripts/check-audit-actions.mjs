@@ -153,7 +153,7 @@ for (const action of [...declared].sort()) {
  */
 for (const path of writers) {
   const text = withoutComments(readFileSync(new URL(path, root), 'utf8'))
-  if (path !== INSERT_HOME && /insert\(coreAuditEvent\)/u.test(text)) {
+  if (path !== INSERT_HOME && /insert\(coreAuditEvent\)|INSERT INTO \$\{coreAuditEvent\}|INSERT INTO core_audit_event/u.test(text)) {
     problems.push(
       `${path} inserts into core_audit_event itself — build the row with auditEventRow and write it with insertAuditEventWhere from ${INSERT_HOME}`,
     )

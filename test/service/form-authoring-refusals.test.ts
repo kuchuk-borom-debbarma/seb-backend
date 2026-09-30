@@ -262,9 +262,9 @@ describe('what a cycle may not say about its questions', () => {
    * form **could not be read back at all**, and the only sign was the cycle
    * later refusing to open.
    */
-  it('refuses a form with no question the programme can read as a role', () => {
-    expect(spoiled(withoutField('SEED_FUND_REQUESTED_PAISE')))
-      .toBe('Every cycle needs one question the programme reads as SEED_FUND_REQUESTED_PAISE: the amount of seed funding requested — the queue, the decision bound and the analytics all read it. Bind another question to this role before removing its holder.')
+  // Roles are optional: a loan-only cycle asks for no grant amount at all.
+  it('accepts a form that leaves a role unbound', () => {
+    expect(spoiled(withoutField('SEED_FUND_REQUESTED_PAISE'))).toBeNull()
   })
 
   it('refuses two questions claiming the same role', () => {
@@ -286,11 +286,13 @@ describe('what a cycle may not say about its questions', () => {
     expect(spoiled((template) => ({
       ...template,
       fields: template.fields.map((each) => each.fieldKey === 'SEED_FUND_REQUESTED_PAISE'
-        ? { ...each, fieldKey: 'AMOUNT_WANTED' }
-        : each),
+        ? { ...each, role: null }
+        : each.fieldKey === 'LOAN_AMOUNT_REQUESTED_PAISE'
+          ? { ...each, role: 'SEED_FUND_REQUESTED_PAISE' as const }
+          : each),
     }))).toBe(
       "Only SEED_FUND_REQUESTED_PAISE may be the cycle's SEED_FUND_REQUESTED_PAISE, "
-      + 'not AMOUNT_WANTED.',
+      + 'not LOAN_AMOUNT_REQUESTED_PAISE.',
     )
   })
 
@@ -914,11 +916,11 @@ describe('the option and rule mirror halves', () => {
       ...template,
       conditions: [...template.conditions, {
         fieldKey: 'GOVERNMENT_SCHEME_NAME', effect: 'VISIBLE_WHEN',
-        sourceFieldKey: 'EXISTING_CREDIT_STATUS', sourceFieldType: 'SINGLE_CHOICE',
+        sourceFieldKey: 'LOAN_BANK_FIRST_CHOICE', sourceFieldType: 'SINGLE_CHOICE',
         operator: 'GREATER_THAN', comparisonValue: 'X',
       }],
     }))).toBe(
-      'A rule on GOVERNMENT_SCHEME_NAME orders EXISTING_CREDIT_STATUS, which has no order.',
+      'A rule on GOVERNMENT_SCHEME_NAME orders LOAN_BANK_FIRST_CHOICE, which has no order.',
     )
   })
 

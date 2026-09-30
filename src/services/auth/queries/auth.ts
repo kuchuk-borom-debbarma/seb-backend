@@ -12,6 +12,7 @@ import {
   coreSignupChallenge,
   coreRole,
   coreRolePermission,
+  sebPipelineStageOwner,
   coreUser,
   coreUserRoleGrant,
   sebEnterprise,
@@ -133,6 +134,8 @@ export const findUserAuthority = async (
   applicant: boolean
   grantedKeys: string[]
   roles: string[]
+  /** Owned pipeline stages as `pipelineId/stageKey`, as the session reads them. */
+  ownedStages: string[]
 }> => {
   const rows = await db
     .select({
@@ -140,6 +143,19 @@ export const findUserAuthority = async (
       key: coreRole.key,
       resource: coreRolePermission.resource,
       action: coreRolePermission.action,
+      /*
+       * The same set on every row, computed once per statement: the person's
+       * owned stages, through the same live grants and roles as the session
+       * query. Folded here rather than read separately so the invitation
+       * re-check stays one round trip.
+       */
+      ownedStages: sql<string[]>`COALESCE((
+        SELECT array_agg(DISTINCT o.pipeline_id || '/' || o.stage_key)
+          FROM ${coreUserRoleGrant} g
+          JOIN ${coreRole} r ON r.id = g.role_id AND r.deleted_at IS NULL
+          JOIN ${sebPipelineStageOwner} o ON o.role_id = r.id AND o.removed_at IS NULL
+         WHERE g.user_id = ${userId}
+           AND g.revoked_at IS NULL), '{}')`,
     })
     .from(coreUserRoleGrant)
     .leftJoin(
@@ -169,6 +185,7 @@ export const findUserAuthority = async (
     applicant: names.has('APPLICANT'),
     grantedKeys: [...grantedKeys],
     roles: orderedRoles(names),
+    ownedStages: rows[0]?.ownedStages ?? [],
   }
 }
 
@@ -822,6 +839,8 @@ export const findUserSessionByDigest = async (
    * mass sign-out rather than a refusal.
    */
   hasEffectiveGrant: boolean
+  /** Owned pipeline stages as `pipelineId/stageKey`. */
+  ownedStages: string[]
 } | null> => {
   const activeGrant = (extra: SQL) => sql`
     SELECT 1 FROM ${coreUserRoleGrant} g
@@ -864,6 +883,20 @@ export const findUserSessionByDigest = async (
          WHERE g.user_id = ${coreUser.id}
            AND g.revoked_at IS NULL
            AND COALESCE(g.role, r.key) IS NOT NULL), '{}')`,
+      /*
+       * The pipeline stages this person's roles own, as `pipelineId/stageKey`.
+       * Read in the same statement as the permissions because the two are one
+       * question — may this person act here — and a second read per request
+       * would double the cost of every staff operation. Seeks
+       * seb_pipeline_stage_owner_role_idx once per held role.
+       */
+      ownedStages: sql<string[]>`COALESCE((
+        SELECT array_agg(DISTINCT o.pipeline_id || '/' || o.stage_key)
+          FROM ${coreUserRoleGrant} g
+          JOIN ${coreRole} r ON r.id = g.role_id AND r.deleted_at IS NULL
+          JOIN ${sebPipelineStageOwner} o ON o.role_id = r.id AND o.removed_at IS NULL
+         WHERE g.user_id = ${coreUser.id}
+           AND g.revoked_at IS NULL), '{}')`,
       hasEffectiveGrant: sql<boolean>`${hasActiveRoleGrant(db, coreUser.id)}`,
     })
     .from(coreSession)

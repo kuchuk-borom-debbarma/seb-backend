@@ -1,0 +1,174 @@
+extend type AdminMutation {
+  """Taking actions on applications at the pipeline stages the caller owns."""
+  stage: AdminStageMutation!
+}
+
+"""
+Acting on files at pipeline stages.
+
+**Who may act:** somebody whose role **owns the stage** and who holds every
+permission the action's effects need. Both halves, always; a super
+administrator has both.
+"""
+type AdminStageMutation {
+  """
+  Takes one configured action on one file, in one guarded write.
+
+  **Use case:** an action button on the stage panel. Quote the stage and
+  `statusVersion` the panel showed: if the file has moved on since, nothing is
+  written and the refusal says so.
+
+  **Refuses:** a stale version or stage, an action not offered or not
+  available, a caller who does not work the stage or lacks a permission, the
+  caller's own application without `selfReviewDisclosed`, and inputs the
+  action's form refuses — those come back in `issues`, shaped like a form's.
+  """
+  takeAction(
+    """Which file, which action, and what the officer entered."""
+    input: TakeStageActionInput!
+  ): TakeStageActionResult!
+
+  """
+  Withdraws a correction asked for in error. When it was the last open one,
+  the file is the office's to work again, at the same stage.
+
+  **Refuses:** a stale version, a request that is not open, and a caller who
+  does not work the file's stage or lacks `stage:request_revision`.
+  """
+  withdrawRevision(
+    """Which request, and why it is withdrawn."""
+    input: WithdrawRevisionInput!
+  ): WithdrawRevisionResult!
+}
+
+"""One form section the applicant is asked to correct."""
+input StageRevisionRequestInput {
+  """The form section, by `FormStage.key` of the application's own form."""
+  stageKey: String!
+
+  """What to correct, shown to the applicant. At most 2000 characters."""
+  note: String!
+}
+
+"""Which configured action to take on which file, and what the officer entered."""
+input TakeStageActionInput {
+  """The submitted application to act on."""
+  applicationId: ID!
+
+  """The `statusVersion` the panel showed."""
+  expectedStatusVersion: Int!
+
+  """The stage the panel showed the file at."""
+  stageKey: String!
+
+  """The configured action, from `AdminStageAvailableAction.key`."""
+  actionKey: String!
+
+  """What the officer entered, keyed by input. Money is a number of paise."""
+  inputs: JSON
+
+  """
+  The sections to correct, when the action hands the file to the applicant
+  (`requestsRevision`). Refused on any other action.
+  """
+  revisionRequests: [StageRevisionRequestInput!]
+
+  """
+  Required, and true, when the caller is acting on their own application: it
+  may be done, but not without saying so.
+  """
+  selfReviewDisclosed: Boolean
+}
+
+"""Which correction to withdraw."""
+input WithdrawRevisionInput {
+  """The file the correction was asked on."""
+  applicationId: ID!
+
+  """The `statusVersion` the panel showed."""
+  expectedStatusVersion: Int!
+
+  """The open request, from `openRevisions`."""
+  revisionRequestId: ID!
+
+  """Why it is no longer needed. At most 500 characters."""
+  reason: String!
+}
+
+"""Where an action left the file. Read the stage panel again for the full picture."""
+type StageActionOutcome {
+  """The file the action was taken on."""
+  applicationId: ID!
+
+  """The action row just written."""
+  stageActionId: ID!
+
+  """The new `statusVersion`."""
+  statusVersion: Int!
+
+  """Where the file now is; null when its journey ended."""
+  stageKey: String
+
+  """The status flags it now holds."""
+  flags: [String!]!
+
+  """Whether the action ended the journey."""
+  ended: Boolean!
+}
+
+"""Whether an action was taken."""
+type TakeStageActionResult implements BaseResponse {
+  """Whether the action was taken."""
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """Where it left the file. Null whenever `success` is false."""
+  response: StageActionOutcome
+
+  """
+  What the officer entered that the action's form refuses, one per input.
+  `field` is the input's key. Empty on success and for every other refusal.
+  """
+  issues: [ValidationIssue!]!
+
+  """
+  True when the refusal is that the file changed since it was read — somebody
+  else acted, or it moved stage. Reload the file and decide again.
+  """
+  stale: Boolean!
+}
+
+"""Where a withdrawal left the file."""
+type RevisionWithdrawal {
+  """The file the correction was withdrawn on."""
+  applicationId: ID!
+
+  """The new `statusVersion`."""
+  statusVersion: Int!
+
+  """The status flags it now holds."""
+  flags: [String!]!
+
+  """How many corrections are still open; at zero the file is the office's again."""
+  openRevisionCount: Int!
+}
+
+"""Whether a correction request was withdrawn."""
+type WithdrawRevisionResult implements BaseResponse {
+  """Whether it was withdrawn."""
+  success: Boolean!
+
+  """What to show when `success` is false."""
+  message: String
+
+  """Where it left the file. Null whenever `success` is false."""
+  response: RevisionWithdrawal
+
+  """
+  True when the refusal is that the file changed since it was read. Reload the
+  file and decide again.
+  """
+  stale: Boolean!
+}

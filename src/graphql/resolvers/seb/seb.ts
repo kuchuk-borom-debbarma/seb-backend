@@ -1,9 +1,9 @@
 /** Thin GraphQL adapters for the applicant-facing Mission SEP domain. */
 import {
   applicationById,
+  applicationKindEligibility,
   applicationDraftChanges,
   applicationFormTemplate,
-  applicationFunding,
   applicationStatusExplanations,
   applicationTimeline,
   availableProgrammeCycles,
@@ -11,7 +11,6 @@ import {
   cyclePolicyDocumentDownloadUrl,
   documentDownloadUrl,
   enterpriseById,
-  expansionEligibility,
   finalizeDocumentUpload,
   issueDocumentUpload,
   myApplications,
@@ -25,22 +24,29 @@ import {
   softDeleteApplicationDocument,
   softDeleteApplicationDraft,
   softDeleteEnterprise,
-  startExpansionApplication,
-  startInitialApplication,
+  startApplication,
   submitApplication,
   submittedApplicationCopy,
   updateEnterprise,
   validateApplication,
   type ApplicationStatus,
-  type ApplicationType,
   type BusinessSector,
   type EnterpriseStatus,
   type SuppliedEnterpriseProfile,
 } from '../../../services/application'
+import { applicantJourney } from '../../../services/application/journey'
 import type { GraphQLContext } from '../../types'
+
+type Journeyed = Parameters<typeof applicantJourney>[0]
 
 export const sebResolvers = {
   Query: { seb: () => ({}) },
+  Application: {
+    journey: (parent: Journeyed, _args: unknown, context: GraphQLContext) => applicantJourney(parent, context.loaders),
+  },
+  ApplicationSummary: {
+    journey: (parent: Journeyed, _args: unknown, context: GraphQLContext) => applicantJourney(parent, context.loaders),
+  },
   Mutation: { seb: () => ({}) },
   SebQuery: {
     enterprise: () => ({}),
@@ -106,7 +112,7 @@ export const sebResolvers = {
         enterpriseId?: string | null
         status?: ApplicationStatus | null
         programmeCycleId?: string | null
-        applicationType?: ApplicationType | null
+        applicationKind?: string | null
         search?: string | null
         includeDeleted?: boolean | null
       },
@@ -124,16 +130,11 @@ export const sebResolvers = {
       args: { applicationId: string },
       context: GraphQLContext,
     ) => submittedApplicationCopy(args.applicationId, context),
-    expansionEligibility: (
+    applicationKinds: (
       _parent: unknown,
       args: { enterpriseId: string; programmeCycleId: string },
       context: GraphQLContext,
-    ) => expansionEligibility(args, context),
-    funding: (
-      _parent: unknown,
-      args: { applicationId: string },
-      context: GraphQLContext,
-    ) => applicationFunding(args.applicationId, context),
+    ) => applicationKindEligibility(args, context),
     formTemplate: (
       _parent: unknown,
       args: { applicationId: string },
@@ -161,16 +162,11 @@ export const sebResolvers = {
     ) => cyclePolicyDocumentDownloadUrl(args.cycleId, context),
   },
   SebApplicationMutation: {
-    startInitial: (
+    start: (
       _parent: unknown,
-      args: { input: { enterpriseId: string; programmeCycleId: string } },
+      args: { input: { enterpriseId: string; programmeCycleId: string; applicationKind: string } },
       context: GraphQLContext,
-    ) => startInitialApplication(args.input, context),
-    startExpansion: (
-      _parent: unknown,
-      args: { input: { enterpriseId: string; programmeCycleId: string } },
-      context: GraphQLContext,
-    ) => startExpansionApplication(args.input, context),
+    ) => startApplication(args.input, context),
     saveDraft: (
       _parent: unknown,
       args: {

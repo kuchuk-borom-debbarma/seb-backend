@@ -50,7 +50,7 @@ const underRevisionOn = async (
   const now = Date.now()
   await env.DB.batch([
     env.DB.prepare(
-      `UPDATE seb_application SET status = 'REVISION_REQUIRED',
+      `UPDATE seb_application SET status_flags = array_append(status_flags, 'REVISION_REQUIRED'),
         status_version = status_version + 1, status_changed_at = ?, updated_at = ?
         WHERE id = ?`,
     ).bind(now, now, submitted.applicationId),

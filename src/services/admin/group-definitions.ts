@@ -16,7 +16,7 @@
  * budget, which counts every member once per permitted entry.
  */
 import type { FormTemplateInput } from './types'
-import { TEMPLATE_KEY_PATTERN } from '../../db/schema/seb/form-template'
+import { TEMPLATE_KEY_PATTERN } from '../../db/schema/shared'
 
 const KEY = new RegExp(TEMPLATE_KEY_PATTERN, 'u')
 

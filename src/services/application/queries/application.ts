@@ -21,41 +21,39 @@ import { batch, changedExactlyOne, type Database, type Executor } from '../../..
 import {
   coreAuditEvent,
   coreUser,
-  sebAwardAssessment,
   sebApplication,
   sebApplicationDocument,
   sebApplicationSubmissionDocument,
   sebApplicationDocumentVersion,
   sebApplicationEvent,
-  sebApplicationQualifyingAward,
-  sebApplicationQualifyingAwardVersion,
   sebApplicationSubmission,
   sebApplicationVersion,
   sebApplicationVersionAnswer,
   sebCyclePolicyDocument,
   sebCyclePolicyDocumentScan,
   sebCyclePolicyDocumentVersion,
-  sebDisbursement,
   sebEnterprise,
   sebEnterpriseVersion,
-  sebFundingAward,
   sebFundingCase,
   sebProgrammeCycle,
-  sebProgrammeCycleAssessmentRule,
+  sebApplicationStageAction,
+  sebPipeline,
+  sebPipelineVersion,
+  sebPipelineVersionStage,
+  sebProgrammeCycleApplicationKind,
+  sebProgrammeCycleApplicationKindRule,
   sebProgrammeCycleEvent,
   sebProgrammeCycleVersion,
-  sebUtilizationObligation,
   sebRevisionRequest,
 } from '../../../db/schema'
+import type { EligibilityHistory, EligibilityRule } from '../eligibility'
+import type { EligibilityRuleType } from '../../catalogue/workflow.generated'
 import { insertAuditEventWhere } from '../../audit-event'
-import { foldDisbursementLedger } from '../ledger'
 import { MAX_COLLECTION_ROWS } from '../pagination'
 import { changedStageKeys } from '../form/answers'
-import { requiredDocumentFieldKeys } from '../form/engine'
 import {
   answersByVersion,
   answersFromRows,
-  answersToRows,
   findAnswerRows,
   findPinnedCycleRules,
   type AnswerRow,
@@ -68,7 +66,7 @@ import {
   sqlNullable,
   type AuditRecord,
 } from '../support'
-import type { AnswerMap } from '../form/types'
+import type { AnswerMap, AnswerValue } from '../form/types'
 import type {
   Application,
   ApplicationDocument,
@@ -76,32 +74,25 @@ import type {
   ApplicationSnapshot,
   ApplicationStatus,
   ApplicationSummary,
-  ApplicationType,
   Connection,
   DocumentType,
-  ExpansionClaim,
-  ExpansionEligibility,
-  ExpansionReason,
-  ExpansionReasonCode,
   ProgrammeCycle,
   RevisionRequest,
   TimelineEvent,
 } from '../types'
 import {
-  addUtcCalendarMonths,
-  fullUtcCalendarMonths,
   type SubmissionPolicy,
 } from '../validation'
 
 export type ApplicationHeadRecord = typeof sebApplication.$inferSelect
 export type ApplicationVersionRecord = typeof sebApplicationVersion.$inferSelect
-export type ProgrammeCycleRecord = typeof sebProgrammeCycle.$inferSelect
+type ProgrammeCycleRecord = typeof sebProgrammeCycle.$inferSelect
 type ApplicationMutationHead = Pick<
   ApplicationHeadRecord,
   | 'id'
   | 'fundingCaseId'
   | 'programmeCycleId'
-  | 'applicationType'
+  | 'applicationKind'
   | 'phaseNumber'
   | 'currentVersion'
   | 'statusVersion'
@@ -152,15 +143,11 @@ const snapshotFromRecord = (
   answers,
   version: record.version,
   programmeCycleVersion: record.programmeCycleVersion,
-  applicationType: record.applicationType,
+  applicationKind: record.applicationKind,
   phaseNumber: record.phaseNumber,
   changeType: record.changeType,
   createdAt: record.createdAt,
   declarationAcceptedAt: record.declarationAcceptedAt,
-  priorSanctionOrderNumber: record.priorSanctionOrderNumber,
-  priorSanctionDate: record.priorSanctionDate,
-  priorNetDisbursedAmountPaise: record.priorNetDisbursedAmountPaise,
-  continuousOperationMonths: record.continuousOperationMonths,
   applicationCategory: record.applicationCategory,
 })
 
@@ -169,12 +156,17 @@ const applicationBase = (head: ApplicationHeadRecord) => ({
   enterpriseId: head.enterpriseId,
   fundingCaseId: head.fundingCaseId,
   programmeCycleId: head.programmeCycleId,
-  applicationType: head.applicationType,
+  applicationKind: head.applicationKind,
   phaseNumber: head.phaseNumber,
   referenceNumber: head.referenceNumber,
   currentVersion: head.currentVersion,
   status: head.status,
   statusVersion: head.statusVersion,
+  currentStageKey: head.currentStageKey,
+  statusFlags: head.statusFlags,
+  pipelineId: head.pipelineId,
+  pipelineVersion: head.pipelineVersion,
+  recordedValues: head.recordedValues as Record<string, AnswerValue>,
   firstSubmittedAt: head.firstSubmittedAt,
   createdAt: head.createdAt,
   updatedAt: head.updatedAt,
@@ -378,8 +370,10 @@ export const loadOwnedApplication = async (
 /**
  * Which form stages the applicant may currently change.
  *
- * A draft is entirely open. While revision is required only the stages named by
- * unresolved requests may change, and every other status is read-only.
+ * A draft is entirely open. Once submitted, only the stages named by open
+ * revision requests may change — and only a stage action's REQUEST_REVISION
+ * effect opens one, so "revision is required" is a fact about those rows rather
+ * than a status of its own.
  */
 const editableStageKeysFor = (
   status: ApplicationHeadRecord['status'],
@@ -396,7 +390,6 @@ const editableStageKeysFor = (
   templateStageKeys: readonly string[],
 ): ApplicationSection[] => {
   if (status === 'DRAFT') return [...templateStageKeys]
-  if (status !== 'REVISION_REQUIRED') return []
   const open = new Set(
     revisionRequests
       .filter((request) => request.resolvedAt === null && request.cancelledAt === null)
@@ -471,7 +464,7 @@ export const listOwnedApplications = async (
     enterpriseId?: string | null
     status?: ApplicationStatus | null
     programmeCycleId?: string | null
-    applicationType?: ApplicationType | null
+    applicationKind?: string | null
     search?: string | null
     includeDeleted: boolean
   },
@@ -495,7 +488,7 @@ export const listOwnedApplications = async (
     input.programmeCycleId
       ? eq(sebApplication.programmeCycleId, input.programmeCycleId)
       : undefined,
-    input.applicationType ? eq(sebApplication.applicationType, input.applicationType) : undefined,
+    input.applicationKind ? eq(sebApplication.applicationKind, input.applicationKind) : undefined,
     pattern ? prefixMatch(sebApplication.referenceNumber, pattern) : undefined,
     input.includeDeleted ? undefined : isNull(sebApplication.deletedAt),
   )
@@ -511,6 +504,17 @@ export const listOwnedApplications = async (
       businessName: sebEnterpriseVersion.name,
       cycleCode: sebProgrammeCycle.cycleCode,
       cycleYear: sebProgrammeCycle.cycleYear,
+      /*
+       * Whether the applicant holds the pen: an open correction request. One
+       * probe of the open-stage partial index per row, rather than the whole
+       * request list the detail view reads to name the stages.
+       */
+      awaitingCorrection: sql<boolean>`EXISTS (
+        SELECT 1 FROM ${sebRevisionRequest}
+        WHERE ${sebRevisionRequest.applicationId} = ${sebApplication.id}
+          AND ${sebRevisionRequest.resolvedAt} IS NULL
+          AND ${sebRevisionRequest.cancelledAt} IS NULL
+      )`,
     })
     .from(sebApplication)
     .innerJoin(
@@ -545,6 +549,7 @@ export const listOwnedApplications = async (
       businessName: row.businessName,
       cycleCode: row.cycleCode,
       cycleYear: row.cycleYear,
+      awaitingCorrection: row.awaitingCorrection,
     })),
     pageInfo: {
       hasNextPage,
@@ -898,332 +903,127 @@ export const findEnterpriseApplicationSource = async (
   return row ?? null
 }
 
-type EligibleAward = {
-  awardId: string
-  priorApplicationId: string
-  priorPhaseNumber: number
-  sanctionOrderNumber: string
-  sanctionDate: string
-  firstReleaseAt: Date
-  netDisbursedPaise: number
-}
-
-type AwardCandidate = {
-  awardId: string
-  applicationId: string
-  phaseNumber: number
-  sanctionOrderNumber: string
-  sanctionDate: string
-}
-
-/** Derives retained money and the first still-effective release for one award. */
-const eligibleAwardFromCandidate = async (
-  db: Database,
-  award: AwardCandidate,
-): Promise<EligibleAward | null> => {
-  const entries = await db
-    .select()
-    .from(sebDisbursement)
-    .where(eq(sebDisbursement.fundingAwardId, award.awardId))
-    .orderBy(asc(sebDisbursement.occurredAt), asc(sebDisbursement.sequenceNumber))
-  // Entries arrive in occurrence order, so the first retained release below is
-  // the one the twelve-month expansion wait is measured from.
-  const { releases, netReleasedPaise } = foldDisbursementLedger(entries)
-  const firstRelease = releases.find((entry) => entry.retainedAmountPaise > 0)?.release
-  if (!firstRelease) return null
-  if (netReleasedPaise <= 0) return null
-  return {
-    awardId: award.awardId,
-    priorApplicationId: award.applicationId,
-    priorPhaseNumber: award.phaseNumber,
-    sanctionOrderNumber: award.sanctionOrderNumber,
-    sanctionDate: award.sanctionDate,
-    firstReleaseAt: firstRelease.occurredAt,
-    netDisbursedPaise: netReleasedPaise,
-  }
-}
-
 /**
- * Finds the award an expansion could build on, or says which rule ruled it out.
+ * Everything an eligibility rule may ask about one enterprise, in two reads.
  *
- * Award status is classified here rather than filtered in SQL. Filtering would
- * collapse "you have never been sanctioned", "your award is suspended", and
- * "nothing has actually been paid out" into one indistinguishable absence, and
- * those are three different things for the applicant to act on.
- */
-const eligibleAwardForCase = async (
-  db: Database,
-  fundingCaseId: string,
-): Promise<{ award: EligibleAward } | { blockedBy: ExpansionReasonCode }> => {
-  const awards = await db
-    .select({
-      awardId: sebFundingAward.id,
-      applicationId: sebFundingAward.applicationId,
-      phaseNumber: sebApplication.phaseNumber,
-      sanctionOrderNumber: sebFundingAward.sanctionOrderNumber,
-      sanctionDate: sebFundingAward.sanctionDate,
-      status: sebFundingAward.status,
-    })
-    .from(sebFundingAward)
-    .innerJoin(sebApplication, eq(sebApplication.id, sebFundingAward.applicationId))
-    .where(
-      and(
-        eq(sebFundingAward.fundingCaseId, fundingCaseId),
-        isNull(sebFundingAward.deletedAt),
-      ),
-    )
-    .orderBy(desc(sebApplication.phaseNumber))
-  if (awards.length === 0) return { blockedBy: 'NO_QUALIFYING_AWARD' }
-  const active = awards.filter((award) => award.status === 'ACTIVE')
-  if (active.length === 0) return { blockedBy: 'QUALIFYING_AWARD_NOT_ACTIVE' }
-  for (const award of active) {
-    const eligible = await eligibleAwardFromCandidate(db, award)
-    if (eligible) return { award: eligible }
-  }
-  // An active award exists but nothing survives its reversals, so there is no
-  // release to measure the twelve-month operating period from.
-  return { blockedBy: 'NO_POSITIVE_RELEASE' }
-}
-
-/**
- * Identifies one assessment group: a type, and the obligation it belongs to.
+ * The rules themselves are pure (`../eligibility`), so what a kind allows is a
+ * function of this history alone — which is what lets the applicant be shown
+ * exactly the reasons that were evaluated. Every application of the
+ * enterprise is read, across every cycle, because "an earlier application
+ * holds a flag" does not care which cycle it was in. Deleted drafts are not
+ * history.
  *
- * Utilization assessments are per obligation; the others have none, and an
- * empty second half is what distinguishes them rather than a separate map.
+ * `excludeApplicationId` leaves one application out: re-checking a draft's own
+ * kind at submission must not count that draft as the "open application" the
+ * rule forbids.
  */
-const assessmentKey = (assessmentType: string, obligationId: string | null): string =>
-  `${assessmentType}:${obligationId ?? ''}`
-
-const hasCompetingPhase = async (
+export const findEligibilityHistory = async (
   db: Database,
-  fundingCaseId: string,
-  phaseNumber: number,
-  excludeApplicationId?: string,
-): Promise<boolean> => {
-  const [row] = await db
-    .select({ id: sebApplication.id })
-    .from(sebApplication)
-    .where(
-      and(
-        eq(sebApplication.fundingCaseId, fundingCaseId),
-        eq(sebApplication.phaseNumber, phaseNumber),
-        ne(sebApplication.status, 'REJECTED'),
-        excludeApplicationId ? ne(sebApplication.id, excludeApplicationId) : undefined,
-        isNull(sebApplication.deletedAt),
-      ),
-    )
-    .limit(1)
-  return row !== undefined
-}
-
-/**
- * Applicant-safe wording for each unmet expansion rule.
- *
- * Each rule reads as its own sentence, because an applicant blocked by three
- * things needs to see three things. The messages name what is missing without
- * quoting programme-office evidence references or internal notes.
- */
-const expansionReasonMessages: Record<ExpansionReasonCode, string> = {
-  NO_QUALIFYING_AWARD:
-    'This enterprise has no sanctioned funding award to expand from.',
-  QUALIFYING_AWARD_NOT_ACTIVE:
-    'The funding award for this enterprise is not active, so it cannot support an expansion.',
-  NO_POSITIVE_RELEASE:
-    'No funds have been released and retained under the award yet.',
-  TWELVE_MONTH_WAIT_NOT_COMPLETE:
-    'Twelve months of operation since the first release have not been completed yet.',
-  UTILIZATION_NOT_PASSED:
-    'A utilization assessment for one of your releases has not passed yet.',
-  PERFORMANCE_NOT_PASSED:
-    'The performance assessment for your award has not passed yet.',
-  FINANCIAL_AUDIT_NOT_PASSED:
-    'The financial audit for your award has not passed yet.',
-  COMPETING_PHASE_APPLICATION:
-    'Another application for this phase is already in progress.',
-}
-
-const expansionReason = (
-  code: ExpansionReasonCode,
-  obligationId: string | null = null,
-): ExpansionReason => ({
-  code,
-  message: expansionReasonMessages[code],
-  obligationId,
-})
-
-export const evaluateExpansionEligibility = async (
-  db: Database,
-  fundingCaseId: string,
+  enterpriseId: string,
   now: Date,
   excludeApplicationId?: string,
-  targetCycleId?: string,
-): Promise<{ result: ExpansionEligibility; award: EligibleAward | null }> => {
-  const qualifying = await eligibleAwardForCase(db, fundingCaseId)
-  if ('blockedBy' in qualifying) {
-    return {
-      award: null,
-      result: {
-        eligible: false,
-        nextPhaseNumber: null,
-        qualifyingAwardId: null,
-        eligibleAt: null,
-        reasons: [expansionReason(qualifying.blockedBy)],
-      },
-    }
-  }
-  const award = qualifying.award
-  const nextPhaseNumber = award.priorPhaseNumber + 1
-  const eligibleAt = addUtcCalendarMonths(award.firstReleaseAt, 12)
-  const reasons: ExpansionReason[] = []
-  if (now.getTime() < eligibleAt.getTime()) {
-    reasons.push(expansionReason('TWELVE_MONTH_WAIT_NOT_COMPLETE'))
-  }
-
-  // The target cycle owns expansion policy. Each positively retained release
-  // must have its own passing utilization result, while performance and
-  // financial audit apply once to the award. We intentionally report every
-  // unmet gate so the applicant can understand what remains outstanding.
-  const requiredAssessments = targetCycleId
-    ? await db
-        .select({ type: sebProgrammeCycleAssessmentRule.assessmentType })
-        .from(sebProgrammeCycleAssessmentRule)
-        .innerJoin(
-          sebProgrammeCycle,
-          and(
-            eq(sebProgrammeCycle.id, sebProgrammeCycleAssessmentRule.programmeCycleId),
-            eq(
-              sebProgrammeCycle.currentVersion,
-              sebProgrammeCycleAssessmentRule.programmeCycleVersion,
-            ),
-          ),
-        )
-        .where(eq(sebProgrammeCycleAssessmentRule.programmeCycleId, targetCycleId))
-    : [
-        { type: 'UTILIZATION' as const },
-        { type: 'PERFORMANCE' as const },
-        { type: 'FINANCIAL_AUDIT' as const },
-      ]
-  const required = new Set(requiredAssessments.map((rule) => rule.type))
-
-  /*
-   * Every assessment for this award, read once.
-   *
-   * Each check below wants the latest assessment of one kind — utilization per
-   * obligation, and one each for performance and financial audit. Asked
-   * separately that is one query per obligation plus two, all of them small
-   * and all of them sequential. One read ordered newest-first answers all of
-   * them, because the first row seen for a group is that group's latest.
-   *
-   * Bounded by the same backstop every unpaginated child collection uses. An
-   * award with more assessments than that is not a real one.
-   */
-  const assessmentRows = await db
-    .select({
-      assessmentType: sebAwardAssessment.assessmentType,
-      obligationId: sebAwardAssessment.utilizationObligationId,
-      outcome: sebAwardAssessment.outcome,
-    })
-    .from(sebAwardAssessment)
-    .where(eq(sebAwardAssessment.fundingAwardId, award.awardId))
-    .orderBy(desc(sebAwardAssessment.assessmentNumber))
-    .limit(MAX_COLLECTION_ROWS)
-  const latestOutcomes = new Map<string, string>()
-  for (const row of assessmentRows) {
-    const key = assessmentKey(row.assessmentType, row.obligationId)
-    // Newest first, so the first row seen for a key is the one that counts.
-    if (!latestOutcomes.has(key)) latestOutcomes.set(key, row.outcome)
-  }
-  if (required.has('UTILIZATION')) {
-    const obligations = await db
+): Promise<EligibilityHistory> => {
+  const [facts, rows, added] = await batch(db, (tx) => [
+    tx
+      .select({ establishmentDate: sebEnterpriseVersion.establishmentDate })
+      .from(sebEnterprise)
+      .innerJoin(
+        sebEnterpriseVersion,
+        and(
+          eq(sebEnterpriseVersion.enterpriseId, sebEnterprise.id),
+          eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
+        ),
+      )
+      .where(eq(sebEnterprise.id, enterpriseId))
+      .limit(1),
+    tx
       .select({
-        id: sebUtilizationObligation.id,
-        releaseId: sebUtilizationObligation.releaseDisbursementId,
+        id: sebApplication.id,
+        kind: sebApplication.applicationKind,
+        pipelineKey: sebPipeline.key,
+        status: sebApplication.status,
+        currentStageKey: sebApplication.currentStageKey,
+        flags: sebApplication.statusFlags,
+        recorded: sebApplication.recordedValues,
       })
-      .from(sebUtilizationObligation)
-      .where(eq(sebUtilizationObligation.fundingAwardId, award.awardId))
-    const entries = await db
-      .select()
-      .from(sebDisbursement)
-      .where(eq(sebDisbursement.fundingAwardId, award.awardId))
-    // Folded once for the whole award rather than per obligation, so the number
-    // of obligations never multiplies the accounting work.
-    const retainedByRelease = new Map(
-      foldDisbursementLedger(entries).releases.map(
-        (entry) => [entry.release.id, entry.retainedAmountPaise],
-      ),
-    )
-    for (const obligation of obligations) {
-      // The obligation has a restrictive composite foreign key to this exact
-      // award/release pair, so a matching immutable release always exists.
-      if (retainedByRelease.get(obligation.releaseId)! <= 0) continue
-      if (latestOutcomes.get(assessmentKey('UTILIZATION', obligation.id)) !== 'PASSED') {
-        reasons.push(expansionReason('UTILIZATION_NOT_PASSED', obligation.id))
-      }
-    }
-  }
-  for (const assessmentType of ['PERFORMANCE', 'FINANCIAL_AUDIT'] as const) {
-    if (!required.has(assessmentType)) continue
-    if (latestOutcomes.get(assessmentKey(assessmentType, null)) !== 'PASSED') {
-      reasons.push(expansionReason(`${assessmentType}_NOT_PASSED`))
-    }
-  }
-  if (await hasCompetingPhase(db, fundingCaseId, nextPhaseNumber, excludeApplicationId)) {
-    reasons.push(expansionReason('COMPETING_PHASE_APPLICATION'))
+      .from(sebApplication)
+      .innerJoin(sebPipeline, eq(sebPipeline.id, sebApplication.pipelineId))
+      .where(and(
+        eq(sebApplication.enterpriseId, enterpriseId),
+        isNull(sebApplication.deletedAt),
+        excludeApplicationId ? ne(sebApplication.id, excludeApplicationId) : undefined,
+      ))
+      .limit(MAX_COLLECTION_ROWS),
+    /*
+     * When each flag was last added, per application, from the action rows —
+     * the head holds only which flags are held now. Grouped in SQL so the
+     * cost is one row per (application, flag) rather than one per action.
+     */
+    tx
+      .select({
+        applicationId: sql<string>`action.application_id`,
+        flag: sql<string>`added.flag`,
+        addedAt: sql<Date>`max(action.created_at)`.mapWith(sebApplicationStageAction.createdAt),
+      })
+      // Raw FROM, so the columns above are named through its aliases too:
+      // drizzle refuses a table column the query does not itself select from.
+      .from(sql`${sebApplicationStageAction} AS action
+        CROSS JOIN LATERAL unnest(action.flags_added) AS added(flag)`)
+      .where(sql`action.application_id IN (
+        SELECT ${sebApplication.id} FROM ${sebApplication}
+         WHERE ${sebApplication.enterpriseId} = ${enterpriseId}
+           AND ${sebApplication.deletedAt} IS NULL)`)
+      .groupBy(sql`action.application_id, added.flag`),
+  ])
+  const addedAt = new Map<string, Record<string, Date>>()
+  for (const row of added) {
+    const byFlag = addedAt.get(row.applicationId) ?? {}
+    byFlag[row.flag] = row.addedAt
+    addedAt.set(row.applicationId, byFlag)
   }
   return {
-    award,
-    result: {
-      eligible: reasons.length === 0,
-      nextPhaseNumber,
-      qualifyingAwardId: award.awardId,
-      eligibleAt,
-      reasons,
-    },
+    now,
+    enterpriseEstablishedOn: facts[0]?.establishmentDate ?? null,
+    applications: rows.map((row) => ({
+      kind: row.kind,
+      pipelineKey: row.pipelineKey,
+      draft: row.status === 'DRAFT',
+      // Submitted, and no stage holds it: an action ended its journey.
+      finished: row.status === 'IN_PIPELINE' && row.currentStageKey === null,
+      flags: row.flags,
+      // Only flags still held have a time that matters; the rest are history.
+      flagAddedAt: Object.fromEntries(
+        Object.entries(addedAt.get(row.id) ?? {}).filter(([flag]) => row.flags.includes(flag)),
+      ),
+      recorded: (row.recorded ?? {}) as Record<string, AnswerValue>,
+    })),
   }
 }
 
-export const expansionClaimFromAward = (
-  award: EligibleAward,
-  now: Date,
-): ExpansionClaim => ({
-  priorSanctionOrderNumber: award.sanctionOrderNumber,
-  priorSanctionDate: award.sanctionDate,
-  priorNetDisbursedAmountPaise: award.netDisbursedPaise,
-  continuousOperationMonths: fullUtcCalendarMonths(award.firstReleaseAt, now),
-})
-
-export const findExpansionAwardForApplication = async (
+/** The kinds a cycle version declares, in their order, each with its rules. */
+export const findCycleApplicationKinds = async (
   db: Database,
-  applicationId: string,
-): Promise<EligibleAward | null> => {
-  const [linkedAward] = await db
-    .select({
-      awardId: sebFundingAward.id,
-      applicationId: sebFundingAward.applicationId,
-      phaseNumber: sebApplication.phaseNumber,
-      sanctionOrderNumber: sebFundingAward.sanctionOrderNumber,
-      sanctionDate: sebFundingAward.sanctionDate,
-    })
-    .from(sebApplicationQualifyingAward)
-    .innerJoin(
-      sebFundingAward,
-      and(
-        eq(sebFundingAward.id, sebApplicationQualifyingAward.currentFundingAwardId),
-        eq(sebFundingAward.fundingCaseId, sebApplicationQualifyingAward.fundingCaseId),
-        eq(sebFundingAward.status, 'ACTIVE'),
-        isNull(sebFundingAward.deletedAt),
-      ),
-    )
-    .innerJoin(sebApplication, eq(sebApplication.id, sebFundingAward.applicationId))
-    .where(
-      and(
-        eq(sebApplicationQualifyingAward.applicationId, applicationId),
-        eq(sebApplicationQualifyingAward.status, 'ACTIVE'),
-        isNotNull(sebApplicationQualifyingAward.currentFundingAwardId),
-      ),
-    )
-    .limit(1)
-  return linkedAward ? eligibleAwardFromCandidate(db, linkedAward) : null
+  cycleId: string,
+  cycleVersion: number,
+): Promise<Array<{ kindKey: string; label: string; description: string | null; rules: EligibilityRule[] }>> => {
+  const [kinds, rules] = await batch(db, (tx) => [
+    tx.select().from(sebProgrammeCycleApplicationKind).where(and(
+      eq(sebProgrammeCycleApplicationKind.programmeCycleId, cycleId),
+      eq(sebProgrammeCycleApplicationKind.programmeCycleVersion, cycleVersion),
+    )).orderBy(asc(sebProgrammeCycleApplicationKind.sortOrder)),
+    tx.select().from(sebProgrammeCycleApplicationKindRule).where(and(
+      eq(sebProgrammeCycleApplicationKindRule.programmeCycleId, cycleId),
+      eq(sebProgrammeCycleApplicationKindRule.programmeCycleVersion, cycleVersion),
+    )).orderBy(asc(sebProgrammeCycleApplicationKindRule.position)),
+  ])
+  return kinds.map((kind) => ({
+    kindKey: kind.kindKey,
+    label: kind.label,
+    description: kind.description,
+    rules: rules
+      .filter((rule) => rule.kindKey === kind.kindKey)
+      .map((rule) => ({ type: rule.ruleType as EligibilityRuleType, params: rule.params })),
+  }))
 }
 
 const versionValues = (input: {
@@ -1232,12 +1032,11 @@ const versionValues = (input: {
   version: number
   programmeCycleId: string
   programmeCycleVersion: number
-  applicationType: ApplicationType
+  applicationKind: string
   phaseNumber: number
   changeType: 'INITIAL' | 'SAVE' | 'REVISION' | 'SUBMISSION' | 'RESUBMISSION'
   changedByUserId: string
   createdAt: Date
-  expansionClaim: ExpansionClaim
   declarationAcceptedAt: Date | null
   applicationCategory: 'CATEGORY_A' | 'CATEGORY_B' | null
 }): typeof sebApplicationVersion.$inferInsert => ({
@@ -1246,15 +1045,12 @@ const versionValues = (input: {
   version: input.version,
   programmeCycleId: input.programmeCycleId,
   programmeCycleVersion: input.programmeCycleVersion,
-  applicationType: input.applicationType,
+  applicationKind: input.applicationKind,
   phaseNumber: input.phaseNumber,
   changeType: input.changeType,
   changeReason: null,
   changedByUserId: input.changedByUserId,
   createdAt: input.createdAt,
-  // Server-owned, and never taken from the draft: these are derived from the
-  // qualifying award and the ledger, and re-checked against them in the write.
-  ...input.expansionClaim,
   declarationAcceptedAt: input.declarationAcceptedAt,
   // Computed by the server at submission; null on drafts. See the schema.
   applicationCategory: input.applicationCategory,
@@ -1266,8 +1062,7 @@ const versionValues = (input: {
  * This used to list fifty-one values positionally, with no column list, so the
  * order of the Drizzle table definition was load-bearing and a mis-ordered
  * entry was a wrong value rather than an error. With the answers in their own
- * rows there are eleven columns and they are named — which removes that whole
- * class of mistake along with the columns.
+ * rows there are twelve columns, listed in the table's order below.
  *
  * Still an `INSERT … SELECT … WHERE`, because the predicate is what makes the
  * write lose cleanly to a concurrent one.
@@ -1279,13 +1074,9 @@ const insertVersionWhere = (
 ) => db.insert(sebApplicationVersion).select(sql`
   SELECT ${value.id}, ${value.applicationId}, ${value.version},
     ${value.programmeCycleId}, ${value.programmeCycleVersion},
-    ${value.applicationType}, ${value.phaseNumber}, ${value.changeType},
+    ${value.applicationKind}, ${value.phaseNumber}, ${value.changeType},
     ${sqlNullable(value.changeReason)}, ${value.changedByUserId},
     ${value.createdAt},
-    ${sqlNullable(value.priorSanctionOrderNumber)},
-    ${sqlNullable(value.priorSanctionDate)},
-    ${sqlNullable(value.priorNetDisbursedAmountPaise)},
-    ${sqlNullable(value.continuousOperationMonths)},
     ${sqlNullable(value.declarationAcceptedAt as Date | null | undefined)},
     ${sqlNullable(value.applicationCategory)}
   FROM ${sebApplication}
@@ -1375,87 +1166,6 @@ const eventValues = (input: {
 })
 
 /**
- * Revalidates the authoritative award and ledger inside a draft/save batch.
- * Friendly controller checks explain failures; this predicate prevents an
- * award suspension, reversal, or competing phase from racing the final write.
- */
-const expansionEvidenceStillCurrent = (input: {
-  head: ApplicationMutationHead
-  qualifyingAwardId?: string | null
-  qualifyingReleaseAt?: Date | null
-  expansionClaim: ExpansionClaim
-  now: Date
-}): SQL | undefined => {
-  if (input.head.applicationType === 'INITIAL') return undefined
-  const cutoff = addUtcCalendarMonths(input.now, -12)
-  return sql`EXISTS (
-    SELECT 1
-    FROM ${sebApplicationQualifyingAward} AS qualifying_link
-    INNER JOIN ${sebFundingAward} AS qualifying_award
-      ON qualifying_award.id = qualifying_link.current_funding_award_id
-      AND qualifying_award.funding_case_id = qualifying_link.funding_case_id
-    INNER JOIN ${sebApplication} AS prior_application
-      ON prior_application.id = qualifying_award.application_id
-    WHERE qualifying_link.application_id = ${input.head.id}
-      AND qualifying_link.funding_case_id = ${input.head.fundingCaseId}
-      AND qualifying_link.status = 'ACTIVE'
-      AND qualifying_link.current_funding_award_id = ${sqlNullable(input.qualifyingAwardId)}
-      AND qualifying_award.status = 'ACTIVE'
-      AND qualifying_award.deleted_at IS NULL
-      AND qualifying_award.sanction_order_number = ${input.expansionClaim.priorSanctionOrderNumber}
-      AND qualifying_award.sanction_date = ${input.expansionClaim.priorSanctionDate}
-      AND prior_application.funding_case_id = ${input.head.fundingCaseId}
-      AND prior_application.phase_number = ${input.head.phaseNumber - 1}
-      AND (
-        SELECT COALESCE(SUM(
-          CASE WHEN ledger.entry_type = 'RELEASE'
-            THEN ledger.amount_paise ELSE -ledger.amount_paise END
-        ), 0)
-        FROM ${sebDisbursement} AS ledger
-        WHERE ledger.funding_award_id = qualifying_award.id
-      ) = ${sqlNullable(input.expansionClaim.priorNetDisbursedAmountPaise)}
-      AND (
-        SELECT MIN(release.occurred_at)
-        FROM ${sebDisbursement} AS release
-        WHERE release.funding_award_id = qualifying_award.id
-          AND release.entry_type = 'RELEASE'
-          AND release.amount_paise - COALESCE((
-            SELECT SUM(reversal.amount_paise)
-            FROM ${sebDisbursement} AS reversal
-            WHERE reversal.related_disbursement_id = release.id
-              AND reversal.entry_type = 'REVERSAL'
-          ), 0) > 0
-      ) = ${sqlNullable(input.qualifyingReleaseAt)}
-      AND EXISTS (
-        SELECT 1 FROM ${sebDisbursement} AS release
-        WHERE release.funding_award_id = qualifying_award.id
-          AND release.entry_type = 'RELEASE'
-          AND release.occurred_at <= ${cutoff}
-          AND release.amount_paise - COALESCE((
-            SELECT SUM(reversal.amount_paise)
-            FROM ${sebDisbursement} AS reversal
-            WHERE reversal.related_disbursement_id = release.id
-              AND reversal.entry_type = 'REVERSAL'
-          ), 0) > 0
-      )
-      /*
-       * One live attempt per phase, across every cycle: parallel applications
-       * would chase the same funding twice. A rejected or cancelled attempt
-       * is over, so a later cycle may take a retry.
-       */
-      AND NOT EXISTS (
-        SELECT 1 FROM ${sebApplication} AS competing_application
-        WHERE competing_application.funding_case_id = ${input.head.fundingCaseId}
-          AND competing_application.phase_number = ${input.head.phaseNumber}
-          AND competing_application.id <> ${input.head.id}
-          AND competing_application.status NOT IN ('REJECTED', 'CANCELLED')
-          AND competing_application.deleted_at IS NULL
-      )
-  )`
-}
-
-/** Pins the exact unresolved revision-section set read by the controller. */
-/**
  * The revision this write claims to be answering is still the open one.
  *
  * **The parameter name matters here in a way TypeScript could not see.** It
@@ -1470,7 +1180,8 @@ const revisionScopeStillCurrent = (input: {
   head: ApplicationMutationHead
   revisionStageKeys?: ApplicationSection[]
 }): SQL | undefined => {
-  if (input.head.status !== 'REVISION_REQUIRED') return undefined
+  // A draft is open everywhere; only a submitted application saves in scope.
+  if (input.head.status === 'DRAFT') return undefined
   const sections = input.revisionStageKeys ?? []
   const openRevision = (section: ApplicationSection) => sql`EXISTS (
     SELECT 1 FROM ${sebRevisionRequest}
@@ -1502,7 +1213,8 @@ export const insertApplicationAggregate = async (
     fundingCaseId: string
     programmeCycleId: string
     programmeCycleVersion: number
-    applicationType: ApplicationType
+    /** One of the kinds the pinned cycle version declares; the write re-checks it. */
+    applicationKind: string
     phaseNumber: number
     /**
      * The prefilled answers, already turned into rows by the caller.
@@ -1512,138 +1224,58 @@ export const insertApplicationAggregate = async (
      * a save and its validation come to disagree about what the form is.
      */
     answerRows: readonly AnswerRow[]
-    expansionClaim: ExpansionClaim
-    qualifyingAwardId?: string | null
-    qualifyingReleaseAt?: Date | null
     now: Date
     audit: AuditRecord
   },
 ): Promise<boolean> => {
   const versionId = crypto.randomUUID()
   const eventId = crypto.randomUUID()
-  const eligibleReleaseCutoff = addUtcCalendarMonths(input.now, -12)
-
-  // A rejected expansion does not permanently consume its earlier award. When
-  // the applicant retries in a later cycle, the old current link is cancelled
-  // in the same batch that creates the new draft and link. Capturing its version
-  // here gives the batch an optimistic predicate against concurrent retries.
-  const [replacedLink] = input.qualifyingAwardId
-    ? await db
-        .select({
-          id: sebApplicationQualifyingAward.id,
-          currentVersion: sebApplicationQualifyingAward.currentVersion,
-        })
-        .from(sebApplicationQualifyingAward)
-        .innerJoin(
-          sebApplication,
-          eq(sebApplication.id, sebApplicationQualifyingAward.applicationId),
-        )
-        .where(
-          and(
-            eq(sebApplicationQualifyingAward.fundingCaseId, input.fundingCaseId),
-            eq(sebApplicationQualifyingAward.currentFundingAwardId, input.qualifyingAwardId),
-            eq(sebApplicationQualifyingAward.status, 'ACTIVE'),
-            eq(sebApplication.phaseNumber, input.phaseNumber),
-            eq(sebApplication.status, 'REJECTED'),
-            isNull(sebApplication.deletedAt),
-          ),
-        )
-        .orderBy(desc(sebApplication.updatedAt))
-        .limit(1)
-    : []
-  const replacedLinkGuard = replacedLink
-    ? sql`AND EXISTS (
-        SELECT 1 FROM ${sebApplicationQualifyingAward}
-        WHERE ${sebApplicationQualifyingAward.id} = ${replacedLink.id}
-          AND ${sebApplicationQualifyingAward.currentVersion} = ${replacedLink.currentVersion}
-          AND ${sebApplicationQualifyingAward.status} = 'ACTIVE'
-          AND ${sebApplicationQualifyingAward.currentFundingAwardId} = ${input.qualifyingAwardId}
-      )`
-    : sql``
-  // Do not settle for checking that the award is broadly eligible. Pin every
-  // award and ledger fact copied into version 1 so a concurrent ledger change
-  // cannot create a draft containing a stale eligibility snapshot.
-  const awardEligibilityGuard = input.qualifyingAwardId
-    ? sql`AND EXISTS (
-        SELECT 1
-        FROM ${sebFundingAward}
-        INNER JOIN ${sebApplication} AS prior_application
-          ON prior_application.id = ${sebFundingAward.applicationId}
-        WHERE ${sebFundingAward.id} = ${input.qualifyingAwardId}
-          AND ${sebFundingAward.fundingCaseId} = ${input.fundingCaseId}
-          AND ${sebFundingAward.status} = 'ACTIVE'
-          AND ${sebFundingAward.deletedAt} IS NULL
-          AND ${sebFundingAward.sanctionOrderNumber} = ${input.expansionClaim.priorSanctionOrderNumber}
-          AND ${sebFundingAward.sanctionDate} = ${input.expansionClaim.priorSanctionDate}
-          AND prior_application.funding_case_id = ${input.fundingCaseId}
-          AND prior_application.phase_number = ${input.phaseNumber - 1}
-          AND (
-            SELECT COALESCE(SUM(
-              CASE WHEN ledger.entry_type = 'RELEASE'
-                THEN ledger.amount_paise ELSE -ledger.amount_paise END
-            ), 0)
-            FROM ${sebDisbursement} AS ledger
-            WHERE ledger.funding_award_id = ${input.qualifyingAwardId}
-          ) = ${input.expansionClaim.priorNetDisbursedAmountPaise}
-          AND ${input.expansionClaim.priorNetDisbursedAmountPaise} > 0
-          AND (
-            SELECT MIN(release.occurred_at)
-            FROM ${sebDisbursement} AS release
-            WHERE release.funding_award_id = ${input.qualifyingAwardId}
-              AND release.entry_type = 'RELEASE'
-              AND release.amount_paise - COALESCE((
-                SELECT SUM(reversal.amount_paise)
-                FROM ${sebDisbursement} AS reversal
-                WHERE reversal.related_disbursement_id = release.id
-                  AND reversal.entry_type = 'REVERSAL'
-              ), 0) > 0
-          ) = ${sqlNullable(input.qualifyingReleaseAt)}
-          AND EXISTS (
-            SELECT 1 FROM ${sebDisbursement} AS release
-            WHERE release.funding_award_id = ${input.qualifyingAwardId}
-              AND release.entry_type = 'RELEASE'
-              AND release.occurred_at <= ${eligibleReleaseCutoff}
-              AND release.amount_paise - COALESCE((
-                SELECT SUM(reversal.amount_paise)
-                FROM ${sebDisbursement} AS reversal
-                WHERE reversal.related_disbursement_id = release.id
-                  AND reversal.entry_type = 'REVERSAL'
-              ), 0) > 0
-          )
-      )`
-    : sql``
+  /*
+   * The pipeline is read from the cycle version, in the statement, rather than
+   * passed in: the application is worked in whatever the cycle pinned when it
+   * opened, and a caller cannot name a different one. An unpinned version — a
+   * draft cycle — yields no row, so nothing is written.
+   *
+   * No "one live application" guard here any more. Which applications may
+   * coexist is the kind's eligibility rules' decision, evaluated by the
+   * controller; the unique `(case, cycle, phase)` index is the backstop that
+   * refuses a duplicate attempt inside one cycle.
+   */
   const insertHead = db
     .insert(sebApplication)
     .select(sql`
       SELECT ${input.applicationId}, ${input.applicantUserId}, ${input.enterpriseId},
-        ${input.fundingCaseId}, ${input.programmeCycleId}, ${input.applicationType},
+        ${input.fundingCaseId}, ${input.programmeCycleId}, ${input.applicationKind},
         ${input.phaseNumber}, NULL, 1, ${input.now}, ${input.now},
-        NULL, NULL, NULL, 'DRAFT', 1, ${input.now}, NULL, NULL, 0, NULL
-      WHERE NOT EXISTS (
-        SELECT 1 FROM ${sebApplication}
-        WHERE ${sebApplication.fundingCaseId} = ${input.fundingCaseId}
-          AND ${sebApplication.phaseNumber} = ${input.phaseNumber}
-          AND ${sebApplication.status} NOT IN ('REJECTED', 'CANCELLED')
-          AND ${sebApplication.deletedAt} IS NULL
-      )
-      AND EXISTS (
-        SELECT 1
-        FROM ${sebEnterprise}
-        INNER JOIN ${sebFundingCase}
-          ON ${sebFundingCase.id} = ${input.fundingCaseId}
-          AND ${sebFundingCase.enterpriseId} = ${sebEnterprise.id}
-        INNER JOIN ${sebProgrammeCycle}
-          ON ${sebProgrammeCycle.id} = ${input.programmeCycleId}
-        WHERE ${sebEnterprise.id} = ${input.enterpriseId}
-          AND ${sebEnterprise.portalOwnerUserId} = ${input.applicantUserId}
-          AND ${sebEnterprise.deletedAt} IS NULL
-          AND ${sebFundingCase.status} = 'OPEN'
-          AND ${sebFundingCase.deletedAt} IS NULL
-          AND ${sebProgrammeCycle.currentVersion} = ${input.programmeCycleVersion}
-          AND ${programmeCycleOpenAt(input.now)}
-      )
-      ${awardEligibilityGuard}
-      ${replacedLinkGuard}
+        NULL, NULL, NULL, 'DRAFT', 1, ${input.now}, NULL,
+        cycle_version.pipeline_id, cycle_version.pipeline_version,
+        NULL, NULL, '{}'::text[], '{}'::text[], '{}'::jsonb
+      FROM ${sebProgrammeCycleVersion} AS cycle_version
+      WHERE cycle_version.programme_cycle_id = ${input.programmeCycleId}
+        AND cycle_version.version = ${input.programmeCycleVersion}
+        AND cycle_version.pipeline_version IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM ${sebProgrammeCycleApplicationKind} AS kind
+          WHERE kind.programme_cycle_id = ${input.programmeCycleId}
+            AND kind.programme_cycle_version = ${input.programmeCycleVersion}
+            AND kind.kind_key = ${input.applicationKind}
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM ${sebEnterprise}
+          INNER JOIN ${sebFundingCase}
+            ON ${sebFundingCase.id} = ${input.fundingCaseId}
+            AND ${sebFundingCase.enterpriseId} = ${sebEnterprise.id}
+          INNER JOIN ${sebProgrammeCycle}
+            ON ${sebProgrammeCycle.id} = ${input.programmeCycleId}
+          WHERE ${sebEnterprise.id} = ${input.enterpriseId}
+            AND ${sebEnterprise.portalOwnerUserId} = ${input.applicantUserId}
+            AND ${sebEnterprise.deletedAt} IS NULL
+            AND ${sebFundingCase.status} = 'OPEN'
+            AND ${sebFundingCase.deletedAt} IS NULL
+            AND ${sebProgrammeCycle.currentVersion} = ${input.programmeCycleVersion}
+            AND ${programmeCycleOpenAt(input.now)}
+        )
     `)
     .returning({ id: sebApplication.id })
   const insertVersion = insertVersionWhere(
@@ -1654,12 +1286,11 @@ export const insertApplicationAggregate = async (
       version: 1,
       programmeCycleId: input.programmeCycleId,
       programmeCycleVersion: input.programmeCycleVersion,
-      applicationType: input.applicationType,
+      applicationKind: input.applicationKind,
       phaseNumber: input.phaseNumber,
       changeType: 'INITIAL',
       changedByUserId: input.applicantUserId,
       createdAt: input.now,
-      expansionClaim: input.expansionClaim,
       declarationAcceptedAt: null,
       applicationCategory: null,
     }),
@@ -1675,7 +1306,7 @@ export const insertApplicationAggregate = async (
   const insertEvent = db.insert(sebApplicationEvent).select(sql`
     SELECT ${eventId}, ${input.applicationId}, 'APPLICATION_STARTED',
       ${input.applicantUserId}, 1, NULL, NULL, NULL, 'DRAFT', NULL,
-      'Application draft started.', NULL, ${input.now}
+      'Application draft started.', NULL, ${input.now}, NULL
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplication} WHERE ${sebApplication.id} = ${input.applicationId}
     )
@@ -1687,75 +1318,7 @@ export const insertApplicationAggregate = async (
   const statements = insertAnswers
     ? [insertHead, insertVersion, insertAnswers] as const
     : [insertHead, insertVersion] as const
-  if (input.qualifyingAwardId) {
-    const linkId = crypto.randomUUID()
-    const cancelReplacedLink = replacedLink
-      ? db
-          .update(sebApplicationQualifyingAward)
-          .set({
-            currentFundingAwardId: null,
-            status: 'CANCELLED',
-            currentVersion: replacedLink.currentVersion + 1,
-            updatedAt: input.now,
-            cancelledAt: input.now,
-            cancelledByUserId: input.applicantUserId,
-            cancellationReason: 'REJECTED_APPLICATION_REPLACED',
-          })
-          .where(
-            and(
-              eq(sebApplicationQualifyingAward.id, replacedLink.id),
-              eq(sebApplicationQualifyingAward.currentVersion, replacedLink.currentVersion),
-              eq(sebApplicationQualifyingAward.status, 'ACTIVE'),
-              sql`EXISTS (
-                SELECT 1 FROM ${sebApplication}
-                WHERE ${sebApplication.id} = ${input.applicationId}
-              )`,
-            ),
-          )
-      : null
-    const insertReplacedLinkVersion = replacedLink
-      ? db.insert(sebApplicationQualifyingAwardVersion).select(sql`
-          SELECT ${crypto.randomUUID()}, ${replacedLink.id}, ${input.fundingCaseId},
-            ${replacedLink.currentVersion + 1}, ${input.qualifyingAwardId},
-            'CANCELLED', 'CANCELLED', 'REJECTED_APPLICATION_REPLACED',
-            ${input.applicantUserId}, ${input.now}
-          WHERE EXISTS (
-            SELECT 1 FROM ${sebApplicationQualifyingAward}
-            WHERE ${sebApplicationQualifyingAward.id} = ${replacedLink.id}
-              AND ${sebApplicationQualifyingAward.currentVersion} = ${replacedLink.currentVersion + 1}
-              AND ${sebApplicationQualifyingAward.status} = 'CANCELLED'
-          )
-        `)
-      : null
-    const insertLink = db.insert(sebApplicationQualifyingAward).select(sql`
-      SELECT ${linkId}, ${input.applicationId}, ${input.fundingCaseId},
-        ${input.qualifyingAwardId}, 'ACTIVE', 1, ${input.applicantUserId},
-        ${input.now}, ${input.now}, NULL, NULL, NULL
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebApplication} WHERE ${sebApplication.id} = ${input.applicationId}
-      )
-    `)
-    const insertLinkVersion = db.insert(sebApplicationQualifyingAwardVersion).select(sql`
-      SELECT ${crypto.randomUUID()}, ${linkId}, ${input.fundingCaseId}, 1,
-        ${input.qualifyingAwardId}, 'ACTIVE', 'LINKED', NULL,
-        ${input.applicantUserId}, ${input.now}
-      WHERE EXISTS (
-        SELECT 1 FROM ${sebApplicationQualifyingAward}
-        WHERE ${sebApplicationQualifyingAward.id} = ${linkId}
-      )
-    `)
-    const linkStatements = cancelReplacedLink && insertReplacedLinkVersion
-      ? [cancelReplacedLink, insertReplacedLinkVersion, insertLink, insertLinkVersion] as const
-      : [insertLink, insertLinkVersion] as const
-    const [headResult] = await batch(db, (tx) => [
-      ...statements,
-      ...linkStatements,
-      insertEvent,
-      insertAudit,
-    ])
-    return headResult.length === 1
-  }
-  const [headResult] = await batch(db, (tx) => [...statements, insertEvent, insertAudit])
+  const [headResult] = await batch(db, () => [...statements, insertEvent, insertAudit])
   return headResult.length === 1
 }
 
@@ -1766,9 +1329,6 @@ export const saveApplicationSnapshot = async (
     userId: string
     /** Built by the caller from the template it validated against. */
     answerRows: readonly AnswerRow[]
-    expansionClaim: ExpansionClaim
-    qualifyingAwardId?: string | null
-    qualifyingReleaseAt?: Date | null
     revisionStageKeys?: ApplicationSection[]
     programmeCycleVersion: number
     now: Date
@@ -1777,7 +1337,9 @@ export const saveApplicationSnapshot = async (
 ): Promise<boolean> => {
   const nextVersion = input.head.currentVersion + 1
   const versionId = crypto.randomUUID()
-  const changeType = input.head.status === 'REVISION_REQUIRED' ? 'REVISION' : 'SAVE'
+  // A submitted application saves only inside an open revision, which the
+  // scope guard below proves; a draft saves anywhere.
+  const changeType = input.head.status === 'DRAFT' ? 'SAVE' : 'REVISION'
   const updateHead = db
     .update(sebApplication)
     .set({ currentVersion: nextVersion, updatedAt: input.now })
@@ -1788,9 +1350,7 @@ export const saveApplicationSnapshot = async (
         eq(sebApplication.currentVersion, input.head.currentVersion),
         eq(sebApplication.statusVersion, input.head.statusVersion),
         eq(sebApplication.status, input.head.status),
-        inArray(sebApplication.status, ['DRAFT', 'REVISION_REQUIRED']),
         isNull(sebApplication.deletedAt),
-        expansionEvidenceStillCurrent(input),
         revisionScopeStillCurrent(input),
       ),
     )
@@ -1803,12 +1363,11 @@ export const saveApplicationSnapshot = async (
       version: nextVersion,
       programmeCycleId: input.head.programmeCycleId,
       programmeCycleVersion: input.programmeCycleVersion,
-      applicationType: input.head.applicationType,
+      applicationKind: input.head.applicationKind,
       phaseNumber: input.head.phaseNumber,
       changeType,
       changedByUserId: input.userId,
       createdAt: input.now,
-      expansionClaim: input.expansionClaim,
       declarationAcceptedAt: null,
       applicationCategory: null,
     }),
@@ -1840,7 +1399,7 @@ export const saveApplicationSnapshot = async (
   const event = db.insert(sebApplicationEvent).select(sql`
     SELECT ${eventValue.id}, ${eventValue.applicationId}, ${eventValue.eventType},
       ${eventValue.actorUserId}, ${eventValue.applicationVersion}, NULL, NULL,
-      NULL, NULL, NULL, ${eventValue.message}, NULL, ${input.now}
+      NULL, NULL, NULL, ${eventValue.message}, NULL, ${input.now}, NULL
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplication}
       WHERE ${sebApplication.id} = ${input.head.id}
@@ -1870,25 +1429,20 @@ export const setApplicationDeleted = async (
     userId: string
     deleted: boolean
     reason: string | null
-    restoreAwardId?: string | null
-    restoreAwardNetDisbursedPaise?: number | null
-    restoreAwardFirstReleaseAt?: Date | null
     now: Date
     audit: AuditRecord
   },
 ): Promise<boolean> => {
-  const [link] = await db
-    .select()
-    .from(sebApplicationQualifyingAward)
-    .where(eq(sebApplicationQualifyingAward.applicationId, input.head.id))
-    .limit(1)
   const statePredicate = input.deleted
     ? isNull(sebApplication.deletedAt)
     : isNotNull(sebApplication.deletedAt)
-  // Restoring any phase must re-establish the aggregate invariants that were
-  // released by deletion. This applies to INITIAL as well as EXPANSION drafts:
-  // the parent enterprise/case must still be active and no replacement attempt
-  // for the same phase may have become current while this draft was deleted.
+  /*
+   * Restoring must re-establish what deletion released: the enterprise and its
+   * funding case are still live. Whether the kind may still be started is the
+   * kind's eligibility rules' question, re-asked by the controller; a second
+   * attempt in the same cycle cannot exist, because the `(case, cycle, phase)`
+   * key counts deleted drafts too.
+   */
   const restoreRootEligibilityPredicate = !input.deleted
     ? sql`EXISTS (
         SELECT 1
@@ -1901,87 +1455,8 @@ export const setApplicationDeleted = async (
           AND ${sebEnterprise.deletedAt} IS NULL
           AND ${sebFundingCase.status} = 'OPEN'
           AND ${sebFundingCase.deletedAt} IS NULL
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM ${sebApplication} AS competing_application
-        WHERE competing_application.funding_case_id = ${input.head.fundingCaseId}
-          AND competing_application.phase_number = ${input.head.phaseNumber}
-          AND competing_application.id <> ${input.head.id}
-          AND competing_application.status NOT IN ('REJECTED', 'CANCELLED')
-          AND competing_application.deleted_at IS NULL
       )`
     : undefined
-  const linkStatePredicate = input.head.applicationType === 'EXPANSION'
-    ? link && (input.deleted ? link.currentFundingAwardId : input.restoreAwardId)
-      ? sql`EXISTS (
-          SELECT 1 FROM ${sebApplicationQualifyingAward}
-          WHERE ${sebApplicationQualifyingAward.id} = ${link.id}
-            AND ${sebApplicationQualifyingAward.currentVersion} = ${link.currentVersion}
-            AND ${sebApplicationQualifyingAward.status} = ${input.deleted ? 'ACTIVE' : 'CANCELLED'}
-            AND ${input.deleted
-              ? sql`${sebApplicationQualifyingAward.currentFundingAwardId} IS NOT NULL`
-              : sql`${sebApplicationQualifyingAward.currentFundingAwardId} IS NULL`}
-        )`
-      : sql`0 = 1`
-    : undefined
-  // Expansion restoration reclaims a released qualification. Matching the
-  // exact net and first retained release closes the race between the friendly
-  // eligibility read and this batch, including same-total ledger replacements.
-  const restoreEligibilityPredicate =
-    !input.deleted && input.head.applicationType === 'EXPANSION' && input.restoreAwardId
-      ? sql`EXISTS (
-          SELECT 1
-          FROM ${sebFundingAward}
-          INNER JOIN ${sebApplication} AS prior_application
-            ON prior_application.id = ${sebFundingAward.applicationId}
-          WHERE ${sebFundingAward.id} = ${input.restoreAwardId}
-            AND ${sebFundingAward.fundingCaseId} = ${input.head.fundingCaseId}
-            AND ${sebFundingAward.status} = 'ACTIVE'
-            AND ${sebFundingAward.deletedAt} IS NULL
-            AND prior_application.phase_number = ${input.head.phaseNumber - 1}
-            AND (
-              SELECT COALESCE(SUM(
-                CASE WHEN ledger.entry_type = 'RELEASE'
-                  THEN ledger.amount_paise ELSE -ledger.amount_paise END
-              ), 0)
-              FROM ${sebDisbursement} AS ledger
-              WHERE ledger.funding_award_id = ${input.restoreAwardId}
-            ) = ${sqlNullable(input.restoreAwardNetDisbursedPaise)}
-            AND ${sqlNullable(input.restoreAwardNetDisbursedPaise)} > 0
-            AND (
-              SELECT MIN(release.occurred_at)
-              FROM ${sebDisbursement} AS release
-              WHERE release.funding_award_id = ${input.restoreAwardId}
-                AND release.entry_type = 'RELEASE'
-                AND release.amount_paise - COALESCE((
-                  SELECT SUM(reversal.amount_paise)
-                  FROM ${sebDisbursement} AS reversal
-                  WHERE reversal.related_disbursement_id = release.id
-                    AND reversal.entry_type = 'REVERSAL'
-                ), 0) > 0
-            ) = ${sqlNullable(input.restoreAwardFirstReleaseAt)}
-            AND EXISTS (
-              SELECT 1 FROM ${sebDisbursement} AS release
-              WHERE release.funding_award_id = ${input.restoreAwardId}
-                AND release.entry_type = 'RELEASE'
-                AND release.occurred_at <= ${addUtcCalendarMonths(input.now, -12)}
-                AND release.amount_paise - COALESCE((
-                  SELECT SUM(reversal.amount_paise)
-                  FROM ${sebDisbursement} AS reversal
-                  WHERE reversal.related_disbursement_id = release.id
-                    AND reversal.entry_type = 'REVERSAL'
-                ), 0) > 0
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM ${sebApplication} AS competing_application
-              WHERE competing_application.funding_case_id = ${input.head.fundingCaseId}
-                AND competing_application.phase_number = ${input.head.phaseNumber}
-                AND competing_application.id <> ${input.head.id}
-                AND competing_application.status NOT IN ('REJECTED', 'CANCELLED')
-                AND competing_application.deleted_at IS NULL
-            )
-        )`
-      : undefined
   /*
    * This append-only audit row is the transition's unique claim: it carries the
    * whole predicate, and every other statement here requires its exact id.
@@ -1999,8 +1474,6 @@ export const setApplicationDeleted = async (
         AND ${sebApplication.status} = 'DRAFT'
         AND ${statePredicate}
         AND ${restoreRootEligibilityPredicate ?? sql`1 = 1`}
-        AND ${linkStatePredicate ?? sql`1 = 1`}
-        AND ${restoreEligibilityPredicate ?? sql`1 = 1`}
     )
   `).returning({ id: coreAuditEvent.id })
   const updateHead = db
@@ -2029,88 +1502,86 @@ export const setApplicationDeleted = async (
         eq(sebApplication.status, 'DRAFT'),
         statePredicate,
         restoreRootEligibilityPredicate,
-        linkStatePredicate,
-        restoreEligibilityPredicate,
         sql`EXISTS (
           SELECT 1 FROM ${coreAuditEvent}
           WHERE ${coreAuditEvent.id} = ${input.audit.id}
         )`,
       ),
     )
-  const nextLinkVersion = link ? link.currentVersion + 1 : null
-  const linkAwardId = input.deleted ? link?.currentFundingAwardId : input.restoreAwardId
-  const updateLink = link && linkAwardId && nextLinkVersion
-    ? db
-        .update(sebApplicationQualifyingAward)
-        .set(
-          input.deleted
-            ? {
-                status: 'CANCELLED',
-                currentFundingAwardId: null,
-                currentVersion: nextLinkVersion,
-                updatedAt: input.now,
-                cancelledAt: input.now,
-                cancelledByUserId: input.userId,
-                cancellationReason: 'APPLICATION_DRAFT_DELETED',
-              }
-            : {
-                status: 'ACTIVE',
-                currentFundingAwardId: input.restoreAwardId,
-                currentVersion: nextLinkVersion,
-                updatedAt: input.now,
-                cancelledAt: null,
-                cancelledByUserId: null,
-                cancellationReason: null,
-              },
-        )
-        .where(
-          and(
-            eq(sebApplicationQualifyingAward.id, link.id),
-            eq(sebApplicationQualifyingAward.currentVersion, link.currentVersion),
-            eq(
-              sebApplicationQualifyingAward.status,
-              input.deleted ? 'ACTIVE' : 'CANCELLED',
-            ),
-            sql`EXISTS (
-              SELECT 1 FROM ${coreAuditEvent}
-              WHERE ${coreAuditEvent.id} = ${input.audit.id}
-            )`,
-          ),
-        )
-    : null
-  const insertLinkVersion = link && linkAwardId && nextLinkVersion
-    ? db.insert(sebApplicationQualifyingAwardVersion).select(sql`
-        SELECT ${crypto.randomUUID()}, ${link.id}, ${input.head.fundingCaseId},
-          ${nextLinkVersion}, ${linkAwardId},
-          ${input.deleted ? 'CANCELLED' : 'ACTIVE'},
-          ${input.deleted ? 'CANCELLED' : 'CORRECTED'},
-          ${input.deleted ? 'APPLICATION_DRAFT_DELETED' : 'APPLICATION_DRAFT_RESTORED'},
-          ${input.userId}, ${input.now}
-        WHERE EXISTS (
-          SELECT 1 FROM ${sebApplicationQualifyingAward}
-          WHERE ${sebApplicationQualifyingAward.id} = ${link.id}
-            AND ${sebApplicationQualifyingAward.currentVersion} = ${nextLinkVersion}
-        )
-      `)
-    : null
   const eventId = crypto.randomUUID()
   const event = db.insert(sebApplicationEvent).select(sql`
     SELECT ${eventId}, ${input.head.id},
       ${input.deleted ? 'APPLICATION_DELETED' : 'APPLICATION_RESTORED'},
       ${input.userId}, ${input.head.currentVersion}, NULL, NULL, 'DRAFT', 'DRAFT',
       NULL, ${input.deleted ? 'Application draft removed.' : 'Application draft restored.'},
-      NULL, ${input.now}
+      NULL, ${input.now}, NULL
     WHERE EXISTS (
       SELECT 1 FROM ${coreAuditEvent}
       WHERE ${coreAuditEvent.id} = ${input.audit.id}
     )
   `)
-  const statements = updateLink && insertLinkVersion
-    ? [audit, updateHead, updateLink, insertLinkVersion, event] as const
-    : [audit, updateHead, event] as const
-  const [updated] = await batch(db, () => statements)
+  const [updated] = await batch(db, () => [audit, updateHead, event] as const)
   return changedExactlyOne(updated)
 }
+
+/*
+ * ─── The submission seam ────────────────────────────────────────────────────
+ *
+ * The only two places where applicant-side writes touch the pipeline. Both are
+ * expressed in SQL over the application's own pinned pipeline version, so the
+ * write cannot disagree with the version the file is worked in.
+ */
+
+/**
+ * What a first submission sets: the file enters its pipeline at the pinned
+ * version's initial stage, holding the flags the definition adds on submit.
+ */
+const pipelineEntry = (now: Date) => ({
+  status: 'IN_PIPELINE' as const,
+  currentStageKey: sql`(
+    SELECT ${sebPipelineVersionStage.stageKey} FROM ${sebPipelineVersionStage}
+    WHERE ${sebPipelineVersionStage.pipelineId} = ${sebApplication.pipelineId}
+      AND ${sebPipelineVersionStage.version} = ${sebApplication.pipelineVersion}
+      AND ${sebPipelineVersionStage.isInitial}
+  )`,
+  stageEnteredAt: now,
+  stageTrail: sql`'{}'::text[]`,
+  statusFlags: sql`ARRAY(
+    SELECT DISTINCT jsonb_array_elements_text(
+      COALESCE(${sebPipelineVersion.definition} -> 'onSubmit' -> 'addFlags', '[]'::jsonb))
+    FROM ${sebPipelineVersion}
+    WHERE ${sebPipelineVersion.pipelineId} = ${sebApplication.pipelineId}
+      AND ${sebPipelineVersion.version} = ${sebApplication.pipelineVersion}
+  )`,
+})
+
+/**
+ * What a resubmission sets: the file stays at the stage that asked for the
+ * correction — REQUEST_REVISION never moves it — and loses the flag that
+ * unlocked the applicant's edit.
+ *
+ * Every held flag the pinned definition declares `REVISION_SCOPED` is removed,
+ * which is the same as "the flag the latest revision request added": the
+ * validator lets only REQUEST_REVISION add such a flag, and no action is
+ * offered while one is held, so at most one can be. Order of the rest is kept.
+ */
+const resubmissionEntry = () => ({
+  status: 'IN_PIPELINE' as const,
+  statusFlags: sql`ARRAY(
+    SELECT held.flag
+    FROM unnest(${sebApplication.statusFlags}) WITH ORDINALITY AS held(flag, position)
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM ${sebPipelineVersion},
+        jsonb_array_elements(${sebPipelineVersion.definition} -> 'statusFlags') AS declared
+      WHERE ${sebPipelineVersion.pipelineId} = ${sebApplication.pipelineId}
+        AND ${sebPipelineVersion.version} = ${sebApplication.pipelineVersion}
+        AND declared ->> 'key' = held.flag
+        AND declared ->> 'applicantEdit' = 'REVISION_SCOPED'
+    )
+    ORDER BY held.position
+  )`,
+})
 
 export const submitApplicationSnapshot = async (
   db: Database,
@@ -2120,9 +1591,6 @@ export const submitApplicationSnapshot = async (
     userId: string
     /** Built by the caller from the template it validated against. */
     answerRows: readonly AnswerRow[]
-    expansionClaim: ExpansionClaim
-    qualifyingAwardId?: string | null
-    qualifyingReleaseAt?: Date | null
     revisionStageKeys?: ApplicationSection[]
     programmeCycleVersion: number
     referenceNumber: string
@@ -2186,6 +1654,14 @@ export const submitApplicationSnapshot = async (
    * default, and the submission was refused with a message about the
    * application having changed, which it had not.
    */
+  // A pinned pipeline version always has one, but the write says so rather
+  // than trusting it: without an initial stage the file would sit nowhere.
+  const initialStageExists = sql`EXISTS (
+    SELECT 1 FROM ${sebPipelineVersionStage}
+    WHERE ${sebPipelineVersionStage.pipelineId} = ${sebApplication.pipelineId}
+      AND ${sebPipelineVersionStage.version} = ${sebApplication.pipelineVersion}
+      AND ${sebPipelineVersionStage.isInitial}
+  )`
   const requiredDocumentsStillExist = and(
     ...input.requiredDocumentFieldKeys.map((fieldKey) => sql`EXISTS (
       SELECT 1 FROM ${sebApplicationDocument}
@@ -2198,18 +1674,11 @@ export const submitApplicationSnapshot = async (
     .update(sebApplication)
     .set({
       currentVersion: nextVersion,
-      status: 'SUBMITTED',
       statusVersion: nextStatusVersion,
       referenceNumber: input.head.referenceNumber ?? input.referenceNumber,
       firstSubmittedAt: input.head.firstSubmittedAt ?? input.now,
-      // A resubmission is fresh intake work. The prior reviewer remains in
-      // immutable assignment history, but no longer owns the next action.
-      assignedToUserId: input.resubmission ? null : undefined,
-      assignedAt: input.resubmission ? null : undefined,
-      assignmentVersion: input.resubmission
-        ? sql`${sebApplication.assignmentVersion} + 1`
-        : undefined,
       updatedAt: input.now,
+      ...(input.resubmission ? resubmissionEntry() : pipelineEntry(input.now)),
     })
     .where(
       and(
@@ -2217,14 +1686,11 @@ export const submitApplicationSnapshot = async (
         eq(sebApplication.applicantUserId, input.userId),
         eq(sebApplication.currentVersion, input.head.currentVersion),
         eq(sebApplication.statusVersion, input.head.statusVersion),
-        eq(
-          sebApplication.status,
-          input.resubmission ? 'REVISION_REQUIRED' : 'DRAFT',
-        ),
+        eq(sebApplication.status, input.resubmission ? 'IN_PIPELINE' : 'DRAFT'),
         isNull(sebApplication.deletedAt),
         cycleStillOpen,
+        input.resubmission ? undefined : initialStageExists,
         requiredDocumentsStillExist,
-        expansionEvidenceStillCurrent(input),
         revisionScopeStillCurrent(input),
       ),
     )
@@ -2237,12 +1703,11 @@ export const submitApplicationSnapshot = async (
       version: nextVersion,
       programmeCycleId: input.head.programmeCycleId,
       programmeCycleVersion: input.programmeCycleVersion,
-      applicationType: input.head.applicationType,
+      applicationKind: input.head.applicationKind,
       phaseNumber: input.head.phaseNumber,
       changeType: input.resubmission ? 'RESUBMISSION' : 'SUBMISSION',
       changedByUserId: input.userId,
       createdAt: input.now,
-      expansionClaim: input.expansionClaim,
       declarationAcceptedAt: input.now,
       applicationCategory: input.applicationCategory,
     }),
@@ -2302,9 +1767,9 @@ export const submitApplicationSnapshot = async (
     SELECT ${crypto.randomUUID()}, ${input.head.id},
       ${input.resubmission ? 'APPLICATION_RESUBMITTED' : 'APPLICATION_SUBMITTED'},
       ${input.userId}, ${nextVersion}, ${submissionId}, NULL,
-      ${input.resubmission ? 'REVISION_REQUIRED' : 'DRAFT'}, 'SUBMITTED', NULL,
+      ${input.resubmission ? 'IN_PIPELINE' : 'DRAFT'}, 'IN_PIPELINE', NULL,
       ${input.resubmission ? 'Application resubmitted.' : 'Application submitted.'},
-      NULL, ${input.now}
+      NULL, ${input.now}, NULL
     WHERE EXISTS (
       SELECT 1 FROM ${sebApplicationSubmission}
       WHERE ${sebApplicationSubmission.id} = ${submissionId}
