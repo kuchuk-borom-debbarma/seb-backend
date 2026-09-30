@@ -45,7 +45,7 @@ import {
 } from '../../../db/schema'
 import { roleAnswerText } from '../../application/queries/answer-sql'
 import { findPinnedRulesForApplication } from '../../application/queries/form-template'
-import { changedStageKeys } from '../../application/form/answers'
+import { changedStageKeys, pinnedFilesOf } from '../../application/form/answers'
 import type { AnswerMap } from '../../application/form/types'
 import {
   answersByVersion,
@@ -496,6 +496,11 @@ export const loadWorkspace = async (
   const answersOf = (version: number): AnswerMap =>
     answersByVersionId.get(snapshotsByVersion.get(version)?.id ?? '') ?? {}
 
+  // The files each submission froze, so a replaced document counts as a change.
+  const filesOf = (submissionId: string) =>
+    pinnedFilesOf(
+      documents.filter((row) => row.pin.submissionId === submissionId).map((row) => row.pin),
+    )
   const submissionChanges = pinnedRules
     ? submissions.slice(1).map((submission, index) => {
         const previousSubmission = submissions[index]!
@@ -508,6 +513,7 @@ export const loadWorkspace = async (
             pinnedRules.template,
             answersOf(previousSubmission.applicationVersion),
             answersOf(submission.applicationVersion),
+            { previous: filesOf(previousSubmission.id), next: filesOf(submission.id) },
           ),
         }
       })

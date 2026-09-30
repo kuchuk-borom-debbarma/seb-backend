@@ -50,7 +50,7 @@ import type { EligibilityHistory, EligibilityRule } from '../eligibility'
 import type { EligibilityRuleType } from '../../catalogue/workflow.generated'
 import { insertAuditEventWhere } from '../../audit-event'
 import { MAX_COLLECTION_ROWS } from '../pagination'
-import { changedStageKeys } from '../form/answers'
+import { changedStageKeys, pinnedFilesOf } from '../form/answers'
 import {
   answersByVersion,
   answersFromRows,
@@ -417,6 +417,7 @@ export const findDraftChanges = async (
 ): Promise<{ stageKeys: ApplicationSection[]; comparedToSubmissionNumber: number } | null> => {
   const [latest] = await db
     .select({
+      id: sebApplicationSubmission.id,
       submissionNumber: sebApplicationSubmission.submissionNumber,
       applicationVersion: sebApplicationSubmission.applicationVersion,
     })
@@ -443,13 +444,42 @@ export const findDraftChanges = async (
   if (!rules) {
     return { stageKeys: [], comparedToSubmissionNumber: latest.submissionNumber }
   }
-  const rows = await findAnswerRows(db, [submitted.id, current.id])
+  /*
+   * The files the submission froze against the ones attached now, so a
+   * replaced document shows as a change here exactly as it will to the office.
+   * Read together with the answers: one round trip for all three.
+   */
+  const [rows, pinned, live] = await Promise.all([
+    findAnswerRows(db, [submitted.id, current.id]),
+    db
+      .select({
+        fieldKey: sebApplicationSubmissionDocument.fieldKey,
+        documentId: sebApplicationSubmissionDocument.documentId,
+        documentVersion: sebApplicationSubmissionDocument.documentVersion,
+      })
+      .from(sebApplicationSubmissionDocument)
+      .where(eq(sebApplicationSubmissionDocument.submissionId, latest.id)),
+    db
+      .select({
+        fieldKey: sebApplicationDocument.fieldKey,
+        documentId: sebApplicationDocument.id,
+        documentVersion: sebApplicationDocument.currentVersion,
+      })
+      .from(sebApplicationDocument)
+      .where(
+        and(
+          eq(sebApplicationDocument.applicationId, head.id),
+          isNull(sebApplicationDocument.deletedAt),
+        ),
+      ),
+  ])
   const byVersion = answersByVersion(rules.template, rows)
   return {
     stageKeys: changedStageKeys(
       rules.template,
       byVersion.get(submitted.id) ?? {},
       byVersion.get(current.id) ?? {},
+      { previous: pinnedFilesOf(pinned), next: pinnedFilesOf(live) },
     ),
     comparedToSubmissionNumber: latest.submissionNumber,
   }

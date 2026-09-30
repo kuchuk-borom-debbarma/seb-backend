@@ -137,6 +137,9 @@ function ReviewPage() {
         template={template}
         activeStep="REVIEW"
         issues={issues}
+        correctionStageKeys={application.revisionRequests
+          .filter((request) => request.resolvedAt === null && request.cancelledAt === null)
+          .map((request) => request.stageKey)}
         editableStageKeys={application.editableStageKeys}
         footerLeft={
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>

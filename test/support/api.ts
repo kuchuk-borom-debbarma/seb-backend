@@ -396,6 +396,35 @@ export const attachEvidence = async (
   return seeded
 }
 
+/**
+ * A new version of one attached document, as a finished replacement leaves
+ * it: the next version row, scanned clean, and the document pointing at it.
+ */
+export const replaceEvidence = async (applicationId: string, fieldKey: string, userId: string) => {
+  const document = await env.DB.prepare(
+    `SELECT id, current_version FROM seb_application_document WHERE application_id = ? AND field_key = ?`,
+  ).bind(applicationId, fieldKey).first<{ id: string; current_version: number }>()
+  if (!document) throw new Error(`no ${fieldKey} document to replace`)
+  const version = document.current_version + 1
+  const versionId = crypto.randomUUID()
+  const now = Date.now()
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO seb_application_document_version (
+        id, document_id, version, operation, r2_object_key, original_filename,
+        content_type, size_bytes, checksum, uploaded_by_user_id, created_at
+      ) VALUES (?, ?, ?, 'UPLOAD', ?, ?, 'application/pdf', 10, ?, ?, ?)`,
+    ).bind(
+      versionId, document.id, version, `test/${versionId}`,
+      `${fieldKey}-v${version}.pdf`, 'B'.repeat(43) + '=', userId, now,
+    ),
+    env.DB.prepare(
+      `UPDATE seb_application_document SET current_version = ?, updated_at = ? WHERE id = ?`,
+    ).bind(version, now, document.id),
+  ])
+  await recordScan(versionId, 'ACCEPTED')
+}
+
 /** Submits, and refuses to return quietly if the product said no. */
 export const submitApplication = async (
   cookie: string,

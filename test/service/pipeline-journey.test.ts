@@ -14,7 +14,7 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { completeAnswers } from '../support/form'
-import { graphql, openCycle, signIn, submittedApplication } from '../support/api'
+import { graphql, openCycle, replaceEvidence, signIn, submittedApplication } from '../support/api'
 import { closeDatabase, freshDatabase, resetDatabase } from '../support/harness'
 import { env } from '../support/worker'
 import { act, advance, loanAnswers, officer, readStage } from './support/stage'
@@ -316,5 +316,37 @@ describe('telling the applicant', () => {
       revisionRequests: [{ stageKey: 'FINANCIAL', note: 'Restate the amount.' }],
     })
     expect(await failedAudits(file.applicationId, 'SEB.REVISION_NOTIFICATION_FAILED')).toBe(1)
+  })
+})
+
+describe('a correction that replaces a file', () => {
+  it('shows the file’s stage as changed, to the applicant before resubmitting and to the office after', async () => {
+    const { applicant, file, ttc } = await setup(loanAnswers('SBI'))
+    const id = file.applicationId
+    await advance(ttc.cookie, id, 'ASK_REVISION', {
+      revisionRequests: [{ stageKey: 'DOCUMENTS', note: 'The project report is unsigned.' }],
+    })
+
+    // A file question carries no answer: only the document it points at moved.
+    await replaceEvidence(id, 'DPR', applicant.userId)
+    const draft = await graphql<any>(`query($id: ID!) {
+      seb { application { draftChanges(applicationId: $id) { success response { stageKeys } } } }
+    }`, { id }, applicant.cookie)
+    expect(draft.data.seb.application.draftChanges.response.stageKeys).toEqual(['DOCUMENTS'])
+
+    const mine = await applicantView(applicant.cookie, id)
+    const resubmitted = await graphql<any>(`mutation($input: ApplicationVersionInput!) {
+      seb { application { resubmit(input: $input) { success message } } }
+    }`, { input: {
+      applicationId: id,
+      expectedVersion: mine.currentVersion,
+      expectedStatusVersion: mine.statusVersion,
+    } }, applicant.cookie)
+    expect(resubmitted.data.seb.application.resubmit).toMatchObject({ success: true })
+
+    const changes = await graphql<any>(`query($id: ID!) {
+      admin { intake { workspace(applicationId: $id) { success response { submissionChanges { stageKeys } } } } }
+    }`, { id }, ttc.cookie)
+    expect(changes.data.admin.intake.workspace.response.submissionChanges).toEqual([{ stageKeys: ['DOCUMENTS'] }])
   })
 })

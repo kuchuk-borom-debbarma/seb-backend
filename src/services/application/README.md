@@ -237,7 +237,7 @@ a file worked on for years should not make one request read ten thousand rows.
 | `formRuleEvaluators`, `defineFormRule` | `form/cross-field/` | Rules about several answers, one evaluator per catalogue rule type |
 | `eligibilityOf`, `eligibilityEvaluators`, `defineEligibility` | `eligibility/` | Whether a kind may be started, and every reason it may not |
 | `normalizeEnterpriseProfile` | `validation.ts` | The enterprise record, which is the portal's own rather than a cycle's |
-| `changedStageKeys`, `answersEqual`, `pruneHidden` | `form/answers.ts` | Which stages differ, and clearing what is no longer asked |
+| `changedStageKeys`, `pinnedFilesOf`, `answersEqual`, `pruneHidden` | `form/answers.ts` | Which stages differ — by their answers, and for the two "what changed" views by the files each side pinned too — and clearing what is no longer asked |
 | `ownedApplication`, `ownedApplicationAtVersion` | `ownership.ts` | The ownership preamble |
 | `pageSize`, `encodeCursor`, `decodeCursor`, `MAX_COLLECTION_ROWS` | `pagination.ts` | Paging |
 | `verifyUploadedObject`, `extensionMatchesContentType`, `createDocumentObjectKey`, `sanitizeFilename` | `uploads.ts` | The upload rules |
