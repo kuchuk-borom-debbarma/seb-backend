@@ -6,40 +6,45 @@ API that runs it, plus a browser client for demonstrating and exercising it.
 
 One idea holds the whole system together: **an application is a file, and at
 every moment somebody is holding it.** It carries one reference number from the
-day it is submitted until the last rupee is accounted for, and every screen and
-every operation answers the same question — whose turn is it now?
+day it is submitted until its journey ends, and every screen and every
+operation answers the same question — whose turn is it now?
 
 ## The route a file takes
 
-Four desks, eleven states.
+**The route is configured, not coded.** After submission a file travels through
+a **pipeline**: stages, each worked by the roles that own it, each offering
+actions that ask the officer for inputs and then do configured things to the
+file. Its status is the set of **flags** it holds, such as `[GRANT_APPROVED,
+BANKING_STAGE]`. The whole model is the [pipeline guide](docs/pipeline-guide.md).
+
+The route the portal ships as its starting point:
 
 ```mermaid
-stateDiagram-v2
-    [*] --> DRAFT
-    DRAFT --> SUBMITTED: applicant submits
-    SUBMITTED --> DESK_REVIEW: officer starts the review
-    DESK_REVIEW --> REVISION_REQUIRED: corrections asked for
-    REVISION_REQUIRED --> SUBMITTED: applicant resubmits
-    DESK_REVIEW --> PARTNER_BANK_EVALUATION: referred to a bank
-    DESK_REVIEW --> REJECTED: closed at the desk
-    PARTNER_BANK_EVALUATION --> AWAITING_DECISION: the bank has answered
-    PARTNER_BANK_EVALUATION --> REVISION_REQUIRED: bank wants more
-    AWAITING_DECISION --> APPROVED: the programme approves
-    AWAITING_DECISION --> REJECTED: the programme rejects
-    AWAITING_DECISION --> REVISION_REQUIRED: the programme wants more
-    APPROVED --> SANCTIONED: sanction order issued
-    SANCTIONED --> DISBURSED: first instalment released
-    DISBURSED --> CANCELLED: award cancelled
-    REJECTED --> [*]
-    DISBURSED --> [*]
+flowchart LR
+    S((Submitted)) --> TTC
+    TTC -- "Move to I&C" --> IC[Industries & Commerce]
+    TTC -. "Ask for corrections" .-> A((Applicant))
+    A -. "Resubmits" .-> TTC
+    TTC -- "Reject" --> R((Rejected))
+    IC -- "Send to bank" --> SBI[State Bank of India]
+    IC -- "Send to bank" --> TGB[Tripura Gramin Bank]
+    IC -- "Complete (no loan)" --> C((Completed))
+    IC -. "Send back" .-> TTC
+    SBI -. "Send back" .-> IC
+    TGB -. "Send back" .-> IC
+    SBI -- "Loan fulfilled" --> C
+    TGB -- "Loan fulfilled" --> C
 ```
 
-| Desk | Holds |
+| Who holds the file | When |
 | --- | --- |
-| **Applicant** | `DRAFT`, `REVISION_REQUIRED` |
-| **Programme office** | `SUBMITTED`, `DESK_REVIEW`, `APPROVED`, `SANCTIONED`, `DISBURSED`, `REJECTED`, `CANCELLED` |
-| **Partner bank** | `PARTNER_BANK_EVALUATION` |
-| **Decider** | `AWAITING_DECISION` |
+| **Applicant** | While it is a draft, and while a correction they were asked for is open |
+| **The roles owning its stage** | From submission until an action ends its journey |
+| **Nobody** | Once a terminal flag, such as `COMPLETED` or `REJECTED`, has ended it |
+
+Only two states are the code's own: `DRAFT` and `IN_PIPELINE`. Everything an
+office would call a status — in review, grant approved, with the bank — is a
+flag the pipeline declares.
 
 ---
 
@@ -53,15 +58,14 @@ all of them require the `APPLICANT` role.
 | 1 | Sign up with an emailed one-time code, then set a password | `auth.startApplicantSignup`, `auth.verifyApplicantSignup` |
 | 2 | Register the enterprise the application is for | `seb.enterprise.create` |
 | 3 | See which programme cycles are open to apply in | `seb.application.availableProgrammeCycles` |
-| 4 | Start an application — a first one, or a later phase | `seb.application.startInitial`, `startExpansion` |
-| 5 | Answer the questions the cycle asks, saved as they type | `seb.application.saveDraft` |
-| 6 | Attach evidence, uploaded straight to storage | `seb.application.issueDocumentUpload`, `finalizeDocumentUpload` |
-| 7 | Check what is still missing before sending | `seb.application.validate` |
-| 8 | Submit, which freezes a copy and issues the reference number | `seb.application.submit` |
-| 9 | Watch where it is, in plain language | `seb.application.byId`, `statusGuide`, `timeline` |
-| 10 | Answer a correction request — only the named stages unlock | `seb.application.saveDraft`, then `resubmit` |
-| 11 | See the award, what has been paid, and what is still to come | `seb.application.funding` |
-| 12 | Check whether they qualify for a later phase | `seb.application.expansionEligibility` |
+| 4 | See which kinds of application they may start, and why not | `seb.application.applicationKinds` |
+| 5 | Start an application of a kind the cycle offers | `seb.application.start` |
+| 6 | Answer the questions the cycle asks, saved as they type | `seb.application.saveDraft` |
+| 7 | Attach evidence, uploaded straight to storage | `seb.application.issueDocumentUpload`, `finalizeDocumentUpload` |
+| 8 | Check what is still missing before sending, including rules about several answers | `seb.application.validate` |
+| 9 | Submit, which freezes a copy, issues the reference number and enters the pipeline | `seb.application.submit` |
+| 10 | Watch where it is, in the words the pipeline gives each stage | `seb.application.byId` (`journey`), `timeline` |
+| 11 | Answer a correction request — only the named stages unlock | `seb.application.saveDraft`, then `resubmit` |
 
 They can also edit or remove an enterprise, delete and restore a draft, and see
 their own signed-in devices. What they **cannot** reach is anything under
@@ -72,11 +76,11 @@ told which portal their account can use.
 
 The office composes its own roles. A role is a name, a purpose, and a set of
 **permissions** — a resource and an act on it, such as `application`/`read` or
-`decision`/`record` — and a super administrator decides what each one holds.
+`stage`/`decide` — and a super administrator decides what each one holds.
 
 The permissions themselves are fixed in code, in
-[`auth/catalog.json`](src/services/auth/catalog.json): twelve resources,
-twenty-three acts, thirty-eight pairs. The office may combine them freely but
+[`auth/catalog.json`](src/services/auth/catalog.json): eleven resources,
+twenty acts, thirty-six pairs. The office may combine them freely but
 cannot invent one, so a permission nothing enforces cannot be composed into a
 role and read as coverage.
 
@@ -87,9 +91,12 @@ changes what people can do without any operation changing.
 
 Holding the permission is the whole of it: there is nothing to reserve before
 acting on a file. Two officers acting at once are settled by a version guard on
-the transition, so one succeeds and the other is told the record changed. What
-gates a stage is what the reviewer **types** — the numbers off the documents
-they have just read — rather than a button they pressed beforehand.
+the transition, so one succeeds and the other is told the record changed.
+
+**Permissions are half of stage authority; ownership is the other.** A State
+Bank of India officer and a Tripura Gramin Bank officer hold the same
+permissions. They see and act on different files only because each role owns a
+different stage, which is data on the pipeline rather than a permission.
 
 Two authorities are decided in code rather than composed:
 
@@ -113,10 +120,9 @@ by mistake.
 
 | Resource | Acts |
 | --- | --- |
-| `application` | `read` `note` `review` `refer` |
-| `decision` | `record` `correct` |
-| `funding` | `read` `award` `release` `reverse` `assess` |
-| `recovery` | `read` `open` `record` `cancel` `close` |
+| `application` | `read` `note` |
+| `stage` | `read` `advance` `return` `request_revision` `decide` `close` |
+| `pipeline` | `read` `create` `update` `publish` `retire` `assign` |
 | `programme_cycle` | `read` `create` `update` `open` `close` `archive` `delete` |
 | `form_template` | `update` |
 | `policy_document` | `read` `upload` |
@@ -126,6 +132,12 @@ by mistake.
 | `role` | `read` `invite` |
 | `analytics` | `read` |
 
+A stage action needs the permissions **its effects** need — `stage`/`decide`
+to add an outcome such as "grant approved", `stage`/`advance` to move the file
+on — plus ownership of the stage. The permission comes from the effect, never
+from the pipeline's author, so an approval cannot be made cheaper by calling it
+something else.
+
 Reading a file and deciding it are different jobs, and so are deciding an
 application and administering the programme it belongs to — but the office
 decides where those lines fall by composing the roles it wants, rather than
@@ -133,28 +145,22 @@ living with a split the code chose.
 
 ### The operational workflow
 
-| Stage | What they do | Operation |
-| --- | --- | --- |
-| Intake | Work the nine named queues | `admin.intake.queue`, `queues` |
-| | See the filtered intake summarized for reporting | `admin.analytics.summary` |
-| | Write a note nobody outside the office sees | `admin.intake.addInternalNote` |
-| Desk review | Start it | `admin.intake.startDeskReview` |
-| | Record nine checks, transcribe the numbers on the documents, and choose an outcome | `admin.intake.completeDeskReview` |
-| | Withdraw a correction request made in error | `admin.intake.cancelRevision` |
-| Bank | Refer the file to a partner bank | `admin.decision.referToBank` |
-| | Record what the bank wrote back | `admin.decision.recordBankOutcome` |
-| | Correct that record without erasing it | `admin.decision.correctBankOutcome` |
-| Decision | Decide the application | `admin.decision.recordDecision` |
-| | Supersede a decision recorded wrongly | `admin.decision.correctDecision` |
-| Money | Issue the sanction order | `admin.funding.createAward` |
-| | Release an instalment | `admin.funding.recordRelease` |
-| | Correct a payment with a reversal | `admin.funding.reverseRelease` |
-| | Record how the money was used | `admin.funding.recordAssessment` |
-| | Open, work and close a recovery case | `admin.funding.openRecovery`, `recordRecoveryEntry`, `closeRecovery` |
+| What they do | Operation |
+| --- | --- |
+| See the stages they work, with how many files wait at each | `admin.stage.myStages` |
+| Work one stage's queue, oldest first | `admin.stage.queue` |
+| Open a file: where it is, its flags and recorded values, its history, and the actions offered to them | `admin.stage.application` |
+| Take an action — its inputs are validated like a form, and every effect lands in one write | `admin.stage.takeAction` |
+| Withdraw a correction request made in error | `admin.stage.withdrawRevision` |
+| Search every submitted file by pipeline, stage, flags and amounts (`application`/`read`) | `admin.intake.queue`, `byReference` |
+| See the intake summarized for reporting | `admin.analytics.summary` |
+| Write a note nobody outside the office sees | `admin.intake.addInternalNote` |
 
-Programme cycles are absent deliberately: writing a policy year and its form is
-`programme_cycle` and `form_template` work, and shaping the programme is an
-authority to hand out separately from working its casework.
+Money after approval — sanction, releases, assessments, recovery — is not yet
+modelled; see the [roadmap](docs/ROADMAP.md).
+
+Programme cycles and pipelines are absent deliberately: shaping the programme
+is an authority to hand out separately from working its casework.
 
 ### Shaping the programme
 
@@ -163,7 +169,8 @@ form decide who is eligible and for how much:
 
 | What they do | Operation |
 | --- | --- |
-| Write a programme year's policy as a draft, revise it, and open it | `admin.programmeCycle.create`, `updateDraft`, `open` |
+| Write a programme year's policy as a draft — its pipeline, the kinds of application it accepts and who may start each — revise it, and open it | `admin.programmeCycle.create`, `updateDraft`, `open` |
+| Author, check and publish a pipeline, retire one, and say which roles work each stage | the mutations under `admin.pipeline` |
 | Author the form a draft cycle asks — stages, questions, reusable structures | the nine mutations under `admin.formTemplate` |
 | Change the closing time or the guidance an open cycle shows | `admin.programmeCycle.changeClosingTime`, `updateOpenGuidance` |
 | Close, archive, soft-delete or restore a cycle | `admin.programmeCycle.close`, `archive`, `softDeleteDraft`, `restoreDraft` |
@@ -196,7 +203,8 @@ themselves**, so the record always shows they agreed. Their applicant access is
 exchanged for the staff role rather than added to it.
 
 An invitation cannot exceed its issuer's authority: you may offer only a role
-whose permissions you already hold yourself. A super administrator holds the
+whose permissions you already hold yourself, and that works no stage you do not
+work yourself. A super administrator holds the
 wildcard, so every role is theirs to offer — and nobody is ever invited to
 super administrator. Nothing about the invitation is stored — it travels sealed
 in the link, and what makes it single-use is that it only applies while the
@@ -224,6 +232,26 @@ cd dev-web && npm install && npm run local   # the client, on :9990
 GraphQL is at `http://localhost:9999/graphql`. The client points at the Worker
 automatically.
 
+### Setting up the route (runbook)
+
+A fresh database has no pipeline, and a cycle cannot be saved without one. In
+this order, as a super administrator:
+
+1. **Roles.** Under Roles, create one role per desk — for the shipped route
+   TTC, Industries & Commerce, SBI Bank and TGB Bank — each with the `stage`
+   acts its actions need (see the [pipeline guide](docs/pipeline-guide.md#effects)).
+   Add `application`/`note` where an action keeps a staff note.
+2. **Pipeline.** Under Pipelines, create one with "Start from the example",
+   adjust it, and press Check until it reports no problems.
+3. **Owners.** On the pipeline's Owners tab, give each stage its role.
+4. **Publish** the pipeline, with a change note.
+5. **Cycle.** Create a cycle, choose the pipeline, declare its application
+   kinds, and open it. Opening refuses a form the pipeline cannot read.
+6. **People.** Invite each officer to their role, or grant it.
+
+Changing who works a stage later needs no publish; changing the route does, and
+files already in flight finish in the version they started in.
+
 ### Configuration
 
 `.env.example` is the checked-in template and documents every variable. Wrangler
@@ -233,9 +261,7 @@ loads `.env` then `.env.local`, the later winning, and both are gitignored.
 `.env` files entirely when it exists — the first thing to suspect when a change
 appears to do nothing.
 
-`AUTH_SECRET` and `IDENTIFIER_SECRET` are required, at least 32 bytes each. The
-second is read at first use rather than at startup, so a deployment missing it
-looks healthy until the first desk review is completed, which then fails.
+`AUTH_SECRET` is required, at least 32 bytes.
 
 `ENVIRONMENT` decides two things: where documents go, and whether one-time
 codes are really sent. Unset means local — a deployed environment is always told
@@ -285,7 +311,7 @@ and run `db:schema:generate`.
 `check:client-gates` is the client half of `check:catalog`. That one fails when
 a catalogue pair is enforced nowhere on the server; this one fails when a screen
 can send two differently-guarded operations and never asks about one of them —
-which is how a role composed to record a decision came to be offered a
+which is how a role composed to record decisions came to be offered a
 correction the API refuses. It pairs with `noUnusedLocals`: this proves the
 permission is asked for, and the compiler proves the answer is used, because a
 flag that stops gating a control becomes an unread binding.
@@ -323,6 +349,8 @@ Four layers, and each subject has exactly one owner. The rule is
 
 - [Application guide](docs/application-guide.md) — the applicant's journey
 - [Administrator workflow guide](docs/admin-workflow-guide.md) — the office's
+- [Pipeline guide](docs/pipeline-guide.md) — how a file is worked after it is
+  submitted: pipelines, stages, actions, flags, and the worked example
 - [Form template guide](docs/form-template-guide.md) — the dynamic application
   form, end to end
 - [RBAC](docs/admin-rbac.md) — roles, grants, and the bootstrap
@@ -338,6 +366,8 @@ Four layers, and each subject has exactly one owner. The rule is
   check the same things
 - [Applicant service](src/services/application/README.md)
 - [Administrative service](src/services/admin/README.md)
+- [Pipeline service](src/services/pipeline/README.md) — authoring pipelines,
+  and working a file through one
 - [Authentication service](src/services/auth/README.md)
 - [Audit](src/services/audit/README.md) — reading who changed what
 - [Storage](src/services/storage/README.md) — a bucket, or this Worker
@@ -362,7 +392,7 @@ requests. The
 Worker has three entrypoints: `fetch`, an hourly `scheduled` handler running
 three cleanup jobs, and a `queue` consumer that scans a finalized document.
 
-Five of the nine services exist to be **swapped** — notification, storage,
+Five of the services exist to be **swapped** — notification, storage,
 queue, the document scanner, and the rate limiter. Each is an interface
 stated in the programme's own words, with one file per implementation and a
 factory that picks by environment. That is what lets the whole portal run on a

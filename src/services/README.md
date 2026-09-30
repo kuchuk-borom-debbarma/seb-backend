@@ -1,9 +1,9 @@
 # Services
 
-Nine services hold every business rule in the Worker. GraphQL resolvers are
+Eleven services hold every business rule in the Worker. GraphQL resolvers are
 thin adapters above them and hold none.
 
-Four of them own a domain. The other five exist to be *swapped*: each is an
+Six of them own a domain. The other five exist to be *swapped*: each is an
 interface the programme states in its own words, with one file per
 implementation (a `transports/` directory) and a factory that picks by
 environment. That is what lets the whole portal run on a developer's machine
@@ -15,8 +15,10 @@ asked.
 
 | Service | Owns |
 | --- | --- |
-| [`application/`](application/README.md) | Everything an applicant owns — enterprises, drafts, the form engine, evidence, submission |
-| [`admin/`](admin/README.md) | Programme cycles, form authoring, and the whole post-submission staff workflow |
+| [`application/`](application/README.md) | Everything an applicant owns — enterprises, drafts, the form engine, evidence, eligibility, submission |
+| [`admin/`](admin/README.md) | Programme cycles, form authoring, and the office's read of a submitted file |
+| [`pipeline/`](pipeline/README.md) | Configured pipelines: authoring them, and working a file through their stages |
+| [`catalogue/`](catalogue/workflow.json) | The workflow vocabulary — effects, input types, conditions, form and eligibility rules — as JSON, generated into code |
 | [`auth/`](auth/README.md) | Identity, sessions, signup, account self-service, the permission catalogue, and role administration |
 | [`audit/`](audit/README.md) | Reading the history of who changed what, and exporting it |
 | [`audit-vocabulary/`](audit-vocabulary/index.ts) | What each audited action records, and how it is read |
@@ -47,9 +49,10 @@ support.ts     each service's own refusal messages, its permission
                preamble, and its error-classification helpers
       │
 envelope.ts    the one response envelope, shared by every service
-audit-event.ts the one audit row and the one statement that writes it,
-               shared by every service; what each action records is
-               declared in audit-vocabulary/
+audit-event.ts the one audit row and the one insert that writes it (as a
+               batch statement, or as a member of a data-modifying
+               WITH), shared by every service; what each action
+               records is declared in audit-vocabulary/
 ```
 
 ### Why the checks are repeated
@@ -92,12 +95,12 @@ Every mutation is one statement, and it always looks like this:
 3. The row count of the first statement decides the outcome.
 
 Written as one data-modifying CTE it is implicitly atomic and costs a single
-round trip. A losing request writes nothing at all — no partial referral, no
-orphaned audit row. The caller gets
+round trip. A losing request writes nothing at all — no partial stage action,
+no orphaned audit row. The caller gets
 `'The record changed. Reload and try again.'`
 
-The audit row doubles as the operation's claim
-(`application/queries/application.ts:1636-1639`):
+The audit row doubles as the operation's claim (the submission write in
+`application/queries/application.ts`):
 
 > This append-only audit row is the transition's unique claim. All writes in the
 > same statement select from the guarded update itself, which is stronger than
@@ -113,9 +116,11 @@ disagreed in production-shaped ways:
 | Rule | One definition | What went wrong with two |
 | --- | --- | --- |
 | Which documents a submission requires | `application/form/engine.ts` | A cycle asking for fewer documents validated as complete, then the write refused it with a message about the application having changed |
-| Which column a queue cursor seeks | `admin/queries/intake.ts:127` | Encode and decode derived it separately; when they disagreed the cursor seeked the wrong column and returned a wrong page with no error |
+| Which column a queue cursor seeks | `intakeSortKey` in `admin/queries/intake.ts` | Encode and decode derived it separately; when they disagreed the cursor seeked the wrong column and returned a wrong page with no error |
 | Which form stages changed | `application/form/answers.ts` | Three copies existed — a whole-draft `JSON.stringify`, a per-section one, and a field-by-field walk with a `Date` case only one of them had — so they could and did disagree |
 | Which questions are on screen | `application/form/conditions.ts`, mirrored in `dev-web/.../formTemplate.ts` | The client must decide this without a round trip per keystroke, so there are deliberately two. `test/service/client-parity.test.ts` runs both over the same templates and asserts they agree — a fixture of expected values would go on passing while both drifted the same wrong way |
+| What an action's inputs accept | `application/form/engine.ts`, reached through `pipeline/inputs.ts` | An officer's amount and an applicant's amount would obey two sets of rules, and sooner or later disagree about what "answered" means |
+| What a pipeline condition means | `holdsGroups` and `compareValue` in `application/form/conditions.ts` | Form conditions and pipeline conditions share one combinator — AND within a group, OR between groups — so a pipeline cannot read a condition the way the form never would |
 | The session token digest label | `auth/crypto.ts:124-128` | Creation, authentication and sign-out would stop recognising each other's sessions |
 | What "another usable super administrator" means | `auth/queries/access.ts:176` | The guard could be satisfied by an account that could not actually sign in |
 
@@ -150,8 +155,8 @@ headers become the trail's record of *where a request came from* is one choice
 about evidence, and four copies of it meant a change to that choice landing in
 three. It lives in `audit-event.ts`, with the one insert every service uses.
 Each service still keeps a thin wrapper — `adminAudit`, `auditEvent`,
-`announcementAudit`, `auditRecord` — narrowed to the actions that service may
-write, so a controller naming another service's action does not compile, and
+`announcementAudit`, `auditRecord`, `pipelineAudit` — narrowed to the actions
+that service may write, so a controller naming another service's action does not compile, and
 each action's payload is checked against its declaration in
 `audit-vocabulary/` at compile time and again at the write.
 
@@ -159,12 +164,16 @@ each action's payload is checked against its declaration in
 layering: it needs the query layer, and `support.ts` is what the query layer
 imports, so it cannot live there (`application/ownership.ts:10-11`).
 
-## The one architectural exception
+## Registries
 
-`admin/index.ts:6` re-exports `queries/funding` publicly — the only query
-module exposed outside its own service. The applicant's funding view reads
-administrative money records, and the alternative was duplicating the ledger
-fold. Nothing else crosses this boundary.
+Configured behaviour is carried out through registries rather than switch
+statements: `defineEffect`, `defineParamKind` and `defineConditionSource` in
+`pipeline/`, `defineFormRule` in `application/form/cross-field/`, and
+`defineEligibility` in `application/eligibility/`. Each entry is one file whose
+first call argument is its catalogue key, and each registry is a record keyed
+by the catalogue's own generated union — so an entry missing from a registry
+does not compile, and `check:workflow-catalog` fails naming any entry declared
+in `catalogue/workflow.json` without code, or code without a declaration.
 
 ## Guards
 
@@ -173,8 +182,14 @@ Three, all defined in `auth/controllers/auth.ts`:
 | Guard | Accepts | Used by |
 | --- | --- | --- |
 | `authenticatedApplicant` | `APPLICANT` only | every `seb.*` operation |
-| `authenticatedWithPermission` | whoever holds the resource/act pair the operation names | every `admin.*` operation, via `currentStaff` |
+| `authenticatedWithPermission` | whoever holds the resource/act pair the operation names | every `admin.*` operation, via `currentStaff` or the pipeline service's own preamble |
 | `authenticatedSuperAdministrator` | `SUPER_ADMIN` only | composing a role, and granting or revoking one |
+
+Working a file at a pipeline stage needs a second thing no guard above can
+express: that one of the person's roles **owns the stage**. The session reads
+owned stages in the same query as permissions, and `ownsStage` in
+`auth/permissions.ts` answers it; the pipeline service asks both. The rule is in
+[RBAC](../../docs/admin-rbac.md#stage-ownership-is-scope-and-why-a-permission-is-not-enough).
 
 Sign-in accepts anyone holding at least one active grant, so the narrower
 applicant check is what keeps applicant operations closed to a member of staff

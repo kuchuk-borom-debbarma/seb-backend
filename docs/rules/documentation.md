@@ -92,8 +92,7 @@ worked example rather than an abstract warning:
 | Subject | Was in | Now owned by |
 | --- | --- | --- |
 | Upload rules — MIME types, the size cap, the signed headers, the cleanup retry | four places | `src/services/application/README.md` |
-| Transcribed identifiers and the key-rotation warning | three places | `docs/admin-workflow-guide.md` for the rule, `src/services/admin/README.md` for the mechanism |
-| The named-queue rationale | two places, near-verbatim | `docs/admin-workflow-guide.md` |
+| What each workflow effect does and the permission it needs | the catalogue and three docs | `src/services/catalogue/workflow.json` for the fact, `docs/pipeline-guide.md` for the explanation |
 | What bounds a request | the client's guide, describing server limits | `src/graphql/README.md` |
 
 Configuration files are the one exception. `.env.example` may restate a

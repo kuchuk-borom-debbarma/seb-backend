@@ -4,7 +4,7 @@ This guide describes the authorization foundation shared by the applicant and
 administrative services. The first super administrator is promoted through a
 one-time curl operation; everybody after them is either granted a role directly
 by a super administrator or invited and accepts it themselves. Cycle, intake,
-decision, funding and recovery operations all read live authority.
+pipeline and stage operations all read live authority.
 
 ## One identity, several roles
 
@@ -39,17 +39,16 @@ it back, so role administration deliberately cannot touch it.
 ## The permission catalogue
 
 Every pair a role can be given lives in
-[`auth/catalog.json`](../src/services/auth/catalog.json): twelve resources,
-twenty-three acts, and the thirty-eight pairs that actually exist. A resource
-offers only the acts that mean something on it, so `audit`/`award` is not a
+[`auth/catalog.json`](../src/services/auth/catalog.json): eleven resources,
+twenty acts, and the thirty-six pairs that actually exist. A resource offers
+only the acts that mean something on it, so `audit`/`publish` is not a
 permission nobody holds — it is not a permission at all.
 
 | Resource | Acts |
 | --- | --- |
-| `application` | `read` `note` `review` `refer` |
-| `decision` | `record` `correct` |
-| `funding` | `read` `award` `release` `reverse` `assess` |
-| `recovery` | `read` `open` `record` `cancel` `close` |
+| `application` | `read` `note` |
+| `stage` | `read` `advance` `return` `request_revision` `decide` `close` |
+| `pipeline` | `read` `create` `update` `publish` `retire` `assign` |
 | `programme_cycle` | `read` `create` `update` `open` `close` `archive` `delete` |
 | `form_template` | `update` |
 | `policy_document` | `read` `upload` |
@@ -63,6 +62,11 @@ The file is authored as JSON and consumed as TypeScript: `catalog.generated.ts`
 is derived from it so that a guard's two arguments check against each other, and
 `npm run check:catalog` fails the build if the two disagree. Adding a pair is a
 catalogue edit and a guard that names it — nothing else.
+
+The fixed workflow's permissions are gone with it: `application`/`review` and
+`application`/`refer`, and the whole of `decision`, `funding` and `recovery`.
+Their grants were deleted when the pipeline arrived, so no role carries a pair
+that means nothing. Every other permission a role held was kept.
 
 **Composing a role, and granting or revoking one, are absent from the catalogue
 on purpose.** They are the super administrator's alone, guarded in code. A role
@@ -83,6 +87,85 @@ a permission is what the server actually refuses on.
 Somebody's permissions are published on the signed-in user so the interface can
 decide what to offer without holding a second copy of the policy — but every
 operation is still re-checked by the API, which is what actually refuses.
+
+## Working a pipeline: permissions and stage ownership
+
+After submission, a file is worked through a configured **pipeline** of stages
+(see the [pipeline guide](pipeline-guide.md)). Two resources govern it.
+
+**`stage` is working a file.** Each act is what one kind of configured effect
+needs; an action needs every act its effects need.
+
+| Act | Needed to |
+| --- | --- |
+| `read` | see a stage's files |
+| `advance` | move a file on — to another stage, to the one an input chose, or to a successful end — and change a progress flag |
+| `return` | send a file back to the stage it actually came from |
+| `request_revision` | ask the applicant to correct named sections of their form |
+| `decide` | record a value such as the amount approved, and change an outcome flag |
+| `close` | end a file's journey without success, such as a rejection |
+
+Which act an effect needs is fixed by the code's catalogue of effects, never
+chosen by whoever configured the action. An approval cannot be made cheaper by
+calling it something else. Keeping a staff note needs `application`/`note`, the
+same permission as writing one by hand.
+
+**`pipeline` is shaping one.** `read` to see pipelines, `create` to start one,
+`update` to edit a draft, `publish` to make a draft the version cycles opening
+next will use, `retire` to stop new cycles choosing it, and `assign` to choose
+which roles own each stage. Choosing a cycle's pipeline needs
+`programme_cycle`/`update` and `pipeline`/`read`, and only a published pipeline
+can be chosen.
+
+### Stage ownership is scope, and why a permission is not enough
+
+A State Bank of India officer and a Tripura Gramin Bank officer need exactly the
+same permissions: to see a file, send it back, and record a loan. Yet each must
+see and act on only their own bank's files. No global permission can say that.
+
+So each stage lists the **roles that own it**. Acting on a file needs both:
+
+1. every permission the action's effects need; and
+2. a role that owns the stage the file is at.
+
+> Arjun holds the role `SBI_BANK`, which owns the State Bank stage. A file
+> routed to the Tripura Gramin Bank is not his to act on: his permissions
+> would allow the action, but he owns no stage the file is at. He cannot open
+> it either, unless his role also carries office-wide `application`/`read`.
+> When Industries & Commerce sends a file to the State Bank, it appears in his
+> queue.
+
+A super administrator owns every stage, for the same reason they hold every
+permission. Ownership is not part of a pipeline's versions: adding a second
+officer's role to a stage takes effect at once, without publishing, and every
+change is kept with who made it and the reason.
+
+**Who may read a file.** A staff member sees the files at stages their roles
+own, and the files they have acted on (read-only, so an officer can still find
+a file they sent onward). `application`/`read` still gives office-wide reading,
+but acting anywhere still needs ownership. The same scope is repeated inside
+every read of a file — the workspace, its documents, its notes — so no single
+screen is the only thing enforcing it.
+
+**Ownership is read with authority, live.** The session query that resolves a
+person's permissions also returns the stages their live roles own, in the same
+statement, so there is no extra round trip and no copy that could go stale.
+Removing a role from a stage takes effect on its holders' next request.
+
+### Two ceilings on handing out a stage
+
+Attaching a role to a stage hands that role's holders the stage's files, so
+`pipeline`/`assign` has a ceiling, like invitations. You may add a role to, or
+remove one from, a stage only if:
+
+1. you could offer that role yourself — you already hold every permission it
+   carries; **and**
+2. you own that stage yourself.
+
+The invitation ceiling (below) gains the same scope: you may offer a role only
+if you own every stage it owns. Without it, somebody working the State Bank
+stage could invite a second account into the Tripura Gramin Bank role. A super
+administrator passes both ceilings.
 
 ## What replaced the six fixed roles
 
@@ -263,7 +346,8 @@ send an invitation, which lands only when the person accepts it themselves — s
 the record always shows they agreed.
 
 **An invitation cannot exceed its issuer's own authority.** You may offer only a
-role whose permissions you already hold yourself. This used to be a written
+role whose permissions you already hold yourself, and whose stages you already
+own. This used to be a written
 table of role names, which cannot be maintained at all now that the office
 composes its own — so the rule is computed from the actual permission sets, and
 `access.invitableRoles` returns the list rather than leaving a screen to work it
@@ -377,10 +461,12 @@ The current workflow still does not provide:
   cannot be composed into a role and read as coverage;
 - **nesting or ranking roles.** Two roles overlap or they do not, and holding
   both is the union;
-- staff profiles, departments, organizations, or partner-bank accounts;
+- staff profiles, departments or organizations. A bank's officers are ordinary
+  staff holding a role that owns the bank's stage;
 - separate privileged sessions; or
-- a mandatory recusal/second-approval rule. Self-review is allowed only after
-  explicit acknowledgement and remains visible in assignment history.
+- a mandatory recusal/second-approval rule. Acting on your own application is
+  allowed only after you say so, and the disclosure is kept on the action and
+  recorded in the activity history as `SEB.SELF_REVIEW_DISCLOSED`.
 
 The base schema never contains an account, email, password, bootstrap secret,
 or other administrator credential.

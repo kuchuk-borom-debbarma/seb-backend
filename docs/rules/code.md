@@ -42,7 +42,10 @@ to it lands in three. It lives in
 **the one statement that writes the table**, `insertAuditEventWhere`: twenty-five
 hand-written copies of that insert once recorded no request labels and no
 details, and each looked locally plausible. `check:audit` now refuses an
-`insert(coreAuditEvent)` anywhere else. Each service keeps a thin wrapper,
+insert into the table anywhere else. The file holds a second form of the same
+insert, `auditEventCteMember`, for a write that is one data-modifying `WITH`
+rather than a batch (below); it names its columns, and `check:insert-arity`
+holds that list to the table. Each service keeps a thin wrapper,
 narrowed with `ActionWrittenBy` to the actions it may write — a controller
 naming another service's action does not compile.
 
@@ -200,6 +203,16 @@ atomicity depends on which one a driver chose is not. `batch` therefore opens th
 transaction on the handle the statements were built from, and `openDatabase`
 refuses a pool so that handle is always one connection.
 
+**A write with many dependents is one statement, not a batch.** `batch` runs
+its statements in order on one connection, so it is atomic but costs one round
+trip each. Taking a stage action writes the head, the action's own row, any
+revision requests and notes, a timeline event and the audit row — six hops as a
+batch. It is one `WITH` instead: the guarded head update is the first member,
+every other member selects `FROM` it, and the audit row joins in through
+`auditEventCteMember`. A losing writer's update returns no row, so every other
+member writes nothing, which is the same guarantee as the predicate form with a
+join in place of `WHERE EXISTS`.
+
 **A dependent insert has no column list, so its arity is checked.** Drizzle's
 `.insert(t).select(sql...)` matches the select to the table **by position**, and
 the select is a template string, so TypeScript sees nothing. One expression too
@@ -209,6 +222,10 @@ decision written with `conflict_acknowledged` defaulted to false reads exactly
 like an honest one. `check:insert-arity` applies the generated schema to a real
 Postgres and counts. Adding a column to a table is what breaks every insert into
 it at once, which is why the count comes from the schema rather than a list.
+A raw `INSERT INTO ${t} (…) SELECT …` names its columns, which Postgres already
+holds to the select's length, but only on the path that runs it; the same check
+matches the two lists and every named column against the table, so a renamed
+column fails the build rather than the one stage action that reaches it.
 
 Where a write is stateless by design — the role invitation is the only one — the
 *precondition* goes in the predicate instead, which is what makes a token that
@@ -332,6 +349,64 @@ scar in a different file: three recovery actions were declared and never
 written, so the catalogue read as coverage while the history contained no
 recovery at all. A permission nothing enforces is exactly as empty.
 
+## Configured behaviour is a frozen document, carried out by declared code
+
+The office configures how an application is worked — its pipeline — and the
+shape of that configuration is a rule of its own.
+
+**A pipeline version is one frozen JSONB document, plus rows only for what
+other rows reference.** The stages, actions, inputs, effects, flags and
+recorded values of a version live in `seb_pipeline_version.definition`. Only a
+pipeline's stages are materialised as rows (`seb_pipeline_stage`,
+`seb_pipeline_version_stage`), because an application's current stage, its
+action history and a stage's owners all point at one, and **a document cannot
+be a foreign-key target**. Everything else in the document is referenced by
+nothing, and restating it as rows would add a join to every read without adding
+a guarantee. This is the opposite of the form template, which is rows, and for
+the same reason read the other way round: the template's whole job is to be
+referenced. A published version is never updated — every write names
+`status = 'DRAFT'` — and a cycle and each of its applications pin the version,
+so editing a pipeline never re-routes a file being worked. A stored document is
+parsed against the generated catalogue on every save, publish and load, so a
+build that removes an effect fails closed on the document that names it rather
+than skipping it.
+
+**An effect's permission comes from the catalogue, never from the author.**
+Each effect in `src/services/catalogue/workflow.json` names the permission pair
+it needs, and an action needs the union of its effects' pairs. The author
+chooses what an action does; what it costs is decided by the code. Otherwise an
+approval could be made cheaper by being called something else. The pairs are
+answered through a table of literal `holdsPermission` calls
+(`services/pipeline/permissions.ts`), never by splitting a string, so
+`check:catalog` sees every `stage` pair enforced by name.
+
+**Stage ownership is data, separate from permissions.** Two bank officers need
+identical permissions and must still see different files, which no global
+permission can express. So a stage lists the roles that own it
+(`seb_pipeline_stage_owner`), acting needs both the permissions and ownership,
+and the session reads owned stages in the same query as permissions. Ownership
+is not versioned with the pipeline: it is authority, not shape, and adding a
+second officer's role must not need a publish.
+
+**The workflow catalogue and its code are checked against each other in both
+directions.** Every effect, parameter kind, condition source, form rule and
+eligibility rule the JSON declares must have a registration in code — a
+`define…('KEY', …)` call in its own file — and every registration must be
+declared. `check:workflow-catalog` matches the markers and fails naming the
+entry and the missing side; `test/service/workflow-catalogue.test.ts` imports
+the registries and compares what a regex cannot see: each handler's parameter
+schema against its declared parameters, and the GraphQL enums against the
+catalogue's sets. The scar is the permission catalogue's, one file along: a
+declared thing with nothing behind it reads as coverage.
+
+**A retired audit action is readable and never written.** When the fixed
+workflow went, its actions left the catalogue and the vocabulary. Their rows
+stay, because the history is append-only; they read through the fallback for a
+name this build does not know — category `OTHER`, a label made from the code,
+the details shown as stored. Keeping a spec for an action nothing writes would
+fail `check:audit`, and it should: a declared action nobody writes is a note
+about an intention.
+
 ## The schema file is generated, and that is checked
 
 `database/schema.sql` is the whole schema. A change is made in `src/db/schema/`
@@ -356,12 +431,19 @@ old chain skip the baseline instead of replaying the whole schema over tables
 it already has. Generated entries after it carry their own real timestamps and
 need no thought; a hand-written `when` is a decision about which databases
 will replay, and only the baseline gets one.
-**`IF NOT EXISTS` is not a migration**: against a table already present in an
-older shape the statement is skipped and reported as success, leaving the
-database on the old definition while the code assumes the new one. That is why
-the end-to-end reset (`npm run test:e2e-db`) drops and recreates its database
-before migrating instead of guarding — recreating is cheaper where nothing has
-to survive, and cannot leave an old shape behind.
+**A migration is idempotent, and that is not enough on its own.** Every
+statement checks before it acts — `IF EXISTS`, `IF NOT EXISTS`, constraints
+guarded by `pg_constraint`, data removal guarded by a column the same file
+drops — so a migration interrupted and re-run changes nothing the second time.
+The danger in a guard is real: against a table already present in an older
+shape, `CREATE TABLE IF NOT EXISTS` is skipped and reported as success, leaving
+the database on the old definition. That is why `check:migration` rehearses the
+chain over seeded data, runs the newest file twice, and asserts the chain's
+destination is exactly `database/schema.sql`: the guard makes a re-run safe,
+and the comparison proves the guard did not hide an old shape. A migration also
+names every destructive step, and uses no triggers. The end-to-end reset
+(`npm run test:e2e-db`) still drops and recreates its database before
+migrating, because recreating is cheaper where nothing has to survive.
 
 **One ordering rule survives either way.** A composite foreign key needs its
 referenced columns covered by a unique *constraint*, not a unique index, because

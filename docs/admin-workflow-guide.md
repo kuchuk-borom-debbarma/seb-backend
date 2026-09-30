@@ -20,8 +20,13 @@ roles itself — so this guide describes the *work*, and
 to do it.
 
 A role holds **permissions**: a resource and an act on it, such as
-`application`/`read` or `decision`/`record`. A super administrator may do
+`application`/`read` or `stage`/`decide`. A super administrator may do
 everything, and is the only authority that composes a role or hands one out.
+
+**Casework also depends on which stages your roles own.** A pipeline's stages
+each list the roles that work them. You act at a stage only if one of your roles
+owns it *and* you hold the permissions the action needs, so two bank officers
+with identical permissions still see only their own bank's files.
 
 Each operation asks for the permission it needs rather than naming a role, so a
 narrower role is refused by the operation rather than at the door — and a role
@@ -44,12 +49,15 @@ stale versions, invalid transitions, and policy failures return the normal
 ## Programme cycles: the policy window
 
 A programme cycle is one published application window, for example “Mission
-SEP 2026”. It is not an application batch or an applicant account. It contains
-the opening/closing times, guidance, bank-roster text, jurisdiction, age and
-category rules, expansion wait, required assessments, the application form
-itself — its stages and questions, where a required document is a `FILE`
-question like any other and may carry the same show-when conditions — the
-reason catalogue, and funding-ceiling state.
+SEP 2026”. It is not an application batch or an applicant account. It contains:
+- the opening and closing times, guidance, jurisdiction, and age and category
+  rules;
+- the **pipeline** its applications are worked in, and the funding ceiling;
+- the **kinds of application** it accepts, each with its eligibility rules;
+- the application form itself: its stages and questions (a required document
+  is a `FILE` question like any other), and its rules about several answers at
+  once;
+- the reason catalogue.
 
 Example: Rina starts phase 1 while cycle version 2 is open. Her draft pins
 version 2. Staff may later correct public guidance or extend the closing time,
@@ -57,7 +65,11 @@ creating version 3, but Rina’s eligibility and evidence rules remain version 2
 
 Staff create and revise a draft, publish it with `open`, change only public
 guidance or a future closing time after publication, then close and eventually
-archive it. Closing stops new drafts; it does not strand existing submissions
+archive it. **Opening pins the pipeline's current published version** and
+refuses a form the pipeline cannot read: every answer the pipeline reads must be
+a top-level question of the type it expects. Choosing a pipeline needs
+`pipeline`/`read` as well as the cycle permission, and only a published,
+unretired pipeline can be chosen. Closing stops new drafts; it does not strand existing submissions
 or official revisions. The scheduled handler closes at most 20 expired cycles
 per run. Opened cycles cannot be deleted.
 
@@ -89,18 +101,29 @@ unanswerable. How the whole system works — the question types, the conditions,
 the structures, the limits, and what the applicant's side does with it — is
 the subject of the [form template guide](form-template-guide.md).
 
-## Intake queues
+## Finding the files to work
 
-Drafts never appear in intake, and asking for one by id is refused the same way
-an unknown application is. The queue exposes the latest formal submission,
-reference, enterprise, applicant, pinned cycle, phase/type, category, sector,
-status, who holds it, submission time, and activity time. Staff may filter by
-those dimensions and order by oldest waiting, newest submission, or last
-activity.
+Drafts never appear to the office, and asking for one by id is refused the same
+way an unknown application is.
 
-Whoever worked a file last is named rather than left as an identifier, because
-somebody looking at one another officer has touched is usually about to go and
-ask them about it.
+**My stages** is where an officer starts. It lists every stage their roles own,
+with how many files wait at each; a super administrator sees every stage of
+every published pipeline. Each opens that **stage's queue**: its files oldest
+first, with how long each has waited, its flags and recorded values, filterable
+by the flags a file holds.
+
+**The office-wide list** (`admin.intake.queue`) is for searching rather than
+working. What it shows depends on the reader:
+- `application`/`read` lists every submitted file;
+- `stage`/`read` lists the files at stages your roles own, and the files you
+  have acted on;
+- the total counts only what the reader may see.
+
+It filters by cycle, kind, category, sector, district, submission dates, the
+requested grant and loan, and by **pipeline, stage and flags** (a file must hold
+every flag chosen). Each row shows its stage's name and its flags' labels from
+the version it is worked in, and what was asked for. It orders by oldest
+waiting, newest submission or last activity.
 
 Staff may also search by the start of a reference number or an enterprise name.
 It is a prefix match, not a free-text search, and the interface says so — a box
@@ -111,54 +134,9 @@ Pagination uses a stable timestamp-and-ID cursor, and every list reports how
 many results there are in total, so a page can say where it sits in the set and
 "nothing matches these filters" can be told apart from "nothing here yet".
 
-### Named queues
-
-Beyond ad-hoc filtering, `admin.intake.queue` accepts a `queue` key naming the
-work list staff actually operate from, and `admin.intake.queues` returns the
-count waiting in each. Every queue is reported, including empty ones, so the
-chips stay stable rather than appearing and disappearing.
-
-| Queue | Applications |
-| --- | --- |
-| `NEW_SUBMISSIONS` | `SUBMITTED`, submission number 1 |
-| `REVISION_RESPONSES` | `SUBMITTED`, submission number above 1 |
-| `DESK_REVIEW` | `DESK_REVIEW` |
-| `PARTNER_BANK_EVALUATION` | `PARTNER_BANK_EVALUATION` |
-| `AWAITING_DECISION` | `AWAITING_DECISION` |
-| `APPROVED` / `REJECTED` / `SANCTIONED` / `DISBURSED` | the matching status |
-
-The first two queues are why this is its own vocabulary rather than a reuse of
-`ApplicationStatus`: a first submission and an answer to a revision request are
-both `SUBMITTED` and need completely different handling. `CANCELLED` belongs to
-no queue, because nobody works from it.
-
-`queue` and `status` are mutually exclusive. Supplying both is refused rather
-than silently intersected, which would return an empty page instead of the
-queue that was asked for. Both accept an optional `cycleId`.
-
-Nothing is reserved before it is worked on. Anybody holding the right role may
-act, and two officers acting at once are settled by the version guard on the
-transition itself: one succeeds and the other is told the record changed. The
-screen says who was here last so the second can decide whether to duplicate the
-effort, but it forbids nothing and disables nothing.
-
-There used to be a mandatory claim, and it was removed because it was never
-what made a write safe. It also had a cost: reading a document was gated on
-holding the file, and a reviewer — the role whose entire job is reading
-casework — could not hold anything, so the people who most needed to read
-could not. The record of who worked a file survives as history, written as a
-side effect of the work rather than as a step before it.
-
-What replaced it as a gate is stronger. Advancing a stage requires transcribing
-the numbers off the documents just read, which is evidence of having read them
-in a way that pressing a button never was — see “What the reviewer
-transcribes”.
-
-If the officer acting is also the applicant, they must acknowledge it on the
-transition that decides something: completing a desk review, or recording a
-decision. The selected product rule permits the action and retains the
-acknowledgement. TTAADC still needs to decide whether a second approval is
-required before public launch.
+Nothing is reserved before it is worked on. Anybody who may act, acts, and two
+officers acting at once are settled by the version guard on the write itself:
+one succeeds and the other is told the file changed and offered a reload.
 
 ## Analytics and filtering
 
@@ -207,160 +185,76 @@ Until the production key is issued and configured, staff document access in
 production stays effectively closed even though the fail-closed contract and
 the scanner both exist.
 
-## Desk review and revisions
+## Working a stage
 
-Starting review moves `SUBMITTED` to `DESK_REVIEW`. Completion records exactly
-one result for each fixed check: identity/KYC, ST evidence, majority ownership,
-jurisdiction, form completeness, document completeness, answer/document
-consistency, DPR feasibility, and expansion evidence. An initial application
-uses `NOT_APPLICABLE` only for expansion evidence; all applicable checks must
-pass before bank referral. Submitted files must also have accepted scans.
+The application page's **stage panel** is the whole desk:
+- where the file is, and what the applicant is told about that stage;
+- the trail of stages it came through, its flags and its recorded values, such
+  as the approved grant;
+- open correction requests;
+- its stage history: who took which action, when, and what they entered;
+- **the actions offered to you.** An action you may not take is shown disabled,
+  with the reason. The panel asks the same question the write does, so it never
+  offers a button that will be refused.
 
-### What the reviewer transcribes
+Taking an action opens a dialog with the action's inputs — an amount, a bank, a
+note, a date — pre-filled where the pipeline says so, such as the bank the
+applicant chose first. The inputs obey the same rules as the applicant's form,
+and a refused one is shown against its field. An amount above what the
+applicant asked for, or above the cycle's ceiling, is refused and nothing is
+written. What each action does is the pipeline's to say; see the
+[pipeline guide](pipeline-guide.md).
 
-A result alone is an attestation with nothing behind it: "I saw a valid
-certificate" cannot afterwards be asked *which* certificate. So a passed check
-also records the number on the document it was read from — the Scheduled Tribe
-certificate for `ST_ELIGIBILITY`, the identity document for `IDENTITY_KYC`, and
-the bank account with its branch code for `DOCUMENT_COMPLETENESS`. A business
-registration number is accepted but never demanded, because an unregistered
-enterprise has none. A check that is failed or not applicable asks for nothing.
+**Corrections.** An action that asks the applicant for corrections names the
+sections of their form that need changing, each with a note. The file stays at
+the stage, the applicant can edit only those sections, and when they resubmit
+the file **returns to the stage that asked**, not to the start. A request made
+in error can be withdrawn with a reason; withdrawing the last one hands the file
+back to the office at the same stage.
 
-Values are compared after case and separators are stripped, so
-`tr/st/2019-004471` and `TR-ST-2019-004471` are one certificate. Identity and
-bank numbers are stored as a keyed digest and never rendered back; the reviewer
-confirms against the last four digits. The key is set once — every stored
-digest was made with it, so changing it would silently stop the check matching
-anything already recorded.
+**Sending back.** A send-back returns the file to the stage it actually came
+from, along its own trail. A file sent to the Tripura Gramin Bank and sent back
+returns to Industries & Commerce, which may then route it to the State Bank of
+India instead.
 
-If a value already exists on a **different funding case**, the review is refused
-and names both the identifier and the application it was found on. This is a
-question, not a verdict: a second-phase expansion by the same promoter is
-expected, so the reviewer either fails the check or states why it is not the
-same claim, and that answer is retained beside the value that raised it.
+**Acting on your own application.** If the officer acting is also the
+applicant, they must say so on the action. It is then recorded beside the
+action in the history. TTAADC still needs to decide whether a second approval
+is required before public launch.
 
-Before this, the only identity-based duplicate guard in the programme was the
-unique index on an enterprise's GSTIN — which an unregistered enterprise does
-not have, so one person could carry two enterprises and two funding cases with
-nothing linking them.
+**Notes.** A staff note is kept where an action asks for one, or added on its
+own; nobody outside the office sees it.
 
-A financial inconsistency might produce a `FINANCIAL` revision request with an
-approved reason and safe instruction: “Correct the requested amount to match
-the DPR.” Only that stage becomes editable. Resubmission creates a new frozen
-submission, resolves every open request, clears the former assignment, and
-returns to intake. A mistaken request is cancelled with a reason and retained;
-if no requests remain, the application returns to desk review.
-
-Internal notes are append-only and staff-only. Correcting “Branch is Agartala”
-means adding a note that references the original. Neither note enters applicant
-events, and the activity history records only that a note was added — and which
-note it corrects — never its text.
-
-## Offline bank evaluation
-
-After a passing desk review, staff freeze the bank name, branch,
-referral reference/date, exact submission, and completed review. Only one open
-referral exists. An incorrect referral can be cancelled with an approved reason
-and replaced without deleting history.
-
-Staff append `RECOMMENDED`, `NOT_RECOMMENDED`, or
-`MORE_INFORMATION_REQUIRED`. Both positive and negative feedback go on to be
-decided. More information creates stage revision requests. Before the decision,
-a mistake is corrected with a superseding outcome and a correction reason; once
-a decision exists, bank evidence is locked.
-
-## The programme decision
-
-An application that clears the bank stage waits in `AWAITING_DECISION` and is
-decided directly. There is no meeting to schedule and no agenda to build: the
-gate is holding `DECIDE`, and the decision records which submission and which
-bank outcome were read, so the file still shows what was in front of whoever
-decided it.
-
-The decision records one of:
-
-- `APPROVED`: positive amount no greater than the submitted request, reference,
-  date, conditions, and safe message;
-- `REJECTED`: approved reason and safe message; or
-- `REVISION_REQUIRED`: approved reason plus unique editable stages, each one a
-  stage the application's own cycle declares.
-
-A correction appends a superseding decision, and only to the application's most
-recent one. It is blocked after an award or after a rejected phase has already
-been retried, because downstream facts then require an award or recovery action
-rather than rewriting the programme decision.
-
-## Awards, releases, and assessments
-
-An award is created only from the latest effective approval. It copies the
-approved amount, requires a unique sanction order/date, and moves the
-application to `SANCTIONED`. Amendments create immutable award versions, cannot
-exceed the approval, and cannot reduce the amount below net releases.
-Suspension blocks releases; cancellation is terminal and may lead to recovery.
-Closing records whether all planned funds were released or whether the
-programme deliberately decided not to release the remainder. That disposition
-is retained in the current award and every immutable award version.
-
-One release action records both the release approval and payment: amount,
-unique external reference, occurrence time, verified bank account, executed
-performance agreement, and physical verification when required. It cannot
-exceed the remaining sanction. The first release makes the application
-`DISBURSED`. Each release creates a separate utilization obligation due 180
-UTC calendar days later.
-
-Example: an award of ₹10 lakh has releases of ₹4 lakh and ₹3 lakh. It has two
-utilization deadlines. A ₹1 lakh reversal against the first release leaves net
-release of ₹6 lakh; it does not alter the second obligation. A reversal cannot
-exceed the unreversed portion of its own release.
-
-Utilization assessments belong to one release obligation. Performance and
-financial-audit assessments belong to the award. Reassessment increments the
-scope’s number. For expansion, every positively retained release’s latest
-utilization result, plus the latest performance and financial-audit results,
-must all be `PASSED` when required by the target cycle.
-
-## Cancellation and recovery
-
-Recovery may open only for a cancelled award with positive net funds and an
-official decision reference. Staff append principal demands, externally
-calculated penal-interest demands, receipts, waivers, and reversals of mistakes.
-The portal does not calculate an interest rate.
-
-Balances are derived from retained entries. A reversal may reference only a
-same-case, same-component non-reversal entry and cannot over-reverse it.
-Receipts and waivers cannot exceed their component’s outstanding balance.
-Closure is guarded by a zero balance at write time, so a concurrent entry cannot
-race a stale read and close a non-zero case.
-
-If staff opened a recovery case in error and its ledger is still empty, they
-may cancel it with a retained reason. Once any demand, receipt, waiver, or
-reversal exists, cancellation is unavailable: staff correct the ledger with
-compensating entries and close the case at zero balance.
+Money after approval — the sanction order, instalments, assessments and
+recovery — is not yet part of the portal; the
+[roadmap](ROADMAP.md) tracks it.
 
 ## Visible versus internal information
 
-Applicant-visible: cycle notices, revision instructions, bank status summary,
-decision result/conditions, sanction status, release/reversal message, assessment
-summary, and recovery message.
+Applicant-visible: cycle notices, correction instructions, the current stage's
+applicant label and explanation, how the journey ended, and only the flags and
+recorded values the pipeline marks applicant-visible.
 
-Internal only: correspondence notes, desk-check notes, deliberations, internal
-assessment notes, R2 keys, checksums, filenames, download URLs, and security
-data. General audit records contain public IDs and fixed lifecycle values—not
-form contents, money, bank correspondence, notes, or credentials.
+Internal only: staff notes, officer inputs, flags and recorded values the
+pipeline keeps from the applicant, storage keys, checksums, filenames, download
+URLs, and security data. The activity history records what an action did and
+what was entered as labelled values, but never long free text such as a note.
 
 ## Expected failures
 
-- “Administrator access is required.”: no live administrative role.
+- “You do not have permission to do that.”: no permission for the operation,
+  or the stage is not one your roles own. It names no role on purpose.
 - “The record changed. Reload and try again.”: the expected version or the
   lifecycle lost a race. This is the ordinary answer when two officers act on
   one file at the same moment, and it means nothing was overwritten.
-- “Acknowledge that you are acting on your own application.”: the officer is
-  the applicant and has not said so.
+- The acting-on-your-own-application refusal: the officer is the applicant and
+  has not said so.
+- An input refused against its field: the inputs break the action's rules, or
+  an amount is above what was asked for or the cycle's ceiling.
 - Scan failure: the exact submitted file’s latest result is not accepted.
-- Invalid transition: the current status or prerequisite evidence does not
-  permit the requested next state.
-- Constraint conflict: duplicate reference, sanction order, or
-  accounting external reference.
+- Not offered now: the action's conditions do not hold for this file, such as
+  approving a grant that was already approved.
+- Constraint conflict: a duplicate reference.
 
 ## Public-launch blockers
 
