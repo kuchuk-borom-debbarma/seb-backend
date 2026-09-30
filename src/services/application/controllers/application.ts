@@ -33,7 +33,6 @@ import {
   auditRecord,
   currentApplicant,
   firstValidationIssueMessage,
-  requireInvariant,
   runConstraintRetry,
   runConstraintSafe,
 } from '../support'
@@ -61,7 +60,7 @@ import type { ValidationReport } from '../form/engine'
  */
 export type { ApplicationFormTemplate } from '../form/types'
 export type { ValidationReport } from '../form/engine'
-import type { AnswerMap, ApplicationFormTemplate, ResolvedFormTemplate } from '../form/types'
+import type { AnswerMap, ApplicationFormTemplate } from '../form/types'
 import type {
   Application,
   ApplicationOperationContext,
@@ -87,7 +86,6 @@ import {
 } from '../form/engine'
 import {
   answersToRows,
-  findPinnedRulesForApplication,
 } from '../queries/form-template'
 import { confirmationPdfUrl } from '../confirmation-link'
 import { sendNotification } from '../../external-notification'

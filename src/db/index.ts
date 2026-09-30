@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm'
+import { sql, type SQL } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { PgTransaction } from 'drizzle-orm/pg-core'
 import type { ExtractTablesWithRelations } from 'drizzle-orm'
@@ -28,6 +28,34 @@ export type Transaction = PgTransaction<
   typeof schema,
   ExtractTablesWithRelations<typeof schema>
 >
+
+/**
+ * One guarded transition as one statement: a data-modifying `WITH` whose first
+ * member, `head`, is the guarded write and whose every other member selects
+ * FROM it (or from a member that did).
+ *
+ * The shape `docs/rules/performance.md` (rule 5) asks for, and cheaper than
+ * `batch` below by the transaction's two round trips and one per statement.
+ * Members of one statement all see the database as it was before it, so a
+ * member cannot learn that another wrote by re-reading the table — only from
+ * the row that member returned. A losing `head` returns no row, and nothing
+ * built on it writes.
+ *
+ * Returns what `head` returned (its `RETURNING`, in the database's column
+ * names), or null when its guard lost. A null member is left out, for a
+ * member that has nothing to write this time.
+ */
+export const writeFolded = async <Head extends Record<string, unknown>>(
+  db: Database,
+  members: readonly (SQL | null)[],
+): Promise<Head | null> => {
+  const present = members.filter((member): member is SQL => member !== null)
+  const result = await db.execute(sql`
+    WITH ${sql.join(present, sql`, `)}
+    SELECT * FROM head
+  `)
+  return (result.rows[0] as Head | undefined) ?? null
+}
 
 /**
  * Runs several statements as one transition, in order, and returns each result.

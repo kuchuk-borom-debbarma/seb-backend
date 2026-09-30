@@ -2,14 +2,12 @@
 import { pinnedFormReader } from '../../../loaders'
 import { auditActions } from '../../../db/schema'
 import { batch } from '../../../db'
-import { findPinnedRulesForApplication } from '../queries/form-template'
 import {
   claimExpiredUploadIntents,
   claimUploadIntentForCleanup,
   closeUploadIntentStatement,
   finalizeUploadIntent,
-  findApplicationDocument,
-  findApplicationDocumentById,
+  findApplicationForDocuments,
   findOwnedDocumentVersion,
   findOwnedUploadIntent,
   insertUploadIntent,
@@ -17,10 +15,6 @@ import {
   markUploadIntentRejected,
   setDocumentDeleted,
 } from '../queries/document'
-import {
-  findOwnedApplicationHead,
-  listOpenRevisionStageKeys,
-} from '../queries/application'
 import {
   AUTH_REQUIRED_MESSAGE,
   afterSuccessfulClaim,
@@ -54,7 +48,6 @@ import {
   objectRemover,
   storage,
   UPLOAD_TTL_SECONDS,
-  type UploadRequest,
 } from '../../storage'
 
 /**
@@ -66,18 +59,32 @@ import {
  * the enum's last surviving assumption: a cycle that puts its bank details
  * beside the financial questions would have had every upload refused.
  */
-const canEditDocument = async (
-  context: ApplicationOperationContext,
-  applicationId: string,
-  status: ApplicationStatus,
+const canEditDocument = (
+  application: { head: { status: ApplicationStatus }; openRevisionStageKeys: ReadonlySet<string> },
   template: ResolvedFormTemplate,
   fieldKey: DocumentType,
-): Promise<boolean> => {
-  if (status === 'DRAFT') return true
+): boolean => {
+  if (application.head.status === 'DRAFT') return true
   // Once submitted, only a stage an open revision request names is editable.
   const stageKey = template.byKey.get(fieldKey)?.stageKey
-  if (!stageKey) return false
-  return (await listOpenRevisionStageKeys(context.db, applicationId)).has(stageKey)
+  return stageKey !== undefined && application.openRevisionStageKeys.has(stageKey)
+}
+
+/**
+ * The application a document change is decided on, with the form its slots
+ * come from — two statements, the second memoised per request.
+ */
+const applicationWithForm = async (
+  context: ApplicationOperationContext,
+  userId: string,
+  applicationId: string,
+) => {
+  const application = await findApplicationForDocuments(context.db, userId, applicationId)
+  if (!application) return null
+  const pinned = application.pinnedCycleVersion === null
+    ? null
+    : await pinnedFormReader(context.loaders)(application.head.programmeCycleId, application.pinnedCycleVersion)
+  return { ...application, pinned }
 }
 
 /**
@@ -130,23 +137,16 @@ export const issueDocumentUpload = async (
   if (!extensionMatchesContentType(originalFilename, input.contentType as AllowedContentType)) {
     return failure('The file name must end in .pdf, .jpg, .jpeg or .png, matching the file.')
   }
-  const application = await findOwnedApplicationHead(
-    context.db,
-    applicant.id,
-    input.applicationId,
-  )
-  if (!application) return failure('The application was not found.')
+  const found = await applicationWithForm(context, applicant.id, input.applicationId)
+  if (!found) return failure('The application was not found.')
+  const application = found.head
   /*
    * Which documents exist is the cycle's decision, so the slot is checked
    * against the template this application is pinned to rather than a list in
    * code. Read before the edit rule, because that rule now needs the template
    * too: it asks which stage this slot belongs to.
    */
-  const pinned = await findPinnedRulesForApplication(
-    context.db, pinnedFormReader(context.loaders),
-    application.id,
-    application.currentVersion,
-  )
+  const { pinned } = found
   if (!pinned) return failure('This application’s form is unavailable.')
   if (!pinned.template.documentFieldKeys.has(input.fieldKey)) {
     return failure('This application does not ask for that document.')
@@ -176,12 +176,10 @@ export const issueDocumentUpload = async (
       + `${Math.floor(slotLimit / 1024)} KB or smaller.`,
     )
   }
-  if (!(await canEditDocument(
-    context, application.id, application.status, pinned.template, input.fieldKey,
-  ))) {
+  if (!canEditDocument(found, pinned.template, input.fieldKey)) {
     return failure('Documents cannot be changed in the application’s current status.')
   }
-  const current = await findApplicationDocument(context.db, application.id, input.fieldKey)
+  const current = found.documents.find((document) => document.fieldKey === input.fieldKey) ?? null
   if (
     (current === null && input.expectedDocumentVersion !== 0) ||
     (current !== null &&
@@ -254,23 +252,9 @@ export const finalizeDocumentUpload = async (
     })
     return failure('The upload authorization expired.')
   }
-  const application = await findOwnedApplicationHead(
-    context.db,
-    applicant.id,
-    intent.applicationId,
-  )
-  const finalizePinned = application
-    ? await findPinnedRulesForApplication(
-        context.db, pinnedFormReader(context.loaders), application.id, application.currentVersion,
-      )
-    : null
-  if (
-    !application ||
-    !finalizePinned ||
-    !(await canEditDocument(
-      context, intent.applicationId, application.status, finalizePinned.template, intent.fieldKey,
-    ))
-  ) {
+  const found = await applicationWithForm(context, applicant.id, intent.applicationId)
+  const finalizePinned = found?.pinned ?? null
+  if (!found || !finalizePinned || !canEditDocument(found, finalizePinned.template, intent.fieldKey)) {
     return failure('Documents cannot be changed in the application’s current status.')
   }
   const slotStageKey = documentStageKey(finalizePinned.template, intent.fieldKey)
@@ -291,17 +275,14 @@ export const finalizeDocumentUpload = async (
     })
     return failure(verification.message)
   }
-  const existing = await findApplicationDocument(
-    context.db,
-    intent.applicationId,
-    intent.fieldKey,
-  )
+  const existing = found.documents.find((document) => document.fieldKey === intent.fieldKey) ?? null
   const documentId = existing?.id ?? crypto.randomUUID()
   const nextVersion = intent.expectedDocumentVersion + 1
   const documentVersionId = crypto.randomUUID()
   const finalized = await runConstraintSafe(() => finalizeUploadIntent(context.db, {
       intent,
       stageKey: slotStageKey,
+      existing,
       documentId,
       documentVersionId,
       nextVersion,
@@ -376,12 +357,9 @@ const changeDocumentDeletion = async (
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
     return failure('Expected document version must be a positive integer.')
   }
-  const application = await findOwnedApplicationHead(
-    context.db,
-    applicant.id,
-    input.applicationId,
-  )
-  if (!application) return failure('The application was not found.')
+  const found = await applicationWithForm(context, applicant.id, input.applicationId)
+  if (!found) return failure('The application was not found.')
+  const application = found.head
   /*
    * The slot is read off the document rather than taken from the caller.
    *
@@ -390,19 +368,11 @@ const changeDocumentDeletion = async (
    * slot whose stage happens to be open in order to remove a document from one
    * that is not.
    */
-  const document = await findApplicationDocumentById(
-    context.db, application.id, input.documentId,
-  )
+  const document = found.documents.find((each) => each.id === input.documentId)
   if (!document) return failure('The document was not found or its state changed.')
-  const pinned = await findPinnedRulesForApplication(
-    context.db, pinnedFormReader(context.loaders),
-    application.id,
-    application.currentVersion,
-  )
+  const { pinned } = found
   if (!pinned) return failure('This application’s form is unavailable.')
-  if (!(await canEditDocument(
-    context, application.id, application.status, pinned.template, document.fieldKey,
-  ))) {
+  if (!canEditDocument(found, pinned.template, document.fieldKey as DocumentType)) {
     return failure('Documents cannot be changed in the application’s current status.')
   }
   const slotStageKey = documentStageKey(pinned.template, document.fieldKey)

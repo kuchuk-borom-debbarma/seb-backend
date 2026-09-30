@@ -1020,6 +1020,7 @@ describe('applicant application business service', () => {
     expect(await finalizeUploadIntent(db, {
       intent,
       stageKey: 'DOCUMENTS',
+      existing: null,
       documentId: crypto.randomUUID(),
       documentVersionId: crypto.randomUUID(),
       nextVersion: 1,

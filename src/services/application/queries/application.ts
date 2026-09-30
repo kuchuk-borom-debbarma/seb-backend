@@ -17,10 +17,8 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm'
-import { type Database } from '../../../db'
+import { writeFolded, type Database } from '../../../db'
 import {
-  coreAuditEvent,
-  coreUser,
   sebApplication,
   sebApplicationDocument,
   sebApplicationSubmissionDocument,
@@ -283,23 +281,6 @@ export const findLatestSubmittedVersion = async (
   return sqlNullable(record && record.version)
 }
 
-export const listOpenRevisionStageKeys = async (
-  db: Database,
-  applicationId: string,
-): Promise<Set<ApplicationSection>> => {
-  const rows = await db
-    .select({ stageKey: sebRevisionRequest.stageKey })
-    .from(sebRevisionRequest)
-    .where(
-      and(
-        eq(sebRevisionRequest.applicationId, applicationId),
-        isNull(sebRevisionRequest.resolvedAt),
-        isNull(sebRevisionRequest.cancelledAt),
-      ),
-    )
-  return new Set(rows.map((row) => row.stageKey))
-}
-
 /**
  * One application as its owner sees it, with everything read to build it.
  *
@@ -428,19 +409,6 @@ const findOwnedApplicationAggregate = async (
 }
 
 /**
- * One application as its owner sees it, answers included, and what was read
- * to build it.
- *
- * Two statements: the application, then its pinned form through `readForm`,
- * which a request memoises, so any later step that needs the form reads
- * nothing. The template is resolved here rather than by the caller because
- * three things on the application are derived from it — the answers, the
- * stages that may be edited, and therefore what the client is allowed to draw
- * — and they have to agree. A template that will not resolve is an invariant
- * failure rather than an empty form: the answers exist and would silently read
- * as unanswered.
- */
-/**
  * An application from its stored parts — what a read found, or what a write
  * just made. One assembly for both, so a response built from a write cannot
  * drift from what a read of the same rows returns.
@@ -471,6 +439,19 @@ export const assembleApplication = (parts: {
   }
 }
 
+/**
+ * One application as its owner sees it, answers included, and what was read
+ * to build it.
+ *
+ * Two statements: the application, then its pinned form through `readForm`,
+ * which a request memoises, so any later step that needs the form reads
+ * nothing. The template is resolved here rather than by the caller because
+ * three things on the application are derived from it — the answers, the
+ * stages that may be edited, and therefore what the client is allowed to draw
+ * — and they have to agree. A template that will not resolve is an invariant
+ * failure rather than an empty form: the answers exist and would silently read
+ * as unanswered.
+ */
 export const loadOwnedApplicationContext = async (
   db: Database,
   readForm: PinnedFormReader,
@@ -1346,36 +1327,22 @@ const answerRowsMember = (input: {
 }
 
 /** One entry on the applicant's timeline, written only with its source. */
-const applicationEventMember = (value: typeof sebApplicationEvent.$inferInsert, source: SQL) => sql`
+export const applicationEventMember = (value: typeof sebApplicationEvent.$inferInsert, source: SQL) => sql`
   INSERT INTO ${sebApplicationEvent} (
     id, application_id, event_type, actor_user_id, application_version,
     submission_id, revision_request_id, from_status, to_status, stage_key,
     message, metadata_json, created_at, stage_action_id
   )
   SELECT ${value.id}, ${value.applicationId}, ${value.eventType}, ${value.actorUserId},
-    ${sqlNullable(value.applicationVersion)}::int, ${sqlNullable(value.submissionId)}, NULL,
-    ${sqlNullable(value.fromStatus)}, ${sqlNullable(value.toStatus)}, NULL,
-    ${sqlNullable(value.message)}, NULL, ${value.createdAt}, NULL
+    ${sqlNullable(value.applicationVersion)}::int, ${sqlNullable(value.submissionId)},
+    ${sqlNullable(value.revisionRequestId)}, ${sqlNullable(value.fromStatus)},
+    ${sqlNullable(value.toStatus)}, ${sqlNullable(value.stageKey)},
+    ${sqlNullable(value.message)}, ${sqlNullable(value.metadataJson)}, ${value.createdAt},
+    ${sqlNullable(value.stageActionId)}
   FROM ${source}
 `
 
-/**
- * Folds members into one statement and returns the row the head update
- * returned, or null when its guard lost and so nothing was written.
- */
-const writeFolded = async <Head extends Record<string, unknown>>(
-  db: Database,
-  members: (SQL | null)[],
-): Promise<Head | null> => {
-  const present = members.filter((member): member is SQL => member !== null)
-  const result = await db.execute(sql`
-    WITH ${sql.join(present, sql`, `)}
-    SELECT * FROM head
-  `)
-  return (result.rows[0] as Head | undefined) ?? null
-}
-
-const eventValues = (input: {
+export const eventValues = (input: {
   id?: string
   applicationId: string
   eventType: string
