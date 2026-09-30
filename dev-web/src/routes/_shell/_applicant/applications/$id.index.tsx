@@ -337,7 +337,8 @@ function ApplicationPage() {
       ),
     onMutate: () => setRemovalError(null),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['applications'] })
+      // Marked stale; the list's own loader fetches it on arrival.
+      void queryClient.invalidateQueries({ queryKey: ['applications'] })
       await router.navigate({ to: '/applications' })
     },
     onError: (cause) => setRemovalError(messageFor(cause)),
@@ -356,8 +357,8 @@ function ApplicationPage() {
       ),
     onMutate: () => setRemovalError(null),
     onSuccess: async () => {
+      void queryClient.invalidateQueries({ queryKey: ['applications'] })
       await queryClient.invalidateQueries({ queryKey: ['application', id] })
-      await queryClient.invalidateQueries({ queryKey: ['applications'] })
     },
     onError: (cause) => setRemovalError(messageFor(cause)),
   })

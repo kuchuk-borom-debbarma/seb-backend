@@ -123,8 +123,9 @@ export function PipelineEditor({
   /** Puts the detail the server returned in the cache, and the editor on its draft. */
   const settle = async (next: PipelineDetail) => {
     queryClient.setQueryData(['pipelines', 'detail', next.key], { success: true, message: null, response: next })
-    await queryClient.invalidateQueries({ queryKey: ['pipelines'], exact: true })
-    await queryClient.invalidateQueries({ queryKey: ['pipelines', 'choices'] })
+    // Lists this editor does not show: stale, not waited on.
+    void queryClient.invalidateQueries({ queryKey: ['pipelines'], exact: true })
+    void queryClient.invalidateQueries({ queryKey: ['pipelines', 'choices'] })
     const json = next.draft?.definitionJson ?? next.published?.definitionJson
     if (json) {
       const loaded = definitionFromJson(json)

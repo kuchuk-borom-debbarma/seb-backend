@@ -54,7 +54,8 @@ function ComposePage() {
       })).access.createRole),
     onMutate: () => setError(null),
     onSuccess: async (role) => {
-      await queryClient.invalidateQueries({ queryKey: rolesQuery.queryKey })
+      // Stale, not waited on: the page this goes to loads what it shows.
+      void queryClient.invalidateQueries({ queryKey: rolesQuery.queryKey })
       // Straight into the editor: the role exists but holds nothing, so the
       // job is not finished and the screen should not pretend it is.
       await navigate({ to: '/admin/roles/$key', params: { key: role.key } })

@@ -113,8 +113,8 @@ function EnterprisePage() {
   const [blockers, setBlockers] = useState<Blocker[]>([])
 
   const refresh = async () => {
+    void queryClient.invalidateQueries({ queryKey: ['enterprises'] })
     await queryClient.invalidateQueries({ queryKey: ['enterprise', id] })
-    await queryClient.invalidateQueries({ queryKey: ['enterprises'] })
   }
 
   const update = useMutation({

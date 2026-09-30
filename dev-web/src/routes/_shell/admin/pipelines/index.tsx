@@ -157,7 +157,8 @@ function CreatePipelineDialog({ onClose }: { onClose: () => void }) {
         ).admin.pipeline.create,
       ),
     onSuccess: async (created) => {
-      await queryClient.invalidateQueries({ queryKey: ['pipelines'] })
+      // Stale, not waited on: the page this goes to loads what it shows.
+      void queryClient.invalidateQueries({ queryKey: ['pipelines'] })
       await navigate({ to: '/admin/pipelines/$key', params: { key: created.key } })
     },
   })

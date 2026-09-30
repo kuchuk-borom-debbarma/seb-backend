@@ -239,8 +239,8 @@ export function FormEditor({
       // edit quotes the version this one produced.
       queryClient.setQueryData(formEditorQuery(cycleId).queryKey, aggregate)
       closeEditors()
-      await queryClient.invalidateQueries({ queryKey: ['admin-cycle', cycleId] })
-      await queryClient.invalidateQueries({ queryKey: ['admin-cycles'] })
+      void queryClient.invalidateQueries({ queryKey: ['admin-cycle', cycleId] })
+      void queryClient.invalidateQueries({ queryKey: ['admin-cycles'] })
     },
   })
 

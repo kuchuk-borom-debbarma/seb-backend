@@ -121,7 +121,8 @@ function StartApplicationPage() {
       return unwrap(data.seb.application.start)
     },
     onSuccess: async (application) => {
-      await queryClient.invalidateQueries({ queryKey: ['applications'] })
+      // Stale, not waited on: the page this goes to loads what it shows.
+      void queryClient.invalidateQueries({ queryKey: ['applications'] })
       await router.navigate({
         to: '/applications/$id',
         params: { id: application.id },

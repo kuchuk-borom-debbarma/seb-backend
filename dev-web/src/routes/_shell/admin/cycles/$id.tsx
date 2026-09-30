@@ -161,15 +161,20 @@ function AdminCyclePage() {
    * landed at the page top where the overlay had been. Success closes its
    * own modal with `settle`; failure keeps it open with the refusal inside.
    */
+  /*
+   * Only this screen's own cycle is waited on, because the modal closes onto
+   * it. The rest are marked stale and refetch in the background (or on next
+   * view): waiting on four in a row held the modal open for each.
+   */
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['admin-cycle', id] })
     // The authoring screen quotes the version it read, so its copy is stale
     // the moment a rule change bumps it here.
-    await queryClient.invalidateQueries({ queryKey: ['admin-cycle-form', id] })
-    await queryClient.invalidateQueries({ queryKey: ['admin-cycles'] })
+    void queryClient.invalidateQueries({ queryKey: ['admin-cycle-form', id] })
+    void queryClient.invalidateQueries({ queryKey: ['admin-cycles'] })
     // The applicant-facing cycle lists change the moment a cycle opens or
     // closes, so they are refreshed here rather than left stale.
-    await queryClient.invalidateQueries({ queryKey: ['cycles'] })
+    void queryClient.invalidateQueries({ queryKey: ['cycles'] })
+    await queryClient.invalidateQueries({ queryKey: ['admin-cycle', id] })
   }
 
   /**

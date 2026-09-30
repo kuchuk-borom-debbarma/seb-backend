@@ -161,9 +161,9 @@ function AnnouncementsPage() {
   const [notice, setNotice] = useState<string | null>(null)
 
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['admin-announcement-board'] })
     // The landing page renders from this key; an edit must reach it too.
-    await queryClient.invalidateQueries({ queryKey: ['public-announcements'] })
+    void queryClient.invalidateQueries({ queryKey: ['public-announcements'] })
+    await queryClient.invalidateQueries({ queryKey: ['admin-announcement-board'] })
   }
 
   const save = useMutation({

@@ -151,7 +151,12 @@ function OwnersDialog({
       ),
     onSuccess: async (detail) => {
       queryClient.setQueryData(['pipelines', 'detail', pipelineKey], { success: true, message: null, response: detail })
-      await queryClient.invalidateQueries({ queryKey: ['pipelines'] })
+      /*
+       * Only the list: the whole ['pipelines'] prefix took in the detail just
+       * written above, refetching the answer the server had already given and
+       * holding the dialog open until it came back.
+       */
+      void queryClient.invalidateQueries({ queryKey: ['pipelines'], exact: true })
       onClose()
     },
   })

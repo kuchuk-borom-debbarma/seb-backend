@@ -147,7 +147,7 @@ function EditPage({
       // Said once a save lands: the pending list empties either way, and an
       // empty list alone cannot tell "saved" from "nothing was changed".
       if (updated) onSaved(updated.version)
-      await queryClient.invalidateQueries({ queryKey: ['roles'] })
+      void queryClient.invalidateQueries({ queryKey: ['roles'] })
     },
     onError: (failure) => setError(messageFor(failure)),
   })
@@ -164,7 +164,7 @@ function EditPage({
       })).access.deleteRole),
     onMutate: () => setError(null),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['roles'] })
+      void queryClient.invalidateQueries({ queryKey: ['roles'] })
       await navigate({ to: '/admin/roles' })
     },
     onError: (failure) => setError(messageFor(failure)),

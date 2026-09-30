@@ -39,13 +39,25 @@ import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
 import { StagePanel } from '#/features/stage/StagePanel'
+import { stageApplicationQuery } from '#/features/stage/stageQueries'
 import { AnswerSummary } from '#/features/application/AnswerSummary'
 import { resolveTemplate } from '#/features/application/formTemplate'
 import type { AnswerMap } from '#/features/application/answers'
 
 export const Route = createFileRoute('/_shell/admin/applications/$id/')({
-  loader: ({ context, params }) =>
-    context.queryClient.ensureQueryData(workspaceQuery(params.id)),
+  /*
+   * The stage view is asked for alongside the workspace, not after it: the
+   * panel that reads it only mounts once the workspace is in, so fetching it
+   * there put a second full round trip in front of the actions an officer
+   * came to take. A refusal (a draft, a file this officer cannot see) is left
+   * for the panel to show, so it must not fail the page.
+   */
+  loader: async ({ context, params }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(workspaceQuery(params.id)),
+      context.queryClient.prefetchQuery(stageApplicationQuery(params.id)),
+    ])
+  },
   component: WorkspacePage,
 })
 
