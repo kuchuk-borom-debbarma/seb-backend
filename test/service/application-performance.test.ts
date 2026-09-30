@@ -221,6 +221,35 @@ describe.skipIf(onRealPostgres)('an applicant operation costs its budget in roun
     expect(count, statements).toBe(5)
   })
 
+  it('lists applications in two, enterprises in two and cycles in three', async () => {
+    const { applicant } = await draft()
+    const applications = await counted(() => graphql<any>(`query {
+      seb { application { mine(first: 5, includeDeleted: false) { success response { nodes { id } pageInfo { totalCount } } } } } }`,
+    {}, applicant.cookie))
+    expect(applications.result.data.seb.application.mine.response.pageInfo.totalCount).toBe(1)
+    // Session, and the page with its total in the same statement. A list
+    // with submitted rows adds one: the pipeline definitions their journeys
+    // are named by, all in one read through the request's loader.
+    expect(applications.count, applications.statements).toBe(2)
+
+    const enterprises = await counted(() => graphql<any>(`query {
+      seb { enterprise { mine(first: 5, includeDeleted: false) { success response { nodes { id } pageInfo { totalCount } } } } } }`,
+    {}, applicant.cookie))
+    expect(enterprises.result.data.seb.enterprise.mine.response.pageInfo.totalCount).toBe(1)
+    // Session, the page with its total.
+    expect(enterprises.count, enterprises.statements).toBe(2)
+
+    const cycles = await counted(() => graphql<any>(`query {
+      seb { application {
+        availableProgrammeCycles { success response { cycles { id policyDocument { version } } } }
+        myProgrammeCycles { success response { cycles { id policyDocument { version } } } }
+      } } }`, {}, applicant.cookie))
+    expect(cycles.result.data.seb.application.availableProgrammeCycles.success).toBe(true)
+    // Session, then each list in one statement with its policy document —
+    // it was the cycles, their documents, and those documents' scans, each.
+    expect(cycles.count, cycles.statements).toBe(3)
+  })
+
   /*
    * Finalizing an upload has no budget test here: it verifies the object in
    * storage, and the service suite has no bucket. Its write is the same

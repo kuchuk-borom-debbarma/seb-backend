@@ -110,39 +110,46 @@ export const listOwnedEnterprises = async (
     input.sector ? eq(sebEnterpriseVersion.businessSector, input.sector) : undefined,
     pattern ? prefixMatch(sebEnterprise.currentName, pattern) : undefined,
   )
+  const currentVersion = and(
+    eq(sebEnterpriseVersion.enterpriseId, sebEnterprise.id),
+    eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
+  )
   const rows = await db
-    .select({ head: sebEnterprise, version: sebEnterpriseVersion })
+    .select({
+      head: sebEnterprise,
+      version: sebEnterpriseVersion,
+      /*
+       * The whole matching set, counted in the page's own statement. It names
+       * no outer column — its tables bind to the subquery's own — so Postgres
+       * evaluates it once, not per row.
+       */
+      totalCount: sql<number>`(
+        SELECT count(*)::int FROM ${sebEnterprise}
+        JOIN ${sebEnterpriseVersion} ON ${currentVersion}
+        WHERE ${filters}
+      )`,
+    })
     .from(sebEnterprise)
-    .innerJoin(
-      sebEnterpriseVersion,
-      and(
-        eq(sebEnterpriseVersion.enterpriseId, sebEnterprise.id),
-        eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
-      ),
-    )
+    .innerJoin(sebEnterpriseVersion, currentVersion)
     .where(and(filters, cursorPredicate))
     .orderBy(asc(sebEnterprise.updatedAt), asc(sebEnterprise.id))
     .limit(input.first + 1)
   const hasNextPage = rows.length > input.first
   const selected = rows.slice(0, input.first)
   const last = selected.at(-1)?.head
-  const [total] = await db
-    .select({ value: count() })
-    .from(sebEnterprise)
-    .innerJoin(
-      sebEnterpriseVersion,
-      and(
-        eq(sebEnterpriseVersion.enterpriseId, sebEnterprise.id),
-        eq(sebEnterpriseVersion.version, sebEnterprise.currentVersion),
-      ),
-    )
-    .where(filters)
+  // An empty page carries no row to have counted on, which past the end of a
+  // cursor does not mean the set is empty.
+  const totalCount = rows[0]?.totalCount ?? requireInvariant(
+    (await db.select({ value: count() }).from(sebEnterprise)
+      .innerJoin(sebEnterpriseVersion, currentVersion).where(filters))[0],
+    COUNT_MISSING,
+  ).value
   return {
     nodes: selected.map((row) => toEnterprise(row.head, row.version)),
     pageInfo: {
       hasNextPage,
       endCursor: last ? encodeCursor('updatedAt', last.updatedAt, last.id) : null,
-      totalCount: requireInvariant(total, COUNT_MISSING).value,
+      totalCount,
     },
   }
 }

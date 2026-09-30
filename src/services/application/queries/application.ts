@@ -767,6 +767,12 @@ export const listOwnedApplications = async (
           AND ${sebRevisionRequest.resolvedAt} IS NULL
           AND ${sebRevisionRequest.cancelledAt} IS NULL
       )`,
+      /*
+       * The whole matching set, counted in the page's own statement. It names
+       * no outer column — the filters' `seb_application` binds to this
+       * subquery's own — so Postgres evaluates it once, not per row.
+       */
+      totalCount: sql<number>`(SELECT count(*)::int FROM ${sebApplication} WHERE ${filters})`,
     })
     .from(sebApplication)
     .innerJoin(
@@ -791,10 +797,12 @@ export const listOwnedApplications = async (
   const hasNextPage = rows.length > input.first
   const selected = rows.slice(0, input.first)
   const last = selected.at(-1)?.head
-  const [total] = await db
-    .select({ value: count() })
-    .from(sebApplication)
-    .where(filters)
+  // An empty page carries no row to have counted on, which past the end of a
+  // cursor does not mean the set is empty.
+  const totalCount = rows[0]?.totalCount ?? requireInvariant(
+    (await db.select({ value: count() }).from(sebApplication).where(filters))[0],
+    COUNT_MISSING,
+  ).value
   return {
     nodes: selected.map((row) => ({
       ...applicationBase(row.head),
@@ -806,7 +814,7 @@ export const listOwnedApplications = async (
     pageInfo: {
       hasNextPage,
       endCursor: last ? encodeCursor('updatedAt', last.updatedAt, last.id) : null,
-      totalCount: requireInvariant(total, COUNT_MISSING).value,
+      totalCount,
     },
   }
 }
@@ -836,68 +844,39 @@ const publicProgrammeCycle = (
 })
 
 /**
- * The downloadable policy PDF of each named cycle, keyed by cycle id.
+ * The downloadable policy PDF of the cycle a list row names, selected in the
+ * list's own statement — a list of cycles is one read, not the cycles, then
+ * their documents, then those documents' scans.
  *
- * Only versions whose *latest* scan verdict is ACCEPTED appear: the applicant
+ * Only a version whose *latest* scan verdict is ACCEPTED appears: the applicant
  * surface must never advertise a file the download path will refuse. Absence
- * of any scan reads as pending, the closed direction.
+ * of any scan reads as pending, the closed direction. Its query joins the cycle
+ * to its version, so `${sebProgrammeCycle.id}` renders qualified and binds to
+ * the outer row.
  */
-const acceptedPolicyDocuments = async (
-  db: Database,
-  cycleIds: string[],
-): Promise<Map<string, NonNullable<ProgrammeCycle['policyDocument']>>> => {
-  if (cycleIds.length === 0) return new Map()
-  const rows = await db
-    .select({
-      cycleId: sebCyclePolicyDocument.programmeCycleId,
-      versionId: sebCyclePolicyDocumentVersion.id,
-      version: sebCyclePolicyDocumentVersion.version,
-      originalFilename: sebCyclePolicyDocumentVersion.originalFilename,
-      sizeBytes: sebCyclePolicyDocumentVersion.sizeBytes,
-      uploadedAt: sebCyclePolicyDocumentVersion.createdAt,
-    })
-    .from(sebCyclePolicyDocument)
-    .innerJoin(
-      sebCyclePolicyDocumentVersion,
-      and(
-        eq(sebCyclePolicyDocumentVersion.documentId, sebCyclePolicyDocument.id),
-        eq(
-          sebCyclePolicyDocumentVersion.version,
-          sebCyclePolicyDocument.currentVersion,
-        ),
-      ),
-    )
-    .where(inArray(sebCyclePolicyDocument.programmeCycleId, cycleIds))
-  if (rows.length === 0) return new Map()
-  const scans = await db
-    .select({
-      documentVersionId: sebCyclePolicyDocumentScan.documentVersionId,
-      sequenceNumber: sebCyclePolicyDocumentScan.sequenceNumber,
-      status: sebCyclePolicyDocumentScan.status,
-    })
-    .from(sebCyclePolicyDocumentScan)
-    .where(inArray(
-      sebCyclePolicyDocumentScan.documentVersionId,
-      rows.map((row) => row.versionId),
-    ))
-  const latestByVersion = new Map<string, { sequenceNumber: number; status: string }>()
-  for (const scan of scans) {
-    const held = latestByVersion.get(scan.documentVersionId)
-    if (!held || scan.sequenceNumber > held.sequenceNumber) {
-      latestByVersion.set(scan.documentVersionId, scan)
-    }
-  }
-  return new Map(
-    rows
-      .filter((row) => latestByVersion.get(row.versionId)?.status === 'ACCEPTED')
-      .map((row) => [row.cycleId, {
-        version: row.version,
-        originalFilename: row.originalFilename,
-        sizeBytes: row.sizeBytes,
-        uploadedAt: row.uploadedAt,
-      }]),
+const acceptedPolicyDocument = sql<(Omit<NonNullable<ProgrammeCycle['policyDocument']>, 'uploadedAt'> & {
+  uploadedAt: string
+}) | null>`(
+  SELECT jsonb_build_object(
+    'version', v.version, 'originalFilename', v.original_filename,
+    'sizeBytes', v.size_bytes, 'uploadedAt', v.created_at
   )
-}
+  FROM ${sebCyclePolicyDocument} d
+  JOIN ${sebCyclePolicyDocumentVersion} v ON v.document_id = d.id AND v.version = d.current_version
+  WHERE d.programme_cycle_id = ${sebProgrammeCycle.id}
+    AND (
+      SELECT s.status FROM ${sebCyclePolicyDocumentScan} s
+      WHERE s.document_version_id = v.id
+      ORDER BY s.sequence_number DESC
+      LIMIT 1
+    ) = 'ACCEPTED'
+  LIMIT 1
+)`
+
+const policyDocumentOf = (
+  stored: (typeof acceptedPolicyDocument)['_']['type'],
+): ProgrammeCycle['policyDocument'] =>
+  stored === null ? null : { ...stored, uploadedAt: new Date(stored.uploadedAt) }
 
 /**
  * The current policy PDF of one applicant-visible cycle, for download.
@@ -963,16 +942,14 @@ export const listAvailableProgrammeCycles = async (
     .select({
       cycle: sebProgrammeCycle,
       categoryAMaximumMonths: sebProgrammeCycleVersion.categoryAMaximumMonths,
+      policyDocument: acceptedPolicyDocument,
     })
     .from(sebProgrammeCycle)
     .innerJoin(sebProgrammeCycleVersion, currentCycleVersionJoin)
     .where(programmeCycleOpenAt(now))
     .orderBy(asc(sebProgrammeCycle.opensAt), asc(sebProgrammeCycle.cycleCode))
-  const policyDocuments = await acceptedPolicyDocuments(
-    db, rows.map((row) => row.cycle.id),
-  )
   return rows.map((row) => publicProgrammeCycle(
-    row.cycle, row.categoryAMaximumMonths, policyDocuments.get(row.cycle.id) ?? null,
+    row.cycle, row.categoryAMaximumMonths, policyDocumentOf(row.policyDocument),
   ))
 }
 
@@ -992,6 +969,7 @@ export const listApplicantProgrammeCycles = async (
     .selectDistinct({
       cycle: sebProgrammeCycle,
       categoryAMaximumMonths: sebProgrammeCycleVersion.categoryAMaximumMonths,
+      policyDocument: acceptedPolicyDocument,
     })
     .from(sebProgrammeCycle)
     .innerJoin(sebProgrammeCycleVersion, currentCycleVersionJoin)
@@ -1010,11 +988,8 @@ export const listApplicantProgrammeCycles = async (
       ),
     )
     .orderBy(desc(sebProgrammeCycle.cycleYear), asc(sebProgrammeCycle.cycleCode))
-  const policyDocuments = await acceptedPolicyDocuments(
-    db, rows.map((row) => row.cycle.id),
-  )
   return rows.map((row) => publicProgrammeCycle(
-    row.cycle, row.categoryAMaximumMonths, policyDocuments.get(row.cycle.id) ?? null,
+    row.cycle, row.categoryAMaximumMonths, policyDocumentOf(row.policyDocument),
   ))
 }
 
