@@ -9,7 +9,6 @@
  * only a revision request may add.
  */
 import { Plus, Trash2 } from 'lucide-react'
-import { humanize } from '#/lib/format'
 import {
   blankFlag,
   blankRecordedValue,
@@ -18,8 +17,7 @@ import {
   RECORDED_VALUE_TYPES,
   toKey,
   type PipelineRecordedValue,
-  type PipelineStatusFlag,
-} from './definition'
+  type PipelineStatusFlag, typeLabel } from './definition'
 import { removeAt, renameFlag, renameRecordedValue, replaceAt } from './editorState'
 import type { TabProps } from './names'
 import styles from './Pipeline.module.css'
@@ -213,7 +211,7 @@ export function RecordedValuesTab({ definition, edit, readOnly, focus }: TabProp
                 <label className="field-label" htmlFor={`${id}-type`}>Type</label>
                 <select id={`${id}-type`} className="select" disabled={readOnly} value={value.type}
                   onChange={(event) => set(index, { ...value, type: event.target.value as PipelineRecordedValue['type'] })}>
-                  {RECORDED_VALUE_TYPES.map((type) => <option key={type} value={type}>{humanize(type)}</option>)}
+                  {RECORDED_VALUE_TYPES.map((type) => <option key={type} value={type}>{typeLabel(type)}</option>)}
                 </select>
               </div>
             </div>

@@ -9,9 +9,8 @@
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import { paiseToRupees, rupeesToPaise } from '#/features/application/money'
 import type { PipelineInputFieldType } from '#/graphql/generated/schema'
-import { humanize } from '#/lib/format'
 import { ConditionsEditor, type ConditionScope } from './ConditionsEditor'
-import { blankInput, freshKey, KEY_PATTERN, toKey, type PipelineInput } from './definition'
+import { blankInput, freshKey, KEY_PATTERN, toKey, type PipelineInput, typeLabel } from './definition'
 import { moveAt, removeAt, replaceAt } from './editorState'
 import type { Named } from './paramControls'
 import styles from './Pipeline.module.css'
@@ -110,7 +109,7 @@ export function InputsEditor({
                       requirement: type === 'STATEMENT' ? 'OPTIONAL' : input.requirement,
                     })
                   }}>
-                  {types.map((type) => <option key={type} value={type}>{humanize(type)}</option>)}
+                  {types.map((type) => <option key={type} value={type}>{typeLabel(type)}</option>)}
                 </select>
               </div>
               {input.type === 'STATEMENT' ? null : (

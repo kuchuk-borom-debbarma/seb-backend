@@ -16,8 +16,7 @@ import {
   CONDITION_OPERATORS,
   UNARY_OPERATORS,
   type ConditionOperator,
-  type PipelineCondition,
-} from './definition'
+  type PipelineCondition, typeLabel } from './definition'
 import { removeAt, replaceAt } from './editorState'
 import type { Named } from './paramControls'
 import styles from './Pipeline.module.css'
@@ -235,7 +234,7 @@ function AnswerType({ id, condition, scope, onChange }: {
       >
         <option value="">Type…</option>
         {scope.answerTypes.map((type) => (
-          <option key={type} value={type}>{humanize(type)}</option>
+          <option key={type} value={type}>{typeLabel(type)}</option>
         ))}
       </select>
     </>

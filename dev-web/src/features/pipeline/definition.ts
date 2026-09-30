@@ -14,6 +14,7 @@ import type {
   PipelineEffectType,
   PipelineInputFieldType,
 } from '#/graphql/generated/schema'
+import { humanize } from '#/lib/format'
 
 export const CONDITION_OPERATORS = [
   'EQUALS',
@@ -125,6 +126,14 @@ export const toKey = (text: string): string =>
     .slice(0, 64)
 
 /** A name nothing else in `taken` uses yet: `STAGE`, `STAGE_2`, `STAGE_3`… */
+/**
+ * A field or value type as an author reads it. Most read fine humanized;
+ * money does not — "Money paise" names the unit it is stored in, while the
+ * author types and reads rupees.
+ */
+export const typeLabel = (type: string): string =>
+  type === 'MONEY_PAISE' ? 'Money (₹)' : humanize(type)
+
 export const freshKey = (base: string, taken: readonly string[]): string => {
   if (!taken.includes(base)) return base
   for (let n = 2; ; n += 1) {
