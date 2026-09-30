@@ -48,12 +48,13 @@ import {
 } from '../../../db/schema'
 import type { EligibilityHistory, EligibilityRule } from '../eligibility'
 import type { EligibilityRuleType } from '../../catalogue/workflow.generated'
-import { insertAuditEventWhere } from '../../audit-event'
+import { auditEventCteMember, insertAuditEventWhere } from '../../audit-event'
 import { MAX_COLLECTION_ROWS } from '../pagination'
 import { changedStageKeys, pinnedFilesOf } from '../form/answers'
 import {
   answersByVersion,
   answersFromRows,
+  answersToRows,
   findAnswerRows,
   findPinnedCycleRules,
   type PinnedCycleRules,
@@ -500,6 +501,67 @@ export const loadOwnedApplication = async (
 ): Promise<Application | null> =>
   (await loadOwnedApplicationContext(db, readForm, userId, applicationId, includeDeleted))
     ?.application ?? null
+
+/**
+ * The application as a write left it, built from what was loaded and what the
+ * write decided — never read back.
+ *
+ * A write already knows every value it changed: the new version number and
+ * time it chose, the answers it stored, and whatever its statement returned.
+ * Reading the whole application back cost as much as loading it in the first
+ * place (docs/rules/performance.md, rule 4).
+ *
+ * The answers pass through the same rows a read would rebuild them from, so
+ * the response is exactly what a reload would return: an unanswered question
+ * reads `null`, a blank reads `null`, and a multiple choice is in the form's
+ * order.
+ *
+ * What it cannot see is a change another request made meanwhile to something
+ * this write did not touch — a document attached a moment ago. The next read
+ * shows it; nothing is decided on this response.
+ */
+export const applicationAfterWrite = (
+  loaded: LoadedApplication,
+  change: {
+    /** Head fields the write changed. */
+    head: Partial<Pick<Application,
+      | 'currentVersion' | 'statusVersion' | 'status' | 'referenceNumber' | 'firstSubmittedAt'
+      | 'currentStageKey' | 'statusFlags' | 'updatedAt' | 'deletedAt'>>
+    /** The version the write created, if it created one. */
+    version?: Omit<ApplicationSnapshot, 'answers' | 'programmeCycleVersion' | 'applicationKind' | 'phaseNumber'>
+      & { answers: AnswerMap }
+    revisionRequests?: RevisionRequest[]
+  },
+): Application => {
+  const before = loaded.application
+  const template = loaded.rules.template
+  const status = change.head.status ?? before.status
+  const revisionRequests = change.revisionRequests ?? before.revisionRequests
+  const snapshot = change.version
+    ? {
+      ...before.snapshot,
+      ...change.version,
+      answers: storedForm(template, change.version.answers),
+    }
+    : before.snapshot
+  return {
+    ...before,
+    ...change.head,
+    snapshot,
+    answers: snapshot.answers,
+    revisionRequests,
+    editableStageKeys: editableStageKeysFor(
+      status,
+      revisionRequests,
+      template.stages.map((stage) => stage.key),
+    ),
+  }
+}
+
+/** Answers as storing and reading them back leaves them. */
+const storedForm = (template: PinnedCycleRules['template'], answers: AnswerMap): AnswerMap =>
+  answersFromRows(template, 'written', answersToRows(template, answers)
+    .map((row) => ({ ...row, applicationVersionId: 'written' })))
 
 /** The stages that open revision requests name — what a correction may change. */
 export const openRevisionStageKeys = (application: Pick<Application, 'revisionRequests'>) =>
@@ -1288,6 +1350,100 @@ const insertAnswerRows = (
   `)
 }
 
+/*
+ * The members an application write is folded from.
+ *
+ * Each selects FROM the member it depends on — the guarded head update, or the
+ * version that update produced — rather than re-checking the table. Members of
+ * one statement see the database as it was before the statement, so a guard
+ * like "the head is now at version n+1" would match nothing; the returned row
+ * is the only way one member learns another wrote. A losing writer's head
+ * update returns no row, so every member built on it writes nothing.
+ *
+ * The column lists are explicit because a raw insert has no declaration order
+ * to lean on; `check:insert-arity` holds each list to its table.
+ */
+const applicationVersionMember = (
+  value: typeof sebApplicationVersion.$inferInsert,
+  source: SQL,
+) => sql`
+  INSERT INTO ${sebApplicationVersion} (
+    id, application_id, version, programme_cycle_id, programme_cycle_version,
+    application_kind, phase_number, change_type, change_reason, changed_by_user_id,
+    created_at, declaration_accepted_at, application_category
+  )
+  SELECT ${value.id}, ${value.applicationId}, ${value.version}::int,
+    ${value.programmeCycleId}, ${value.programmeCycleVersion}::int,
+    ${value.applicationKind}, ${value.phaseNumber}::int, ${value.changeType},
+    ${sqlNullable(value.changeReason)}, ${value.changedByUserId},
+    ${value.createdAt},
+    ${sqlNullable(value.declarationAcceptedAt as Date | null | undefined)},
+    ${sqlNullable(value.applicationCategory)}
+  FROM ${source}
+  RETURNING id
+`
+
+/**
+ * A version's answer rows, in the same statement as the version.
+ *
+ * Sparse — a cleared or unanswered question produces no row — so absence is
+ * the one representation of "unanswered" in storage as well as in the engine.
+ * Null when there is nothing to write, so the caller leaves the member out.
+ */
+const answerRowsMember = (input: {
+  rows: readonly AnswerRow[]
+  programmeCycleId: string
+  programmeCycleVersion: number
+  createdAt: Date
+  /** The member that returned the version these rows belong to. */
+  version: SQL
+}) => {
+  if (input.rows.length === 0) return null
+  /*
+   * The first row carries the casts. Inside a bare `VALUES` list Postgres has
+   * nothing to infer a parameter's type from, and would resolve every column
+   * as `text` — which the two ordinals are not.
+   */
+  const answerValues = sql.join(input.rows.map((row, index) => index === 0
+    ? sql`(${row.fieldKey}::text, ${row.entryIndex}::int, ${row.valueOrdinal}::int, ${row.valueText}::text)`
+    : sql`(${row.fieldKey}, ${row.entryIndex}, ${row.valueOrdinal}, ${row.valueText})`), sql`, `)
+  return sql`
+    INSERT INTO ${sebApplicationVersionAnswer} (
+      id, application_version_id, programme_cycle_id, programme_cycle_version,
+      field_key, entry_index, value_ordinal, value_text, created_at
+    )
+    SELECT gen_random_uuid()::text, written.id, ${input.programmeCycleId},
+      ${input.programmeCycleVersion}::int, answer.field_key, answer.entry_index,
+      answer.value_ordinal, answer.value_text, ${input.createdAt}
+    FROM ${input.version} written
+    CROSS JOIN (VALUES ${answerValues}) AS answer(field_key, entry_index, value_ordinal, value_text)
+  `
+}
+
+/** One entry on the applicant's timeline, written only with its source. */
+const applicationEventMember = (value: typeof sebApplicationEvent.$inferInsert, source: SQL) => sql`
+  INSERT INTO ${sebApplicationEvent} (
+    id, application_id, event_type, actor_user_id, application_version,
+    submission_id, revision_request_id, from_status, to_status, stage_key,
+    message, metadata_json, created_at, stage_action_id
+  )
+  SELECT ${value.id}, ${value.applicationId}, ${value.eventType}, ${value.actorUserId},
+    ${sqlNullable(value.applicationVersion)}::int, ${sqlNullable(value.submissionId)}, NULL,
+    ${sqlNullable(value.fromStatus)}, ${sqlNullable(value.toStatus)}, NULL,
+    ${sqlNullable(value.message)}, NULL, ${value.createdAt}, NULL
+  FROM ${source}
+`
+
+/** Folds members into one statement and says whether the head was written. */
+const writeFolded = async (db: Database, members: (SQL | null)[]): Promise<boolean> => {
+  const present = members.filter((member): member is SQL => member !== null)
+  const result = await db.execute<{ id: string }>(sql`
+    WITH ${sql.join(present, sql`, `)}
+    SELECT id FROM head
+  `)
+  return result.rows.length === 1
+}
+
 const eventValues = (input: {
   id?: string
   applicationId: string
@@ -1486,29 +1642,40 @@ export const saveApplicationSnapshot = async (
   },
 ): Promise<boolean> => {
   const nextVersion = input.head.currentVersion + 1
-  const versionId = crypto.randomUUID()
   // A submitted application saves only inside an open revision, which the
   // scope guard below proves; a draft saves anywhere.
   const changeType = input.head.status === 'DRAFT' ? 'SAVE' : 'REVISION'
-  const updateHead = db
-    .update(sebApplication)
-    .set({ currentVersion: nextVersion, updatedAt: input.now })
-    .where(
-      and(
-        eq(sebApplication.id, input.head.id),
-        eq(sebApplication.applicantUserId, input.userId),
-        eq(sebApplication.currentVersion, input.head.currentVersion),
-        eq(sebApplication.statusVersion, input.head.statusVersion),
-        eq(sebApplication.status, input.head.status),
-        isNull(sebApplication.deletedAt),
-        revisionScopeStillCurrent(input),
-      ),
-    )
-    .returning({ id: sebApplication.id })
-  const insertVersion = insertVersionWhere(
-    db,
-    versionValues({
-      id: versionId,
+  /*
+   * One statement: the guarded head update first, and the version, its
+   * answers, the timeline entry and the audit row each selected from what it
+   * returned. Every guard stays in the update's predicate, so a stale or
+   * out-of-scope save updates nothing and writes nothing else.
+   */
+  const guard = and(
+    eq(sebApplication.id, input.head.id),
+    eq(sebApplication.applicantUserId, input.userId),
+    eq(sebApplication.currentVersion, input.head.currentVersion),
+    eq(sebApplication.statusVersion, input.head.statusVersion),
+    eq(sebApplication.status, input.head.status),
+    isNull(sebApplication.deletedAt),
+    revisionScopeStillCurrent(input),
+  )
+  const answers = answerRowsMember({
+    rows: input.answerRows,
+    programmeCycleId: input.head.programmeCycleId,
+    programmeCycleVersion: input.programmeCycleVersion,
+    createdAt: input.now,
+    version: sql`version`,
+  })
+  return writeFolded(db, [
+    sql`head AS (
+      UPDATE ${sebApplication}
+      SET current_version = ${nextVersion}::int, updated_at = ${input.now}
+      WHERE ${guard}
+      RETURNING id
+    )`,
+    sql`version AS (${applicationVersionMember(versionValues({
+      id: crypto.randomUUID(),
       applicationId: input.head.id,
       version: nextVersion,
       programmeCycleId: input.head.programmeCycleId,
@@ -1520,56 +1687,18 @@ export const saveApplicationSnapshot = async (
       createdAt: input.now,
       declarationAcceptedAt: null,
       applicationCategory: null,
-    }),
-    sql`${sebApplication.id} = ${input.head.id}
-      AND ${sebApplication.currentVersion} = ${nextVersion}
-      AND ${sebApplication.updatedAt} = ${input.now}`,
-  )
-  /*
-   * The answers hang off the version, which hangs off the guarded update, so a
-   * losing writer inserts no version and these rows have no parent to attach to
-   * — the foreign key rolls the whole transition back rather than leaving a set
-   * of answers pointing at nothing.
-   */
-  const insertAnswers = insertAnswerRows(db, {
-    applicationVersionId: versionId,
-    programmeCycleId: input.head.programmeCycleId,
-    programmeCycleVersion: input.programmeCycleVersion,
-    rows: input.answerRows,
-    createdAt: input.now,
-  })
-  const eventValue = eventValues({
-    applicationId: input.head.id,
-    eventType: 'APPLICATION_SAVED',
-    actorUserId: input.userId,
-    applicationVersion: nextVersion,
-    message: 'Application draft saved.',
-    createdAt: input.now,
-  })
-  const event = db.insert(sebApplicationEvent).select(sql`
-    SELECT ${eventValue.id}, ${eventValue.applicationId}, ${eventValue.eventType},
-      ${eventValue.actorUserId}, ${eventValue.applicationVersion}, NULL, NULL,
-      NULL, NULL, NULL, ${eventValue.message}, NULL, ${input.now}, NULL
-    WHERE EXISTS (
-      SELECT 1 FROM ${sebApplication}
-      WHERE ${sebApplication.id} = ${input.head.id}
-        AND ${sebApplication.currentVersion} = ${nextVersion}
-        AND ${sebApplication.updatedAt} = ${input.now}
-    )
-  `)
-  const audit = insertAuditEventWhere(db, input.audit, sql`EXISTS (
-      SELECT 1 FROM ${sebApplication}
-      WHERE ${sebApplication.id} = ${input.head.id}
-        AND ${sebApplication.currentVersion} = ${nextVersion}
-        AND ${sebApplication.updatedAt} = ${input.now}
-    )
-  `)
-  const [updated] = await batch(db, () =>
-    insertAnswers
-      ? [updateHead, insertVersion, insertAnswers, event, audit] as const
-      : [updateHead, insertVersion, event, audit] as const,
-  )
-  return changedExactlyOne(updated)
+    }), sql`head`)})`,
+    answers && sql`answers AS (${answers})`,
+    sql`event AS (${applicationEventMember(eventValues({
+      applicationId: input.head.id,
+      eventType: 'APPLICATION_SAVED',
+      actorUserId: input.userId,
+      applicationVersion: nextVersion,
+      message: 'Application draft saved.',
+      createdAt: input.now,
+    }), sql`head`)})`,
+    sql`audit AS (${auditEventCteMember(input.audit, sql`head`)})`,
+  ])
 }
 
 export const setApplicationDeleted = async (

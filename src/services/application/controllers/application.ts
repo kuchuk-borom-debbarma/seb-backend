@@ -20,6 +20,7 @@ import {
   listOwnedApplications,
   loadOwnedApplication,
   loadOwnedApplicationContext,
+  applicationAfterWrite,
   openRevisionStageKeys,
   activeDocumentFieldKeys,
   type LoadedApplication,
@@ -426,12 +427,18 @@ export const saveApplicationDraft = async (
       now,
     }),
   }))
-  return completeGuardedOperation(
-    saved,
-    'The application changed. Refresh it and try again.',
-    () => loadOwnedApplication(context.db, pinnedFormReader(context.loaders), applicant.id, application.id),
-    'Saved application could not be read.',
-  )
+  if (!saved) return failure('The application changed. Refresh it and try again.')
+  return success(applicationAfterWrite(loaded, {
+    head: { currentVersion: application.currentVersion + 1, updatedAt: now },
+    version: {
+      version: application.currentVersion + 1,
+      changeType: application.status === 'DRAFT' ? 'SAVE' : 'REVISION',
+      createdAt: now,
+      declarationAcceptedAt: null,
+      applicationCategory: null,
+      answers,
+    },
+  }))
 }
 
 export const validateApplication = async (
