@@ -164,7 +164,12 @@ export function StagePanel({
 
       <SentBack file={file} />
 
-      <Trail trail={file.trail} current={file.stage?.name ?? null} />
+      <Trail
+        trail={file.trail}
+        current={file.stage?.name ?? null}
+        // A finished journey's last stage is the one that ended it.
+        endedAt={file.ended ? (file.history.at(-1)?.stageName ?? null) : null}
+      />
 
       <div className={styles.panelBlock}>
         <h3 className={styles.blockTitle}>Status</h3>
@@ -297,6 +302,21 @@ export function StagePanel({
   )
 }
 
+const HISTORY_SHOWN = 3
+
+/**
+ * What an action recorded that its inputs do not already show. Recording an
+ * input as a value is most of what recording does, and listing the same
+ * amount, reference and date twice in one entry made each entry twice as long.
+ */
+const recordedBeyondInputs = (entry: StageFile['history'][number]) =>
+  entry.recorded.filter(
+    (value) =>
+      !entry.inputs.some(
+        (input) => JSON.stringify(input.value) === JSON.stringify(value.value),
+      ),
+  )
+
 /** Every action taken on this file, newest first, with what each did. */
 function StageHistory({
   history,
@@ -305,15 +325,21 @@ function StageHistory({
   history: StageFile['history']
   sectionTitle: (key: string) => string
 }) {
+  const [showAll, setShowAll] = useState(false)
   if (history.length === 0) return null
   const newestFirst = [...history].reverse()
+  /*
+   * The latest few, in a side column beside the file: every action of a long
+   * journey pushed the notes and submissions a screen further down.
+   */
+  const shown = showAll ? newestFirst : newestFirst.slice(0, HISTORY_SHOWN)
   return (
     <div className={styles.panelBlock}>
       <h3 className={styles.blockTitle}>
         <History size={14} aria-hidden="true" /> Stage history
       </h3>
       <ol className={styles.history}>
-        {newestFirst.map((entry) => (
+        {shown.map((entry) => (
           <li key={entry.id} className={styles.historyItem}>
             <div className={styles.historyHead}>
               <strong>{entry.actionLabel}</strong>
@@ -351,15 +377,26 @@ function StageHistory({
               </p>
             ) : null}
             <ValueList values={entry.inputs} />
-            {entry.recorded.length > 0 ? (
+            {recordedBeyondInputs(entry).length > 0 ? (
               <>
                 <p className={styles.historyLine}>Recorded on the file:</p>
-                <ValueList values={entry.recorded} />
+                <ValueList values={recordedBeyondInputs(entry)} />
               </>
             ) : null}
           </li>
         ))}
       </ol>
+      {newestFirst.length > HISTORY_SHOWN ? (
+        <button
+          type="button"
+          className="button"
+          style={{ alignSelf: 'flex-start', minHeight: '2rem' }}
+          aria-expanded={showAll}
+          onClick={() => setShowAll((current) => !current)}
+        >
+          {showAll ? 'Show fewer' : `Show all ${newestFirst.length} actions`}
+        </button>
+      ) : null}
     </div>
   )
 }

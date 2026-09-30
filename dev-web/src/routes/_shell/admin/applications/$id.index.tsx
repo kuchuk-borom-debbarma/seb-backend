@@ -262,6 +262,10 @@ function WorkspacePage() {
                     style={{
                       justifyContent: 'space-between',
                       alignItems: 'baseline',
+                      // Several flags make a long badge; in the side column it
+                      // wraps under the attempt rather than running off the card.
+                      flexWrap: 'wrap',
+                      gap: '0.35rem 0.5rem',
                       padding: '0.4rem 0.6rem',
                       borderRadius: '8px',
                       border: current ? '1px solid #b7cdea' : '1px solid transparent',
@@ -279,7 +283,11 @@ function WorkspacePage() {
                         {current ? ' · this file' : ''}
                       </span>
                     </span>
-                    <span className="badge" data-tone={statusTone(attempt.status)}>
+                    <span
+                      className="badge"
+                      data-tone={statusTone(attempt.status)}
+                      style={{ whiteSpace: 'normal', maxWidth: '100%' }}
+                    >
                       {attempt.statusFlags.length > 0
                         ? attempt.statusFlags.map(humanize).join(', ')
                         : humanize(attempt.status)}

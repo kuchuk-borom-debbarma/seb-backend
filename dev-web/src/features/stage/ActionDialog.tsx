@@ -310,8 +310,14 @@ export function ActionDialog({
               ) : null}
 
               {action.confirmation ? (
-                <p className="notice" data-tone="action">
-                  <AlertTriangle size={14} aria-hidden="true" /> {action.confirmation}
+                <p
+                  className="notice"
+                  data-tone="action"
+                  // The icon beside its sentence, not on a line of its own.
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}
+                >
+                  <AlertTriangle size={14} aria-hidden="true" style={{ flex: 'none', marginTop: '3px' }} />
+                  <span>{action.confirmation}</span>
                 </p>
               ) : null}
 

@@ -82,11 +82,15 @@ export function FlagChips({
 export function Trail({
   trail,
   current,
+  endedAt = null,
 }: {
   trail: readonly { key: string; name: string }[]
   current: string | null
+  /** The stage a finished journey ended in, which no longer holds the file. */
+  endedAt?: string | null
 }) {
-  const steps = [...trail.map((step) => step.name), ...(current ? [current] : [])]
+  const last = current ?? endedAt
+  const steps = [...trail.map((step) => step.name), ...(last ? [last] : [])]
   if (steps.length <= 1) return null
   return (
     <ol className={styles.trail} aria-label="Stages this file came through">
