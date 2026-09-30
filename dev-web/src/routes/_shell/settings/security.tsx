@@ -321,7 +321,12 @@ function SessionsSection() {
         >
           <MonitorSmartphone size={22} />
         </div>
-        <div style={{ flex: 1 }}>
+        {/*
+          `minWidth: 0` lets this column be narrower than the device table, so
+          the table scrolls inside its wrapper on a narrow screen instead of
+          widening the column past the card's edge.
+        */}
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
               display: 'flex',
@@ -372,11 +377,15 @@ function SessionsSection() {
             </p>
           ) : null}
 
+          {/*
+            The shared `.table-wrap`: on a narrow screen the device list scrolls
+            inside its border rather than being clipped by it.
+          */}
           <div
+            className="table-wrap"
             style={{
               border: '1px solid #D9DDE2',
               borderRadius: '8px',
-              overflow: 'hidden',
               marginTop: '12px',
             }}
           >

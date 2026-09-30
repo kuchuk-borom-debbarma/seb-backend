@@ -149,7 +149,9 @@ test.describe('changing the address you sign in with', () => {
     const moved = uniqueEmail('moved')
     await page.goto('/account/profile')
     await page.getByLabel('New email address').fill(moved)
-    await page.getByLabel('Your password').fill(PASSWORD)
+    // The address card asks for the password under its own "Your password"
+    // heading, labelled as the current one.
+    await page.getByLabel('Current password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Send confirmation code' }).click()
 
     // Keyed on the new address, because that is where the code was sent.

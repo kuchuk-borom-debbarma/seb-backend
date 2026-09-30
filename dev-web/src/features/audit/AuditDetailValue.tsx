@@ -38,6 +38,27 @@ const filtersText = (value: string): string => {
   }
 }
 
+/** A JSON array the API sent as text, or nothing when it is not one. */
+const parsedArray = (value: string): unknown[] | null => {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+type ShownValue = { label: string; kind: string; value: string }
+
+/** One configured value, read by the kind it was recorded with. */
+const shownValueText = ({ kind, value }: ShownValue): string => {
+  if (kind === 'MONEY') return formatMoney(value)
+  if (kind === 'DATE') return formatDate(value)
+  if (kind === 'BOOLEAN') return value === 'true' ? 'Yes' : 'No'
+  if (kind === 'ENUM') return humanize(value)
+  return value
+}
+
 export function AuditDetailValue({ detail }: { detail: AuditDetail }) {
   const user = useCurrentUser()
   const { value, reference } = detail
@@ -62,6 +83,26 @@ export function AuditDetailValue({ detail }: { detail: AuditDetail }) {
       return <q>{value}</q>
     case 'FILTERS':
       return <span>{filtersText(value)}</span>
+    case 'LIST': {
+      const items = parsedArray(value)
+      if (!items) return <span>{value}</span>
+      return items.length === 0 ? <span className="muted">None</span> : <span>{items.join(', ')}</span>
+    }
+    case 'VALUES': {
+      const items = parsedArray(value) as ShownValue[] | null
+      if (!items) return <span>{value}</span>
+      if (items.length === 0) return <span className="muted">None</span>
+      return (
+        <span>
+          {items.map((item, index) => (
+            <span key={`${item.label}-${index}`}>
+              {index > 0 ? ' · ' : ''}
+              {item.label}: <span className="tabular">{shownValueText(item)}</span>
+            </span>
+          ))}
+        </span>
+      )
+    }
     case 'ID':
       return <span className="tabular muted">{value}</span>
     case 'USER':

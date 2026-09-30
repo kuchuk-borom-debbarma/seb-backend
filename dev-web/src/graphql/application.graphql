@@ -2,7 +2,7 @@ fragment ApplicationSummaryFields on ApplicationSummary {
   id
   enterpriseId
   programmeCycleId
-  applicationType
+  applicationKind
   phaseNumber
   referenceNumber
   currentVersion
@@ -15,6 +15,20 @@ fragment ApplicationSummaryFields on ApplicationSummary {
   businessName
   cycleCode
   cycleYear
+  # Where it is, as its applicant is told: null for a draft.
+  journey { ...ApplicationJourneyFields }
+  awaitingCorrection
+}
+
+# Where a submitted application is, in the words its pipeline gives the
+# applicant: the stage's label, how the journey ended, and only the flags and
+# recorded values marked applicant-visible.
+fragment ApplicationJourneyFields on ApplicationJourney {
+  stageLabel
+  stageExplanation
+  ended
+  flags { key label explanation }
+  recordedValues { key label type value }
 }
 
 fragment CycleFields on ProgrammeCycle {
@@ -36,7 +50,7 @@ query MyApplications(
   $enterpriseId: ID
   $status: ApplicationStatus
   $programmeCycleId: ID
-  $applicationType: ApplicationType
+  $applicationKind: String
   $search: String
   $includeDeleted: Boolean
 ) {
@@ -48,7 +62,7 @@ query MyApplications(
         enterpriseId: $enterpriseId
         status: $status
         programmeCycleId: $programmeCycleId
-        applicationType: $applicationType
+        applicationKind: $applicationKind
         search: $search
         includeDeleted: $includeDeleted
       ) {
@@ -94,45 +108,34 @@ query StatusGuide {
   }
 }
 
-query ExpansionEligibility($enterpriseId: ID!, $programmeCycleId: ID!) {
+# Every kind of application the cycle accepts, and whether this enterprise may
+# start each — with every reason it may not.
+query ApplicationKindEligibility($enterpriseId: ID!, $programmeCycleId: ID!) {
   seb {
     application {
-      expansionEligibility(
+      applicationKinds(
         enterpriseId: $enterpriseId
         programmeCycleId: $programmeCycleId
       ) {
         success
         message
         response {
-          eligible
-          nextPhaseNumber
-          eligibleAt
-          reasons { code message obligationId }
+          kinds { kindKey label description eligible reasons }
         }
       }
     }
   }
 }
 
-mutation StartInitialApplication($enterpriseId: ID!, $programmeCycleId: ID!) {
+mutation StartApplication($enterpriseId: ID!, $programmeCycleId: ID!, $applicationKind: String!) {
   seb {
     application {
-      startInitial(
-        input: { enterpriseId: $enterpriseId, programmeCycleId: $programmeCycleId }
-      ) {
-        success
-        message
-        response { id }
-      }
-    }
-  }
-}
-
-mutation StartExpansionApplication($enterpriseId: ID!, $programmeCycleId: ID!) {
-  seb {
-    application {
-      startExpansion(
-        input: { enterpriseId: $enterpriseId, programmeCycleId: $programmeCycleId }
+      start(
+        input: {
+          enterpriseId: $enterpriseId
+          programmeCycleId: $programmeCycleId
+          applicationKind: $applicationKind
+        }
       ) {
         success
         message
@@ -152,7 +155,7 @@ query ApplicationById($id: ID!) {
           id
           enterpriseId
           programmeCycleId
-          applicationType
+          applicationKind
           phaseNumber
           referenceNumber
           currentVersion
@@ -163,14 +166,13 @@ query ApplicationById($id: ID!) {
           updatedAt
           deletedAt
           editableStageKeys
+          journey { ...ApplicationJourneyFields }
           answers
           snapshot {
             version
             programmeCycleVersion
             declarationAcceptedAt
             applicationCategory
-            priorSanctionOrderNumber priorSanctionDate
-            priorNetDisbursedAmountPaise continuousOperationMonths
           }
           revisionRequests {
             id
@@ -200,6 +202,7 @@ fragment FormTemplateFields on FormTemplate {
   programmeCycleId
   programmeCycleVersion
   stages { key title description iconName estimatedMinutes position }
+  rules { key type stageKey message limit operandKeys }
   fields {
     key
     stageKey
@@ -407,53 +410,6 @@ query DocumentDownloadUrl($documentId: ID!) {
         success
         message
         response { downloadUrl expiresAt }
-      }
-    }
-  }
-}
-
-# --- Funding --------------------------------------------------------------
-#
-# What the applicant is allowed to know about their own award. The server picks
-# the fields: internal banking prerequisites, reviewer evidence and assessment
-# notes are absent from this type by design, so the shape of the query is the
-# whole of what can be shown.
-
-query ApplicationFunding($applicationId: ID!) {
-  seb {
-    application {
-      funding(applicationId: $applicationId) {
-        success
-        message
-        response {
-          award {
-            sanctionOrderNumber
-            sanctionDate
-            sanctionedAmountPaise
-            applicantConditions
-            status
-            closureDisposition
-            grossReleasedPaise
-            reversedPaise
-            netReleasedPaise
-            remainingPlannedPaise
-          }
-          releases {
-            sequenceNumber
-            occurredAt
-            amountPaise
-            paymentReference
-            reversedAmountPaise
-          }
-          assessments {
-            assessmentType
-            assessmentNumber
-            outcome
-            assessedAt
-            summary
-            latest
-          }
-        }
       }
     }
   }

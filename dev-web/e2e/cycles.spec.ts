@@ -2,9 +2,12 @@ import { expect, test, type Page } from '@playwright/test'
 import {
   PASSWORD,
   SUPER_ADMIN_EMAIL,
+  choosePipeline,
   chooseProgrammeCycle,
   signIn,
+  registerEnterprise,
   signUpApplicant,
+  startApplication,
   uniqueEmail,
   uploadPolicyDocument,
 } from './support'
@@ -13,7 +16,12 @@ import {
  * Creates a cycle and opens it, which is what makes the applicant journey
  * possible at all: an application cannot be started until a cycle is open.
  */
-const createOpenCycle = async (page: Page, name: string) => {
+const createOpenCycle = async (
+  page: Page,
+  name: string,
+  /** Runs on the cycle form before it is created, to shape its kinds or rules. */
+  configure?: (page: Page) => Promise<void>,
+) => {
   await page.goto('/admin/cycles/new')
   // Filled only after hydration settles: a fill that lands before React
   // takes the inputs over is wiped when it does.
@@ -31,6 +39,8 @@ const createOpenCycle = async (page: Page, name: string) => {
   const local = (value: Date) => value.toISOString().slice(0, 16)
   await page.getByLabel('Applications open').fill(local(opens))
 
+  await choosePipeline(page)
+  if (configure) await configure(page)
   await page.getByRole('button', { name: 'Create draft cycle' }).click()
   await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
   await uploadPolicyDocument(page)
@@ -135,6 +145,7 @@ test.describe('cycle administration', () => {
     await page.getByLabel('Guidance for applicants').fill('Guidance.')
     const now = new Date()
     await page.getByLabel('Applications open').fill(now.toISOString().slice(0, 16))
+    await choosePipeline(page)
     await page.getByRole('button', { name: 'Create draft cycle' }).click()
     await expect(page).toHaveURL(/\/admin\/cycles\/[0-9a-f-]{36}$/u)
     await uploadPolicyDocument(page)
@@ -163,12 +174,7 @@ test.describe('cycle administration', () => {
     await applicantPage.goto('/cycles')
     await expect(applicantPage.getByText(code).first()).toBeVisible()
 
-    await applicantPage.goto('/enterprises/new')
-    await applicantPage.getByLabel('Registered or trading name').fill('Journey Works')
-    for (let step = 0; step < 3; step += 1) {
-      await applicantPage.getByRole('button', { name: 'Next' }).click()
-    }
-    await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
+    await registerEnterprise(applicantPage, 'Journey Works')
 
     await applicantPage.goto('/applications/new')
     const journeySelect = applicantPage.getByLabel('Enterprise')
@@ -177,10 +183,8 @@ test.describe('cycle administration', () => {
     }
     await chooseProgrammeCycle(applicantPage, code)
     await applicantPage.getByRole('button', { name: 'Next' }).click()
-    await applicantPage.getByRole('radio', { name: 'Initial application' }).check()
-    await applicantPage
-      .getByRole('button', { name: 'Start an initial application' })
-      .click()
+    await applicantPage.getByRole('radio', { name: 'First application' }).check()
+    await applicantPage.getByRole('button', { name: 'Start: First application' }).click()
 
     // The application exists, and the status rail says whose turn it is.
     await expect(applicantPage).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
@@ -192,45 +196,52 @@ test.describe('cycle administration', () => {
     await applicant.close()
   })
 
-  test('expansion is refused with the real reasons for a first-time enterprise', async ({
+  /*
+   * Which kinds an enterprise may start is the cycle's rules, evaluated on the
+   * server and explained in its words. This cycle adds an expansion kind that
+   * needs an earlier completed application, which a new enterprise has not got.
+   */
+  test('withholds a kind whose rules are not met, with the real reason', async ({ page }) => {
+    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
+    const code = `SEP-KIND-${Date.now().toString(36).toUpperCase()}`
+    await createOpenCycle(page, code, async (form) => {
+      // Still on the "Pipeline & kinds" step, where the pipeline was chosen.
+      await form.getByRole('button', { name: 'Add a kind of application' }).click()
+      await form.getByLabel('Offered as').last().fill('Expansion')
+      await form.getByLabel('Add an eligibility rule').last().selectOption('PRIOR_APPLICATION_HAS_FLAG')
+      await form.getByLabel('Flag', { exact: true }).fill('COMPLETED')
+    })
+    await page.context().clearCookies()
+
+    const email = uniqueEmail('kinds')
+    await signUpApplicant(page, email)
+    await signIn(page, email)
+    await registerEnterprise(page, 'New Works')
+    await page.goto('/applications/new')
+    await chooseProgrammeCycle(page, code)
+    await page.getByRole('button', { name: 'Next' }).click()
+
+    // The kind anybody may start is offered; the other is withheld, with the
+    // API's own reason rather than a message invented by the client.
+    await expect(page.getByRole('radio', { name: 'First application' })).toBeEnabled()
+    await expect(page.getByRole('radio', { name: 'Expansion' })).toBeDisabled()
+    await expect(
+      page.getByText('This needs an earlier application that reached the required outcome.'),
+    ).toBeVisible()
+  })
+
+  test('refuses a second live application for one enterprise, and leads to the first', async ({
     page,
   }) => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    const code = `SEP-EXP-${Date.now().toString(36).toUpperCase()}`
+    const code = `SEP-TWO-${Date.now().toString(36).toUpperCase()}`
     await createOpenCycle(page, code)
+    await page.context().clearCookies()
 
-    const email = uniqueEmail('applicant')
-    const applicant = await page.context().browser()!.newContext()
-    const applicantPage = await applicant.newPage()
-    await signUpApplicant(applicantPage, email)
-    await signIn(applicantPage, email)
-
-    await applicantPage.goto('/enterprises/new')
-    await applicantPage.getByLabel('Registered or trading name').fill('Unfunded Works')
-    for (let step = 0; step < 3; step += 1) {
-      await applicantPage.getByRole('button', { name: 'Next' }).click()
-    }
-    await applicantPage.getByRole('button', { name: 'Register enterprise' }).click()
-
-    await applicantPage.goto('/applications/new')
-    const unfundedSelect = applicantPage.getByLabel('Enterprise')
-    if (await unfundedSelect.isEnabled()) {
-      await unfundedSelect.selectOption({ label: 'Unfunded Works' })
-    }
-    await chooseProgrammeCycle(applicantPage, code)
-    await applicantPage.getByRole('button', { name: 'Next' }).click()
-
-    // The API's own wording, not a message invented by the client.
-    await expect(
-      applicantPage.getByText(
-        'This enterprise has no sanctioned funding award to expand from.',
-      ),
-    ).toBeVisible()
-    // The expansion choice itself is withheld, not merely the submission.
-    await expect(
-      applicantPage.getByRole('radio', { name: 'Expansion application' }),
-    ).toBeDisabled()
-
-    await applicant.close()
+    const first = await startApplication(page, { cycleCode: code, prefix: 'second', businessName: 'Second Works' })
+    await page.goto('/applications/new')
+    await expect(page.getByText('This enterprise already has a live application')).toBeVisible()
+    await page.getByRole('link', { name: 'Open that application' }).click()
+    await expect(page).toHaveURL(new RegExp(`/applications/${first}$`, 'u'))
   })
 })

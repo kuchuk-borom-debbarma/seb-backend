@@ -14,7 +14,8 @@ import {
 import type { AnswerEntry, AnswerMap, AnswerValue } from '#/features/application/answers'
 import type { FieldIssues } from '#/features/application/FormControls'
 import { StageForm } from '#/features/application/FormRenderer'
-import { pruneHidden, resolveTemplate } from '#/features/application/formTemplate'
+import { brokenFormRules } from '#/features/application/formRules'
+import { pruneHidden, resolveTemplate, visibleFields } from '#/features/application/formTemplate'
 import {
   applicationQuery,
   formTemplateQuery,
@@ -26,6 +27,7 @@ import { formatDateTime } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import styles from './DraftForm.module.css'
+import { awaitingCorrection } from '#/features/application/revision'
 
 /** Long enough that typing a sentence is one save, short enough to feel safe. */
 const AUTOSAVE_DELAY_MS = 900
@@ -300,6 +302,22 @@ function DraftFormPage() {
    * keystroke — and each stage's object is stable between reports, which is
    * what lets `StageForm` skip re-rendering on an unrelated answer.
    */
+  /*
+   * The cross-field rules broken by the answers on screen, checked here as
+   * the applicant types rather than after the next autosave. Reduced to a
+   * string of their keys, which compares by value, so the grouping below is
+   * rebuilt only when the verdict changes and not on every keystroke.
+   */
+  const brokenRuleKeys = useMemo(
+    () =>
+      template && rawTemplate && answers
+        ? brokenFormRules(template, rawTemplate.rules, answers, visibleFields(template, answers))
+            .map((rule) => rule.key)
+            .join(',')
+        : '',
+    [template, rawTemplate, answers],
+  )
+
   const issuesByStage = useMemo(() => {
     const grouped: Record<string, FieldIssues> = {}
     for (const issue of validation?.issues ?? []) {
@@ -307,8 +325,18 @@ function DraftFormPage() {
       stage[issue.field] = issue.message
       grouped[issue.stageKey] = stage
     }
+    // The server reports a broken rule against its first question; so does
+    // this, so the two land on the same control and never show twice.
+    const broken = new Set(brokenRuleKeys.split(','))
+    for (const rule of rawTemplate?.rules ?? []) {
+      const first = rule.operandKeys[0]
+      if (!broken.has(rule.key) || !first) continue
+      const stage = grouped[rule.stageKey] ?? {}
+      if (!stage[first]) stage[first] = rule.message
+      grouped[rule.stageKey] = stage
+    }
     return grouped
-  }, [validation])
+  }, [validation, brokenRuleKeys, rawTemplate])
 
   const issues = validation?.issues ?? []
   const editable = new Set(application?.editableStageKeys ?? [])
@@ -327,7 +355,7 @@ function DraftFormPage() {
    */
   const initialStage =
     hashStage ??
-    (application?.status === 'REVISION_REQUIRED' && firstEditableStage
+    (awaitingCorrection(application) && firstEditableStage
       ? firstEditableStage
       : !readOnly && firstIncompleteFormIndex !== -1
         ? stageKeys[firstIncompleteFormIndex]!
@@ -410,7 +438,7 @@ function DraftFormPage() {
           <p className={styles.pageDescription}>
             {readOnly
               ? 'This application can no longer be edited.'
-              : application.status === 'REVISION_REQUIRED'
+              : awaitingCorrection(application)
                 ? 'Only the stages the programme office asked you to correct can be changed.'
                 : 'Your answers are saved as you type.'}
           </p>
@@ -481,7 +509,7 @@ function DraftFormPage() {
           </button>
         }
       >
-        {locked && application.status === 'REVISION_REQUIRED' ? (
+        {locked && awaitingCorrection(application) ? (
           <p className="notice" data-tone="action" style={{ marginBottom: '1rem' }}>
             No correction was requested for this stage, so it must stay exactly as it was
             submitted.

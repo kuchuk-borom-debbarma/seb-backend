@@ -1,22 +1,7 @@
-# Intake: the named work queues staff operate from, and one application's
-# workspace.
-#
-# The queue summary reports every queue including the empty ones, so the chips
-# on the console stay in the same place from day to day.
-
-query IntakeQueues($cycleId: ID) {
-  admin {
-    intake {
-      queues(cycleId: $cycleId) {
-        success
-        message
-        response {
-          queues { queue count }
-        }
-      }
-    }
-  }
-}
+# Intake: the office-wide list of submitted applications, and one
+# application's workspace. Which stage holds a file and what it may do next
+# belongs to its pipeline, and is read from the stage operations
+# (`admin-stage.graphql`).
 
 query IntakeQueue($input: AdminIntakeQueueInput) {
   admin {
@@ -33,13 +18,15 @@ query IntakeQueue($input: AdminIntakeQueueInput) {
             sector
             category
             phaseNumber
-            applicationType
+            applicationKind
             status
             statusVersion
-            assignedToUserId
-            assignedTo { id email }
-            assignedAt
-            assignmentVersion
+            currentStageKey
+            stageName
+            stageEnteredAt
+            flags { key label }
+            requestedGrantPaise
+            requestedLoanPaise
             submissionNumber
             submittedAt
             statusChangedAt
@@ -66,10 +53,6 @@ query IntakeByReference($referenceNumber: String!) {
           referenceNumber
           status
           statusVersion
-          assignedToUserId
-          assignedTo { id email }
-          assignedAt
-          assignmentVersion
           updatedAt
         }
       }
@@ -80,7 +63,7 @@ query IntakeByReference($referenceNumber: String!) {
 # One application, as the programme office sees it.
 #
 # The API returns the whole workspace in one call — submissions, snapshots,
-# documents, revisions, assignments, notes, reviews and everything downstream —
+# documents, revisions, notes and the case history —
 # so a screen assembled from a dozen small queries would be slower and could
 # show two moments at once. Fields not yet rendered are left out of the
 # selection set rather than fetched and ignored.
@@ -91,22 +74,19 @@ query IntakeWorkspace($applicationId: ID!) {
         success
         message
         response {
+          # Where the file stands in its pipeline is the stage view's to say
+          # (`admin.stage.application`), with labels rather than keys.
           application {
             id
             referenceNumber
             status
             statusVersion
-            applicantUserId
-            assignedToUserId
-            assignedTo { id email }
-            assignedAt
-            assignmentVersion
+            applicationKind
             updatedAt
           }
           enterpriseName
           cycleCode
           cycleDisplayName
-          reasons { id context code label applicantMessageTemplate }
           submissions { id submissionNumber applicationVersion submittedAt }
           submissionChanges { fromSubmissionNumber toSubmissionNumber stageKeys }
           formTemplate { ...FormTemplateFields }
@@ -114,9 +94,10 @@ query IntakeWorkspace($applicationId: ID!) {
           caseHistory {
             id
             referenceNumber
-            applicationType
+            applicationKind
             phaseNumber
             status
+            statusFlags
             cycleCode
             createdAt
           }
@@ -131,59 +112,7 @@ query IntakeWorkspace($applicationId: ID!) {
             sizeBytes
           }
           revisions { id stageKey note requestedAt resolvedAt cancelledAt }
-          assignments {
-            id
-            eventType
-            assignmentVersion
-            fromUserId
-            toUserId
-            reason
-            actorUserId
-            createdAt
-          }
           notes { id correctionOfNoteId note authoredByUserId createdAt }
-          reviews { id submissionId outcome reviewedByUserId reviewedAt conflictAcknowledged }
-          reviewChecks { id deskReviewId checkType result internalNote createdAt }
-          identifierRules { kind requirement duplicatePolicy checkType }
-          referrals {
-            id
-            bankName
-            bankBranch
-            referralReference
-            referralDate
-            status
-            currentVersion
-          }
-          bankOutcomes {
-            id
-            outcome
-            decisionReference
-            decisionDate
-            applicantSummary
-            createdAt
-          }
-          decisions {
-            id
-            outcome
-            decisionReference
-            decisionDate
-            approvedAmountPaise
-            applicantMessage
-            createdAt
-            conflictAcknowledged
-          }
-          awards {
-            id
-            applicationId
-            sanctionOrderNumber
-            sanctionDate
-            sanctionedAmountPaise
-            applicantConditions
-            status
-            closureDisposition
-            currentVersion
-            ledgerVersion
-          }
         }
       }
     }
@@ -212,42 +141,6 @@ mutation AddInternalNote($input: InternalNoteInput!) {
         success
         message
         response { notes { id correctionOfNoteId note authoredByUserId createdAt } }
-      }
-    }
-  }
-}
-
-mutation StartDeskReview($input: StartDeskReviewInput!) {
-  admin {
-    intake {
-      startDeskReview(input: $input) {
-        success
-        message
-        response { id status statusVersion assignedToUserId assignmentVersion }
-      }
-    }
-  }
-}
-
-mutation CompleteDeskReview($input: CompleteDeskReviewInput!) {
-  admin {
-    intake {
-      completeDeskReview(input: $input) {
-        success
-        message
-        response { application { id status statusVersion } }
-      }
-    }
-  }
-}
-
-mutation CancelRevision($input: CancelRevisionInput!) {
-  admin {
-    intake {
-      cancelRevision(input: $input) {
-        success
-        message
-        response { revisions { id stageKey note requestedAt resolvedAt cancelledAt } }
       }
     }
   }

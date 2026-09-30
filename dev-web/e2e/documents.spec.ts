@@ -56,7 +56,7 @@ test.describe('evidence', () => {
       'Bank account details',
       'No-objection certificate',
     ]) {
-      await expect(page.getByRole('heading', { name: title })).toBeVisible()
+      await expect(page.getByText(title, { exact: true })).toBeVisible()
     }
   })
 
@@ -169,13 +169,12 @@ test.describe('evidence', () => {
     await page.goto(`/applications/${id}/documents`)
 
     /*
-     * Scoped to one card rather than `choose`, which takes the first picker on
-     * the page. Which card receives the file only started mattering once the
-     * upload could actually succeed.
+     * Scoped to one document's row rather than `choose`, which takes the first
+     * picker on the page. Which row receives the file only started mattering
+     * once the upload could actually succeed. The row carries the question's
+     * key as its id — the same address a review issue links to.
      */
-    const card = page
-      .locator('.card')
-      .filter({ has: page.getByRole('heading', { name: 'Detailed project report' }) })
+    const card = page.locator('#DPR')
     await expect(card.getByText('Detailed project report has not been uploaded.')).toBeVisible()
 
     await card.locator('input[type="file"]').setInputFiles({
@@ -284,7 +283,9 @@ test.describe('evidence', () => {
      * saying where it lives, not a shortcut past incomplete stages.
      */
     await page.goto(`/applications/${id}/form`)
-    const evidenceStep = page.getByRole('button', { name: /Attach evidence/u })
+    const evidenceStep = page
+      .getByRole('navigation', { name: 'Form categories' })
+      .getByRole('button', { name: /Attach documents/u })
     await expect(evidenceStep).toBeVisible()
     await expect(evidenceStep).toBeDisabled()
   })

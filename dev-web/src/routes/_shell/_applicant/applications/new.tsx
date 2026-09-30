@@ -12,16 +12,14 @@ import {
   ChevronDown,
   Info,
   Rocket,
-  TrendingUp,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { cyclesQuery } from '#/features/application/queries'
 import { useMarker } from '#/features/guide/GuideContext'
 import {
-  ExpansionEligibilityDocument,
+  ApplicationKindEligibilityDocument,
   MyEnterprisesDocument,
-  StartExpansionApplicationDocument,
-  StartInitialApplicationDocument,
+  StartApplicationDocument,
 } from '#/graphql/generated/operations'
 import { formatDate, formatRelative } from '#/lib/format'
 import { applicantDashboardQuery } from '#/features/dashboard/dashboardQueries'
@@ -31,7 +29,6 @@ import { messageFor, unwrap } from '#/lib/result'
 import styles from '#/features/application/StartApplication.module.css'
 
 type SetupStep = 'SETUP' | 'TYPE'
-type ApplicationKind = 'INITIAL' | 'EXPANSION'
 type Search = { enterpriseId?: string; cycleId?: string }
 
 /** Only live enterprises can carry a new application. */
@@ -49,20 +46,21 @@ const liveEnterprisesQuery = queryOptions({
 })
 
 /**
- * Expansion eligibility for one enterprise in one cycle.
+ * The kinds of application a cycle accepts, judged for one enterprise.
  *
- * Only asked once both are chosen, because the API needs both to answer, and
- * the answer is what decides whether an expansion can be offered at all.
+ * Only asked once both are chosen, because the API needs both to answer: the
+ * kinds are the cycle's, and whether each is open is the enterprise's history
+ * read against that kind's rules.
  */
-const eligibilityQuery = (enterpriseId: string, programmeCycleId: string) =>
+const kindsQuery = (enterpriseId: string, programmeCycleId: string) =>
   queryOptions({
-    queryKey: ['expansion-eligibility', enterpriseId, programmeCycleId],
+    queryKey: ['application-kinds', enterpriseId, programmeCycleId],
     queryFn: async () => {
-      const data = await gql(ExpansionEligibilityDocument, {
+      const data = await gql(ApplicationKindEligibilityDocument, {
         enterpriseId,
         programmeCycleId,
       })
-      return unwrap(data.seb.application.expansionEligibility)
+      return unwrap(data.seb.application.applicationKinds).kinds
     },
   })
 
@@ -87,7 +85,7 @@ function StartApplicationPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const mark = useMarker()
-  const [kind, setKind] = useState<ApplicationKind | null>(null)
+  const [kind, setKind] = useState<string | null>(null)
   // Which of the two setup categories is on screen. Local state rather than a
   // search param, so an unreachable step can never be typed into the URL.
   const [step, setStep] = useState<SetupStep>('SETUP')
@@ -100,16 +98,15 @@ function StartApplicationPage() {
 
   const open = cycles?.available ?? []
   /*
-   * The enterprise's standing decides what can start — not the cycle. One
-   * live application per funding phase, whichever cycle hosts it; rejected
-   * or cancelled attempts are over and free a retry in any open cycle.
+   * A draft already under way for this enterprise is offered back rather than
+   * a second one started. Whether a further application may start once one is
+   * submitted is the kind's own rules' question, answered below per kind.
    */
   const liveApplication = search.enterpriseId
     ? ((mine?.applications.nodes ?? []).find(
         (application) =>
           application.enterpriseId === search.enterpriseId &&
-          application.status !== 'REJECTED' &&
-          application.status !== 'CANCELLED',
+          application.status === 'DRAFT',
       ) ?? null)
     : null
 
@@ -137,23 +134,20 @@ function StartApplicationPage() {
   )
   const activeStep: SetupStep = step === 'TYPE' && chosen ? 'TYPE' : 'SETUP'
 
-  const { data: eligibility, isFetching: checkingEligibility } = useQuery({
-    ...eligibilityQuery(search.enterpriseId ?? '', search.cycleId ?? ''),
+  const { data: kinds, isFetching: checkingEligibility } = useQuery({
+    ...kindsQuery(search.enterpriseId ?? '', search.cycleId ?? ''),
     enabled: chosen,
   })
+  const chosenKind = kinds?.find((each) => each.kindKey === kind) ?? null
 
   const start = useMutation({
-    mutationFn: async (applicationKind: ApplicationKind) => {
-      const variables = {
+    mutationFn: async (applicationKind: string) => {
+      const data = await gql(StartApplicationDocument, {
         enterpriseId: search.enterpriseId ?? '',
         programmeCycleId: search.cycleId ?? '',
-      }
-      if (applicationKind === 'EXPANSION') {
-        const data = await gql(StartExpansionApplicationDocument, variables)
-        return unwrap(data.seb.application.startExpansion)
-      }
-      const data = await gql(StartInitialApplicationDocument, variables)
-      return unwrap(data.seb.application.startInitial)
+        applicationKind,
+      })
+      return unwrap(data.seb.application.start)
     },
     onSuccess: async (application) => {
       await queryClient.invalidateQueries({ queryKey: ['applications'] })
@@ -202,11 +196,8 @@ function StartApplicationPage() {
               This enterprise already has a live application
             </h3>
             <p className={styles.emptyText}>
-              {liveApplication.referenceNumber ?? 'Its draft'} is{' '}
-              {humanize(liveApplication.status).toLowerCase()}. The programme funds an
-              enterprise one phase at a time, so one application is live per phase —
-              whichever cycle it is in. A new attempt becomes possible if this one is
-              rejected or cancelled, or as an expansion once funding is sanctioned.
+              A {humanize(liveApplication.status).toLowerCase()} is already under way for
+              this enterprise. Finish or remove it before starting another.
             </p>
             <Link
               to="/applications/$id"
@@ -314,7 +305,7 @@ function StartApplicationPage() {
               <p className={styles.cardDescription}>
                 {activeStep === 'SETUP'
                   ? 'Choose the enterprise applying and the open programme cycle whose rules will govern this application.'
-                  : 'Choose an initial application or, when programme records allow it, the enterprise’s next expansion phase.'}
+                  : 'Choose one of the kinds of application this cycle accepts. A kind this enterprise cannot start yet says why.'}
               </p>
 
               {activeStep === 'SETUP' ? (
@@ -416,135 +407,84 @@ function StartApplicationPage() {
                 <div>
                   {checkingEligibility ? (
                     <p className="muted" style={{ fontSize: '13px', margin: '0 0 16px' }}>
-                      Checking expansion eligibility…
+                      Checking which kinds this enterprise may start…
                     </p>
                   ) : null}
 
                   <div className={styles.choiceGrid}>
-                    <label
-                      htmlFor="kind-initial"
-                      className={`${styles.choiceCard} ${
-                        kind === 'INITIAL' ? styles.choiceCardSelected : ''
-                      }`}
-                    >
-                      <input
-                        id="kind-initial"
-                        type="radio"
-                        name="applicationKind"
-                        aria-label="Initial application"
-                        value="INITIAL"
-                        checked={kind === 'INITIAL'}
-                        onChange={() => setKind('INITIAL')}
-                        style={{
-                          position: 'absolute',
-                          inset: 0,
-                          width: '100%',
-                          height: '100%',
-                          opacity: 0,
-                          cursor: 'pointer',
-                          zIndex: 1,
-                        }}
-                      />
-                      <div
-                        className={`${styles.customRadio} ${
-                          kind === 'INITIAL' ? styles.customRadioSelected : ''
-                        }`}
+                    {(kinds ?? []).map((option) => (
+                      <label
+                        key={option.kindKey}
+                        htmlFor={`kind-${option.kindKey}`}
+                        className={`${styles.choiceCard} ${
+                          kind === option.kindKey ? styles.choiceCardSelected : ''
+                        } ${option.eligible ? '' : styles.choiceCardDisabled}`}
+                        aria-disabled={!option.eligible}
                       >
-                        {kind === 'INITIAL' && <div className={styles.radioDot} />}
-                      </div>
+                        <input
+                          id={`kind-${option.kindKey}`}
+                          type="radio"
+                          name="applicationKind"
+                          aria-label={option.label}
+                          value={option.kindKey}
+                          disabled={!option.eligible}
+                          checked={kind === option.kindKey}
+                          onChange={() => setKind(option.kindKey)}
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            width: '100%',
+                            height: '100%',
+                            opacity: 0,
+                            cursor: option.eligible ? 'pointer' : 'not-allowed',
+                            zIndex: 1,
+                          }}
+                        />
+                        <div
+                          className={`${styles.customRadio} ${
+                            kind === option.kindKey ? styles.customRadioSelected : ''
+                          }`}
+                        >
+                          {kind === option.kindKey && <div className={styles.radioDot} />}
+                        </div>
 
-                      <div className={styles.choiceIconBadge} data-tone="blue">
-                        <Rocket aria-hidden="true" />
-                      </div>
+                        <div className={styles.choiceIconBadge} data-tone="blue">
+                          <Rocket aria-hidden="true" />
+                        </div>
 
-                      <div className={styles.choiceContent}>
-                        <strong className={styles.choiceTitle}>
-                          Initial application
-                        </strong>
-                        <span className={styles.choiceDescription}>
-                          The first Mission SEP funding phase for this enterprise.
-                        </span>
-                      </div>
-                    </label>
-
-                    <label
-                      htmlFor="kind-expansion"
-                      className={`${styles.choiceCard} ${
-                        kind === 'EXPANSION' ? styles.choiceCardSelected : ''
-                      } ${!eligibility?.eligible ? styles.choiceCardDisabled : ''}`}
-                      aria-disabled={!eligibility?.eligible}
-                    >
-                      <input
-                        id="kind-expansion"
-                        type="radio"
-                        name="applicationKind"
-                        aria-label="Expansion application"
-                        value="EXPANSION"
-                        disabled={!eligibility?.eligible}
-                        checked={kind === 'EXPANSION'}
-                        onChange={() => setKind('EXPANSION')}
-                        style={{
-                          position: 'absolute',
-                          inset: 0,
-                          width: '100%',
-                          height: '100%',
-                          opacity: 0,
-                          cursor: eligibility?.eligible ? 'pointer' : 'not-allowed',
-                          zIndex: 1,
-                        }}
-                      />
-                      <div
-                        className={`${styles.customRadio} ${
-                          kind === 'EXPANSION' ? styles.customRadioSelected : ''
-                        }`}
-                      >
-                        {kind === 'EXPANSION' && <div className={styles.radioDot} />}
-                      </div>
-
-                      <div className={styles.choiceIconBadge} data-tone="green">
-                        <TrendingUp aria-hidden="true" />
-                      </div>
-
-                      <div className={styles.choiceContent}>
-                        <strong className={styles.choiceTitle}>
-                          {eligibility?.nextPhaseNumber
-                            ? `Expansion — phase ${eligibility.nextPhaseNumber}`
-                            : 'Expansion application'}
-                        </strong>
-                        <span className={styles.choiceDescription}>
-                          The next phase for an enterprise already funded by Mission SEP.
-                        </span>
-                      </div>
-                    </label>
+                        <div className={styles.choiceContent}>
+                          <strong className={styles.choiceTitle}>{option.label}</strong>
+                          {option.description ? (
+                            <span className={styles.choiceDescription}>
+                              {option.description}
+                            </span>
+                          ) : null}
+                        </div>
+                      </label>
+                    ))}
                   </div>
 
                   {/*
                     Every unmet rule is listed separately, because an applicant
                     blocked by three things needs to see three things.
                   */}
-                  {eligibility && !eligibility.eligible ? (
-                    <div className={styles.eligibilityPanel}>
-                      <Info className={styles.eligibilityIcon} aria-hidden="true" />
-                      <div className={styles.eligibilityTextGroup}>
-                        <h4 className={styles.eligibilityTitle}>
-                          This enterprise cannot start an expansion yet
-                        </h4>
-                        <ul className={styles.eligibilityList}>
-                          {eligibility.reasons.map((reason) => (
-                            <li key={`${reason.code}${reason.obligationId ?? ''}`}>
-                              {reason.message}
-                            </li>
-                          ))}
-                        </ul>
-                        {eligibility.eligibleAt ? (
-                          <p className={styles.eligibilityDate}>
-                            The earliest it can apply is{' '}
-                            {formatDate(eligibility.eligibleAt)}.
-                          </p>
-                        ) : null}
+                  {(kinds ?? [])
+                    .filter((option) => !option.eligible)
+                    .map((option) => (
+                      <div key={option.kindKey} className={styles.eligibilityPanel}>
+                        <Info className={styles.eligibilityIcon} aria-hidden="true" />
+                        <div className={styles.eligibilityTextGroup}>
+                          <h4 className={styles.eligibilityTitle}>
+                            This enterprise cannot start {option.label.toLowerCase()} yet
+                          </h4>
+                          <ul className={styles.eligibilityList}>
+                            {option.reasons.map((reason) => (
+                              <li key={reason}>{reason}</li>
+                            ))}
+                          </ul>
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
+                    ))}
                 </div>
               )}
 
@@ -578,20 +518,14 @@ function StartApplicationPage() {
                     <button
                       type="button"
                       className={styles.nextBtn}
-                      disabled={
-                        start.isPending ||
-                        kind === null ||
-                        (kind === 'EXPANSION' && !eligibility?.eligible)
-                      }
+                      disabled={start.isPending || !chosenKind?.eligible}
                       onClick={() => kind && start.mutate(kind)}
                     >
                       {start.isPending
                         ? 'Starting…'
-                        : kind === 'INITIAL'
-                          ? 'Start an initial application'
-                          : kind === 'EXPANSION' && eligibility?.nextPhaseNumber
-                            ? `Start phase ${eligibility.nextPhaseNumber}`
-                            : 'Choose an application type'}
+                        : chosenKind
+                          ? `Start: ${chosenKind.label}`
+                          : 'Choose a kind of application'}
                       <ArrowRight size={15} aria-hidden="true" />
                     </button>
                   </>

@@ -1,12 +1,13 @@
 /**
  * One application, as the programme office works on it.
  *
- * The screen is ordered by what a reviewer does, not by how the data is stored:
- * who holds this application, what to do next, what was submitted, what has
- * been said about it, and then the record of everything that has happened.
+ * The screen is ordered by what an officer does, not by how the data is stored:
+ * where the file is in its pipeline, what was submitted, what has been said
+ * about it, and then the record of everything that has happened.
  *
- * Every write here carries a version read from this same workspace, so two
- * reviewers acting at once produce a refusal rather than a silent overwrite.
+ * What may be done next is the pipeline's: the actions the file's current
+ * stage offers, to the roles that own it, drawn by the stage panel from the
+ * file's own stage view.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
@@ -16,21 +17,10 @@ import {
   ClipboardList,
   FileText,
   Lock,
-  Play,
   Plus,
-  User,
   X,
 } from 'lucide-react'
-import { WhoIsOnThis } from '#/features/admin/WhoIsOnThis'
 import { AuditTimeline } from '#/features/audit/AuditTimeline'
-import { BankStage } from '#/features/admin/BankStage'
-import { DecisionStage } from '#/features/admin/DecisionStage'
-import {
-  DeskReviewForm,
-  DeskReviewModal,
-  checkTitle,
-  type DeskReviewDraft,
-} from '#/features/admin/DeskReviewForm'
 import { statusTone } from '#/features/admin/queues'
 import { workspaceQuery } from '#/features/admin/workspaceQueries'
 import { formatBytes } from '#/features/application/documents'
@@ -39,24 +29,19 @@ import styles from '#/features/admin/Workspace.module.css'
 import {
   AddInternalNoteDocument,
   AdminDocumentDownloadUrlDocument,
-  CancelRevisionDocument,
-  CompleteDeskReviewDocument,
-  StartDeskReviewDocument,
 } from '#/graphql/generated/operations'
 import { Dialog } from '#/components/Dialog'
 import { formatDateTime, humanize } from '#/lib/format'
-import { can, canAny, useCurrentUser } from '#/lib/session'
+import { can, useCurrentUser } from '#/lib/session'
 import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { Explain } from '#/features/guide/Explain'
 import { OFFICE_HELP } from '#/features/admin/officeGuidance'
 import { useMarker } from '#/features/guide/GuideContext'
+import { StagePanel } from '#/features/stage/StagePanel'
 import { AnswerSummary } from '#/features/application/AnswerSummary'
 import { resolveTemplate } from '#/features/application/formTemplate'
 import type { AnswerMap } from '#/features/application/answers'
-
-/** The statuses in which a sanction order can exist. */
-const FUNDED_STATUSES = new Set<string>(['APPROVED', 'SANCTIONED', 'DISBURSED'])
 
 export const Route = createFileRoute('/_shell/admin/applications/$id/')({
   loader: ({ context, params }) =>
@@ -67,56 +52,44 @@ export const Route = createFileRoute('/_shell/admin/applications/$id/')({
 function WorkspacePage() {
   const { id } = Route.useParams()
   const queryClient = useQueryClient()
-  // Loaded by the shell for every signed-in screen, so reading it here costs
-  // nothing — it is only needed to tell "you were here last" from somebody else.
+  // Loaded by the shell for every signed-in screen; it decides only whether
+  // the activity history is drawn, which the API guards on its own.
   const { user: viewer } = Route.useRouteContext()
-  /*
-   * A reviewer may read every one of these screens and change nothing on them.
-   * Drawing the action cards anyway offers a whole desk-review form that the
-   * API refuses on submit — the work is done before the refusal arrives, which
-   * is the worst possible moment to learn a role cannot do something.
-   *
-   * `can` decides what to draw and never what is permitted; every operation is
-   * re-checked by the API, which is what actually refuses.
-   */
-  /*
-   * One flag per permission the API actually names, not one covering three.
-   *
-   * `STAFF_WRITE` used to gate all of this, and collapsing its replacements
-   * back into a single flag would draw the bank controls for somebody who may
-   * only review — and hide them from somebody composed to do nothing else.
-   */
-  const mayReview = can(viewer, 'application', 'review')
-  const mayRefer = can(viewer, 'application', 'refer')
-  // Either act on a decision opens the stage: correcting one is its own
-  // permission, and a role composed with only that still needs the screen.
-  const mayDecide = canAny(viewer, 'decision')
   const { data: workspace } = useQuery(workspaceQuery(id))
-  // Pinned to the same cycle version the API validates against, so the picker
-  // never offers an id a later cycle revision has re-minted.
-  const reasons = workspace?.reasons
+  const mark = useMarker()
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['workspace', id] })
+  /*
+   * After a stage action, everything the page shows may have changed: the
+   * stage view, the workspace's flags and revisions, and any list the file
+   * sits in. The lists are marked stale rather than refetched now.
+   */
+  const refreshAll = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['stage-application', id] }),
+      refresh(),
+      queryClient.invalidateQueries({ queryKey: ['stage-queue'] }),
+      queryClient.invalidateQueries({ queryKey: ['my-stages'] }),
+      queryClient.invalidateQueries({ queryKey: ['intake-queue'] }),
+    ])
 
   if (!workspace?.application) return null
   const application = workspace.application
-  /*
-   * Which stages exist is this application's cycle's decision, so every control
-   * that names one reads them from here. Empty only where the cycle's rows have
-   * been edited by hand, in which case a reviewer is offered no stage rather
-   * than a wrong one.
-   */
-  const stages = workspace.formTemplate?.stages ?? []
 
   const openRevisions = workspace.revisions.filter(
     (revision) => !revision.resolvedAt && !revision.cancelledAt,
   )
   const latestSubmission = workspace.submissions.at(-1)
+  const sections = (workspace.formTemplate?.stages ?? []).map((stage) => ({
+    key: stage.key,
+    title: stage.title,
+  }))
+  // A stage officer may work files without reading the office-wide list.
+  const mayReadList = can(viewer, 'application', 'read')
 
   /*
-   * The submitted form, resolved once for the review dialog: the snapshot the
-   * latest submission froze, read against the same pinned template. Null when
-   * either is missing, and the dialog simply shows no read-back.
+   * The submitted form: the snapshot the latest submission froze, read against
+   * the same pinned template. Null when either is missing.
    */
   const submittedView = (() => {
     if (!workspace.formTemplate || !latestSubmission) return null
@@ -153,27 +126,28 @@ function WorkspacePage() {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {/* Money outlives the review, so the funding screen is offered
-                from the moment a sanction order can exist. */}
-            {FUNDED_STATUSES.has(application.status) ? (
-              <Link
-                to="/admin/applications/$id/funding"
-                params={{ id }}
-                className={styles.backButton}
-              >
-                Funding
+            {mayReadList ? (
+              <Link to="/admin/queue" className={styles.backButton}>
+                <ArrowLeft size={15} aria-hidden="true" />
+                All applications
               </Link>
-            ) : null}
-            <Link to="/admin/queue" className={styles.backButton}>
-              <ArrowLeft size={15} aria-hidden="true" />
-              Back to the queue
-            </Link>
+            ) : (
+              <Link to="/admin/stages" className={styles.backButton}>
+                <ArrowLeft size={15} aria-hidden="true" />
+                My stages
+              </Link>
+            )}
           </div>
         </div>
 
-        <span className={styles.statusPill} data-tone={statusTone(application.status)}>
-          {humanize(application.status)}
-        </span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+          <span className={styles.statusPill} data-tone={statusTone(application.status)}>
+            {humanize(application.status)}
+          </span>
+          <span className={styles.statusPill}>
+            {humanize(application.applicationKind)}
+          </span>
+        </div>
       </div>
 
       {/* Redesigned Top Internal Notes Card */}
@@ -183,64 +157,29 @@ function WorkspacePage() {
       <div className={styles.mainGrid}>
         {/* Left Column: Who is on this + Next Step + Stages */}
         <div className={styles.colStack}>
-          <WhoIsOnThis
-            assignedTo={application.assignedTo ?? null}
-            assignedAt={application.assignedAt ?? null}
-            lastActivityAt={application.updatedAt ?? null}
-            viewerUserId={viewer?.id}
-          />
+          {/*
+            Where the file stands in its pipeline and what may be done next:
+            its stage, flags, recorded values, the corrections it waits on,
+            its stage history and the actions offered to this caller.
+          */}
+          {application.status === 'DRAFT' ? null : (
+            <div {...mark('next-step')}>
+              <StagePanel
+                applicationId={id}
+                sections={sections}
+                revisions={openRevisions}
+                onChanged={refreshAll}
+              />
+            </div>
+          )}
 
-          {mayReview ? (
-            <NextStep
-              submitted={submittedView}
-              applicationId={id}
-              status={application.status}
-              statusVersion={application.statusVersion}
-              reasons={reasons}
-              stages={stages}
-              rules={workspace.identifierRules}
-              reviewingOwnApplication={application.applicantUserId === viewer?.id}
-              hasReview={workspace.reviews.length > 0}
-              onChanged={refresh}
-            />
-          ) : null}
-
-          {mayRefer ? (
-            <BankStage
-              applicationId={id}
-              status={application.status}
-              statusVersion={application.statusVersion}
-              latestSubmissionId={latestSubmission?.id}
-              latestDeskReviewId={workspace.reviews.at(-1)?.id}
-              referrals={workspace.referrals}
-              outcomes={workspace.bankOutcomes}
-              reasons={reasons}
-              stages={stages}
-              onChanged={refresh}
-            />
-          ) : null}
-
-          {mayDecide ? (
-            <DecisionStage
-              applicationId={id}
-              status={application.status}
-              statusVersion={application.statusVersion}
-              latestBankOutcomeId={workspace.bankOutcomes.at(-1)?.id}
-              decisions={workspace.decisions}
-              reasons={reasons}
-              stages={stages}
-              decidingOwnApplication={application.applicantUserId === viewer?.id}
-              onChanged={refresh}
-            />
-          ) : null}
-
-          {mayReview && openRevisions.length > 0 ? (
-            <OpenRevisions
-              applicationId={id}
-              statusVersion={application.statusVersion}
-              revisions={openRevisions}
-              onChanged={refresh}
-            />
+          {submittedView ? (
+            <section className={styles.card}>
+              <div className={styles.cardHeader}>
+                <h2 className={styles.cardTitle}>What was submitted</h2>
+              </div>
+              {submittedView}
+            </section>
           ) : null}
         </div>
 
@@ -279,10 +218,7 @@ function WorkspacePage() {
                   >
                     <span>
                       <strong>
-                        Phase {attempt.phaseNumber} ·{' '}
-                        {attempt.applicationType === 'INITIAL'
-                          ? 'Initial'
-                          : 'Expansion'}
+                        Phase {attempt.phaseNumber} · {humanize(attempt.applicationKind)}
                       </strong>{' '}
                       <span className="muted">
                         {attempt.referenceNumber ?? 'unsubmitted draft'} · cycle{' '}
@@ -290,14 +226,10 @@ function WorkspacePage() {
                         {current ? ' · this file' : ''}
                       </span>
                     </span>
-                    <span className="badge" data-tone={
-                      attempt.status === 'REJECTED' || attempt.status === 'CANCELLED'
-                        ? 'error'
-                        : ['APPROVED', 'SANCTIONED', 'DISBURSED'].includes(attempt.status)
-                          ? 'ok'
-                          : 'action'
-                    }>
-                      {humanize(attempt.status)}
+                    <span className="badge" data-tone={statusTone(attempt.status)}>
+                      {attempt.statusFlags.length > 0
+                        ? attempt.statusFlags.map(humanize).join(', ')
+                        : humanize(attempt.status)}
                     </span>
                   </div>
                 )
@@ -370,116 +302,12 @@ function WorkspacePage() {
             latestSubmissionId={latestSubmission?.id}
           />
 
-          {workspace.reviews.length > 0 ? (
-            <section className={styles.card}>
-              <div className={styles.cardHeader}>
-                <h2 className={styles.cardTitle}>Desk reviews</h2>
-              </div>
-              <div className={styles.tableWrap}>
-                <table className={styles.table}>
-                  <caption className="visually-hidden">Completed desk reviews</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Outcome</th>
-                      <th scope="col">Reviewed</th>
-                      <th scope="col">Checks</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {workspace.reviews.map((review) => (
-                      <tr key={review.id} className={styles.tableRow}>
-                        <td>
-                          <span
-                            className={styles.statusPill}
-                            data-tone={
-                              review.outcome === 'ADVANCE_TO_BANK'
-                                ? 'ok'
-                                : review.outcome === 'REJECT'
-                                  ? 'error'
-                                  : 'action'
-                            }
-                          >
-                            {humanize(review.outcome)}
-                          </span>
-                          {/* A review an officer carried out on their own
-                              application is allowed, and is exactly what a reader
-                              of this record needs to see beside the outcome. */}
-                          {review.conflictAcknowledged ? (
-                            <span className="field-hint">
-                              Reviewed by the applicant, declared
-                            </span>
-                          ) : null}
-                        </td>
-                        <td>{formatDateTime(review.reviewedAt)}</td>
-                        <td>
-                          {workspace.reviewChecks
-                            .filter((check) => check.deskReviewId === review.id)
-                            .map((check) => (
-                              <span key={check.id} className="field-hint">
-                                {checkTitle(check.checkType)}: {humanize(check.result)}
-                                {check.internalNote ? ` — ${check.internalNote}` : ''}
-                              </span>
-                            ))}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          ) : null}
         </div>
       </div>
 
-      {/* Bottom Row: Who has held this */}
-      <section className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h2 className={styles.cardTitle}>Who has held this</h2>
-        </div>
-        {workspace.assignments.length === 0 ? (
-          <div className={styles.whoHeldEmpty}>
-            <div className={styles.whoHeldIconCircle}>
-              <User size={20} aria-hidden="true" />
-            </div>
-            <div className={styles.whoHeldTextGroup}>
-              <p className={styles.whoHeldTitle}>
-                Nobody has claimed this application yet.
-              </p>
-              <p className={styles.whoHeldDesc}>
-                Claiming records who holds the next decision — until somebody does,
-                nothing on it can be actioned.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <caption className="visually-hidden">Assignment history</caption>
-              <thead>
-                <tr>
-                  <th scope="col">When</th>
-                  <th scope="col">What happened</th>
-                  <th scope="col">Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workspace.assignments.map((event) => (
-                  <tr key={event.id} className={styles.tableRow}>
-                    <td>{formatDateTime(event.createdAt)}</td>
-                    <td>{humanize(event.eventType)}</td>
-                    <td className="muted">{event.reason ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
       {/*
-        Everything that happened to this file — its documents, review, bank
-        referral, decision and money as well as the application itself — from
-        the history. Drawn only for a reader of the history, who is the only
+        Everything that happened to this file — its documents, notes and stage
+        actions as well as the application itself — from the history. Drawn only for a reader of the history, who is the only
         person the API would answer.
       */}
       {can(viewer, 'audit', 'read') ? (
@@ -493,308 +321,6 @@ function WorkspacePage() {
         </section>
       ) : null}
     </main>
-  )
-}
-
-/**
- * The one thing to do next, given where the application is.
- *
- * Only the transitions the API will actually accept from this status are
- * offered. A button that exists to be refused teaches people to distrust the
- * screen.
- */
-function NextStep({
-  applicationId,
-  status,
-  statusVersion,
-  reasons,
-  stages,
-  rules,
-  reviewingOwnApplication,
-  hasReview,
-  onChanged,
-  submitted,
-}: {
-  applicationId: string
-  status: string
-  statusVersion: number
-  reasons: Parameters<typeof DeskReviewForm>[0]['reasons']
-  /** This application's own stages; see the workspace comment above. */
-  stages: Parameters<typeof DeskReviewForm>[0]['stages']
-  rules: Parameters<typeof DeskReviewForm>[0]['rules']
-  reviewingOwnApplication: boolean
-  hasReview: boolean
-  onChanged: () => Promise<unknown>
-  /** The submitted application, shown inside the review dialog. */
-  submitted?: React.ReactNode
-}) {
-  /*
-   * Marked on every branch. Only one renders, so the "exactly one bracket on
-   * the page" property holds — and the step lands on whatever this application
-   * actually offers rather than on a stage it happens not to be at.
-   */
-  const mark = useMarker()
-  const [error, setError] = useState<string | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
-
-  const start = useMutation({
-    mutationFn: async () => {
-      const data = await gql(StartDeskReviewDocument, {
-        input: { applicationId, expectedStatusVersion: statusVersion },
-      })
-      unwrap(data.admin.intake.startDeskReview)
-    },
-    onMutate: () => setError(null),
-    onSuccess: onChanged,
-    onError: (cause) => setError(messageFor(cause)),
-  })
-
-  const complete = useMutation({
-    mutationFn: async (draft: DeskReviewDraft) => {
-      const data = await gql(CompleteDeskReviewDocument, {
-        input: {
-          applicationId,
-          expectedStatusVersion: statusVersion,
-          ...draft,
-        },
-      })
-      unwrap(data.admin.intake.completeDeskReview)
-    },
-    onMutate: () => setError(null),
-    onSuccess: async () => {
-      setModalOpen(false)
-      await onChanged()
-    },
-    onError: (cause) => setError(messageFor(cause)),
-  })
-
-  if (status === 'SUBMITTED') {
-    return (
-      <section className={styles.card} {...mark('next-step')}>
-        <div className={styles.cardHeader}>
-          <h2 className={styles.cardTitle}>Next</h2>
-        </div>
-        <div className={styles.nextActionBox}>
-          <div className={styles.nextActionHeader}>
-            <div className={styles.nextActionIconBadge}>
-              <Play size={16} fill="#2563eb" color="#2563eb" aria-hidden="true" />
-            </div>
-            <h3 className={styles.nextActionTitle}>Start the desk review</h3>
-          </div>
-          <button
-            type="button"
-            className={styles.primaryActionButton}
-            disabled={start.isPending}
-            onClick={() => start.mutate()}
-          >
-            {start.isPending ? 'Starting…' : 'Start desk review'}
-          </button>
-          <p className={styles.nextActionDesc}>
-            Starting the review takes the application out of the submissions queue and
-            puts it in yours.
-          </p>
-          {error ? (
-            <p
-              className="notice"
-              data-tone="error"
-              role="alert"
-              style={{ marginTop: '0.75rem' }}
-            >
-              {error}
-            </p>
-          ) : null}
-        </div>
-      </section>
-    )
-  }
-
-  if (status === 'DESK_REVIEW') {
-    return (
-      <>
-        <section className={styles.card} {...mark('next-step')}>
-          <div className={styles.cardHeader}>
-            <h2 className={styles.cardTitle}>Next</h2>
-          </div>
-          <div className={styles.nextActionBox}>
-            <div className={styles.nextActionHeader}>
-              <div className={styles.nextActionIconBadge}>
-                <ClipboardList size={16} color="#2563eb" aria-hidden="true" />
-              </div>
-              <h3 className={styles.nextActionTitle}>
-                {hasReview ? 'Record another review' : 'Complete the desk review'}
-              </h3>
-            </div>
-            <button
-              type="button"
-              className={styles.primaryActionButton}
-              onClick={() => setModalOpen(true)}
-            >
-              {hasReview ? 'Open review form' : 'Open desk review'}
-            </button>
-            {/*
-              No refusal here. Completing a review is only ever started from
-              the dialog, and the dialog stays open holding the message — so a
-              copy on the card behind it could never say anything the dialog
-              was not already saying, and said it as a second `role="alert"`
-              that a screen reader announced over the first.
-
-              `start` writes to the same state, but a failed start leaves the
-              application submitted, which is the branch above.
-            */}
-          </div>
-        </section>
-
-        <DeskReviewModal
-          open={modalOpen}
-          // Closing drops any refusal with it: it belonged to the attempt the
-          // person has just walked away from.
-          onClose={() => {
-            setError(null)
-            setModalOpen(false)
-          }}
-          hasReview={hasReview}
-          submitted={submitted}
-          reasons={reasons}
-          stages={stages}
-          rules={rules}
-          reviewingOwnApplication={reviewingOwnApplication}
-          pending={complete.isPending}
-          error={error}
-          onSubmit={(draft) => complete.mutate(draft)}
-        />
-      </>
-    )
-  }
-
-  return (
-    <section className={styles.card}>
-      <div className={styles.cardHeader}>
-        <h2 className={styles.cardTitle}>Next</h2>
-      </div>
-      <p className="muted" style={{ fontSize: '13px', margin: 0 }}>
-        Nothing to do here at the moment — this application is{' '}
-        {humanize(status).toLowerCase()}.
-      </p>
-    </section>
-  )
-}
-
-/**
- * Correction requests the applicant has not yet answered.
- *
- * Cancelling one withdraws it: the section locks again and the applicant is no
- * longer waiting on it. That is a real decision, so it needs a reason.
- */
-function OpenRevisions({
-  applicationId,
-  statusVersion,
-  revisions,
-  onChanged,
-}: {
-  applicationId: string
-  statusVersion: number
-  revisions: {
-    id: string
-    stageKey: string
-    note: string
-    requestedAt: string
-  }[]
-  onChanged: () => Promise<unknown>
-}) {
-  const [cancelling, setCancelling] = useState<string | null>(null)
-  const [reason, setReason] = useState('')
-  const [error, setError] = useState<string | null>(null)
-
-  const cancel = useMutation({
-    mutationFn: async (revisionRequestId: string) => {
-      const data = await gql(CancelRevisionDocument, {
-        input: {
-          applicationId,
-          revisionRequestId,
-          expectedStatusVersion: statusVersion,
-          reason: reason.trim(),
-        },
-      })
-      unwrap(data.admin.intake.cancelRevision)
-    },
-    onMutate: () => setError(null),
-    onSuccess: async () => {
-      setCancelling(null)
-      setReason('')
-      await onChanged()
-    },
-    onError: (cause) => setError(messageFor(cause)),
-  })
-
-  return (
-    <section className={styles.card}>
-      <div className={styles.cardHeader}>
-        <h2 className={styles.cardTitle}>Waiting on the applicant</h2>
-      </div>
-      <div className="stack">
-        {revisions.map((revision) => (
-          <div key={revision.id}>
-            <p className="notice" data-tone="action">
-              <span className="notice-title">{stageTitle(revision.stageKey)}</span>
-              {revision.note}
-            </p>
-            {cancelling === revision.id ? (
-              <div className="row" style={{ marginTop: '0.5rem', alignItems: 'end' }}>
-                <div style={{ flex: '1 1 20rem' }}>
-                  <label className="field-label" htmlFor={`cancel-${revision.id}`}>
-                    Why withdraw this request?
-                  </label>
-                  <input
-                    id={`cancel-${revision.id}`}
-                    className="input"
-                    value={reason}
-                    onChange={(event) => setReason(event.target.value)}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="button"
-                  data-variant="danger"
-                  disabled={!reason.trim() || cancel.isPending}
-                  onClick={() => cancel.mutate(revision.id)}
-                >
-                  {cancel.isPending ? 'Withdrawing…' : 'Withdraw it'}
-                </button>
-                <button
-                  type="button"
-                  className="button"
-                  onClick={() => {
-                    setCancelling(null)
-                    setReason('')
-                  }}
-                >
-                  Keep it
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="button"
-                style={{ marginTop: '0.5rem' }}
-                onClick={() => setCancelling(revision.id)}
-              >
-                Withdraw this request
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-      {error ? (
-        <p
-          className="notice"
-          data-tone="error"
-          role="alert"
-          style={{ marginTop: '0.75rem' }}
-        >
-          {error}
-        </p>
-      ) : null}
-    </section>
   )
 }
 

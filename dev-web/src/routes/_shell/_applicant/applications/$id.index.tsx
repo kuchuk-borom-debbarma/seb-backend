@@ -4,14 +4,11 @@ import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import {
   ArrowLeft,
   ArrowRight,
-  Award,
   Calendar,
   Check,
-  CheckCircle2,
   ClipboardList,
   Clock,
-  Coins,
-  FileCheck,
+  CircleCheck,
   FilePenLine,
   FileText,
   Landmark,
@@ -21,12 +18,19 @@ import {
   Paperclip,
   PlayCircle,
   RotateCcw,
-  Scale,
-  Search,
   Sprout,
   Trash2,
 } from 'lucide-react'
 import { stageTitle } from '#/features/application/draft'
+import { awaitingCorrection } from '#/features/application/revision'
+import {
+  JourneyFlags,
+  journeyValueText,
+  nextActorOf,
+  standingExplanation,
+  standingLabel,
+  type Journey,
+} from '#/features/application/journey'
 import { cyclesQuery, statusGuideQuery } from '#/features/application/queries'
 import {
   applicationQuery,
@@ -39,10 +43,7 @@ import {
   issuesForStep,
   REVIEW,
 } from '#/features/application/ApplicationJourney'
-import type {
-  ApplicationCategory,
-  ApplicationStatus,
-} from '#/graphql/generated/schema'
+import type { ApplicationCategory } from '#/graphql/generated/schema'
 import {
   RemoveApplicationDraftDocument,
   RestoreApplicationDraftDocument,
@@ -60,79 +61,51 @@ import styles from '#/features/application/ApplicationDetails.module.css'
  * would have shown above every child screen. Naming it `.index` makes it a
  * sibling instead, which is what it actually is.
  */
-/** The statuses in which a sanction order can exist. */
-const FUNDED_STATUSES = new Set<string>(['SANCTIONED', 'DISBURSED'])
-
 /** Stamped by the server at submission; shown here, never chosen. */
 const CATEGORY_LABELS: Record<ApplicationCategory, string> = {
   CATEGORY_A: 'Category A',
   CATEGORY_B: 'Category B',
 }
 
-/** The happy-path stages of the pipeline, in workflow order. */
-const PIPELINE_STAGES: Array<{
-  status: ApplicationStatus
-  number: number
-  label: string
-  description: string
-  icon: typeof FileText
-}> = [
+/**
+ * The steps an application's rail shows, in order.
+ *
+ * The first two are the same for everybody: drafting, then sending. After
+ * that the route is the cycle's pipeline, and the third step says where the
+ * file is in the words the pipeline gives the applicant — the stage's label
+ * while it is being worked, or how the journey ended. The office's own stage
+ * names are never shown here.
+ */
+type StandingStep = { key: string; label: string; description: string; icon: typeof FileText }
+
+const standingSteps = (application: { journey?: Journey | null }): StandingStep[] => [
   {
-    status: 'DRAFT',
-    number: 1,
+    key: 'DRAFT',
     label: 'Draft',
     description: 'Application being drafted by applicant.',
     icon: FilePenLine,
   },
   {
-    status: 'SUBMITTED',
-    number: 2,
+    key: 'SUBMITTED',
     label: 'Submitted',
-    description: 'Application received by the programme office.',
+    description: 'Received by the programme office.',
     icon: FileText,
   },
-  {
-    status: 'DESK_REVIEW',
-    number: 3,
-    label: 'Desk review',
-    description: 'Initial review by the programme team.',
-    icon: Search,
-  },
-  {
-    status: 'PARTNER_BANK_EVALUATION',
-    number: 4,
-    label: 'Bank',
-    description: 'Sent to a partner bank for appraisal.',
-    icon: Landmark,
-  },
-  {
-    status: 'AWAITING_DECISION',
-    number: 5,
-    label: 'Decision',
-    description: 'Awaiting the programme’s funding decision.',
-    icon: Scale,
-  },
-  {
-    status: 'APPROVED',
-    number: 6,
-    label: 'Approved',
-    description: 'Funding award approved.',
-    icon: CheckCircle2,
-  },
-  {
-    status: 'SANCTIONED',
-    number: 7,
-    label: 'Sanctioned',
-    description: 'Funds sanctioned.',
-    icon: FileCheck,
-  },
-  {
-    status: 'DISBURSED',
-    number: 8,
-    label: 'Funds released',
-    description: 'Support disbursed to your enterprise.',
-    icon: Coins,
-  },
+  application.journey?.ended
+    ? {
+        key: 'ENDED',
+        label: application.journey.ended,
+        description: 'The programme office has finished with this application.',
+        icon: CircleCheck,
+      }
+    : {
+        key: 'WORKED',
+        label: application.journey?.stageLabel ?? 'Under review',
+        description:
+          application.journey?.stageExplanation ??
+          'Being worked by the programme office, one stage at a time.',
+        icon: Landmark,
+      },
 ]
 
 export const Route = createFileRoute('/_shell/_applicant/applications/$id/')({
@@ -317,13 +290,6 @@ function ApplicationPage() {
   )
 
   /*
-   * An award exists only once the application has been sanctioned, and it
-   * survives everything after that. Before then the funding screen would have
-   * nothing to say, so it is not offered.
-   */
-  const funded = FUNDED_STATUSES.has(application.status)
-
-  /*
    * Named from the template where it is to hand, so an applicant reads the
    * cycle's own heading rather than a key. The list itself is the API's: it
    * derives it from the same rule the draft-save path enforces, so it can never
@@ -390,15 +356,19 @@ function ApplicationPage() {
     (cycle) => cycle.id === application.programmeCycleId,
   )
 
-  // Revision required means the application is back on the reviewer's desk
-  // once corrected, so the rail holds at desk review. Rejected and cancelled
-  // applications match no pipeline stage; the hero carries the outcome.
-  const railStatus =
-    application.status === 'REVISION_REQUIRED' ? 'DESK_REVIEW' : application.status
-  const reachedIndex = PIPELINE_STAGES.findIndex(
-    (stage) => stage.status === railStatus,
-  )
-  const onTrack = reachedIndex >= 0 && application.status !== 'REVISION_REQUIRED'
+  // A correction request holds the file with the applicant; it is not on track
+  // until they resubmit.
+  const correcting = awaitingCorrection(application)
+  const steps = standingSteps(application)
+  /*
+   * A draft is at the first step; a file being worked is at the third; a
+   * finished one has passed every step, which is one past the last.
+   */
+  const reachedIndex =
+    application.status === 'DRAFT' ? 0 : application.journey?.ended ? steps.length : 2
+  const onTrack = application.status !== 'DRAFT' && !correcting && !application.journey?.ended
+  const actor = nextActorOf(application)
+  const journey = application.journey ?? null
 
   return (
     <main className="page">
@@ -423,26 +393,14 @@ function ApplicationPage() {
             </h1>
             <span className={styles.typeBadge}>
               <Sprout size={13} aria-hidden="true" />
-              {application.applicationType === 'EXPANSION'
-                ? `Expansion application, phase ${application.phaseNumber}`
-                : 'Initial application'}
+              {humanize(application.applicationKind)}
+              {application.phaseNumber > 1 ? `, phase ${application.phaseNumber}` : ''}
             </span>
           </div>
 
           <div className={styles.headerActions}>
-            {/* Offered only while something can actually be changed or sent.
-                Money is separate: it outlives editing, and appears the moment
-                a sanction order can exist. */}
-            {funded ? (
-              <Link
-                to="/applications/$id/funding"
-                params={{ id }}
-                className={styles.primaryCta}
-              >
-                <Award size={15} aria-hidden="true" />
-                Funding
-              </Link>
-            ) : editableStages.length > 0 ? (
+            {/* Offered only while something can actually be changed or sent. */}
+            {editableStages.length > 0 ? (
               <>
                 {application.firstSubmittedAt ? (
                   <Link
@@ -468,7 +426,7 @@ function ApplicationPage() {
                   params={{ id }}
                   className={styles.primaryCta}
                 >
-                  {application.status === 'REVISION_REQUIRED'
+                  {correcting
                     ? 'Make the corrections'
                     : 'Fill in the form'}
                   <ArrowRight size={15} aria-hidden="true" />
@@ -531,12 +489,12 @@ function ApplicationPage() {
           aria-label="Application progress pipeline"
         >
           <div className={styles.stepperTrack}>
-            {PIPELINE_STAGES.map((stage, index) => {
+            {steps.map((stage, index) => {
               const isDone = reachedIndex >= 0 && index < reachedIndex
               const isCurrent = index === reachedIndex
 
               return (
-                <div key={stage.status} style={{ display: 'contents' }}>
+                <div key={stage.key} style={{ display: 'contents' }}>
                   <div className={styles.stepNodeWrap}>
                     <div
                       className={`${styles.stepCircle} ${
@@ -547,7 +505,7 @@ function ApplicationPage() {
                             : styles.stepCircleAhead
                       }`}
                     >
-                      {isDone ? <Check size={14} strokeWidth={2.5} /> : stage.number}
+                      {isDone ? <Check size={14} strokeWidth={2.5} /> : index + 1}
                     </div>
                     <span
                       className={`${styles.stepLabel} ${
@@ -562,7 +520,7 @@ function ApplicationPage() {
                     </span>
                   </div>
 
-                  {index < PIPELINE_STAGES.length - 1 && (
+                  {index < steps.length - 1 && (
                     <div
                       className={`${styles.stepConnector} ${
                         index < reachedIndex ? styles.stepConnectorDone : ''
@@ -578,9 +536,7 @@ function ApplicationPage() {
         <section className={styles.heroBanner} aria-label="Current application status">
           <div className={styles.heroLeft}>
             <div className={styles.heroBadges}>
-              <span className={styles.statusBadge}>
-                {guideEntry?.label ?? humanize(application.status)}
-              </span>
+              <span className={styles.statusBadge}>{standingLabel(application)}</span>
               {application.status === 'DRAFT' && draftProgress ? (
                 <span
                   className={styles.actorBadge}
@@ -596,17 +552,19 @@ function ApplicationPage() {
               ) : null}
               <span className={styles.actorBadge}>
                 <Landmark size={13} aria-hidden="true" />
-                {guideEntry?.nextActor === 'APPLICANT'
+                {actor === 'APPLICANT'
                   ? 'Your turn'
-                  : guideEntry?.nextActor === 'PROGRAMME_OFFICE'
+                  : actor === 'PROGRAMME_OFFICE'
                     ? 'With the programme office'
                     : 'No further action'}
               </span>
             </div>
             <h2 className={styles.heroTitle}>
-              {guideEntry?.explanation ??
+              {standingExplanation(application) ??
+                guideEntry?.explanation ??
                 'Your application has been received and is progressing through the review stages.'}
             </h2>
+            <JourneyFlags journey={journey} />
           </div>
           <HeroBannerArtwork />
         </section>
@@ -762,6 +720,27 @@ function ApplicationPage() {
               </div>
             </div>
 
+            {journey && journey.recordedValues.length > 0 ? (
+              <div className={styles.card}>
+                <div className={styles.cardHeader}>
+                  <div className={styles.cardTitleGroup}>
+                    <Landmark className={styles.cardIcon} aria-hidden="true" />
+                    <h3 className={styles.cardTitle}>Decided so far</h3>
+                  </div>
+                </div>
+                <div className={styles.detailList}>
+                  {journey.recordedValues.map((value) => (
+                    <div key={value.key} className={styles.detailRow}>
+                      <div className={styles.detailRowLeft}>
+                        <span className={styles.detailLabel}>{value.label}</span>
+                      </div>
+                      <span className={styles.detailValue}>{journeyValueText(value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className={styles.statusNotice}>
               <div className={styles.noticeIconBadge}>
                 <Sprout size={16} aria-hidden="true" />
@@ -786,7 +765,7 @@ function ApplicationPage() {
               </p>
 
               <div className={styles.timelineTrack}>
-                {PIPELINE_STAGES.slice(1).map((stage, idx) => {
+                {steps.slice(1).map((stage, idx) => {
                   const stageIndex = idx + 1
                   const isCurrent = stageIndex === reachedIndex
                   const isDone = reachedIndex >= 0 && stageIndex < reachedIndex
@@ -794,7 +773,7 @@ function ApplicationPage() {
 
                   return (
                     <div
-                      key={stage.status}
+                      key={stage.key}
                       className={`${styles.timelineItem} ${
                         isCurrent ? styles.timelineItemActive : ''
                       }`}

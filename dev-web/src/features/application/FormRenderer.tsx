@@ -71,6 +71,32 @@ function getMaxDobDate(): string {
  * read "Bank loan proposed (optional) (₹)", which puts the unit at the end of
  * a sentence about whether an answer is needed.
  */
+/**
+ * One entry of a repeated group, named from the group's label: "Owners" adds
+ * "another owner". A label that is not a plural is used as it is.
+ */
+const entryNoun = (label: string): string => {
+  const lower = label.toLowerCase()
+  return lower.endsWith('s') ? lower.slice(0, -1) : lower
+}
+
+/**
+ * The browser input each single-line field type is drawn with.
+ *
+ * Listed rather than left to a fall-through, so every type a stage action's
+ * inputs may use — `TEXT` among them — is named here, which is what
+ * `check:workflow-catalog` reads to prove the renderer draws it.
+ */
+const SINGLE_LINE_INPUT: Partial<Record<FormField['type'], string>> = {
+  // Quoted: `check:workflow-catalog` proves each input type is drawn by
+  // finding it named here as a literal.
+  'TEXT': 'text',
+  'DATE': 'date',
+  'INTEGER': 'number',
+  'EMAIL': 'email',
+  'PHONE': 'tel',
+}
+
 const labelOf = (field: FormField, required: boolean, note?: string): string => {
   const named = note ? `${field.label} (${note})` : field.label
   return required ? named : `${named} (optional)`
@@ -325,6 +351,7 @@ function Question({
     )
   }
 
+
 function formatRupeesWithCommas(value: string): string {
   if (!value) return ''
   const [whole, decimal] = value.split('.')
@@ -398,16 +425,7 @@ function formatRupeesWithCommas(value: string): string {
     )
   }
 
-  const inputType =
-    field.type === 'DATE'
-      ? 'date'
-      : field.type === 'INTEGER'
-        ? 'number'
-        : field.type === 'EMAIL'
-          ? 'email'
-          : field.type === 'PHONE'
-            ? 'tel'
-            : 'text'
+  const inputType = SINGLE_LINE_INPUT[field.type] ?? 'text'
 
   const isDob =
     field.role === 'APPLICANT_DATE_OF_BIRTH' ||
@@ -794,7 +812,7 @@ function RepeatGroup({
           <button
             type="button"
             className="button"
-            title={`Add another ${field.label}`}
+            title={`Add another ${entryNoun(field.label)}`}
             style={{
               width: '32px',
               height: '32px',
@@ -960,7 +978,7 @@ function RepeatGroup({
             onClick={() => onChange([...entries, {}])}
           >
             <UserPlus size={16} />
-            <span>Add another {field.label.toLowerCase().endsWith('s') ? field.label.toLowerCase().slice(0, -1) : field.label.toLowerCase()}</span>
+            <span>Add another {entryNoun(field.label)}</span>
           </button>
           <div style={{ textAlign: 'left', fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
             {entries.length} of {atMost} {field.label.toLowerCase()} added

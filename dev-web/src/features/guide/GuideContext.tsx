@@ -164,7 +164,7 @@ export function GuideProvider({ children, user }: { children: ReactNode; user: W
    * all. Resolved once and shared, so the offer to go there and the navigation
    * that goes there can never disagree about which file fills the address.
    */
-  const here = step ? resolve(step.to, step.search, held) : null
+  const here = step ? resolve(step.to, undefined, held) : null
 
   /** Moves to a step and, if it happens on a screen, goes there. */
   const goTo = useCallback(
@@ -181,7 +181,7 @@ export function GuideProvider({ children, user }: { children: ReactNode; user: W
        * rail says what to open — it does not guess at an id.
        */
       const moving = target.steps[bounded]
-      const destination = resolve(moving?.to, moving?.search, held)
+      const destination = resolve(moving?.to, undefined, held)
       if (destination) {
         // `pathname` is this module's own bookkeeping, not a router option —
         // handing it to navigate would be passing it something it never asked

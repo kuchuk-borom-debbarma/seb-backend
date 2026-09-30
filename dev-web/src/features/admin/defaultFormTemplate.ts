@@ -50,9 +50,9 @@ export const defaultFormTemplate = (): Template => ({
       description: 'Everyone who owns the enterprise. Add each owner below.',
       iconName: 'users', estimatedMinutes: 5,
     },
-    { stageKey: 'FINANCIAL', title: 'Project cost and funding' },
-    { stageKey: 'PRIOR_FUNDING', title: 'Previous support and credit' },
-    { stageKey: 'DOCUMENTS', title: 'NOC' },
+    { stageKey: 'FINANCIAL', title: 'Funding requested' },
+    { stageKey: 'PRIOR_FUNDING', title: 'Previous support' },
+    { stageKey: 'DOCUMENTS', title: 'Documents' },
   ],
   /*
    * The owner, defined once and used by the OWNERS group below. Editing the
@@ -113,34 +113,43 @@ export const defaultFormTemplate = (): Template => ({
       groupDefinitionKey: 'OWNER',
     },
 
-    // What the project costs and who pays for it.
+    // What the applicant asks for: a grant, a bank loan, or both — the form's
+    // GRANT_OR_LOAN rule insists on at least one. Each amount hangs off its
+    // own yes/no, so the grant role is required only where it is asked.
     {
-      stageKey: 'FINANCIAL', fieldKey: 'TOTAL_PROJECT_COST_PAISE',
-      fieldType: 'MONEY_PAISE', label: 'Total project cost',
-      requirement: 'REQUIRED', minValue: '1', prefixText: '₹',
+      stageKey: 'FINANCIAL', fieldKey: 'WANTS_GRANT', fieldType: 'BOOLEAN',
+      label: 'Do you want a grant?', requirement: 'REQUIRED',
     },
     {
       stageKey: 'FINANCIAL', fieldKey: 'SEED_FUND_REQUESTED_PAISE',
       fieldType: 'MONEY_PAISE', role: 'SEED_FUND_REQUESTED_PAISE',
-      label: 'Seed fund requested', requirement: 'REQUIRED', minValue: '1',
+      label: 'Desired grant amount', requirement: 'CONDITIONAL', minValue: '1',
       prefixText: '₹',
-      // The one question on this form whose name does not say why it is
-      // asked; the answer decides how much seed funding can be sanctioned.
-      helpText: 'The programme reads this amount when deciding how much seed '
-        + 'funding can be sanctioned, so ask for what the project genuinely needs.',
+      helpText: 'The programme reads this amount when deciding how much grant '
+        + 'can be approved, so ask for what the project genuinely needs.',
     },
     {
-      stageKey: 'FINANCIAL', fieldKey: 'BANK_LOAN_PROPOSED_PAISE',
-      fieldType: 'MONEY_PAISE', label: 'Bank loan proposed',
-      requirement: 'OPTIONAL', minValue: '0', prefixText: '₹',
+      stageKey: 'FINANCIAL', fieldKey: 'WANTS_BANK_LOAN', fieldType: 'BOOLEAN',
+      label: 'Do you want a bank loan?', requirement: 'REQUIRED',
     },
     {
-      stageKey: 'FINANCIAL', fieldKey: 'PROMOTER_CONTRIBUTION_PAISE',
-      fieldType: 'MONEY_PAISE', label: 'Your own contribution',
-      requirement: 'OPTIONAL', minValue: '0', prefixText: '₹',
+      stageKey: 'FINANCIAL', fieldKey: 'LOAN_BANK_FIRST_CHOICE',
+      fieldType: 'SINGLE_CHOICE', label: 'First choice of bank',
+      requirement: 'CONDITIONAL',
+    },
+    {
+      stageKey: 'FINANCIAL', fieldKey: 'LOAN_BANK_SECOND_CHOICE',
+      fieldType: 'SINGLE_CHOICE', label: 'Second choice of bank',
+      requirement: 'OPTIONAL',
+    },
+    {
+      stageKey: 'FINANCIAL', fieldKey: 'LOAN_AMOUNT_REQUESTED_PAISE',
+      fieldType: 'MONEY_PAISE', role: 'LOAN_REQUESTED_PAISE',
+      label: 'Loan amount requested', requirement: 'CONDITIONAL', minValue: '1',
+      prefixText: '₹',
     },
 
-    // Previous support and credit — the stage whose questions hang off yes/no.
+    // Previous support — the stage whose questions hang off a yes/no.
     {
       stageKey: 'PRIOR_FUNDING', fieldKey: 'RECEIVED_GOVERNMENT_FUNDING',
       fieldType: 'BOOLEAN',
@@ -163,27 +172,6 @@ export const defaultFormTemplate = (): Template => ({
       // Past sanctions only: the programme asked for years below 2026.
       minValue: '1900', maxValue: '2025', widthHint: 'CHAR_4',
     },
-    {
-      stageKey: 'PRIOR_FUNDING', fieldKey: 'HAS_EXISTING_BANK_CREDIT',
-      fieldType: 'BOOLEAN',
-      label: 'Does this enterprise have existing bank credit?',
-      requirement: 'REQUIRED',
-    },
-    {
-      stageKey: 'PRIOR_FUNDING', fieldKey: 'EXISTING_BANK_NAME', fieldType: 'TEXT',
-      label: 'Bank', requirement: 'CONDITIONAL', maxLength: 200,
-    },
-    {
-      stageKey: 'PRIOR_FUNDING', fieldKey: 'EXISTING_CREDIT_AMOUNT_PAISE',
-      fieldType: 'MONEY_PAISE', label: 'Amount outstanding',
-      requirement: 'CONDITIONAL', minValue: '1', prefixText: '₹',
-    },
-    {
-      stageKey: 'PRIOR_FUNDING', fieldKey: 'EXISTING_CREDIT_STATUS',
-      fieldType: 'SINGLE_CHOICE', label: 'Account status',
-      requirement: 'CONDITIONAL',
-    },
-
     // Evidence. Every document is a FILE question; which are required and when
     // is an ordinary condition.
     {
@@ -230,16 +218,39 @@ export const defaultFormTemplate = (): Template => ({
     },
   ],
   options: [
-    { fieldKey: 'EXISTING_CREDIT_STATUS', fieldType: 'SINGLE_CHOICE', optionValue: 'STANDARD', optionLabel: 'Standard' },
-    { fieldKey: 'EXISTING_CREDIT_STATUS', fieldType: 'SINGLE_CHOICE', optionValue: 'NPA', optionLabel: 'NPA' },
+    { fieldKey: 'LOAN_BANK_FIRST_CHOICE', fieldType: 'SINGLE_CHOICE', optionValue: 'SBI', optionLabel: 'State Bank of India' },
+    { fieldKey: 'LOAN_BANK_FIRST_CHOICE', fieldType: 'SINGLE_CHOICE', optionValue: 'TGB', optionLabel: 'Tripura Gramin Bank' },
+    { fieldKey: 'LOAN_BANK_SECOND_CHOICE', fieldType: 'SINGLE_CHOICE', optionValue: 'SBI', optionLabel: 'State Bank of India' },
+    { fieldKey: 'LOAN_BANK_SECOND_CHOICE', fieldType: 'SINGLE_CHOICE', optionValue: 'TGB', optionLabel: 'Tripura Gramin Bank' },
   ],
   conditions: [
     ...conditionalOn('NOC', 'NOC_REQUIRED', 'BOOLEAN', 'EQUALS', 'true', { visible: false }),
     ...conditionalOn('GOVERNMENT_SCHEME_NAME', 'RECEIVED_GOVERNMENT_FUNDING', 'BOOLEAN', 'EQUALS', 'true'),
     ...conditionalOn('GOVERNMENT_FUNDING_AMOUNT_PAISE', 'RECEIVED_GOVERNMENT_FUNDING', 'BOOLEAN', 'EQUALS', 'true'),
     ...conditionalOn('GOVERNMENT_FUNDING_SANCTION_YEAR', 'RECEIVED_GOVERNMENT_FUNDING', 'BOOLEAN', 'EQUALS', 'true'),
-    ...conditionalOn('EXISTING_BANK_NAME', 'HAS_EXISTING_BANK_CREDIT', 'BOOLEAN', 'EQUALS', 'true'),
-    ...conditionalOn('EXISTING_CREDIT_AMOUNT_PAISE', 'HAS_EXISTING_BANK_CREDIT', 'BOOLEAN', 'EQUALS', 'true'),
-    ...conditionalOn('EXISTING_CREDIT_STATUS', 'HAS_EXISTING_BANK_CREDIT', 'BOOLEAN', 'EQUALS', 'true'),
+    ...conditionalOn('SEED_FUND_REQUESTED_PAISE', 'WANTS_GRANT', 'BOOLEAN', 'EQUALS', 'true'),
+    ...conditionalOn('LOAN_BANK_FIRST_CHOICE', 'WANTS_BANK_LOAN', 'BOOLEAN', 'EQUALS', 'true'),
+    ...conditionalOn('LOAN_AMOUNT_REQUESTED_PAISE', 'WANTS_BANK_LOAN', 'BOOLEAN', 'EQUALS', 'true'),
+    // Asked with the loan, never required: a second choice is a preference.
+    { fieldKey: 'LOAN_BANK_SECOND_CHOICE', effect: 'VISIBLE_WHEN', sourceFieldKey: 'WANTS_BANK_LOAN',
+      sourceFieldType: 'BOOLEAN', operator: 'EQUALS', comparisonValue: 'true' },
+  ],
+  rules: [
+    {
+      ruleKey: 'GRANT_OR_LOAN', ruleType: 'AT_LEAST_ONE_TRUE', stageKey: 'FINANCIAL',
+      message: 'Ask for a grant, a bank loan, or both.',
+      operands: [
+        { fieldKey: 'WANTS_GRANT', fieldType: 'BOOLEAN' },
+        { fieldKey: 'WANTS_BANK_LOAN', fieldType: 'BOOLEAN' },
+      ],
+    },
+    {
+      ruleKey: 'DIFFERENT_BANKS', ruleType: 'DIFFERENT_VALUES', stageKey: 'FINANCIAL',
+      message: 'Choose two different banks.',
+      operands: [
+        { fieldKey: 'LOAN_BANK_FIRST_CHOICE', fieldType: 'SINGLE_CHOICE' },
+        { fieldKey: 'LOAN_BANK_SECOND_CHOICE', fieldType: 'SINGLE_CHOICE' },
+      ],
+    },
   ],
 })

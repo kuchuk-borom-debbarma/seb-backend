@@ -10,14 +10,11 @@ import { Dialog } from '#/components/Dialog'
 import {
   Archive,
   ArrowLeft,
-  BadgeCheck,
   Banknote,
   Calendar,
   Check,
-  CheckCircle2,
   Clock,
   FileText,
-  Hourglass,
   Lock,
   MapPin,
   Scale,
@@ -49,6 +46,7 @@ import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { can } from '#/lib/session'
 import { CycleForm } from '#/features/admin/CycleForm'
+import { CyclePipelineSummary } from '#/features/pipeline/CyclePipelineStep'
 import { PolicyDocumentCard } from '#/features/admin/PolicyDocumentCard'
 import { toTemplateInput } from '#/features/admin/formAuthoring'
 import { Explain } from '#/features/guide/Explain'
@@ -243,7 +241,6 @@ function AdminCyclePage() {
           id,
           expectedVersion: head?.currentVersion ?? 0,
           applicantGuidance: guidance ?? '',
-          partnerBankGuidance: head?.partnerBankGuidance ?? '',
           reason,
         },
       })
@@ -349,14 +346,12 @@ function AdminCyclePage() {
           displayName: head.displayName,
           cycleYear: head.cycleYear,
           applicantGuidance: head.applicantGuidance,
-          partnerBankGuidance: head.partnerBankGuidance,
           opensAt: head.opensAt,
           closesAt: head.closesAt,
           policy: {
             minimumApplicantAge: policy.minimumApplicantAge,
             maximumApplicantAge: policy.maximumApplicantAge,
             categoryAMaximumMonths: policy.categoryAMaximumMonths,
-            expansionWaitMonths: policy.expansionWaitMonths,
             // The form no longer asks for either, so a legacy draft that
             // stored null must not round-trip it — the fixed programme policy
             // fills the blank. A stored non-null value passes through honestly.
@@ -365,26 +360,25 @@ function AdminCyclePage() {
             fundingCeilingState: policy.fundingCeilingState,
             fundingCeilingAmountPaise: policy.fundingCeilingAmountPaise,
             fundingCeilingScope: policy.fundingCeilingScope,
-            requiredAssessmentTypes: data.cycle.assessmentRules.map(
-              (rule) => rule.assessmentType,
-            ),
-            formTemplate: toTemplateInput(template, data.cycle.groupDefinitions),
-            identifierRules: data.cycle.identifierRules.map(
-              ({ kind, requirement, duplicatePolicy, checkType }) => ({
-                kind,
-                requirement,
-                duplicatePolicy,
-                checkType,
-              }),
-            ),
-            reasons: data.cycle.reasons.map(
-              ({ context, code, label, applicantMessageTemplate }) => ({
-                context,
-                code,
-                label,
-                applicantMessageTemplate,
-              }),
-            ),
+            // Rules travel with the form: an update omitting them would drop them.
+            formTemplate: {
+              ...toTemplateInput(template, data.cycle.groupDefinitions),
+              rules: data.cycle.formRules.map((rule) => ({
+                ruleKey: rule.ruleKey,
+                ruleType: rule.ruleType,
+                stageKey: rule.stageKey,
+                message: rule.message,
+                limitValue: rule.limitValue,
+                operands: rule.operands.map(({ fieldKey, fieldType }) => ({ fieldKey, fieldType })),
+              })),
+            },
+            pipelineId: policy.pipelineId,
+            applicationKinds: data.cycle.applicationKinds.map((kind) => ({
+              kindKey: kind.kindKey,
+              label: kind.label,
+              description: kind.description,
+              rules: kind.rules.map(({ ruleType, paramsJson }) => ({ ruleType, paramsJson })),
+            })),
           },
         }
       : null
@@ -858,20 +852,6 @@ function AdminCyclePage() {
                 <tr className={styles.policyRow}>
                   <td className={styles.policyKeyCell}>
                     <div className={styles.policyIconBadge}>
-                      <Hourglass size={18} aria-hidden="true" />
-                    </div>
-                    <span className={styles.policyKeyText}>Wait before an expansion</span>
-                  </td>
-                  <td className={styles.policyValueCell}>
-                    {policy.expansionWaitMonths === null
-                      ? 'None'
-                      : `${policy.expansionWaitMonths} months`}
-                  </td>
-                </tr>
-
-                <tr className={styles.policyRow}>
-                  <td className={styles.policyKeyCell}>
-                    <div className={styles.policyIconBadge}>
                       <Scale size={18} aria-hidden="true" />
                     </div>
                     <span className={styles.policyKeyText}>Majority ownership</span>
@@ -916,69 +896,20 @@ function AdminCyclePage() {
                   </td>
                 </tr>
 
-                {/* Assessments an expansion must pass */}
-                <tr className={styles.policyRow}>
-                  <td
-                    className={styles.policyKeyCell}
-                    style={{ verticalAlign: 'middle' }}
-                  >
-                    <div className={styles.policyIconBadge}>
-                      <ShieldCheck size={18} aria-hidden="true" />
-                    </div>
-                    <span className={styles.policyKeyText}>
-                      Assessments an expansion must pass
-                    </span>
-                  </td>
-                  <td className={styles.policyValueCell}>
-                    {data.cycle.assessmentRules.length === 0 ? (
-                      <span className="muted">None</span>
-                    ) : (
-                      <div className={styles.assessmentPillsWrap}>
-                        {data.cycle.assessmentRules.map((rule) => (
-                          <span
-                            key={rule.assessmentType}
-                            className={styles.assessmentPill}
-                          >
-                            <CheckCircle2
-                              size={15}
-                              className={styles.assessmentCheckIcon}
-                              aria-hidden="true"
-                            />
-                            <span>{humanize(rule.assessmentType)}</span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-
-                {/* Approved reasons — the catalogue itself, not a count. This
-                    is the only screen where the office can read what its
-                    pickers will offer, so a bare number hid the one thing the
-                    row exists to show. */}
                 <tr className={styles.policyRow}>
                   <td className={styles.policyKeyCell}>
                     <div className={styles.policyIconBadge}>
-                      <BadgeCheck size={18} aria-hidden="true" />
+                      <ShieldCheck size={18} aria-hidden="true" />
                     </div>
-                    <span className={styles.policyKeyText}>Approved reasons</span>
+                    <span className={styles.policyKeyText}>Pipeline and kinds</span>
                   </td>
                   <td className={styles.policyValueCell}>
-                    {data.cycle.reasons.length === 0 ? (
-                      <span className="muted">None</span>
-                    ) : (
-                      <div className={styles.assessmentPillsWrap}>
-                        {data.cycle.reasons.map((reasonRow) => (
-                          <span
-                            key={reasonRow.id}
-                            className={styles.assessmentPill}
-                            title={`${humanize(reasonRow.context)} · ${reasonRow.code}`}
-                          >
-                            <span>{reasonRow.label}</span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    <CyclePipelineSummary
+                      pipelineId={policy.pipelineId}
+                      pinnedVersion={policy.pipelineVersion ?? null}
+                      kinds={data.cycle.applicationKinds}
+                      formRuleCount={data.cycle.formRules.length}
+                    />
                   </td>
                 </tr>
               </tbody>

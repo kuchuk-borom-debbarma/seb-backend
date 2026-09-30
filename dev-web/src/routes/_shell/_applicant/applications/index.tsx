@@ -26,7 +26,8 @@ import {
   MyApplicationsDocument,
   MyEnterprisesDocument,
 } from '#/graphql/generated/operations'
-import type { ApplicationStatus, ApplicationType } from '#/graphql/generated/schema'
+import type { ApplicationStatus } from '#/graphql/generated/schema'
+import { JourneyFlags, standingLabel } from '#/features/application/journey'
 import { formatDate, formatDateTime, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
@@ -34,27 +35,16 @@ import styles from '#/features/application/Applications.module.css'
 
 const PAGE_SIZE = 20
 
-/** Every status an application can be filtered by, in workflow order. */
-const STATUSES: ApplicationStatus[] = [
-  'DRAFT',
-  'SUBMITTED',
-  'DESK_REVIEW',
-  'REVISION_REQUIRED',
-  'PARTNER_BANK_EVALUATION',
-  'AWAITING_DECISION',
-  'APPROVED',
-  'REJECTED',
-  'SANCTIONED',
-  'DISBURSED',
-  'CANCELLED',
-]
+/** Every status an application can be filtered by, in order. */
+const STATUSES: ApplicationStatus[] = ['DRAFT', 'IN_PIPELINE']
 
 type Search = {
   after?: string
   enterpriseId?: string
   status?: ApplicationStatus
   programmeCycleId?: string
-  applicationType?: ApplicationType
+  /** One of the kinds a cycle declares, such as `INITIAL`. */
+  applicationKind?: string
   search?: string
   includeDeleted?: boolean
 }
@@ -71,7 +61,7 @@ const applicationsQuery = (search: Search) =>
         enterpriseId: search.enterpriseId ?? null,
         status: search.status ?? null,
         programmeCycleId: search.programmeCycleId ?? null,
-        applicationType: search.applicationType ?? null,
+        applicationKind: search.applicationKind ?? null,
         search: search.search ?? null,
         includeDeleted: search.includeDeleted ?? false,
       })
@@ -90,7 +80,7 @@ const allApplicationsQuery = queryOptions({
       enterpriseId: null,
       status: null,
       programmeCycleId: null,
-      applicationType: null,
+      applicationKind: null,
       search: null,
       includeDeleted: false,
     })
@@ -123,9 +113,9 @@ export const Route = createFileRoute('/_shell/_applicant/applications/')({
       : undefined,
     programmeCycleId:
       typeof search.programmeCycleId === 'string' ? search.programmeCycleId : undefined,
-    applicationType:
-      search.applicationType === 'INITIAL' || search.applicationType === 'EXPANSION'
-        ? search.applicationType
+    applicationKind:
+      typeof search.applicationKind === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/u.test(search.applicationKind)
+        ? search.applicationKind
         : undefined,
     search:
       typeof search.search === 'string' && search.search ? search.search : undefined,
@@ -177,6 +167,7 @@ function ApplicationsPage() {
   const navigate = Route.useNavigate()
   const { data } = useQuery(applicationsQuery(search))
   const { data: allApps = [] } = useQuery(allApplicationsQuery)
+  const kindsHeld = [...new Set(allApps.map((application) => application.applicationKind))].sort()
   const mark = useMarker()
   const { data: enterprises } = useQuery(enterpriseNamesQuery)
   const { data: guide } = useQuery(statusGuideQuery)
@@ -191,7 +182,7 @@ function ApplicationsPage() {
     search.enterpriseId ||
     search.status ||
     search.programmeCycleId ||
-    search.applicationType,
+    search.applicationKind,
   )
 
   /** Any filter change invalidates the cursor: it points into another set. */
@@ -324,19 +315,21 @@ function ApplicationsPage() {
             <div className={styles.selectWrap}>
               <select
                 id="type"
-                aria-label="Application type"
+                aria-label="Kind of application"
                 className={styles.filterSelect}
-                value={search.applicationType ?? ''}
+                value={search.applicationKind ?? ''}
                 onChange={(event) =>
-                  filter({
-                    applicationType: (event.target.value || undefined) as
-                      ApplicationType | undefined,
-                  })
+                  filter({ applicationKind: event.target.value || undefined })
                 }
               >
-                <option value="">Any type</option>
-                <option value="INITIAL">Initial</option>
-                <option value="EXPANSION">Expansion</option>
+                <option value="">Any kind</option>
+                {/* Kinds are each cycle's own, so the ones offered are the
+                    ones this applicant actually has. */}
+                {kindsHeld.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {humanize(kind)}
+                  </option>
+                ))}
               </select>
               <ChevronDown className={styles.selectChevron} aria-hidden="true" />
             </div>
@@ -393,7 +386,7 @@ function ApplicationsPage() {
                         enterpriseId: undefined,
                         status: undefined,
                         programmeCycleId: undefined,
-                        applicationType: undefined,
+                        applicationKind: undefined,
                       })
                     }
                   >
@@ -468,9 +461,7 @@ function ApplicationsPage() {
                               params={{ id: application.id }}
                               className={styles.appTitle}
                             >
-                              {application.applicationType === 'EXPANSION'
-                                ? 'Expansion Application'
-                                : 'Seed Grant Application'}
+                              {humanize(application.applicationKind)} application
                             </Link>
                             <span className={styles.appRef}>
                               {/* A reference is issued at first submission, so
@@ -479,11 +470,10 @@ function ApplicationsPage() {
                             </span>
                             <span
                               className={styles.typeBadge}
-                              data-type={application.applicationType}
+                              data-type={application.applicationKind}
                             >
-                              {application.applicationType === 'EXPANSION'
-                                ? `Expansion · Phase ${application.phaseNumber}`
-                                : 'Seed Grant'}
+                              {humanize(application.applicationKind)}
+                              {application.phaseNumber > 1 ? ` · Phase ${application.phaseNumber}` : ''}
                             </span>
                           </div>
                         </td>
@@ -519,9 +509,12 @@ function ApplicationsPage() {
                                 className={styles.statusPill}
                                 data-status={application.status}
                               >
-                                {labelFor(application.status)}
+                                {application.status === 'DRAFT'
+                                  ? labelFor(application.status)
+                                  : standingLabel(application)}
                               </span>
                             </div>
+                            <JourneyFlags journey={application.journey} />
                             {application.status === 'DRAFT' ? (
                               <DraftProgress applicationId={application.id} />
                             ) : null}

@@ -76,9 +76,9 @@ export function FirstVisit({ portal }: { portal: Portal }) {
       <p className={styles.text}>
         {portal === 'office' ? (
           <>
-            First time in the programme office? <strong>How this works</strong> shows the
-            route a file takes between the four desks, and walks you through the screens
-            you work it from.
+            First time in the programme office? <strong>How this works</strong> explains the
+            route a file takes through its pipeline’s stages, and walks you through the
+            screens you work it from.
           </>
         ) : (
           <>

@@ -18,6 +18,7 @@ import {
   FileText,
   History,
   Home,
+  Inbox,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -30,6 +31,7 @@ import {
   UserPlus,
   UserRound,
   Users,
+  Workflow,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -99,6 +101,7 @@ export function PlatformNavigation({
    */
   const administrationLinks = [
     can(user, 'programme_cycle', 'read'),
+    can(user, 'pipeline', 'read'),
     can(user, 'announcement', 'read'),
     // Both, because the invite screen looks somebody up before it can offer
     // anything — the same pair its own gate asks for.
@@ -200,6 +203,15 @@ export function PlatformNavigation({
                       onNavigate={onClose}
                     />
                   ) : null}
+                  {can(user, 'stage', 'read') ? (
+                    <NavLink
+                      to="/admin/stages"
+                      label="My stages"
+                      icon={Inbox}
+                      activePrefixes={['/admin/stages']}
+                      onNavigate={onClose}
+                    />
+                  ) : null}
                 </NavGroup>
               )}
 
@@ -216,6 +228,15 @@ export function PlatformNavigation({
                       label="Programme cycles"
                       icon={CalendarDays}
                       activePrefixes={['/admin/cycles']}
+                      onNavigate={onClose}
+                    />
+                  ) : null}
+                  {can(user, 'pipeline', 'read') ? (
+                    <NavLink
+                      to="/admin/pipelines"
+                      label="Pipelines"
+                      icon={Workflow}
+                      activePrefixes={['/admin/pipelines']}
                       onNavigate={onClose}
                     />
                   ) : null}

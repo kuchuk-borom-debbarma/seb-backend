@@ -58,7 +58,6 @@ type Blocker = {
   applicationId: string
   referenceNumber: string | null
   status: string
-  hasAward: boolean
 }
 
 function EnterpriseHeroArtwork() {
@@ -241,7 +240,6 @@ function EnterprisePage() {
                         {blocker.referenceNumber ?? 'Unsubmitted draft'}
                       </span>{' '}
                       — {humanize(blocker.status)}
-                      {blocker.hasAward ? ', holds a funding award' : ''}
                     </li>
                   ))}
                 </ul>

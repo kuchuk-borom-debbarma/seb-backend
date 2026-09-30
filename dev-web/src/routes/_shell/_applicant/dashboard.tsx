@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { PageHeader } from '#/components/PageHeader'
 import { applicantDashboardQuery } from '#/features/dashboard/dashboardQueries'
+import { standingLabel } from '#/features/application/journey'
 import { formatDateTime, formatRelative, humanize } from '#/lib/format'
 import styles from '#/features/dashboard/Dashboard.module.css'
 
@@ -81,9 +82,13 @@ function ApplicantDashboard() {
     data?.applications.nodes.find(
       (application) => application.programmeCycleId === cycleId,
     ) ?? null
-  const revisions = data?.revisions.nodes ?? []
+  /*
+   * Drafts need the applicant; submitted files are listed separately, each
+   * saying where it is in the words its pipeline gives the applicant.
+   */
   const drafts = data?.drafts.nodes ?? []
-  const attention = [...revisions, ...drafts]
+  const submitted = data?.submitted.nodes ?? []
+  const attention = drafts
   const firstCycle = cycles[0]
   const firstEnterprise = data?.enterprises.nodes[0]
   const guide = new Map((data?.guide ?? []).map((entry) => [entry.status, entry]))
@@ -91,13 +96,6 @@ function ApplicantDashboard() {
   const primaryAction = (() => {
     if (enterprises === 0) {
       return { to: '/enterprises/new', label: 'Register an enterprise' } as const
-    }
-    if (revisions[0]) {
-      return {
-        to: '/applications/$id/form',
-        params: { id: revisions[0].id },
-        label: 'Continue requested changes',
-      } as const
     }
     if (drafts[0]) {
       return {
@@ -233,11 +231,7 @@ function ApplicantDashboard() {
                       </span>
                       <span
                         className="badge"
-                        data-tone={
-                          application.status === 'REVISION_REQUIRED'
-                            ? 'action'
-                            : undefined
-                        }
+                        data-tone={application.status === 'DRAFT' ? 'action' : undefined}
                       >
                         {status?.label ?? humanize(application.status)}
                       </span>
@@ -247,6 +241,41 @@ function ApplicantDashboard() {
               </div>
             )}
           </section>
+
+          {submitted.length > 0 ? (
+            <section className={styles.attentionCard} aria-label="Submitted applications">
+              <div className={styles.cardHeader}>
+                <h2 className={styles.cardTitle}>Submitted</h2>
+                <Link to="/applications" className={styles.cardLink}>
+                  View all
+                </Link>
+              </div>
+              <div className={styles.applicationList}>
+                {submitted.map((application) => (
+                  <Link
+                    key={application.id}
+                    to="/applications/$id"
+                    params={{ id: application.id }}
+                    className={styles.applicationRow}
+                  >
+                    <FileText className={styles.rowIcon} aria-hidden="true" />
+                    <span className={styles.rowText}>
+                      <strong>{application.businessName}</strong>
+                      <small>
+                        {application.referenceNumber}
+                        {application.journey?.stageExplanation
+                          ? ` · ${application.journey.stageExplanation}`
+                          : ''}
+                      </small>
+                    </span>
+                    <span className="badge" data-tone={application.journey?.ended ? 'ok' : undefined}>
+                      {standingLabel(application)}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </div>
 
         {/* Readiness Checklist Banners for Empty Data */}

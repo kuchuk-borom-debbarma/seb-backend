@@ -114,8 +114,13 @@ function SettingsLayout() {
         </div>
       </div>
 
-      {/* Top Tabs */}
-      <div
+      {/*
+        Top tabs. A labelled navigation landmark, so a screen reader can find
+        the settings sections and hear which one is current (the router marks
+        the active link with `data-status` and `aria-current`).
+      */}
+      <nav
+        aria-label="Settings sections"
         style={{
           display: 'flex',
           gap: '28px',
@@ -179,7 +184,7 @@ function SettingsLayout() {
           <Shield size={17} strokeWidth={2} />
           <span>Security</span>
         </Link>
-      </div>
+      </nav>
 
       {/* Main Settings Body */}
       <div>

@@ -1,41 +1,22 @@
 /**
  * What the office's own words mean.
  *
- * The programme office is where the vocabulary is hardest. An applicant reads
- * "Submitted" and knows what it means; an officer reads two queues that both
- * hold `SUBMITTED` and has to be told why they are separate. These are the
- * answers to the words whose names do not give one.
+ * These are the answers to the words whose names do not give one — shown when
+ * somebody asks, beside the card that uses the word.
  *
- * **Copy lives here rather than at the call sites** for three reasons: half of
+ * **Copy lives here rather than at the call sites** for three reasons: some of
  * these anchors are inside components rendered by more than one screen, so
  * "beside the screen" is not available; the strings are derived from
- * `docs/admin-workflow-guide.md`, and a policy change there has to have a
- * findable consequence here; and copy should be reviewable as copy, in one
- * diff, by somebody who is not reading React.
+ * `docs/admin-workflow-guide.md` and `docs/pipeline-guide.md`, and a policy
+ * change there has to have a findable consequence here; and copy should be
+ * reviewable as copy, in one diff, by somebody who is not reading React.
  *
- * **This is not a rendering of `states.ts`.** That file's doc comments are a
- * maintainer's gloss — written to help somebody pick the right branch, uneven
- * in coverage, and free to say things a reader should not be told. The same
- * distinction is already drawn one level up in `RouteDiagram.tsx`: the office's
- * description of a stop is not a paraphrase of the applicant's. Two audiences,
- * two files. `queues.ts` is the exception and is reused verbatim, because its
- * descriptions were already written for staff and are already rendered.
- *
- * Each entry names the section of the workflow guide it is drawn from, so the
- * two can be checked against each other.
+ * Each entry names the section of the guide it is drawn from, so the two can
+ * be checked against each other.
  */
 
 /** The office words that earn an explanation. One per card, at most. */
-export type OfficeTerm =
-  | 'twoSubmittedQueues'
-  | 'workingTogether'
-  | 'frozenEvidence'
-  | 'bankOutcome'
-  | 'decisionRecord'
-  | 'ledger'
-  | 'recoveryLive'
-  | 'frozenPolicy'
-  | 'transcribing'
+export type OfficeTerm = 'frozenEvidence' | 'frozenPolicy' | 'stageActions'
 
 /**
  * The answer shown when somebody asks what a word means.
@@ -44,60 +25,19 @@ export type OfficeTerm =
  * and what follows from it, never how it is built.
  */
 export const OFFICE_HELP: Record<OfficeTerm, string> = {
-  // Source: admin-workflow-guide.md, "Named queues".
-  twoSubmittedQueues:
-    'A first submission and an answer to a correction request are both submitted, ' +
-    'and they are completely different jobs: one is a first read of a whole ' +
-    'application, the other is checking that a named section was fixed. They are ' +
-    'counted separately so the two never land in one pile.',
-
-  // Source: admin-workflow-guide.md, "Intake queues".
-  workingTogether:
-    'Anybody holding the right role can act on this; there is nothing to reserve ' +
-    'first. Knowing who was here last is still worth having, so it is shown — but ' +
-    'it is a courtesy, not a lock. If two of you act at once, the second is told ' +
-    'the record changed and nothing is overwritten.',
-
   // Source: admin-workflow-guide.md, "Frozen evidence and document safety".
   frozenEvidence:
     'A submission freezes the exact version of every document attached to it. These ' +
     'are the ones this submission carries — replacing a file later makes a new ' +
     'version and cannot change what was reviewed here.',
 
-  // Source: admin-workflow-guide.md, "Offline bank evaluation".
-  bankOutcome:
-    'The office records what the bank said; it does not decide. An outcome is never ' +
-    'edited — a correction is a new outcome that supersedes the earlier one, and ' +
-    'both stay on the file, so what was first said and when the office learned ' +
-    'otherwise are both readable.',
-
-  // Source: admin-workflow-guide.md, "The programme decision".
-  decisionRecord:
-    'An application that has cleared the bank stage waits to be decided, and is ' +
-    'decided here. The record names the submission and the bank outcome that were ' +
-    'read. A decision is never edited: a correction supersedes the one before it, ' +
-    'carries its own reason, and is refused once an award exists.',
-
-  // Source: admin-workflow-guide.md, "Awards, releases, and assessments".
-  ledger:
-    'Nothing here is ever removed. A payment that went wrong is corrected by a ' +
-    'reversal, which is its own entry naming the release it corrects, so the two ' +
-    'are read together. Every figure comes from the programme’s own arithmetic.',
-
-  // Source: admin-workflow-guide.md, "Desk review and revisions".
-  transcribing:
-    'Passing a check means you have read the document; this is the number on it. ' +
-    'Until these were recorded the programme could not tell whether the same ' +
-    'certificate or the same account had been used twice, because no identity ' +
-    'number was kept anywhere. Identity numbers and account numbers are stored ' +
-    'as a one-way digest — nobody can read them back, and you confirm against ' +
-    'the last four digits.',
-
-  // Source: admin-workflow-guide.md, "Cancellation and recovery".
-  recoveryLive:
-    'A case stays live through demand and settlement — entries can still be added. ' +
-    'Only cancellation or closure ends it, and closure is checked against a zero ' +
-    'balance at the moment of writing, so a late entry cannot slip past it.',
+  // Source: pipeline-guide.md, "Actions" and "The journey of one file".
+  stageActions:
+    'What this stage may do next is set by its pipeline. An action is offered to ' +
+    'the roles that own the stage and hold every permission its effects need. ' +
+    'Every action is checked against the version you are looking at, so if a ' +
+    'colleague acted first you are told the file changed and nothing is ' +
+    'overwritten.',
 
   // Source: admin-workflow-guide.md, "Programme cycles: the policy window".
   frozenPolicy:
@@ -129,21 +69,9 @@ export const OFFICE_LEDES = {
     'they accept, so the record always shows they agreed to it. Their applicant ' +
     'access is exchanged for the staff role rather than added to.',
 
-  workspace:
-    'Everything the office knows about this application, ordered by what a reviewer ' +
-    'does next. A review records the numbers on the documents as well as the ' +
-    'judgement, so a certificate or an account used twice is noticed. Every action ' +
-    'is checked against the version you are looking at, so two people acting at ' +
-    'once get a refusal rather than a silent overwrite.',
-
   cycle:
     'The policy applications in this programme year are judged by. Opening it ' +
     'publishes the cycle and freezes these rules into every application started ' +
     'while it is open.',
 
-  funding:
-    'The award, the money released against it, and anything that has to come back. ' +
-    'Nothing here is deleted — a payment that went wrong is reversed with its own ' +
-    'entry, and every figure is the programme’s arithmetic rather than the ' +
-    'browser’s.',
 } as const

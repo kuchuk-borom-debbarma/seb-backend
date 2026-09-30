@@ -1,31 +1,18 @@
 /**
- * One work queue.
+ * Every submitted application, office-wide.
  *
  * Every filter here is one the API accepts, and the whole filter set lives in
- * the URL — so a queue view can be bookmarked, sent to a colleague, or reached
- * again by the back button with the same rows in it.
+ * the URL — so a view can be bookmarked, sent to a colleague, or reached again
+ * by the back button with the same rows in it.
  *
- * Queue and status are mutually exclusive: two of the queues are subsets of a
- * single status, and the API refuses both rather than silently intersecting
- * them. The interface enforces that by offering one control, not two.
+ * The named queues of the hard-coded workflow are gone: which stage holds a
+ * file is its pipeline's. This list filters by pipeline, by stage and by the
+ * status flags a file holds, and shows the stage each file is at; a stage's
+ * own worklist, oldest arrival first, is under "My stages".
  */
-import { useEffect, useRef, useState } from 'react'
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
-import {
-  ArrowLeft,
-  CheckCircle2,
-  ChevronDown,
-  FileCheck,
-  FileText,
-  Landmark,
-  List,
-  type LucideIcon,
-  RefreshCw,
-  Scale,
-  Search as SearchIcon,
-  XCircle,
-} from 'lucide-react'
+import { ArrowLeft, ChevronDown } from 'lucide-react'
 import {
   filterFieldClass,
   filterLabelClass,
@@ -36,33 +23,27 @@ import {
 } from '#/components/ListControls'
 import { PageHeader } from '#/components/PageHeader'
 import { useMarker } from '#/features/guide/GuideContext'
-import {
-  QUEUE_PAGE_SIZE,
-  queueQuery,
-  queueSummaryQuery,
-} from '#/features/admin/intakeQueries'
-import {
-  QUEUE_DESCRIPTIONS,
-  QUEUE_KEYS,
-  QUEUE_TITLES,
-  statusTone,
-  waitingFor,
-} from '#/features/admin/queues'
+import { QUEUE_PAGE_SIZE, queueQuery } from '#/features/admin/intakeQueries'
+import { statusTone, waitingFor } from '#/features/admin/queues'
 import styles from '#/features/admin/Queue.module.css'
 import { rupeesToPaise } from '#/features/application/money'
 import { AdminCyclesDocument } from '#/graphql/generated/operations'
 import type {
   AdminIntakeOrder,
-  AdminIntakeQueueKey,
   ApplicationCategory,
-  ApplicationType,
   BusinessSector,
   TripuraDistrict,
 } from '#/graphql/generated/schema'
-import { formatDate, humanize } from '#/lib/format'
+import { formatDate, formatMoney, humanize } from '#/lib/format'
 import { gql } from '#/lib/graphql'
 import { unwrap } from '#/lib/result'
 import { dayEnd, dayOf, dayStart, manyOf, oneOf } from '#/lib/search'
+import { can } from '#/lib/session'
+import {
+  myStagesQuery,
+  pipelineChoicesQuery,
+  pipelineShapeQuery,
+} from '#/features/stage/stageQueries'
 
 /** The sorts the API offers, named for what a person is trying to do. */
 const ORDERS: { value: AdminIntakeOrder; label: string }[] = [
@@ -116,38 +97,8 @@ const cycleOptionsQuery = queryOptions({
   staleTime: 60_000,
 })
 
-/** The queues waiting on the office get a tab each; the rest fold into More. */
-const PRIMARY_QUEUES: AdminIntakeQueueKey[] = [
-  'NEW_SUBMISSIONS',
-  'REVISION_RESPONSES',
-  'DESK_REVIEW',
-]
-
-const MORE_QUEUES: AdminIntakeQueueKey[] = [
-  'PARTNER_BANK_EVALUATION',
-  'AWAITING_DECISION',
-  'APPROVED',
-  'REJECTED',
-  'SANCTIONED',
-  'DISBURSED',
-]
-
-const QUEUE_ICONS: Record<AdminIntakeQueueKey, LucideIcon> = {
-  NEW_SUBMISSIONS: FileText,
-  REVISION_RESPONSES: RefreshCw,
-  DESK_REVIEW: SearchIcon,
-  PARTNER_BANK_EVALUATION: Landmark,
-  AWAITING_DECISION: Scale,
-  APPROVED: CheckCircle2,
-  REJECTED: XCircle,
-  SANCTIONED: FileCheck,
-  DISBURSED: Landmark,
-}
-
 type Search = {
-  queue?: AdminIntakeQueueKey
   after?: string
-  applicationType?: ApplicationType
   categories?: ApplicationCategory[]
   sectors?: BusinessSector[]
   districts?: TripuraDistrict[]
@@ -155,27 +106,42 @@ type Search = {
   /** Rupees as typed; converted to paise at the API boundary. */
   requestedMin?: string
   requestedMax?: string
+  loanMin?: string
+  loanMax?: string
+  /** A pipeline's id; its stages and flags are offered once one is chosen. */
+  pipelineId?: string
+  stageKeys?: string[]
+  /** Files holding every one of these flags. */
+  flags?: string[]
   /** Calendar days; widened to whole-day instants at the API boundary. */
   submittedFrom?: string
   submittedTo?: string
-  decidedFrom?: string
-  decidedTo?: string
   order?: AdminIntakeOrder
-  mine?: boolean
   search?: string
 }
 
+/** Configured keys from the URL: stage and flag keys share one shape. */
+const keysOf = (value: unknown): string[] | undefined => {
+  const list = (Array.isArray(value) ? value : typeof value === 'string' ? [value] : []).filter(
+    (each): each is string => typeof each === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/u.test(each),
+  )
+  return list.length > 0 ? list : undefined
+}
+
 /** A rupee amount as typed, kept only while it still parses to paise. */
-const rupeesOf = (value: unknown): string | undefined =>
-  typeof value === 'string' && typeof rupeesToPaise(value) === 'number'
-    ? value
-    : undefined
+/*
+ * An amount from the address. The router reads a bare `?requestedMin=5000` as
+ * a number, not a string, so a typed or shared address carrying one must be
+ * accepted in either form, or the filter silently falls away.
+ */
+const rupeesOf = (value: unknown): string | undefined => {
+  const text = typeof value === 'number' ? String(value) : value
+  return typeof text === 'string' && typeof rupeesToPaise(text) === 'number' ? text : undefined
+}
 
 export const Route = createFileRoute('/_shell/admin/queue')({
   validateSearch: (search: Record<string, unknown>): Search => ({
-    queue: oneOf(QUEUE_KEYS, search.queue),
     after: typeof search.after === 'string' ? search.after : undefined,
-    applicationType: oneOf(['INITIAL', 'EXPANSION'] as const, search.applicationType),
     // The old single-value keys are folded in so bookmarks keep filtering.
     categories: manyOf(CATEGORIES, search.categories) ?? manyOf(CATEGORIES, search.category),
     sectors: manyOf(SECTORS, search.sectors) ?? manyOf(SECTORS, search.sector),
@@ -183,41 +149,29 @@ export const Route = createFileRoute('/_shell/admin/queue')({
     cycleId: typeof search.cycleId === 'string' && search.cycleId ? search.cycleId : undefined,
     requestedMin: rupeesOf(search.requestedMin),
     requestedMax: rupeesOf(search.requestedMax),
+    loanMin: rupeesOf(search.loanMin),
+    loanMax: rupeesOf(search.loanMax),
+    pipelineId:
+      typeof search.pipelineId === 'string' && search.pipelineId ? search.pipelineId : undefined,
+    // Stages and flags belong to a pipeline, so they are kept only with one.
+    stageKeys: search.pipelineId ? keysOf(search.stageKeys) : undefined,
+    flags: search.pipelineId ? keysOf(search.flags) : undefined,
     submittedFrom: dayOf(search.submittedFrom),
     submittedTo: dayOf(search.submittedTo),
-    decidedFrom: dayOf(search.decidedFrom),
-    decidedTo: dayOf(search.decidedTo),
     order: oneOf(
       ORDERS.map((order) => order.value),
       search.order,
     ),
-    mine: search.mine === true ? true : undefined,
     search:
       typeof search.search === 'string' && search.search ? search.search : undefined,
   }),
   loaderDeps: ({ search }) => search,
   loader: async ({ context, deps }) => {
-    await Promise.all([
-      // The signed-in account, so "only mine" prefetches the key the component
-      // then reads. Passing null here filled a different cache entry and the
-      // screen fetched again on arrival, with the loading flash that implies.
-      context.queryClient.ensureQueryData(
-        queueQuery(inputFor(deps, context.user?.id ?? null)),
-      ),
-      context.queryClient.ensureQueryData(queueSummaryQuery()),
-    ])
+    await context.queryClient.ensureQueryData(queueQuery(inputFor(deps)))
   },
   component: QueuePage,
 })
 
-/**
- * Turns the URL into the API's input.
- *
- * `assigneeUserId` is filled from the signed-in account when "only mine" is on.
- * It is passed rather than read here so both callers name it explicitly: the
- * loader takes it from route context and the component from its own, and a
- * mismatch between the two is what made the prefetch miss.
- */
 /** Rupees as typed, converted to the paise string the Money scalar takes. */
 const paiseOf = (rupees: string | undefined): string | null => {
   if (!rupees) return null
@@ -225,61 +179,35 @@ const paiseOf = (rupees: string | undefined): string | null => {
   return typeof paise === 'number' ? String(paise) : null
 }
 
-const inputFor = (search: Search, assigneeUserId: string | null) => ({
+/** Turns the URL into the API's input. */
+const inputFor = (search: Search) => ({
   first: QUEUE_PAGE_SIZE,
   after: search.after ?? null,
-  queue: search.queue ?? null,
-  applicationType: search.applicationType ?? null,
   categories: search.categories ?? null,
   sectors: search.sectors ?? null,
   districts: search.districts ?? null,
   cycleId: search.cycleId ?? null,
   requestedMinPaise: paiseOf(search.requestedMin),
   requestedMaxPaise: paiseOf(search.requestedMax),
+  loanRequestedMinPaise: paiseOf(search.loanMin),
+  loanRequestedMaxPaise: paiseOf(search.loanMax),
+  pipelineId: search.pipelineId ?? null,
+  stageKeys: search.stageKeys ?? null,
+  flags: search.flags ?? null,
   submittedFrom: dayStart(search.submittedFrom),
   submittedTo: dayEnd(search.submittedTo),
-  decidedFrom: dayStart(search.decidedFrom),
-  decidedTo: dayEnd(search.decidedTo),
   order: search.order ?? 'OLDEST_WAITING',
-  assigneeUserId: search.mine ? assigneeUserId : null,
   search: search.search ?? null,
 })
 
 function QueuePage() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  const { user } = Route.useRouteContext()
-  const { data, isPlaceholderData } = useQuery(
-    queueQuery(inputFor(search, user?.id ?? null)),
-  )
-  const { data: summary } = useQuery(queueSummaryQuery())
+  const { data, isPlaceholderData } = useQuery(queueQuery(inputFor(search)))
   const { data: cycles } = useQuery(cycleOptionsQuery)
   const mark = useMarker()
-  const [moreOpen, setMoreOpen] = useState(false)
-  const moreRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const handlePointerDown = (event: PointerEvent) => {
-      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
-        setMoreOpen(false)
-      }
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMoreOpen(false)
-    }
-    document.addEventListener('pointerdown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [])
-
   const rows = data?.nodes ?? []
-  const countOf = (queue: AdminIntakeQueueKey) =>
-    summary?.find((entry) => entry.queue === queue)?.count ?? 0
-
-  const totalAllCount = summary?.reduce((total, entry) => total + entry.count, 0) ?? 0
+  const pipelines = usePipelineFilter(search.pipelineId)
 
   /** Resets paging: a filter change makes the old cursor meaningless. */
   const filter = (change: Partial<Search>) =>
@@ -287,40 +215,28 @@ function QueuePage() {
       search: (previous) => ({ ...previous, ...change, after: undefined }),
     })
 
-  /*
-   * Whether an empty queue means "nothing matched" or "nothing to do".
-   *
-   * `queue` is deliberately not counted. It is the tab, not a filter — clearing
-   * it as part of "clear the filters" would eject somebody from the queue they
-   * chose to open, which is not what that button offers to do.
-   */
+  /* Whether an empty list means "nothing matched" or "nothing submitted". */
   const filtered = Boolean(
     search.search ||
-    search.applicationType ||
     search.categories ||
     search.sectors ||
     search.districts ||
     search.cycleId ||
     search.requestedMin ||
     search.requestedMax ||
+    search.loanMin ||
+    search.loanMax ||
+    search.pipelineId ||
     search.submittedFrom ||
-    search.submittedTo ||
-    search.decidedFrom ||
-    search.decidedTo ||
-    search.mine,
+    search.submittedTo,
   )
-
-  const isMoreQueueActive = Boolean(search.queue && MORE_QUEUES.includes(search.queue))
 
   return (
     <main className={styles.pageWrap}>
       <PageHeader
-        title={search.queue ? QUEUE_TITLES[search.queue] : 'All applications'}
-        description={
-          search.queue
-            ? QUEUE_DESCRIPTIONS[search.queue]
-            : 'Every submitted application, in any queue.'
-        }
+        title="All applications"
+        description="Every submitted application, at whichever stage holds it."
+
         actions={
           <Link to="/admin" className={styles.backButton}>
             <ArrowLeft size={15} aria-hidden="true" />
@@ -328,123 +244,6 @@ function QueuePage() {
           </Link>
         }
       />
-
-      {/* The queues, as tabs. Counts come from the summary rather than from
-          this page, so switching queues does not have to load one to know how
-          big the other is. */}
-      <div className={styles.tabStripCard} role="tablist" aria-label="Queues">
-        <Link
-          to="/admin/queue"
-          search={(previous) => ({
-            ...previous,
-            queue: undefined,
-            after: undefined,
-          })}
-          role="tab"
-          aria-selected={!search.queue}
-          className={`${styles.queueTab} ${!search.queue ? styles.queueTabActive : ''}`}
-        >
-          <List className={styles.queueTabIcon} aria-hidden="true" />
-          <span>All</span>
-          <span
-            className={`${styles.countBadge} ${
-              !search.queue ? styles.countBadgeActive : ''
-            }`}
-          >
-            {totalAllCount}
-          </span>
-        </Link>
-
-        {PRIMARY_QUEUES.map((queueKey) => {
-          const Icon = QUEUE_ICONS[queueKey]
-          const isActive = search.queue === queueKey
-          const tone =
-            queueKey === 'NEW_SUBMISSIONS'
-              ? 'blue'
-              : queueKey === 'REVISION_RESPONSES'
-                ? 'green'
-                : 'amber'
-          return (
-            <Link
-              key={queueKey}
-              to="/admin/queue"
-              search={(previous) => ({ ...previous, queue: queueKey, after: undefined })}
-              role="tab"
-              aria-selected={isActive}
-              className={`${styles.queueTab} ${isActive ? styles.queueTabActive : ''}`}
-            >
-              <Icon
-                className={styles.queueTabIcon}
-                data-color={tone}
-                aria-hidden="true"
-              />
-              <span>{QUEUE_TITLES[queueKey]}</span>
-              <span
-                className={`${styles.countBadge} ${
-                  isActive ? styles.countBadgeActive : ''
-                }`}
-              >
-                {countOf(queueKey)}
-              </span>
-            </Link>
-          )
-        })}
-
-        {/* More Queues Dropdown */}
-        <div className={styles.moreDropdownWrap} ref={moreRef}>
-          <button
-            type="button"
-            className={`${styles.queueTab} ${
-              isMoreQueueActive ? styles.queueTabActive : ''
-            }`}
-            onClick={() => setMoreOpen((previous) => !previous)}
-            aria-haspopup="menu"
-            aria-expanded={moreOpen}
-          >
-            <span>
-              {isMoreQueueActive && search.queue ? QUEUE_TITLES[search.queue] : 'More'}
-            </span>
-            <ChevronDown size={14} aria-hidden="true" />
-          </button>
-
-          {moreOpen && (
-            <div className={styles.moreDropdownMenu} role="menu">
-              {MORE_QUEUES.map((queueKey) => {
-                const Icon = QUEUE_ICONS[queueKey]
-                const isActive = search.queue === queueKey
-                return (
-                  <Link
-                    key={queueKey}
-                    to="/admin/queue"
-                    search={(previous) => ({
-                      ...previous,
-                      queue: queueKey,
-                      after: undefined,
-                    })}
-                    role="menuitem"
-                    className={`${styles.moreMenuItem} ${
-                      isActive ? styles.moreMenuItemActive : ''
-                    }`}
-                    onClick={() => setMoreOpen(false)}
-                  >
-                    <div className={styles.moreMenuLeft}>
-                      <Icon size={15} aria-hidden="true" />
-                      <span>{QUEUE_TITLES[queueKey]}</span>
-                    </div>
-                    <span
-                      className={`${styles.countBadge} ${
-                        isActive ? styles.countBadgeActive : ''
-                      }`}
-                    >
-                      {countOf(queueKey)}
-                    </span>
-                  </Link>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Filters Card */}
       <div className={styles.filtersCard} {...mark('queue-filters')}>
@@ -485,31 +284,6 @@ function QueuePage() {
           </div>
 
           {/* Type Dropdown */}
-          <div className={filterFieldClass}>
-            <label className={filterLabelClass} htmlFor="type">
-              Type
-            </label>
-            <div className={styles.selectWrap}>
-              <select
-                id="type"
-                className={styles.selectControl}
-                value={search.applicationType ?? ''}
-                onChange={(event) =>
-                  filter({
-                    applicationType: (event.target.value || undefined) as
-                      | ApplicationType
-                      | undefined,
-                  })
-                }
-              >
-                <option value="">Any type</option>
-                <option value="INITIAL">Initial</option>
-                <option value="EXPANSION">Expansion</option>
-              </select>
-              <ChevronDown className={styles.selectChevron} aria-hidden="true" />
-            </div>
-          </div>
-
           {/* Cycle Dropdown */}
           <div className={filterFieldClass}>
             <label className={filterLabelClass} htmlFor="cycle">
@@ -534,10 +308,60 @@ function QueuePage() {
               <ChevronDown className={styles.selectChevron} aria-hidden="true" />
             </div>
           </div>
+
+          {pipelines.options.length > 0 ? (
+            <div className={filterFieldClass}>
+              <label className={filterLabelClass} htmlFor="pipeline">
+                Pipeline
+              </label>
+              <div className={styles.selectWrap}>
+                <select
+                  id="pipeline"
+                  className={styles.selectControl}
+                  value={search.pipelineId ?? ''}
+                  onChange={(event) =>
+                    filter({
+                      pipelineId: event.target.value || undefined,
+                      stageKeys: undefined,
+                      flags: undefined,
+                    })
+                  }
+                >
+                  <option value="">Any pipeline</option>
+                  {pipelines.options.map((pipeline) => (
+                    <option key={pipeline.id} value={pipeline.id}>
+                      {pipeline.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className={styles.selectChevron} aria-hidden="true" />
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {/* Multi-value dimensions. Several values OR together; dimensions AND. */}
         <div className={styles.sectorGrid}>
+          {search.pipelineId && pipelines.stages.length > 0 ? (
+            <MultiSelectFilter
+              id="stages"
+              label="At stage"
+              options={pipelines.stages.map((stage) => stage.key)}
+              labelOf={pipelines.stageName}
+              selected={search.stageKeys}
+              onChange={(stageKeys) => filter({ stageKeys })}
+            />
+          ) : null}
+          {search.pipelineId && pipelines.flags.length > 0 ? (
+            <MultiSelectFilter
+              id="flags"
+              label="Holding every flag"
+              options={pipelines.flags.map((flag) => flag.key)}
+              labelOf={pipelines.flagLabel}
+              selected={search.flags}
+              onChange={(flags) => filter({ flags })}
+            />
+          ) : null}
           <MultiSelectFilter
             id="categories"
             label="Categories"
@@ -560,23 +384,13 @@ function QueuePage() {
             onChange={(districts) => filter({ districts })}
           />
 
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={search.mine ?? false}
-              onChange={(event) =>
-                filter({ mine: event.target.checked ? true : undefined })
-              }
-            />
-            Only what I have claimed
-          </label>
         </div>
 
         {/* Amounts are typed in rupees and land on blur, once they mean a number. */}
         <div className={styles.sectorGrid}>
           <div className={filterFieldClass}>
             <label className={filterLabelClass} htmlFor="requested-min">
-              Requested at least (₹)
+              Grant asked at least (₹)
             </label>
             <input
               id="requested-min"
@@ -592,7 +406,7 @@ function QueuePage() {
           </div>
           <div className={filterFieldClass}>
             <label className={filterLabelClass} htmlFor="requested-max">
-              Requested at most (₹)
+              Grant asked at most (₹)
             </label>
             <input
               id="requested-max"
@@ -604,6 +418,34 @@ function QueuePage() {
               onBlur={(event) =>
                 filter({ requestedMax: rupeesOf(event.target.value.trim()) })
               }
+            />
+          </div>
+          <div className={filterFieldClass}>
+            <label className={filterLabelClass} htmlFor="loan-min">
+              Loan asked at least (₹)
+            </label>
+            <input
+              id="loan-min"
+              className={styles.textControl}
+              inputMode="decimal"
+              placeholder="Any amount"
+              key={`loan-min-${search.loanMin ?? ''}`}
+              defaultValue={search.loanMin ?? ''}
+              onBlur={(event) => filter({ loanMin: rupeesOf(event.target.value.trim()) })}
+            />
+          </div>
+          <div className={filterFieldClass}>
+            <label className={filterLabelClass} htmlFor="loan-max">
+              Loan asked at most (₹)
+            </label>
+            <input
+              id="loan-max"
+              className={styles.textControl}
+              inputMode="decimal"
+              placeholder="Any amount"
+              key={`loan-max-${search.loanMax ?? ''}`}
+              defaultValue={search.loanMax ?? ''}
+              onBlur={(event) => filter({ loanMax: rupeesOf(event.target.value.trim()) })}
             />
           </div>
           <div className={filterFieldClass}>
@@ -636,73 +478,36 @@ function QueuePage() {
           </div>
         </div>
 
-        <div className={styles.sectorGrid}>
-          <div className={filterFieldClass}>
-            <label className={filterLabelClass} htmlFor="decided-from">
-              Decided from
-            </label>
-            <input
-              id="decided-from"
-              type="date"
-              className={styles.textControl}
-              value={search.decidedFrom ?? ''}
-              onChange={(event) =>
-                filter({ decidedFrom: event.target.value || undefined })
-              }
-            />
-          </div>
-          <div className={filterFieldClass}>
-            <label className={filterLabelClass} htmlFor="decided-to">
-              Decided to
-            </label>
-            <input
-              id="decided-to"
-              type="date"
-              className={styles.textControl}
-              value={search.decidedTo ?? ''}
-              onChange={(event) =>
-                filter({ decidedTo: event.target.value || undefined })
-              }
-            />
-          </div>
-        </div>
       </div>
 
       {/* Applications Table Card */}
       {rows.length === 0 ? (
         <ListEmpty
           // Three different facts, and the heading has to say which one.
-          title={
-            filtered
-              ? 'Nothing matches'
-              : search.queue
-                ? 'Nothing in this queue'
-                : 'No applications yet'
-          }
+          title={filtered ? 'Nothing matches' : 'No applications yet'}
           text={
             filtered
               ? 'No application matches these filters. Clearing one may bring some back.'
-              : search.queue
-                ? 'Everything here has been dealt with.'
-                : 'Nothing has been submitted to the programme office yet.'
+              : 'Nothing has been submitted to the programme office yet.'
           }
           onClear={
             filtered
               ? () =>
                   filter({
                     search: undefined,
-                    applicationType: undefined,
                     categories: undefined,
                     sectors: undefined,
                     districts: undefined,
                     cycleId: undefined,
                     requestedMin: undefined,
                     requestedMax: undefined,
+                    loanMin: undefined,
+                    loanMax: undefined,
+                    pipelineId: undefined,
+                    stageKeys: undefined,
+                    flags: undefined,
                     submittedFrom: undefined,
                     submittedTo: undefined,
-                    decidedFrom: undefined,
-                    decidedTo: undefined,
-                    mine: undefined,
                   })
               : undefined
           }
@@ -713,19 +518,20 @@ function QueuePage() {
           aria-busy={isPlaceholderData}
           {...mark('queue-rows')}
         >
-          <h2 className={styles.tableTitle}>Applications in this queue</h2>
+          <h2 className={styles.tableTitle}>Applications</h2>
           <div className={styles.tableWrap}>
             <table className={styles.appsTable}>
-              <caption className="visually-hidden">Applications in this queue</caption>
+              <caption className="visually-hidden">Submitted applications</caption>
               <thead>
                 <tr>
                   <th scope="col">Reference</th>
                   <th scope="col">Enterprise</th>
                   <th scope="col">Cycle</th>
-                  <th scope="col">Type</th>
-                  <th scope="col">Status</th>
+                  <th scope="col">Kind</th>
+                  <th scope="col">Asked for</th>
+                  <th scope="col">Stage</th>
                   <th scope="col">Waiting</th>
-                  <th scope="col">Claimed by</th>
+                  <th scope="col">Status flags</th>
                 </tr>
               </thead>
               <tbody>
@@ -745,9 +551,8 @@ function QueuePage() {
                     </td>
                     <td className="tabular">{row.cycleCode}</td>
                     <td>
-                      {row.applicationType === 'EXPANSION'
-                        ? `Expansion · phase ${row.phaseNumber}`
-                        : 'Initial'}
+                      {humanize(row.applicationKind)}
+                      {row.phaseNumber > 1 ? ` · phase ${row.phaseNumber}` : null}
                       {/* A resubmission is a different job from a first look,
                           and the number says which this is. */}
                       {row.submissionNumber > 1 ? (
@@ -757,18 +562,37 @@ function QueuePage() {
                         </span>
                       ) : null}
                     </td>
+                    <td className="tabular">
+                      {row.requestedGrantPaise == null && row.requestedLoanPaise == null ? (
+                        <span className="muted">—</span>
+                      ) : (
+                        <div className={styles.waitingCell}>
+                          {row.requestedGrantPaise != null ? (
+                            <span>Grant {formatMoney(row.requestedGrantPaise)}</span>
+                          ) : null}
+                          {row.requestedLoanPaise != null ? (
+                            <span className={styles.waitingSub}>
+                              Loan {formatMoney(row.requestedLoanPaise)}
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
+                    </td>
                     <td>
+                      {/* Null once an action ended the journey; the flags say how. */}
                       <span
                         className={styles.statusBadge}
                         data-tone={statusTone(row.status)}
                       >
-                        {humanize(row.status)}
+                        {row.currentStageKey
+                          ? (row.stageName ?? pipelines.stageName(row.currentStageKey))
+                          : 'Finished'}
                       </span>
                     </td>
                     <td>
                       <div className={styles.waitingCell}>
                         <span className={styles.waitingPrimary}>
-                          {waitingFor(row.statusChangedAt)}
+                          {waitingFor(row.stageEnteredAt ?? row.statusChangedAt)}
                         </span>
                         <span className={styles.waitingSub}>
                           submitted {formatDate(row.submittedAt)}
@@ -776,14 +600,9 @@ function QueuePage() {
                       </div>
                     </td>
                     <td>
-                      {row.assignedToUserId ? (
-                        // Who claimed it is an internal user id; the workspace
-                        // is where a name can be resolved, so this says only
-                        // that somebody has it.
-                        <span className={styles.statusBadge}>Claimed</span>
-                      ) : (
-                        <span className="muted">Nobody</span>
-                      )}
+                      {row.flags.length > 0
+                        ? row.flags.map((flag) => flag.label).join(', ')
+                        : <span className="muted">None</span>}
                     </td>
                   </tr>
                 ))}
@@ -818,4 +637,52 @@ function QueuePage() {
       )}
     </main>
   )
+}
+
+/**
+ * What the pipeline filter offers, and how a stage or flag key reads.
+ *
+ * The published pipelines and a chosen one's stages and flags come from the
+ * pipeline reads, which need `pipeline`/`read`. Somebody without it who works
+ * stages is offered the pipelines and stages they work instead; flags are then
+ * shown by their keys. A key with no name known reads humanized.
+ */
+function usePipelineFilter(pipelineId: string | undefined) {
+  const user = Route.useRouteContext().user
+  const mayReadPipelines = can(user, 'pipeline', 'read')
+  const { data: choices } = useQuery({ ...pipelineChoicesQuery, enabled: mayReadPipelines })
+  const { data: worked } = useQuery({ ...myStagesQuery, enabled: can(user, 'stage', 'read') })
+
+  const options = new Map<string, { id: string; key: string | null; name: string }>()
+  for (const choice of choices ?? []) options.set(choice.id, { id: choice.id, key: choice.key, name: choice.name })
+  for (const stage of worked ?? []) {
+    if (!options.has(stage.pipelineId)) {
+      options.set(stage.pipelineId, { id: stage.pipelineId, key: stage.pipelineKey, name: stage.pipelineName })
+    }
+  }
+  const chosenKey = pipelineId ? (options.get(pipelineId)?.key ?? '') : ''
+  const { data: shape } = useQuery({
+    ...pipelineShapeQuery(chosenKey),
+    enabled: mayReadPipelines && chosenKey.length > 0,
+  })
+
+  const stages =
+    shape?.stages ??
+    (worked ?? [])
+      .filter((stage) => stage.pipelineId === pipelineId)
+      .map((stage) => ({ key: stage.stageKey, name: stage.stageName }))
+  const flags = shape?.flags ?? []
+  const stageNames = new Map<string, string>([
+    ...(worked ?? []).map((stage) => [stage.stageKey, stage.stageName] as const),
+    ...stages.map((stage) => [stage.key, stage.name] as const),
+  ])
+  const flagLabels = new Map(flags.map((flag) => [flag.key, flag.label]))
+
+  return {
+    options: [...options.values()],
+    stages,
+    flags,
+    stageName: (key: string) => stageNames.get(key) ?? humanize(key),
+    flagLabel: (key: string) => flagLabels.get(key) ?? humanize(key),
+  }
 }

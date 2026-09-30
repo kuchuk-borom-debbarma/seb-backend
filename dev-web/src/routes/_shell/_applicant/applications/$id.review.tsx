@@ -42,6 +42,7 @@ import { gql } from '#/lib/graphql'
 import { messageFor, unwrap } from '#/lib/result'
 import { FormArtwork } from './$id.form'
 import styles from './DraftForm.module.css'
+import { awaitingCorrection } from '#/features/application/revision'
 
 type Application = NonNullable<
   ApplicationByIdQuery['seb']['application']['byId']['response']
@@ -71,7 +72,7 @@ function ReviewPage() {
   )
 
   // Resubmission answers a revision request; a first submission does not.
-  const resubmission = application?.status === 'REVISION_REQUIRED'
+  const resubmission = awaitingCorrection(application)
 
   const submit = useMutation({
     mutationFn: async () => {

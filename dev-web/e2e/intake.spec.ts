@@ -1,12 +1,11 @@
 /**
  * The intake console.
  *
- * These tests drive the programme office the way a reviewer does: the queues
- * and their counts, the filters, reference lookup, the console's own rules
- * about what is offered when, role administration, and a revision request the
- * applicant then sees. Submitted applications are reached through the
- * product's own paths — locally the Worker stores documents itself, so no
- * bucket is needed.
+ * These tests drive the programme office the way an officer does: the stages
+ * they work and what waits there, the office-wide list and its filters,
+ * reference lookup, the console's own rules about what is offered when, and
+ * role administration. Working a file through its stages — asking the
+ * applicant for a correction among them — is `stage-journey.spec.ts`.
  */
 import { expect, test } from '@playwright/test'
 import {
@@ -15,7 +14,6 @@ import {
   openProgrammeCycle,
   signIn,
   signUpApplicant,
-  submitApplication,
   uniqueEmail,
 } from './support'
 
@@ -24,74 +22,58 @@ test.describe('the intake console', () => {
     await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
   })
 
-  test('leads with the queues waiting on the programme office', async ({ page }) => {
+  /*
+   * The office opens on its work: the stages the reader works, each with how
+   * many files wait there, and the files that have waited longest. A super
+   * administrator works every stage of every published pipeline.
+   */
+  test('leads with the stages the reader works and what has waited longest', async ({ page }) => {
     await page.goto('/admin')
 
-    /*
-     * Each actionable queue appears twice on the dashboard — a "Waiting on
-     * us" row and an "All queues" table row — so first() is deliberate: the
-     * point is that it is offered, prominently, not how many times.
-     */
-    for (const queue of ['New submissions', 'Revision responses', 'Desk review']) {
-      await expect(
-        page.getByRole('link', { name: new RegExp(queue, 'u') }).first(),
-      ).toBeVisible()
+    const stages = page.getByRole('region', { name: 'My stages' })
+    await expect(stages).toBeVisible()
+    for (const stage of ['TTC review', 'Industries & Commerce']) {
+      await expect(stages.getByText(stage, { exact: true }).first()).toBeVisible()
     }
-
-    // The rest are listed with counts but not given the same weight.
-    await expect(page.getByRole('row').filter({ hasText: 'With the bank' })).toBeVisible()
-    await expect(
-      page.getByRole('row').filter({ hasText: 'To decide' }),
-    ).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Waiting longest' })).toBeVisible()
   })
 
-  test('shows every queue even when it is empty', async ({ page }) => {
-    await page.goto('/admin')
+  test('filters the office-wide list and keeps the filters in the address', async ({ page }) => {
+    await page.goto('/admin/queue')
 
-    // A row that vanished at zero would move everything beside it, and staff
-    // learn where their queue sits.
-    const newSubmissions = page.getByRole('link', { name: /New submissions/u }).first()
-    await expect(newSubmissions).toBeVisible()
-    await expect(newSubmissions).toContainText(/\d/u)
-  })
+    // Choosing a pipeline is what makes its stages and flags filterable.
+    const pipeline = page.getByLabel('Pipeline', { exact: true })
+    const seeded = pipeline.locator('option').filter({ hasText: 'Mission SEP' }).first()
+    await pipeline.selectOption((await seeded.getAttribute('value')) as string)
+    await expect(page).toHaveURL(/pipelineId=/u)
+    await expect(page.getByLabel(/^At stage/u)).toBeVisible()
 
-  test('opens a queue and keeps the filters in the address', async ({ page }) => {
-    await page.goto('/admin')
-    await page.getByRole('link', { name: /New submissions/u }).first().click()
-    await expect(page).toHaveURL(/\/admin\/queue\?queue=NEW_SUBMISSIONS/u)
-
-    await page.getByLabel('Type').selectOption('EXPANSION')
-    await expect(page).toHaveURL(/applicationType=EXPANSION/u)
-    await expect(page).toHaveURL(/queue=NEW_SUBMISSIONS/u)
-
-    // A second filter must not drop the first. Category is a multi-select
-    // now; one chosen value appends its count to the label.
-    await page.getByLabel('Categories').selectOption('CATEGORY_A')
-    await expect(page).toHaveURL(/applicationType=EXPANSION/u)
+    // A second filter must not drop the first. Category is a multi-select;
+    // one chosen value appends its count to the label.
+    await page.getByLabel(/^Categories/u).selectOption('CATEGORY_A')
+    await expect(page).toHaveURL(/pipelineId=/u)
     await expect(page).toHaveURL(/categories=.*CATEGORY_A/u)
 
     // And the page survives a reload with the same view.
     await page.reload()
-    await expect(page.getByLabel('Type')).toHaveValue('EXPANSION')
     await expect(page.getByLabel(/^Categories/u)).toHaveValues(['CATEGORY_A'])
+    await expect(page.getByLabel(/^At stage/u)).toBeVisible()
   })
 
-  test('switching queues does not lose the ordering you chose', async ({ page }) => {
-    await page.goto('/admin/queue?queue=NEW_SUBMISSIONS')
+  test('keeps the ordering chosen while the filters change', async ({ page }) => {
+    await page.goto('/admin/queue')
     await page.getByLabel('Order').selectOption('LAST_ACTIVITY')
-
-    await page.getByRole('tab', { name: /Desk review/u }).click()
-    await expect(page).toHaveURL(/queue=DESK_REVIEW/u)
+    await page.getByLabel(/^Categories/u).selectOption('CATEGORY_B')
+    await expect(page).toHaveURL(/categories=.*CATEGORY_B/u)
     await expect(page.getByLabel('Order')).toHaveValue('LAST_ACTIVITY')
   })
 
-  test('says what an empty queue means', async ({ page }) => {
-    await page.goto('/admin/queue?queue=DISBURSED')
-    await expect(page.getByText('Nothing in this queue')).toBeVisible()
-    await expect(page.getByText('Everything here has been dealt with.')).toBeVisible()
-
-    // With a filter on, the emptiness has a different cause and says so.
-    await page.getByLabel('Categories').selectOption('CATEGORY_B')
+  test('says what an empty result means', async ({ page }) => {
+    // Nobody asked for this much: the emptiness is the filters', and says so.
+    await page.goto('/admin/queue')
+    await page.getByLabel('Grant asked at least (₹)').fill('900000000')
+    await page.getByLabel('Grant asked at least (₹)').press('Tab')
+    await expect(page.getByText('Nothing matches')).toBeVisible()
     await expect(page.getByText(/No application matches these filters/u)).toBeVisible()
   })
 
@@ -244,72 +226,5 @@ test.describe('the application workspace', () => {
     // The refusal stays inside the shell rather than blanking the page.
     await expect(page.getByRole('navigation', { name: 'Portal sections' })).toBeVisible()
     await expect(page.getByRole('alert')).toBeVisible()
-  })
-})
-
-/*
- * Asking an applicant to correct something.
- *
- * Untested until now, and broken the whole time: the form sent no outcome
- * reason for a revision, so every attempt was refused with "Select an approved
- * outcome reason." over a form that offered nowhere to select one. The whole
- * revision route — the way a case goes back to the applicant — could not be
- * used at all.
- */
-test.describe('sending an application back for correction', () => {
-  test('asks for a revision, naming why, and the applicant sees it', async ({ page }) => {
-    test.setTimeout(180_000)
-    const application = await submitApplication(page, { prefix: 'rev' })
-
-    await page.context().clearCookies()
-    await signIn(page, SUPER_ADMIN_EMAIL, PASSWORD)
-    await page.goto(`/admin/applications/${application.id}`)
-    await page.getByRole('button', { name: 'Start desk review' }).click()
-    await page.getByRole('button', { name: 'Open desk review' }).click()
-
-    for (const check of [
-      'IDENTITY_KYC', 'ST_ELIGIBILITY', 'MAJORITY_OWNERSHIP', 'JURISDICTION',
-      'FORM_COMPLETENESS', 'DOCUMENT_COMPLETENESS', 'ANSWER_DOCUMENT_CONSISTENCY',
-      'DPR_FEASIBILITY',
-    ]) {
-      await page.locator(`input[name="${check}"]`).first().check()
-    }
-    await page.locator('input[name="EXPANSION_EVIDENCE"]').nth(2).check()
-    await page.getByRole('button', { name: 'Next: What documents say' }).click()
-
-    // Passing the checks that gate them means the cycle demands these, exactly
-    // as it would for a referral. Unique, so the duplicate check stays quiet.
-    const unique = Date.now().toString().slice(-6)
-    await page.getByLabel('Scheduled Tribe certificate number').fill(`TR/ST/2026-R${unique}`)
-    await page.getByLabel('Identity document number').fill(`9333${unique}`)
-    await page.getByLabel('Bank account number').fill(`5009${unique}`)
-    await page.getByLabel('Branch code (IFSC)').fill('SBIN0007890')
-
-    await page.getByRole('button', { name: 'Next: Outcome' }).click()
-    await page.getByRole('radio', { name: /Ask the applicant to correct it/u }).check()
-
-    // The reason the application is going back, distinct from each section's.
-    const outcomeReason = page.getByLabel('Why this is going back')
-    await expect(outcomeReason).toBeVisible()
-    await outcomeReason.selectOption({ index: 1 })
-
-    // One section, with its own reason and instruction.
-    await page.getByRole('checkbox', { name: 'Evidence' }).check()
-    await page.getByLabel('Reason', { exact: true }).last().selectOption({ index: 1 })
-    await page.getByLabel('What the applicant must do').last().fill('Attach the missing quotation.')
-
-    await page
-      .getByLabel('Message to the applicant')
-      .fill('Please attach the missing quotation and resubmit.')
-
-    await page.getByRole('button', { name: 'Complete the review' }).click()
-    await expect(page.locator('.badge').filter({ hasText: 'Revision required' }).first())
-      .toBeVisible()
-
-    // And the applicant is actually told, which is the point of the outcome.
-    await page.context().clearCookies()
-    await signIn(page, application.email, PASSWORD)
-    await page.goto(`/applications/${application.id}`)
-    await expect(page.getByText('Attach the missing quotation.')).toBeVisible()
   })
 })

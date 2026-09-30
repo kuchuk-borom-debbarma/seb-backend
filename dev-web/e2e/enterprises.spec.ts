@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { registerEnterprise, signIn, signUpApplicant, uniqueEmail } from './support'
+import { fillSettled, registerEnterprise, signIn, signUpApplicant, uniqueEmail } from './support'
 
 /** A fresh applicant per test, so one test's enterprises never affect another. */
 const asNewApplicant = async (page: import('@playwright/test').Page) => {
@@ -34,7 +34,7 @@ test.describe('enterprises', () => {
 
     // The wizard asks one category at a time; the first is the enterprise
     // itself.
-    await page.getByLabel('Registered or trading name').fill('Khumulwng Food Works')
+    await fillSettled(page.getByLabel('Registered or trading name'), 'Khumulwng Food Works')
     await page.getByLabel('Date established').fill('2026-01-15')
     await page.getByLabel('Sector').selectOption('FOOD_PROCESSING')
     await next(page)
@@ -86,7 +86,7 @@ test.describe('enterprises', () => {
 
     // The name is the one requirement of the first category; the registration
     // questions live in the second.
-    await page.getByLabel('Registered or trading name').fill('Statutory Works')
+    await fillSettled(page.getByLabel('Registered or trading name'), 'Statutory Works')
     await next(page)
 
     // A fresh form starts as a sole proprietorship, whose number is optional —
@@ -122,7 +122,7 @@ test.describe('enterprises', () => {
     await asNewApplicant(page)
     await page.goto('/enterprises/new')
 
-    await page.getByLabel('Registered or trading name').fill('Bad GSTIN Works')
+    await fillSettled(page.getByLabel('Registered or trading name'), 'Bad GSTIN Works')
     await next(page)
     // The browser does not police the GSTIN's shape; the Worker does, and its
     // message is what the person sees.
@@ -143,7 +143,7 @@ test.describe('enterprises', () => {
     // Editing reopens the same wizard; the change on the first category is
     // kept in memory while the later ones are stepped through.
     await page.getByRole('button', { name: 'Edit' }).click()
-    await page.getByLabel('Registered or trading name').fill('Corrected Name')
+    await fillSettled(page.getByLabel('Registered or trading name'), 'Corrected Name')
     await next(page)
     await next(page)
     await next(page)

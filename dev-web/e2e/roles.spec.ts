@@ -49,12 +49,14 @@ test.describe('being invited into the office', () => {
     ).toBeVisible()
   })
 
-  test('an approver sees casework and still governs nothing', async ({ page }) => {
-    await inviteSomebodyTo(page, 'DECISION_APPROVER')
+  test('a stage officer sees their stage and still governs nothing', async ({ page }) => {
+    await inviteSomebodyTo(page, 'TTC')
     await page.goto('/admin')
     const sections = await navigationSections(page)
     expect(sections).toContain('workspace')
     expect(sections).not.toContain('administration')
+    // Their work is the stage their role owns, and the office leads with it.
+    await expect(page.getByRole('link', { name: 'My stages' })).toBeVisible()
   })
 })
 
