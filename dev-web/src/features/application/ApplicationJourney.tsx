@@ -94,6 +94,7 @@ export function ApplicationJourney({
   activeStep,
   issues,
   shownCounts,
+  correctionStageKeys,
   editableStageKeys,
   children,
   footer,
@@ -111,6 +112,8 @@ export function ApplicationJourney({
    * changed since. The rail counts these; progress still follows the report.
    */
   shownCounts?: ReadonlyMap<ApplicationJourneyStep, number>
+  /** The form stages the office has asked the applicant to correct. */
+  correctionStageKeys?: readonly string[]
   editableStageKeys: readonly string[]
   children: React.ReactNode
   footer?: React.ReactNode
@@ -125,6 +128,7 @@ export function ApplicationJourney({
     activeStep,
     issues,
     shownCounts,
+    correctionStageKeys,
     editableStageKeys,
     readOnly,
   })
@@ -167,6 +171,7 @@ function applicationSteps({
   activeStep,
   issues,
   shownCounts,
+  correctionStageKeys,
   editableStageKeys,
   readOnly,
 }: {
@@ -174,6 +179,7 @@ function applicationSteps({
   activeStep: ApplicationJourneyStep
   issues: readonly Issue[]
   shownCounts?: ReadonlyMap<ApplicationJourneyStep, number>
+  correctionStageKeys?: readonly string[]
   editableStageKeys: readonly string[]
   readOnly: boolean
 }): Array<JourneyStep<ApplicationJourneyStep>> {
@@ -213,6 +219,7 @@ function applicationSteps({
       ),
       status,
       issueCount: issueCount || undefined,
+      flag: correctionStageKeys?.includes(step) ? 'Correction asked' : undefined,
     }
   })
 }

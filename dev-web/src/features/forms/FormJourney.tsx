@@ -28,6 +28,12 @@ export type JourneyStep<TId extends string = string> = {
   description: string
   status: JourneyStepStatus
   issueCount?: number
+  /**
+   * A short word the rail shows under the step in place of its state, such
+   * as "Correction asked": something the applicant must know about the step
+   * that its completeness does not say.
+   */
+  flag?: string
 }
 
 function CategoryIcon({
@@ -159,7 +165,9 @@ export function FormJourney<TId extends string>({
                   ? ' — Not open yet'
                   : step.status === 'complete'
                     ? ' — Complete'
-                    : step.status === 'locked'
+                    : step.flag
+                      ? ` — ${step.flag}`
+                      : step.status === 'locked'
                       ? ' — Read only'
                       : step.issueCount
                         ? ` — ${step.issueCount} to fix`
@@ -217,6 +225,8 @@ export function FormJourney<TId extends string>({
                           {step.issueCount}{' '}
                           {step.issueCount === 1 ? 'item' : 'items'} to fix
                         </span>
+                      ) : step.flag && !current ? (
+                        <span className={styles.stepFlag}>{step.flag}</span>
                       ) : (
                         <span
                           className={

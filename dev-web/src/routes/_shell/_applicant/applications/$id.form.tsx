@@ -403,6 +403,11 @@ function DraftFormPage() {
   }
 
   const steps = journeySteps(template)
+  // What the office asked to change, still open: read where it is changed.
+  const openRequests = application.revisionRequests.filter(
+    (request) => request.resolvedAt === null && request.cancelledAt === null,
+  )
+  const askedHere = openRequests.filter((request) => request.stageKey === currentStage)
   const shownCounts = new Map(
     stageKeys.map((key) => [
       key,
@@ -497,6 +502,7 @@ function DraftFormPage() {
         activeStep={currentStage}
         issues={issues}
         shownCounts={shownCounts}
+        correctionStageKeys={openRequests.map((request) => request.stageKey)}
         editableStageKeys={application.editableStageKeys}
         footerLeft={
           <div className={styles.footerLeftGroup}>
@@ -545,6 +551,18 @@ function DraftFormPage() {
           </div>
         }
       >
+        {askedHere.map((request) => (
+          <div
+            key={request.id}
+            className="notice"
+            data-tone="action"
+            style={{ marginBottom: '1rem' }}
+          >
+            <span className="notice-title">The office asked you to change this</span>
+            {request.note}
+          </div>
+        ))}
+
         {locked && awaitingCorrection(application) ? (
           <p className="notice" data-tone="action" style={{ marginBottom: '1rem' }}>
             No correction was requested for this stage, so it must stay exactly as it was

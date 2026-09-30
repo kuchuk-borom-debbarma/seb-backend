@@ -126,6 +126,17 @@ function DocumentsPage() {
   if (!application || !template) return null
 
   const editableStages = new Set(application.editableStageKeys)
+  /*
+   * A correction asked of a stage that holds file questions is often about a
+   * file, which is changed here rather than on the stage's own form page, so
+   * the office's note is shown here too.
+   */
+  const openRequests = application.revisionRequests.filter(
+    (request) => request.resolvedAt === null && request.cancelledAt === null,
+  )
+  const aboutFiles = openRequests.filter((request) =>
+    template.fieldsOfStage(request.stageKey).some((field) => field.type === 'FILE'),
+  )
   const documentIssues = issuesForStep(
     template,
     validation?.issues ?? [],
@@ -167,6 +178,7 @@ function DocumentsPage() {
         template={template}
         activeStep={ATTACH_EVIDENCE}
         issues={validation?.issues ?? []}
+        correctionStageKeys={openRequests.map((request) => request.stageKey)}
         shownCounts={showMissing ? undefined : new Map([[ATTACH_EVIDENCE, 0]])}
         editableStageKeys={application.editableStageKeys}
         footerLeft={
@@ -197,6 +209,17 @@ function DocumentsPage() {
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+          {aboutFiles.map((request) => (
+            <div
+              key={request.id}
+              className="notice"
+              data-tone="action"
+              style={{ marginBottom: '1rem' }}
+            >
+              <span className="notice-title">The office asked you to change this</span>
+              {request.note}
+            </div>
+          ))}
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {slots.map((slot, index) => (
               <DocumentRow
