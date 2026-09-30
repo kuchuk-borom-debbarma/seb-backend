@@ -1105,9 +1105,15 @@
    ========================================================================== */
 
 @media (max-width: 64rem) {
+  /*
+   * minmax(0, 1fr), not 1fr: a bare 1fr column is at least as wide as its
+   * content's minimum, and a row's one-line text (ellipsis, nowrap) has the
+   * whole sentence as its minimum — so on a phone the column grew past the
+   * screen instead of the text being cut short.
+   */
   .middleGrid,
   .adminMainGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

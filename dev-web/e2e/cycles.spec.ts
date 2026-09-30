@@ -122,7 +122,7 @@ test.describe('cycle administration', () => {
     // A role-bound question says so: the programme reads it across cycles, and
     // an officer renaming one needs to know it is not theirs alone to move.
     await expect(
-      questions.getByText('read by the programme as Seed fund requested paise'),
+      questions.getByText('read by the programme as the grant asked for'),
     ).toBeVisible()
 
     const frozen = page.locator('[data-guide="cycle-frozen"]')
@@ -189,8 +189,9 @@ test.describe('cycle administration', () => {
     // The application exists, and the status rail says whose turn it is.
     await expect(applicantPage).toHaveURL(/\/applications\/[0-9a-f-]{36}$/u)
     await expect(applicantPage.getByText('Your turn')).toBeVisible()
+    // Named for the enterprise, which is what the applicant knows it by.
     await expect(
-      applicantPage.getByRole('heading', { name: 'Unsubmitted draft' }),
+      applicantPage.getByRole('heading', { name: 'Journey Works' }),
     ).toBeVisible()
 
     await applicant.close()

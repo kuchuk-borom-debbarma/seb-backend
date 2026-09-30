@@ -113,9 +113,10 @@ test.describe('working a file through its stages', () => {
     await take(page, id, 'Move to Industries & Commerce')
 
     // TTC acted on it, so TTC can still read it, but the actions are the
-    // next stage's now.
+    // next stage's now: said once, with none of them offered.
     await expect(page.getByText('At Industries & Commerce', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Approve the grant', exact: true })).toBeDisabled()
+    await expect(page.getByText('Industries & Commerce takes it from here.', { exact: false })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Approve the grant', exact: true })).toHaveCount(0)
 
     // Industries & Commerce approves the grant: pre-filled with what was asked,
     // and an amount over it is refused.
@@ -128,7 +129,7 @@ test.describe('working a file through its stages', () => {
     await amount.fill('150000')
     await approve.getByRole('button', { name: 'Approve the grant', exact: true }).click()
     // Refused against the field itself, in the effect's own words.
-    await expect(approve.locator('#AMOUNT-error')).toHaveText('This is more than the applicant asked for.')
+    await expect(approve.locator('#AMOUNT-error')).toHaveText('This is more than the ₹90,000 the applicant asked for.')
     await amount.fill('80000')
     await approve.getByRole('button', { name: 'Approve the grant', exact: true }).click()
     await expect(approve).toHaveCount(0)
