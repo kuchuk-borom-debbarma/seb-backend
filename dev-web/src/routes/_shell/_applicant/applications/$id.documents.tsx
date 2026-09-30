@@ -61,6 +61,14 @@ function DocumentsPage() {
     [rawTemplate],
   )
   const hash = useLocation({ select: (location) => location.hash })
+  /*
+   * Whether the applicant has tried to move on from this step. Until then a
+   * missing document is only not attached yet, said in grey; pressing "Check
+   * and submit" with some still missing, or arriving from the review page to
+   * fix one, is what turns them red — as the form's own steps do.
+   */
+  const [attempted, setAttempted] = useState(false)
+  const showMissing = attempted || Boolean(hash)
 
   /*
    * Arriving from the review table with a document slot named in the address.
@@ -127,6 +135,7 @@ function DocumentsPage() {
 
   const continueToReview = async () => {
     if (documentIssues.length > 0) {
+      setAttempted(true)
       const row = document.getElementById(documentIssues[0]?.field ?? '')
       row?.focus()
       row?.scrollIntoView({ block: 'center' })
@@ -142,7 +151,7 @@ function DocumentsPage() {
           <h1 className={styles.pageTitle}>Application form</h1>
           <p className={styles.pageDescription}>
             {editableStages.size > 0
-              ? 'Your answers are saved as you type.'
+              ? 'Each document is kept as soon as it finishes uploading.'
               : 'These documents are part of a submitted application and can no longer be changed.'}
           </p>
         </div>
@@ -158,6 +167,7 @@ function DocumentsPage() {
         template={template}
         activeStep={ATTACH_EVIDENCE}
         issues={validation?.issues ?? []}
+        shownCounts={showMissing ? undefined : new Map([[ATTACH_EVIDENCE, 0]])}
         editableStageKeys={application.editableStageKeys}
         footerLeft={
           <button
@@ -197,6 +207,7 @@ function DocumentsPage() {
                 hint={slot.helpText}
                 document={attached[slot.key]}
                 requirement={requirements[slot.key]}
+                showMissing={showMissing}
                 isLast={index === slots.length - 1}
                 editable={editableStages.has(slot.stageKey)}
                 onChanged={refresh}
@@ -204,7 +215,7 @@ function DocumentsPage() {
             ))}
           </div>
 
-          {documentIssues.length > 0 ? (
+          {showMissing && documentIssues.length > 0 ? (
             <div
               role="alert"
               style={{
@@ -236,6 +247,7 @@ function DocumentRow({
   title,
   document,
   requirement,
+  showMissing,
   isLast,
   editable,
   onChanged,
@@ -246,6 +258,8 @@ function DocumentRow({
   hint: string | null
   document: Document | undefined
   requirement: string | undefined
+  /** Whether a missing required document is shown as a problem yet. */
+  showMissing: boolean
   isLast: boolean
   editable: boolean
   onChanged: () => Promise<void>
@@ -353,17 +367,39 @@ function DocumentRow({
       {/* Middle: Upload status */}
       <div style={{ flex: 1, minWidth: 0 }}>
         {present ? (
-          <span style={{ fontSize: '13px', color: 'var(--ink-secondary)', fontWeight: 500 }}>
-            <span className="tabular">{present.originalFilename}</span> · {formatBytes(present.sizeBytes)}
-            {present.currentVersion > 1 ? ` · v${present.currentVersion}` : ''}
+          // One line however long the name: cut short with the whole name on
+          // hover, and the size beneath, so a long camera filename can never
+          // run under the buttons beside it.
+          <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <span
+              title={present.originalFilename}
+              style={{
+                fontSize: '13px',
+                color: 'var(--ink-secondary)',
+                fontWeight: 500,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {present.originalFilename}
+            </span>
+            <span className="tabular" style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>
+              {formatBytes(present.sizeBytes)}
+              {present.currentVersion > 1 ? ` · version ${present.currentVersion}` : ''}
+            </span>
           </span>
         ) : removed ? (
           <span style={{ fontSize: '13px', color: 'var(--ink-muted)' }}>
             Removed {formatDateTime(removed.deletedAt)}. Can be restored.
           </span>
-        ) : requirement ? (
+        ) : requirement && showMissing ? (
           <span style={{ fontSize: '13px', color: 'var(--danger)', fontWeight: 400 }}>
             {title} has not been uploaded.
+          </span>
+        ) : requirement ? (
+          <span style={{ fontSize: '13px', color: 'var(--ink-muted)', fontWeight: 400 }}>
+            Required. Not attached yet.
           </span>
         ) : (
           <span style={{ fontSize: '13px', color: 'var(--ink-muted)', fontWeight: 400 }}>
