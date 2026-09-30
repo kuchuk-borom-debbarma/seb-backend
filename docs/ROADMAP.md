@@ -705,6 +705,10 @@ permanently with no recovery path.
   drawer, with nested routes marking their owning section.
 - [x] Keep the gates advisory: every operation is still refused server-side, so
   the client is never the security boundary.
+- [ ] Name each role in the account menu by the role's own name, not its key
+  re-cased: an officer holding `SBI_BANK` reads "Sbi Bank" where the office
+  named the role "SBI Bank". The session carries role keys only, so this needs
+  the names read in the same statement as the keys — no extra round trip.
 
 ---
 
@@ -811,6 +815,10 @@ configured things to the file. The whole model is the
   pre-filled choice must not offer what its input does not.
 - [ ] Move a file already being worked onto a newer published version. Today a
   file finishes in the version it started in.
+- [ ] Warn, when a pipeline is checked, about an ending that leaves a progress
+  flag on the file: a pipeline whose "Mark the loan fulfilled" completes the
+  file without removing `IN_REVIEW` shows a finished file as both "In review"
+  and "Completed", to the office and the applicant alike.
 
 ---
 
@@ -882,6 +890,11 @@ configured things to the file. The whole model is the
   flags it gained and lost, what was recorded, and what was entered — never a
   long note's text.
 - [ ] Notify the applicant when an action says to, best-effort after the write.
+- [ ] Show the applicant's resubmission in a file's stage history, between the
+  request for corrections and what the office did next. The history lists
+  stage actions only, so "Ask the applicant to correct it" is followed
+  directly by the next officer's action with no word that the applicant
+  answered, or when.
 
 ---
 
