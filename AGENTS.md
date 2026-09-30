@@ -71,9 +71,11 @@ service, because several of the rules exist to prevent failures that are silent:
   their defaults.
 - A loader built at module scope is shared by every request the isolate serves,
   which is a data leak rather than a stale cache.
-- A statement is a network hop, so the win is folding several reads into one
-  query rather than batching them; and a plan taken against a hundred rows says
-  nothing about a hundred thousand.
+- A statement is a network hop and a request's statements travel one at a time,
+  so `Promise.all` over queries is not parallel; the win is folding them into
+  one. Every operation has a round-trip budget, in
+  [`docs/rules/performance.md`](docs/rules/performance.md), and a plan taken
+  against a hundred rows says nothing about a hundred thousand.
 - A transport failure can carry the request it was making, so the error object
   is never what gets logged.
 
@@ -89,6 +91,9 @@ Before handing off any change:
 - Confirm code comments explain non-obvious business, security, concurrency, and
   lifecycle decisions, and that each non-obvious guard names what goes wrong
   without it.
+- Confirm any new or changed operation is within its round-trip budget in
+  [`docs/rules/performance.md`](docs/rules/performance.md), with a budget test,
+  and that a new screen fetches what it paints in its loader, once.
 - Confirm the change obeys [`docs/rules/code.md`](docs/rules/code.md) and
   [`docs/rules/security.md`](docs/rules/security.md), and that any new standing
   decision was added to one of them rather than left in the file that embodies

@@ -9,9 +9,10 @@ built. One file per subject.
 
 | Rule | Governs |
 | --- | --- |
-| [Code](code.md) | The layering rule, transport services, batching, loaders, pagination, and comments |
+| [Code](code.md) | The layering rule, transport services, folding, loaders, pagination, and comments |
 | [Documentation](documentation.md) | Who owns which subject, the shape each kind of document takes, and what must never be written down twice |
 | [GraphQL](graphql.md) | Describing the schema so that the people calling it can read it |
+| [Performance](performance.md) | The round-trip cost model, reading once and passing down, treating data by how often it changes, and the budgets every operation and screen is held to |
 | [Security](security.md) | What must never reach a log, how guards fail, and what a public route must state about itself |
 
 ## Rules that do not exist yet

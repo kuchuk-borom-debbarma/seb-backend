@@ -127,23 +127,14 @@ security check.
 
 ## Round trips, not statement counts
 
-A statement is a network hop. That is the whole cost model, and it is different
-from the one this section used to describe: batching many small reads no longer
-buys anything by itself, because the batch still crosses the network once per
-statement unless it is genuinely one statement.
+A statement is a network hop, and a request's statements travel one at a time
+on its one connection — so `Promise.all` over queries is sequential on the wire,
+inside a transaction or not. The win is **folding**: several reads keyed on the
+same row become one query with a lateral aggregate per collection, and a guarded
+write with its dependents becomes one data-modifying CTE.
 
-So the win is **folding**, not batching. Several reads keyed on the same row
-become one query with a lateral aggregate per collection; a guarded write and
-its dependent inserts become one data-modifying CTE. Both go from N hops to one,
-and the CTE is atomic without a transaction.
-
-**Never issue concurrent reads inside a transaction.** A transaction is bound to
-one connection, so they queue on it — the code reads as parallel and costs the
-same as sequential.
-
-Numbers here have to be measured against a seeded database. Postgres sequentially
-scans a small table whatever indexes exist, so a plan taken against a hundred
-rows tells you nothing about a hundred thousand.
+The cost model, the budgets every operation is held to, and the browser's side
+of the same rules are in [Performance](performance.md).
 
 ## Never cap a collection something adds up
 
@@ -548,5 +539,6 @@ action into a comment and watching the build go red.
 
 - [Documentation](documentation.md) — who owns which subject
 - [Security](security.md) — what must never reach a log, and how guards fail
+- [Performance](performance.md) — the round-trip cost model and the budgets
 - [Services](../../src/services/README.md) — the layering rule, in full, with
   the worked examples

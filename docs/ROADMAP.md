@@ -1084,6 +1084,30 @@ administrator — writes cards the public reads without signing in.
   100. A collection something adds up is never capped, because a truncated
   ledger would report a wrong figure rather than a short list.
 
+### 19.2 Every operation within its round-trip budget
+
+The [performance rules](rules/performance.md) set a budget per operation shape.
+Taking a stage action meets its budget; most of the applicant's operations do
+not yet.
+
+- [x] Take a stage action in three round trips whatever its effects, asserted by
+  a budget test.
+- [ ] Read a cycle version's pinned form in one statement, once per request.
+  Today it is six statements, read up to three times in a save or a submit.
+- [ ] Build a write's response from the write itself rather than reloading the
+  application (11 statements) or an officer's workspace (22) afterwards.
+- [ ] Fold every applicant write — save, submit, resubmit, start, the document
+  writes — into one data-modifying statement with its audit row, and pin a
+  submission's documents with one `INSERT … SELECT`.
+- [ ] Read the kinds an enterprise may start in one statement rather than two
+  read transactions (nine round trips).
+- [ ] Send the submission confirmation and stage notifications after the
+  response, through the queue or `waitUntil`.
+- [ ] Give every mutation and every screen's read a budget test.
+- [ ] In the client, stop fetching loader-fed queries twice on entry, update the
+  cache from mutation responses instead of refetching, and give the
+  applications list the progress each row shows so it makes no request per row.
+
 ---
 
 ## 20. Public-launch readiness
