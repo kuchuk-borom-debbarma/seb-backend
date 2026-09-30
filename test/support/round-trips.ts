@@ -45,12 +45,12 @@ export type RoundTripCounter = {
 }
 
 /*
- * The transaction control a transition issues around its own statements. Real
- * round trips, but not the *reads* a caller is asking about — counting them
- * would make "how many queries does this take" depend on whether the answer
- * happened to be wrapped, which is not the question anybody is asking.
+ * Transaction control is counted like any other statement. `BEGIN` and
+ * `COMMIT` each cross the network, so a write grouped in a transaction of five
+ * statements costs seven round trips, and a budget that could not see the two
+ * would report a batch as cheaper than it is — the very cost the budgets exist
+ * to expose (docs/rules/performance.md, rule 5).
  */
-const CONTROL = new Set(['BEGIN', 'COMMIT', 'ROLLBACK'])
 
 export const countRoundTrips = (db: CountableClient): RoundTripCounter => {
   const seen: string[] = []
@@ -68,7 +68,7 @@ export const countRoundTrips = (db: CountableClient): RoundTripCounter => {
       ? query
       : String((query as { text?: unknown })?.text ?? '')
     const trimmed = text.trim()
-    if (trimmed && !CONTROL.has(trimmed.toUpperCase())) seen.push(trimmed)
+    if (trimmed) seen.push(trimmed)
   }
 
   // Patched rather than proxied: Drizzle holds a direct reference to the

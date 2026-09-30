@@ -61,7 +61,12 @@ const fileAtBank = async () => {
   return { admin, id: file.applicationId, sbi: await officer(['SBI_BANK']) }
 }
 
-describe('round trips', () => {
+/*
+ * Against a real Postgres (`npm run test:neon`) each request takes its own pool
+ * connection, which the counter — patched onto the harness's driver handle —
+ * cannot see, so every HTTP-driven count reads zero there.
+ */
+describe.skipIf(Boolean(process.env.TEST_DATABASE_URL))('round trips', () => {
   it('takes an action in three statements, whatever it does', async () => {
     const { id, sbi } = await fileAtBank()
     const panel = await readStage(sbi.cookie, id)
