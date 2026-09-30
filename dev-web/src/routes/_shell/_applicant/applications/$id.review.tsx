@@ -92,18 +92,27 @@ function ReviewPage() {
       const data = await gql(SubmitApplicationDocument, { input })
       return unwrap(data.seb.application.submit)
     },
-    onSuccess: async () => {
+    onSuccess: async (submitted) => {
       /*
-       * Marked stale, not waited on: the submission is already recorded, and
-       * four refetches in a row held the applicant on "Sending…" for seconds
-       * after the server had said yes. The next page's loader fetches what it
-       * needs and shares any request already in flight.
+       * The submission answers with the application as it now is, so that is
+       * what the cache holds — the next page renders the reference number and
+       * the stage straight away, with no request of its own.
+       *
+       * It used to only mark the application stale and move on. The next
+       * page's loader then found the stale copy still in the cache and showed
+       * it: no reference number, and "Where it is now: Draft" for an
+       * application the office already had.
+       *
+       * What changed about the comparison to the last submission is not in
+       * the response, so it is dropped rather than marked stale: the loader
+       * has to fetch it, and cannot serve the old number meanwhile. The rest
+       * is marked stale, not waited on.
        */
+      queryClient.setQueryData(applicationQuery(id).queryKey, submitted)
+      queryClient.removeQueries({ queryKey: ['draft-changes', id] })
       void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['application', id] }),
         queryClient.invalidateQueries({ queryKey: ['applications'] }),
         queryClient.invalidateQueries({ queryKey: ['application-timeline', id] }),
-        queryClient.invalidateQueries({ queryKey: ['draft-changes', id] }),
       ])
       await router.navigate({ to: '/applications/$id/submitted', params: { id } })
     },
