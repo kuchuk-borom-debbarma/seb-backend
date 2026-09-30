@@ -88,6 +88,9 @@ function EditPage({ role }: { role: Role }) {
   const [description, setDescription] = useState(role.description)
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // Said once a save lands: the pending list empties either way, and an empty
+  // list alone cannot tell "saved" from "nothing was changed".
+  const [justSaved, setJustSaved] = useState(false)
   const [retiring, setRetiring] = useState(false)
   const [reason, setReason] = useState('')
 
@@ -119,10 +122,14 @@ function EditPage({ role }: { role: Role }) {
           currentPassword: password,
         },
       })).access.updateRole),
-    onMutate: () => setError(null),
+    onMutate: () => {
+      setError(null)
+      setJustSaved(false)
+    },
     onSuccess: async () => {
       setPassword('')
       await queryClient.invalidateQueries({ queryKey: ['roles'] })
+      setJustSaved(true)
     },
     onError: (failure) => setError(messageFor(failure)),
   })
@@ -304,6 +311,11 @@ function EditPage({ role }: { role: Role }) {
           >
             {save.isPending ? 'Saving…' : 'Save what it may do'}
           </button>
+          {justSaved && !changed ? (
+            <span className="field-hint" role="status">
+              Saved. Everyone holding this role has it from their next request.
+            </span>
+          ) : null}
         </div>
         </div>
       </form>
@@ -356,10 +368,12 @@ function EditPage({ role }: { role: Role }) {
             </div>
           </form>
         ) : (
-          <div className={`row ${styles.section}`}>
-            <button type="button" className="button" data-variant="danger" onClick={() => setRetiring(true)}>
-              <Trash2 size={16} aria-hidden /> Retire this role
-            </button>
+          <div className={styles.section}>
+            <div className="row">
+              <button type="button" className="button" data-variant="danger" onClick={() => setRetiring(true)}>
+                <Trash2 size={16} aria-hidden /> Retire this role
+              </button>
+            </div>
           </div>
         )}
       </section>
