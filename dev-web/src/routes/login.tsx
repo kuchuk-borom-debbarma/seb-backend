@@ -266,9 +266,11 @@ function LoginPage() {
                     event.preventDefault()
                     signIn.mutate()
                   }}
-                  className="mt-4 space-y-3.5"
                 >
-                  <fieldset disabled={!hydrated} className="contents">
+                  <fieldset
+                    disabled={!hydrated}
+                    className="m-0 min-w-0 border-0 p-0 mt-4 space-y-3.5"
+                  >
                     {/* Official Email */}
                     <div className="space-y-1">
                       <label
@@ -391,9 +393,11 @@ function LoginPage() {
                       event.preventDefault()
                       verifySignup.mutate()
                     }}
-                    className="mt-4 space-y-3.5"
                   >
-                    <fieldset disabled={!hydrated} className="contents">
+                    <fieldset
+                      disabled={!hydrated}
+                      className="m-0 min-w-0 border-0 p-0 mt-4 space-y-3.5"
+                    >
                       <div className="rounded-lg border border-[#bfdbfe] bg-[#eff6ff] p-3 text-left">
                         <div className="flex items-start gap-2">
                           <Info className="mt-0.5 size-3.5 shrink-0 text-[#1d4ed8]" />
@@ -511,9 +515,11 @@ function LoginPage() {
                       event.preventDefault()
                       startSignup.mutate()
                     }}
-                    className="mt-4 space-y-3.5"
                   >
-                    <fieldset disabled={!hydrated} className="contents">
+                    <fieldset
+                      disabled={!hydrated}
+                      className="m-0 min-w-0 border-0 p-0 mt-4 space-y-3.5"
+                    >
                       <div className="space-y-1">
                         <label
                           htmlFor="signup-email"
@@ -565,9 +571,11 @@ function LoginPage() {
                     event.preventDefault()
                     signIn.mutate()
                   }}
-                  className="mt-4 space-y-3.5"
                 >
-                  <fieldset disabled={!hydrated} className="contents">
+                  <fieldset
+                    disabled={!hydrated}
+                    className="m-0 min-w-0 border-0 p-0 mt-4 space-y-3.5"
+                  >
                     <div className="space-y-1">
                       <label
                         htmlFor="applicant-email"
