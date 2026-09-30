@@ -65,6 +65,11 @@ not a default left in place:
 - **The viewer's own, changed only by them**: long, and kept current by
   mutation responses.
 
+**An explicit "load the latest" asks the server, whatever the freshness.**
+`fetchQuery` returns a cached copy still inside its window, so a reload after a
+refused stale write passes `staleTime: 0` — otherwise it hands back the very
+copy the server just refused.
+
 ## A write answers with what it changed, and the cache takes it
 
 Every mutation that changes a record selects the **same fragment** as the query

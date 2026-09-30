@@ -167,7 +167,10 @@ export function PipelineEditor({
   })
 
   const reload = async () => {
-    const fresh = await queryClient.fetchQuery(pipelineQuery(detail.key))
+    // Always from the server: the copy in the cache is the one the save was
+    // just refused for, and within its freshness window fetchQuery would
+    // return it again.
+    const fresh = await queryClient.fetchQuery({ ...pipelineQuery(detail.key), staleTime: 0 })
     if (fresh.response) await settle(fresh.response)
     save.reset()
   }
