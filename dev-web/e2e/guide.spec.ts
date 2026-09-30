@@ -375,7 +375,7 @@ test.describe('a question that explains itself', () => {
     ).toBeVisible()
 
     const opener = page.getByRole('button', {
-      name: 'Why Desired grant amount (₹) is asked',
+      name: 'About “Desired grant amount (₹)”',
     })
     await expect(opener).toHaveAttribute('aria-expanded', 'false')
 
@@ -401,10 +401,10 @@ test.describe('a question that explains itself', () => {
     // One explanation on the whole form. An icon beside every label teaches
     // nothing and doubles the reading — so the first stage carries none at
     // all, and the stage that holds the one explained question holds one.
-    await expect(page.getByRole('button', { name: /^Why .* is asked$/u })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^About “.*”$/u })).toHaveCount(0)
     await fillOwnersStage(page)
     await page.getByRole('group', { name: 'Do you want a grant?' }).getByLabel('Yes').check()
-    await expect(page.getByRole('button', { name: /^Why .* is asked$/u })).toHaveCount(1)
+    await expect(page.getByRole('button', { name: /^About “.*”$/u })).toHaveCount(1)
   })
 })
 

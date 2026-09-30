@@ -122,7 +122,9 @@ export function Explain({
         className="explain"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
-        aria-label={opener ?? `Why ${label} is asked`}
+        // Neutral, because a label may already be a phrase or a question:
+        // "Why Why it goes back is asked" read as a stutter.
+        aria-label={opener ?? `About “${label}”`}
         // Open, never toggle: on a mouse the hover (and on keyboard the
         // focus) has already opened it, so a toggle would close on the very
         // click that asks for it. Escape and leaving are what close.
