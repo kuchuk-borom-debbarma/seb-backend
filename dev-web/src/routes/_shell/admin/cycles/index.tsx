@@ -264,10 +264,9 @@ function AdminCyclesPage() {
           <p className={`${styles.pageSubtitle} page-header-description`}>
             A cycle is one application window: it opens, takes applications, closes,
             and keeps its rules frozen for every application it hosted. Several may
-            run in parallel, each with its own form and policy. An enterprise holds
-            one live application per funding phase, whichever open cycle it chose —
-            a rejected or cancelled attempt frees a retry, and a funded enterprise
-            returns later for its expansion phase.
+            run in parallel, each with its own form, pipeline and policy. A cycle
+            also says which kinds of application it accepts — a first application,
+            an expansion — and the rules an enterprise must meet to start each.
           </p>
         </div>
         {/*
